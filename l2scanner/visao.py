@@ -24,14 +24,14 @@ TRES DESCOBERTAS DA CALIBRACAO REAL que moldam o codigo aqui:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 import cv2
 import numpy as np
 
 from .calibracao import Calibracao, LimiaresDeCor
-from .identidade import identificar
+from .identidade import identificar_linhas
 from .frames import Frame, Regiao, SaudeDoFrame
 
 
@@ -200,13 +200,14 @@ def _bordas_da_barra_intactas(
     return True
 
 
-def _identificar_linha(pixels: np.ndarray, cal: Calibracao, indice: int):
-    """Reconhece quem esta na linha, se houver assinaturas gravadas."""
-    from .identidade import Casamento
+def _recorte_do_nome(
+    pixels: np.ndarray, cal: Calibracao, indice: int
+) -> np.ndarray | None:
+    """O pedaco da tela onde fica o texto do nome desta linha.
 
-    if not cal.assinaturas:
-        return Casamento(nome=None, confianca=0.0)
-
+    Devolve None quando o recorte cai fora do frame — a calibracao aponta para
+    fora, e um recorte cortado produziria um casamento sem sentido.
+    """
     from .identidade import MARGEM_DE_BUSCA
 
     # A regiao de BUSCA e mais larga que a do molde, para o casamento poder
@@ -218,9 +219,8 @@ def _identificar_linha(pixels: np.ndarray, cal: Calibracao, indice: int):
         esquerda : regiao.esquerda + regiao.largura,
     ]
     if recorte.shape[0] != regiao.altura or recorte.shape[1] < regiao.largura:
-        return Casamento(nome=None, confianca=0.0)
-
-    return identificar(recorte, cal.assinaturas)
+        return None
+    return recorte
 
 
 def extrair(frame: Frame, cal: Calibracao) -> Observacao:
@@ -247,6 +247,7 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
     )
 
     linhas: list[LeituraDeLinha] = []
+    recortes_de_nome: dict[int, np.ndarray] = {}
     for i in range(layout.max_linhas):
         deslocamento = i * layout.passo
 
@@ -312,10 +313,11 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
         ):
             ui_visivel = False
 
-        # Identidade pela IMAGEM do nome, nao pela posicao da linha. A party
-        # window compacta as linhas quando alguem sai, entao a posicao nao e
-        # uma identidade — e so um lugar.
-        casamento = _identificar_linha(pixels, cal, i)
+        # O recorte do nome e so COLETADO aqui. Quem esta em cada linha e
+        # decidido depois, com o frame inteiro na mao — ver abaixo.
+        recorte = _recorte_do_nome(pixels, cal, i)
+        if recorte is not None:
+            recortes_de_nome[i] = recorte
 
         linhas.append(
             LeituraDeLinha(
@@ -323,9 +325,28 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
                 estado=EstadoDaLinha.COM_MEMBRO,
                 hp=medir_barra(pixels, regiao_hp, cal.limiares_hp),
                 mp=medir_barra(pixels, regiao_mp, cal.limiares_mp),
-                nome=casamento.nome,
-                confianca_do_nome=casamento.confianca,
             )
+        )
+
+    # Identidade pela IMAGEM do nome, nao pela posicao da linha — a party window
+    # compacta as linhas quando alguem sai, entao a posicao e um lugar, nao uma
+    # identidade.
+    #
+    # Resolvido para o FRAME INTEIRO de uma vez, e nao linha a linha, porque as
+    # linhas nao sao independentes: duas pessoas diferentes nao podem ser a
+    # mesma pessoa. Decidindo isoladamente, a mesma assinatura ganhava duas
+    # linhas, o membro roubado sumia do conjunto de identidades, e o rastreador
+    # anunciava que ele saiu da party. Aconteceu 8 vezes numa sessao de 25
+    # minutos com a party parada.
+    casamentos = identificar_linhas(recortes_de_nome, cal.assinaturas)
+    for pos, linha in enumerate(linhas):
+        casamento = casamentos.get(linha.indice)
+        if casamento is None:
+            continue
+        linhas[pos] = replace(
+            linha,
+            nome=casamento.nome,
+            confianca_do_nome=casamento.confianca,
         )
 
     linhas = _truncar_no_primeiro_vao(linhas)

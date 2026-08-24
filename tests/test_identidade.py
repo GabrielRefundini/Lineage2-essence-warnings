@@ -45,7 +45,13 @@ def pixels() -> np.ndarray:
 
 
 def remontar(px: np.ndarray, cal: Calibracao, ordem: list[int]) -> np.ndarray:
-    """Reordena as linhas da party window, simulando a party reorganizada."""
+    """Reordena as linhas da party window, simulando a party reorganizada.
+
+    Uma `ordem` mais curta que 4 significa que a party ENCOLHEU: as linhas
+    sobrantes sao apagadas, como o jogo faz. Deixa-las com o conteudo antigo
+    criaria um membro em duas linhas ao mesmo tempo — um estado que nao existe
+    no jogo e que so confundiria o teste.
+    """
     lay = cal.layout
     novo = px.copy()
 
@@ -56,6 +62,12 @@ def remontar(px: np.ndarray, cal: Calibracao, ordem: list[int]) -> np.ndarray:
     for destino, origem in enumerate(ordem):
         inicio = topo_de(destino)
         novo[inicio : inicio + lay.passo] = blocos[origem]
+
+    for vazia in range(len(ordem), 4):
+        inicio = topo_de(vazia)
+        # cinza escuro e liso: sem contraste, sem pixels claros. E como uma
+        # posicao sem membro se parece para o detector de icone.
+        novo[inicio : inicio + lay.passo] = 30
     return novo
 
 
@@ -154,7 +166,7 @@ class TestOrdemDaParty:
             ("ordem original", [0, 1, 2, 3]),
             ("dois membros trocados", [0, 3, 2, 1]),
             ("ordem invertida", [3, 2, 1, 0]),
-            ("primeiro saiu, os outros sobem", [1, 2, 3, 3]),
+            ("primeiro saiu, os outros sobem", [1, 2, 3]),
         ],
     )
     def test_o_nome_segue_o_membro_e_nao_a_linha(
@@ -165,7 +177,7 @@ class TestOrdemDaParty:
             Frame(pixels=reordenado, indice=0, saude=SaudeDoFrame.OK), calibracao
         )
 
-        reconhecidos = [l.nome for l in obs.linhas[:4]]
+        reconhecidos = [l.nome for l in obs.linhas[: len(ordem)]]
         esperados = [calibracao.nomes[i] for i in ordem]
 
         assert reconhecidos == esperados, (
@@ -173,6 +185,28 @@ class TestOrdemDaParty:
             f"seguir o membro — foi exatamente isto que a identidade visual "
             f"veio resolver"
         )
+
+    def test_a_mesma_pessoa_nunca_ocupa_duas_linhas(self, pixels, calibracao):
+        """Correcao A, contra um frame que contem o nome do TioMad duas vezes.
+
+        Este frame nao existe no jogo — duas linhas sao duas pessoas. Mas era
+        exatamente o que o reconhecimento PRODUZIA quando decidia linha a linha,
+        e o custo era alto: o membro roubado sumia do conjunto de identidades e
+        o rastreador anunciava que ele tinha saido da party.
+
+        A resposta certa nao e "reconhecer os dois", e sim dar o nome a UMA
+        linha e admitir "nao sei" na outra.
+        """
+        duplicado = remontar(pixels, calibracao, [0, 1, 3, 3])
+        obs = extrair(
+            Frame(pixels=duplicado, indice=0, saude=SaudeDoFrame.OK), calibracao
+        )
+
+        reconhecidos = [l.nome for l in obs.linhas if l.nome]
+        assert len(reconhecidos) == len(set(reconhecidos)), (
+            f"a mesma assinatura foi usada duas vezes: {reconhecidos}"
+        )
+        assert "TioMad" in reconhecidos
 
     def test_sem_identidade_visual_a_ordem_engana(self, pixels, calibracao):
         """Prova que o problema era real, e nao teorico.

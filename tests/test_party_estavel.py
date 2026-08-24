@@ -180,3 +180,56 @@ class TestSaidaRealVoltaASerDetectada:
             f"a party continua com 4 linhas; nada aconteceu de verdade. "
             f"Eventos indevidos: {[(e.tipo.value, e.membro) for e in eventos]}"
         )
+
+
+class TestUnicidadeDaAssinatura:
+    """Correcao A.
+
+    Duas linhas sao duas pessoas. Isso e uma restricao do DOMINIO, e restricao
+    de dominio pertence ao algoritmo — nao a um teste que torce para ela nao ser
+    violada.
+
+    Decidindo linha a linha, nada impedia a mesma assinatura de ganhar duas
+    linhas. Aconteceu 8 vezes numa sessao de 25 minutos com a party parada
+    (logs/scanner.log), e cada vez o membro roubado sumia do conjunto de
+    identidades e virava um "saiu da party" que nunca aconteceu.
+    """
+
+    @pytest.mark.parametrize("rotulo", TODOS_OS_FRAMES)
+    def test_nenhuma_assinatura_em_duas_linhas(self, rotulo, calibracao):
+        obs = extrair(carregar(rotulo), calibracao)
+        reconhecidos = [l.nome for l in obs.linhas if l.nome]
+        assert len(reconhecidos) == len(set(reconhecidos)), (
+            f"{rotulo}: a mesma assinatura foi atribuida a duas linhas — "
+            f"{reconhecidos}"
+        )
+
+    @pytest.mark.parametrize("rotulo", TODOS_OS_FRAMES)
+    def test_membro_sem_assinatura_nunca_vira_membro_calibrado(
+        self, rotulo, calibracao
+    ):
+        """As linhas 2 e 3 sao membros da party sem assinatura gravada.
+
+        Elas tem de continuar anonimas. Herdar o nome de um membro calibrado
+        seria a pior falha possivel do produto: um alerta com o nome errado
+        manda a party socorrer a pessoa errada, e ninguem desconfia porque a
+        mensagem parece perfeitamente normal.
+        """
+        obs = extrair(carregar(rotulo), calibracao)
+        nao_calibradas = [l.nome for l in obs.linhas if l.indice in (2, 3)]
+        assert nao_calibradas == [None, None], (
+            f"{rotulo}: linha sem assinatura recebeu nome {nao_calibradas}"
+        )
+
+    def test_o_frame_de_vazamento_nao_inventa_identidade(self, calibracao):
+        """O gatilho de tudo: algo claro vaza na regiao do nome.
+
+        A mascara do Korzis triplica (93 -> 251 px) e a correlacao correta
+        despenca de 0.976 para 0.433. O certo e admitir "nao sei" — nunca
+        deixar outra assinatura ocupar a vaga.
+        """
+        obs = extrair(carregar("vazamento_forte"), calibracao)
+        nomes = [l.nome for l in obs.linhas if l.estado is EstadoDaLinha.COM_MEMBRO]
+        assert nomes.count("Kaus") <= 1
+        assert nomes.count("Korzis") <= 1
+        assert nomes[0] == "Kaus", "o membro nao afetado tem de continuar reconhecido"

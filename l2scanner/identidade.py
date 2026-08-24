@@ -157,39 +157,118 @@ class Casamento:
         return self.nome is not None
 
 
+def _pontuar(
+    recorte: np.ndarray, assinaturas: list[Assinatura]
+) -> list[float] | None:
+    """Pontuacao do recorte contra cada assinatura, na ordem recebida.
+
+    Devolve None quando o recorte nao tem texto suficiente para ser um nome —
+    linha vazia, nao um nome que falhamos em ler.
+    """
+    mascara = mascara_de_texto(recorte)
+    if int(mascara.sum()) < PIXELS_MINIMOS_DE_TEXTO:
+        return None
+    return [_correlacionar(mascara, a.mascara) for a in assinaturas]
+
+
+def identificar_linhas(
+    recortes: dict[int, np.ndarray], assinaturas: list[Assinatura]
+) -> dict[int, Casamento]:
+    """Resolve o frame INTEIRO de uma vez, com UNICIDADE.
+
+    POR QUE NAO DA PARA DECIDIR UMA LINHA POR VEZ
+
+    Decidindo linha a linha, nada impede a mesma assinatura de ganhar duas
+    linhas no mesmo frame. Isso nao e teorico: aconteceu 8 vezes em
+    logs/scanner.log, e uma delas foi
+
+        17:21:04  KAUS SAIU DA PARTY
+        17:21:09  status: Korzis, Korzis, TioMad, J4guar
+        17:21:42  KAUS ENTROU NA PARTY
+
+    O Korzis casou tambem na linha do Kaus. Como o rastreador guarda estado por
+    IDENTIDADE, o Kaus simplesmente sumiu do conjunto de presentes, e a mentira
+    virou um par de alertas. Numa party estavel isso rendeu 52 eventos falsos em
+    25 minutos.
+
+    A pessoa em cada linha e uma pessoa DIFERENTE — essa e uma restricao do
+    dominio, e restricao de dominio pertence ao algoritmo, nao a um teste que
+    torce para nao acontecer.
+
+    COMO RESOLVE
+
+    Guloso pelo melhor par global: pega a maior pontuacao ainda disponivel,
+    confirma que ela passa do limiar e tem margem sobre a melhor alternativa que
+    AINDA sobrou para aquela linha, e ai consome a linha E a assinatura. Uma
+    assinatura consumida nao volta para a mesa.
+
+    Guloso e nao otimo (Hungarian seria), mas com 4 a 8 linhas a diferenca e
+    irrelevante e o resultado e explicavel: da para olhar as pontuacoes e dizer
+    por que cada linha recebeu o nome que recebeu.
+    """
+    resultado = {i: Casamento(nome=None, confianca=0.0) for i in recortes}
+    if not assinaturas:
+        return resultado
+
+    pontos: dict[int, list[float]] = {}
+    for indice, recorte in recortes.items():
+        p = _pontuar(recorte, assinaturas)
+        if p is not None:
+            pontos[indice] = p
+
+    linhas_livres = set(pontos)
+    assinaturas_livres = set(range(len(assinaturas)))
+
+    while linhas_livres and assinaturas_livres:
+        # O melhor par (linha, assinatura) ainda em jogo. O desempate por
+        # indice mantem o resultado deterministico: mesmo frame, mesma saida.
+        valor, i, j = max(
+            (pontos[i][j], -i, -j)
+            for i in linhas_livres
+            for j in assinaturas_livres
+        )
+        i, j = -i, -j
+
+        if valor < LIMIAR_DE_CASAMENTO:
+            break
+
+        # A margem e medida contra o que AINDA esta disponivel. Se a segunda
+        # opcao ja foi consumida por outra linha, ela nao e mais uma duvida.
+        outras = [pontos[i][k] for k in assinaturas_livres if k != j]
+        segundo = max(outras) if outras else 0.0
+
+        if valor - segundo < MARGEM_MINIMA_SOBRE_O_SEGUNDO:
+            # Dois candidatos empatados significam que a assinatura nao
+            # discrimina. Dizer "nao sei" e mais util do que escolher no
+            # desempate — e a linha sai de jogo sem consumir assinatura nenhuma.
+            resultado[i] = Casamento(None, valor, segundo)
+            linhas_livres.discard(i)
+            continue
+
+        resultado[i] = Casamento(assinaturas[j].nome, valor, segundo)
+        linhas_livres.discard(i)
+        assinaturas_livres.discard(j)
+
+    # Sobrou linha sem nome: guardamos a melhor pontuacao mesmo assim, porque e
+    # ela que aparece no diagnostico quando alguem pergunta "por que nao
+    # reconheceu?".
+    for i in linhas_livres:
+        ordenado = sorted(pontos[i], reverse=True)
+        resultado[i] = Casamento(
+            None, ordenado[0], ordenado[1] if len(ordenado) > 1 else 0.0
+        )
+
+    return resultado
+
+
 def identificar(
     recorte_do_nome: np.ndarray, assinaturas: list[Assinatura]
 ) -> Casamento:
-    """Descobre de quem e este nome, entre os conhecidos.
+    """De quem e este nome? Caso de uma linha so.
 
     Devolve `nome=None` quando nao da para afirmar. Isso e deliberado: o
     rastreador degrada para "Membro N", que e feio mas honesto. Chutar um nome
     seria pior do que nao ter nome nenhum — um alerta com o nome errado manda
     a party socorrer a pessoa errada.
     """
-    if not assinaturas:
-        return Casamento(nome=None, confianca=0.0)
-
-    mascara = mascara_de_texto(recorte_do_nome)
-
-    # Recorte quase sem texto e linha vazia, nao um nome que falhamos em ler
-    if int(mascara.sum()) < PIXELS_MINIMOS_DE_TEXTO:
-        return Casamento(nome=None, confianca=0.0)
-
-    pontuacoes = sorted(
-        ((_correlacionar(mascara, a.mascara), a.nome) for a in assinaturas),
-        reverse=True,
-    )
-
-    melhor, nome = pontuacoes[0]
-    segundo = pontuacoes[1][0] if len(pontuacoes) > 1 else 0.0
-
-    if melhor < LIMIAR_DE_CASAMENTO:
-        return Casamento(nome=None, confianca=melhor, segundo_melhor=segundo)
-
-    # Dois candidatos empatados significam que a assinatura nao discrimina —
-    # dizer "nao sei" e mais util do que escolher no desempate.
-    if melhor - segundo < MARGEM_MINIMA_SOBRE_O_SEGUNDO:
-        return Casamento(nome=None, confianca=melhor, segundo_melhor=segundo)
-
-    return Casamento(nome=nome, confianca=melhor, segundo_melhor=segundo)
+    return identificar_linhas({0: recorte_do_nome}, assinaturas)[0]
