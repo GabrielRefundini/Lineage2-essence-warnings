@@ -28,7 +28,13 @@ from .calibracao import (  # noqa: E402
     CalibracaoInvalida,
     descrever_geometria_da_tela,
 )
-from .config import ConfigAusente, config_do_chatwoot  # noqa: E402
+from .agenda import (  # noqa: E402
+    RegistroEmMemoria,
+    avisos_devidos,
+    proxima_ocorrencia,
+    texto_do_aviso,
+)
+from .config import ConfigAusente, config_do_chatwoot, ler_agenda  # noqa: E402
 from .captura_janela import (  # noqa: E402
     JanelaNaoEncontrada,
     JanelaSource,
@@ -257,6 +263,23 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     if despachante:
         despachante.iniciar()
 
+    # A AGENDA: a segunda fonte de eventos do projeto, e a primeira que nao
+    # olha para a tela. Ela despacha pelo MESMO Despachante que o rastreador —
+    # nunca chamando enviar() direto. E o seam que a Fase 7 vai usar para
+    # silenciar; furar ele aqui tornaria o silenciamento impossivel de
+    # acrescentar depois sem reescrever isto.
+    eventos_agendados = ler_agenda()
+    registro_da_agenda = RegistroEmMemoria()
+    if eventos_agendados:
+        proximo = proxima_ocorrencia(datetime.now(), eventos_agendados)
+        if proximo:
+            log.info(
+                "Agenda: %d evento(s). Proximo: %s as %s",
+                len(eventos_agendados),
+                proximo[0],
+                proximo[1].strftime("%d/%m %H:%M"),
+            )
+
     todos = list(cal.nomes)
     if cal.nome_proprio and cal.hp_proprio:
         todos.append(f"{cal.nome_proprio} (voce)")
@@ -328,6 +351,16 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 log.exception("Erro ao analisar o frame — seguindo")
                 time.sleep(args.intervalo)
                 continue
+
+            for aviso in avisos_devidos(
+                datetime.now(), eventos_agendados, registro_da_agenda.enviados()
+            ):
+                if not registro_da_agenda.marcar(aviso.chave):
+                    continue
+                texto = texto_do_aviso(aviso)
+                log.info(destacar(texto))
+                if despachante:
+                    despachante.despachar(texto)
 
             # Cego por muito tempo com o jogo bem ali na frente quase sempre
             # significa calibracao errada, nao alt-tab. Vale dizer isso em vez
