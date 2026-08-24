@@ -487,3 +487,59 @@ class TestRegistroEmDisco:
         alvo = tmp_path / "nao" / "existe" / "ainda"
         RegistroEmDisco(alvo)
         assert alvo.is_dir()
+
+
+class TestModoAgendaSemJogo:
+    """AGEN-05 / OPER-09: o aviso vem do relogio, nao da tela.
+
+    Quem mais precisa do lembrete de TvT e justamente quem NAO esta online. Se
+    o aviso dependesse do jogo aberto, ele so sairia para quem ja esta jogando
+    — que e quem menos precisa dele.
+    """
+
+    def _rodar(self, *args, timeout=60):
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        raiz = Path(__file__).resolve().parent.parent
+        return subprocess.run(
+            [sys.executable, "-m", "l2scanner", *args],
+            cwd=raiz,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+    def test_testar_agenda_funciona_sem_jogo_e_sem_calibracao(self):
+        """Prova de ponta a ponta: nenhuma janela do jogo, nenhum pixel."""
+        r = self._rodar("--testar-agenda", "--dry-run")
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "[simulacao]" in r.stdout
+
+    def test_o_aviso_de_teste_nomeia_um_evento_da_agenda_real(self):
+        r = self._rodar("--testar-agenda", "--dry-run")
+        assert "TvT" in r.stdout or "Prime" in r.stdout
+
+    def test_as_flags_novas_existem(self):
+        r = self._rodar("--help")
+        assert "--so-agenda" in r.stdout
+        assert "--testar-agenda" in r.stdout
+
+    def test_o_modo_agenda_nao_exige_calibracao(self):
+        """O despacho sai ANTES de carregar calibration.json.
+
+        Exigir calibracao num modo que nao olha para a tela seria inventar um
+        requisito que a funcionalidade nao tem — e impediria rodar a agenda
+        numa maquina que nunca calibrou nada.
+        """
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        fonte = inspect.getsource(principal.main)
+        pos_agenda = fonte.index("args.so_agenda")
+        pos_calibracao = fonte.index("Calibracao.carregar")
+        assert pos_agenda < pos_calibracao, (
+            "o modo agenda esta atras da carga de calibracao"
+        )

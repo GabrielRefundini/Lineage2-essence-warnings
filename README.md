@@ -240,6 +240,56 @@ código é sobre *não* alertar:
 - **O texto é fraseado para sobreviver a um erro:** "HP zerado — possível morte",
   nunca "MORREU".
 
+## Avisos de TvT e Prime
+
+O scanner também vigia o **relógio**, não só a tela. Ele avisa a party 10
+minutos antes de cada evento e de novo na hora que começa.
+
+Os horários ficam em `config.toml`, na raiz do projeto:
+
+```toml
+[[evento]]
+nome = "TvT"
+horarios = ["15:00", "17:00", "21:50"]
+dias = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
+avisar_minutos_antes = 10
+silenciar_minutos = 15
+```
+
+**Os horários do jogo mudam com atualização.** Quando mudarem, corrija esse
+arquivo — nunca é preciso mexer em código. Se você errar a digitação, o scanner
+recusa a subir e diz qual evento e qual campo estão errados, em vez de descobrir
+o problema às 15h enquanto você está AFK.
+
+### Rodar só os avisos, sem o jogo aberto
+
+```bash
+python -m l2scanner --so-agenda
+```
+
+Esse modo não vigia party nenhuma: ele só olha o relógio. Serve para deixar
+rodando enquanto ninguém está jogando — que é justamente quando o lembrete de
+TvT vale mais, porque quem está online já vê o evento na tela.
+
+Para testar sem esperar o horário:
+
+```bash
+python -m l2scanner --testar-agenda --dry-run
+```
+
+### Um limite honesto
+
+**"Independente do jogo" não é "independente do PC".** Se a máquina estiver
+desligada às 15h, não sai aviso nenhum. O scanner precisa estar rodando em
+algum lugar. Resolver isso de verdade exigiria um agendamento no servidor, o
+que é outro projeto.
+
+### Duas instâncias não avisam em dobro
+
+Se você roda dois clientes com dois scanners, o grupo recebe cada aviso **uma
+vez só**. Os dois processos disputam o mesmo marcador em disco e exatamente um
+vence. O mesmo mecanismo faz reiniciar o scanner não reenviar o que já saiu.
+
 ## Requisitos
 
 Python 3.12 ou superior.

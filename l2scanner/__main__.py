@@ -19,7 +19,7 @@ import logging  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
 from dataclasses import replace  # noqa: E402
-from datetime import datetime  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
 from logging.handlers import RotatingFileHandler  # noqa: E402
 from pathlib import Path  # noqa: E402
 
@@ -29,7 +29,9 @@ from .calibracao import (  # noqa: E402
     descrever_geometria_da_tela,
 )
 from .agenda import (  # noqa: E402
+    Aviso,
     RegistroEmDisco,
+    TipoDeAviso,
     avisos_devidos,
     proxima_ocorrencia,
     texto_do_aviso,
@@ -205,6 +207,116 @@ def comando_teste_de_alerta(args: argparse.Namespace) -> int:
         return 1
 
     log.info("Enviado. Agora confirme no celular: 200 do Chatwoot nao prova entrega.")
+    return 0
+
+
+def laco_da_agenda(args: argparse.Namespace) -> int:
+    """So o relogio. Sem jogo, sem calibracao, sem captura, sem rastreador.
+
+    LACO SEPARADO DE PROPOSITO. Seria mais curto enfiar um `if` dentro do laco
+    principal, e seria pior: aquele laco e o codigo mais critico do projeto e
+    nao pode ganhar ramos que so existem para um modo. Aqui nao ha frame para
+    dar errado, entao o corpo cabe em vinte linhas e nao tem como confundir.
+
+    Isto e o que faz AGEN-05 valer: quem mais precisa do lembrete de TvT e
+    justamente quem NAO esta online. Se o aviso dependesse do jogo aberto, ele
+    so sairia para quem ja esta jogando.
+    """
+    eventos = ler_agenda()
+    if not eventos:
+        log.error(
+            "Nao ha agenda para rodar. Crie um config.toml com pelo menos um "
+            "[[evento]] — veja o exemplo comentado no repositorio."
+        )
+        return 2
+
+    despachante = montar_despachante(args)
+    if despachante:
+        despachante.iniciar()
+
+    registro = RegistroEmDisco(PASTA_AGENDA)
+
+    nomes = ", ".join(e.nome for e in eventos)
+    log.info("Modo agenda: vigiando o relogio, nao a tela. Eventos: %s", nomes)
+    log.info("O jogo NAO precisa estar aberto. O PC, sim.")
+    _anunciar_proximo(eventos)
+
+    ultimo_anuncio = datetime.now()
+    try:
+        while True:
+            agora = datetime.now()
+            for aviso in avisos_devidos(agora, eventos, registro.enviados()):
+                if not registro.marcar(aviso.chave):
+                    continue
+                texto = texto_do_aviso(aviso)
+                log.info(destacar(texto))
+                if despachante:
+                    despachante.despachar(texto)
+
+            # De hora em hora, repetir qual e o proximo. Um scanner que nao diz
+            # quando vai falar de novo e indistinguivel de um scanner travado.
+            if (agora - ultimo_anuncio).total_seconds() >= 3600:
+                _anunciar_proximo(eventos)
+                ultimo_anuncio = agora
+
+            time.sleep(args.intervalo)
+    except KeyboardInterrupt:
+        log.info("Encerrando o modo agenda.")
+    finally:
+        if despachante:
+            despachante.encerrar()
+    return 0
+
+
+def _anunciar_proximo(eventos) -> None:
+    """Diz no console qual e o proximo evento e quanto falta."""
+    proximo = proxima_ocorrencia(datetime.now(), eventos)
+    if not proximo:
+        return
+    nome, quando = proximo
+    faltam = quando - datetime.now()
+    horas, resto = divmod(int(faltam.total_seconds()), 3600)
+    minutos = resto // 60
+    log.info(
+        "Proximo: %s as %s (em %dh%02dmin)",
+        nome,
+        quando.strftime("%d/%m %H:%M"),
+        horas,
+        minutos,
+    )
+
+
+def comando_teste_de_agenda(args: argparse.Namespace) -> int:
+    """Despacha um aviso de exemplo agora, para nao ter que esperar as 15h."""
+    eventos = ler_agenda()
+    if not eventos:
+        log.error("Nao ha agenda no config.toml para testar.")
+        return 2
+
+    proximo = proxima_ocorrencia(datetime.now(), eventos)
+    if proximo is None:
+        log.error("A agenda nao tem nenhuma ocorrencia futura.")
+        return 2
+
+    nome, quando = proximo
+    exemplo = Aviso(
+        evento=nome, tipo=TipoDeAviso.ANTES, alvo=quando,
+        devido_em=quando - timedelta(minutes=10),
+    )
+    texto = texto_do_aviso(exemplo)
+
+    despachante = montar_despachante(args)
+    if despachante is None:
+        log.error("Sem configuracao de entrega — nao ha o que testar.")
+        return 1
+    despachante.iniciar()
+    despachante.despachar(texto)
+    despachante.encerrar()
+
+    if despachante.falhados:
+        log.error("O envio falhou. Veja o erro acima.")
+        return 1
+    log.info("Enviado: %s", texto)
     return 0
 
 
@@ -502,6 +614,21 @@ def main() -> int:
         dest="sem_aviso_de_inicio",
         help="nao avisar no WhatsApp ao iniciar e encerrar",
     )
+    parser.add_argument(
+        "--so-agenda",
+        action="store_true",
+        dest="so_agenda",
+        help=(
+            "roda SO os avisos de TvT/Prime, sem vigiar a party. "
+            "Nao precisa do jogo aberto nem de calibracao."
+        ),
+    )
+    parser.add_argument(
+        "--testar-agenda",
+        action="store_true",
+        dest="testar_agenda",
+        help="envia um aviso de agenda de exemplo e sai, sem esperar o horario",
+    )
     parser.add_argument("-v", "--verboso", action="store_true", help="log detalhado")
 
     args = parser.parse_args()
@@ -516,6 +643,15 @@ def main() -> int:
 
     if args.test_alert:
         return comando_teste_de_alerta(args)
+
+    if args.testar_agenda:
+        return comando_teste_de_agenda(args)
+
+    # O modo agenda sai ANTES de carregar calibracao e de procurar janela:
+    # ele nao olha para a tela, entao exigir qualquer uma das duas seria
+    # inventar um requisito que a funcionalidade nao tem.
+    if args.so_agenda:
+        return laco_da_agenda(args)
 
     janela_pedida = args.janela == "AUTO"
 
