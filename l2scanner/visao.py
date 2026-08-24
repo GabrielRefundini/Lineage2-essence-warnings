@@ -157,6 +157,42 @@ def _tem_contraste_de_icone(
     )
 
 
+def _bordas_da_barra_intactas(
+    pixels: np.ndarray, layout, barra_x: int, barra_y: int, brilho_max: float
+) -> bool:
+    """A moldura da barra ainda esta la?
+
+    A UI do jogo desenha uma linha escura nas duas pontas de cada barra. Essa
+    linha e CHROME, nao preenchimento: ela existe igual com a barra cheia e com
+    a barra vazia. So some quando outra janela do jogo — inventario, ficha do
+    personagem, loja — e aberta por cima da party window.
+
+    Isso resolve um falso positivo que derrubaria a confianca no scanner
+    inteiro: com o inventario aberto, as barras ficam cortadas em ~2% e os
+    quatro membros seriam anunciados como mortos ao mesmo tempo. Abrir o
+    inventario e algo que se faz o tempo todo farmando.
+
+    Medido na tela real: barra livre da V~8-11 nas duas pontas (cheia OU vazia,
+    valores identicos); coberta pelo inventario da V~72-112.
+    """
+    fim = barra_y + layout.barra_altura
+
+    esquerda = pixels[barra_y:fim, barra_x - 1] if barra_x >= 1 else None
+    direita_x = barra_x + layout.barra_largura
+    direita = (
+        pixels[barra_y:fim, direita_x] if direita_x < pixels.shape[1] else None
+    )
+
+    for borda in (esquerda, direita):
+        if borda is None or borda.size == 0:
+            continue
+        cinza = cv2.cvtColor(borda.reshape(1, -1, 3), cv2.COLOR_BGR2GRAY)
+        if float(cinza.mean()) > brilho_max:
+            return False
+
+    return True
+
+
 def extrair(frame: Frame, cal: Calibracao) -> Observacao:
     """Le um frame inteiro. Funcao pura: mesmo frame, mesma saida, sempre."""
     layout = cal.layout
@@ -218,6 +254,17 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
             largura=layout.barra_largura,
             altura=layout.barra_altura,
         )
+
+        # Se a moldura da barra sumiu, tem outra janela do jogo por cima e
+        # a leitura nao vale nada. Nesse caso NAO tratamos a linha como morta
+        # nem como ausente: derrubamos a visibilidade da UI inteira, porque se
+        # parte da party window esta coberta nao da para confiar em nenhuma
+        # parte dela. O portao de cegueira do rastreador cuida do resto.
+        if not _bordas_da_barra_intactas(
+            pixels, layout, layout.barra_x, layout.hp_y + deslocamento,
+            layout.borda_v_max,
+        ):
+            ui_visivel = False
 
         linhas.append(
             LeituraDeLinha(

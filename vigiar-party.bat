@@ -1,25 +1,82 @@
 @echo off
-REM Liga o scanner: vigia a party window e avisa no WhatsApp.
-REM
-REM Antes do primeiro uso:
-REM   1. Copie ENV-EXEMPLO.txt para .env e preencha os dados do Chatwoot
-REM   2. Rode calibrar-tela.bat para marcar onde fica a sua party window
-REM
-REM Deixe esta janela aberta enquanto farma. Ctrl+C encerra.
+setlocal
 
+REM ============================================================
+REM  L2 Party Scanner — vigia a party e avisa no WhatsApp
+REM
+REM  Basta dar dois cliques neste arquivo.
+REM
+REM  Antes do primeiro uso:
+REM    1. Copie ENV-EXEMPLO.txt para .env e preencha o Chatwoot
+REM       (sem isso ele funciona, mas so mostra no console)
+REM    2. Rode calibrar.bat com o jogo aberto
+REM ============================================================
+
+REM Vai para a pasta deste arquivo, seja qual for o diretorio atual
 cd /d "%~dp0"
 
-if not exist ".venv\" (
-    echo Preparando o ambiente pela primeira vez...
-    python -m venv .venv
-    call .venv\Scripts\activate.bat
-    python -m pip install --quiet --upgrade pip
-    python -m pip install --quiet -r requirements.txt
-) else (
-    call .venv\Scripts\activate.bat
+REM Procura o Python e guarda o CAMINHO COMPLETO — nunca o nome do comando.
+REM Guardar so "py" quebra na hora de usar entre aspas, porque o cmd passa a
+REM procurar um arquivo com esse nome literal em vez de resolver pelo PATH.
+REM
+REM Nao dependemos so do PATH: uma janela de cmd aberta ANTES da instalacao do
+REM Python carrega um PATH antigo e nao acha o comando.
+set "PY="
+for /f "delims=" %%i in ('where py 2^>nul') do if not defined PY set "PY=%%i"
+if not defined PY for /f "delims=" %%i in ('where python 2^>nul') do if not defined PY set "PY=%%i"
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Launcher\py.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Launcher\py.exe"
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+
+REM O alias da Microsoft Store e um stub que so abre a loja — nao serve.
+REM Substituicao de string e recurso nativo do cmd: nao depende do find.exe,
+REM que pode estar sombreado por um find de outro shell no PATH.
+if defined PY if not "%PY%"=="%PY:WindowsApps=%" set "PY="
+
+if not defined PY (
+    echo.
+    echo  Nao encontrei o Python nesta maquina.
+    echo.
+    echo  Instale em https://python.org/downloads
+    echo  marcando a caixa "Add Python to PATH" durante a instalacao.
+    echo.
+    pause
+    exit /b 1
 )
 
-python -m l2scanner %*
+REM Ambiente proprio, montado na primeira execucao
+if not exist ".venv\Scripts\python.exe" (
+    echo.
+    echo  Primeira execucao: preparando o ambiente. Leva um minuto...
+    echo.
+    "%PY%" -m venv .venv
+    if errorlevel 1 goto erro_venv
+    ".venv\Scripts\python.exe" -m pip install --quiet --upgrade pip
+    ".venv\Scripts\python.exe" -m pip install --quiet -r requirements.txt
+    if errorlevel 1 goto erro_deps
+    echo  Pronto.
+    echo.
+)
 
+".venv\Scripts\python.exe" -m l2scanner %*
+goto fim
+
+:erro_venv
+echo.
+echo  Falhou ao criar o ambiente virtual.
+echo  Python encontrado em: %PY%
+echo.
+pause
+exit /b 1
+
+:erro_deps
+echo.
+echo  Falhou ao instalar as dependencias.
+echo  Confira sua conexao com a internet e tente de novo.
+echo.
+pause
+exit /b 1
+
+:fim
 echo.
 pause

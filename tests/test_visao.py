@@ -333,3 +333,58 @@ class TestFramesDeMorteReal:
         """Se a visibilidade caisse junto com o HP, um wipe silenciaria tudo."""
         obs = extrair(self._ler("morto.png"), calibracao)
         assert obs.ui_visivel is True
+
+
+class TestOclusaoPorOutraJanela:
+    """Inventario, ficha ou loja aberta POR CIMA da party window.
+
+    Este e um falso positivo que derrubaria a confianca no scanner inteiro, e
+    nao e hipotetico: abrir o inventario e algo que se faz o tempo todo
+    farmando. Com ele aberto as barras ficam cortadas em ~2%, e como o limiar
+    de morte e 2%, os quatro membros seriam anunciados mortos de uma vez.
+
+    O desempate e a MOLDURA da barra: a UI desenha uma linha escura nas duas
+    pontas, e ela e chrome, nao preenchimento — existe igual com a barra cheia
+    ou vazia, e so some quando algo cobre. Medido na tela real: barra livre da
+    V~8-11 nas duas pontas; coberta pelo inventario da V~72-112.
+    """
+
+    PASTA = FIXTURES / "sessao_morte_e_ressurreicao"
+
+    @pytest.fixture
+    def calibracao(self) -> Calibracao:
+        return Calibracao.carregar(self.PASTA / "calibracao.json")
+
+    def _ler(self, nome: str) -> Frame:
+        pixels = cv2.imread(str(self.PASTA / nome), cv2.IMREAD_COLOR)
+        assert pixels is not None, f"fixture {nome} nao pode ser lida"
+        return Frame(pixels=pixels, indice=0, saude=SaudeDoFrame.OK)
+
+    def test_inventario_aberto_derruba_a_visibilidade(self, calibracao):
+        obs = extrair(self._ler("coberta_por_inventario.png"), calibracao)
+        assert obs.ui_visivel is False, (
+            "com a party window coberta, nenhuma leitura e confiavel — o "
+            "rastreador precisa entrar em modo cego e suprimir alertas"
+        )
+
+    def test_barras_cortadas_nao_viram_wipe_total(self, calibracao):
+        """O cenario concreto: quatro alertas falsos de morte de uma vez."""
+        obs = extrair(self._ler("coberta_por_inventario.png"), calibracao)
+        assert not any(l.hp_zerado for l in obs.linhas)
+
+    def test_party_limpa_continua_visivel(self, calibracao):
+        """A protecao nao pode cegar o scanner no caso normal."""
+        obs = extrair(self._ler("vivo.png"), calibracao)
+        assert obs.ui_visivel is True
+
+    def test_membro_morto_nao_e_confundido_com_oclusao(self, calibracao):
+        """A distincao que faz a protecao valer a pena.
+
+        Barra vazia por morte mantem a moldura; barra coberta perde. Se a
+        protecao confundisse os dois, ela silenciaria justamente o evento que
+        o scanner existe para pegar.
+        """
+        obs = extrair(self._ler("morto.png"), calibracao)
+
+        assert obs.ui_visivel is True
+        assert obs.linhas[3].hp_zerado is True

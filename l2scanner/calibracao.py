@@ -79,6 +79,14 @@ class LayoutDaParty:
     ancora_desvio_min: float = 20.0
     ancora_escuros_min: float = 0.02
 
+    # Brilho maximo da borda vertical da barra para ela contar como intacta.
+    # A UI desenha uma linha escura nas duas pontas de cada barra, e ela existe
+    # igual com a barra cheia ou vazia — e chrome, nao preenchimento. Some
+    # apenas quando outra janela do jogo cobre a party window.
+    # Medido na tela real: barra livre da V~8-11 (cheia OU vazia, identico),
+    # coberta pelo inventario da V~72-112. O corte fica no meio dessa margem.
+    borda_v_max: float = 40.0
+
 
 @dataclass
 class Calibracao:
