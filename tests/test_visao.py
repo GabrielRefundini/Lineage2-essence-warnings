@@ -263,3 +263,73 @@ class TestSemBuracoNaLista:
         """A regra nao pode cortar uma party legitima."""
         obs = extrair(frame_real, calibracao)
         assert obs.membros_presentes == 4
+
+
+class TestFramesDeMorteReal:
+    """Frames reais do cliente com a barra de HP apagada e restaurada.
+
+    Os tres vem de uma sessao gravada de verdade, com a barra do Korzis editada
+    para simular morte e ressurreicao. Sao a unica prova em disco de que a
+    leitura enxerga o evento central do produto — ate o dia em que uma morte de
+    verdade for gravada, e ai estes viram redundantes (e continuam valendo).
+    """
+
+    PASTA = FIXTURES / "sessao_morte_e_ressurreicao"
+    LINHA_DO_KORZIS = 3
+
+    @pytest.fixture
+    def calibracao(self) -> Calibracao:
+        """Esta sessao foi gravada sob a calibracao automatica, que recorta a
+        janela mais justa que a calibracao manual da outra fixture. Coordenadas
+        relativas so significam alguma coisa junto da calibracao que as gerou.
+        """
+        return Calibracao.carregar(self.PASTA / "calibracao.json")
+
+    def _ler(self, nome: str) -> Frame:
+        pixels = cv2.imread(str(self.PASTA / nome), cv2.IMREAD_COLOR)
+        assert pixels is not None, f"fixture {nome} nao pode ser lida"
+        return Frame(pixels=pixels, indice=0, saude=SaudeDoFrame.OK)
+
+    def test_frame_vivo_le_hp_cheio(self, calibracao):
+        obs = extrair(self._ler("vivo.png"), calibracao)
+        linha = obs.linhas[self.LINHA_DO_KORZIS]
+
+        assert linha.estado is EstadoDaLinha.COM_MEMBRO
+        assert linha.hp == pytest.approx(1.0, abs=0.02)
+        assert linha.hp_zerado is False
+
+    def test_frame_morto_le_hp_zerado_com_membro_presente(self, calibracao):
+        """A leitura que sustenta o produto inteiro.
+
+        HP em zero E o membro ainda na lista — o ícone de classe continua ali.
+        Se o icone sumisse junto, isto seria "saiu da party", nao "morreu".
+        """
+        obs = extrair(self._ler("morto.png"), calibracao)
+        linha = obs.linhas[self.LINHA_DO_KORZIS]
+
+        assert linha.estado is EstadoDaLinha.COM_MEMBRO, (
+            "o membro morto continua na party: o icone de classe nao sai da tela"
+        )
+        assert linha.hp == pytest.approx(0.0, abs=0.02)
+        assert linha.hp_zerado is True
+
+    def test_frame_ressuscitado_volta_a_ler_hp(self, calibracao):
+        obs = extrair(self._ler("ressuscitado.png"), calibracao)
+        linha = obs.linhas[self.LINHA_DO_KORZIS]
+
+        assert linha.hp is not None and linha.hp > 0.9
+        assert linha.hp_zerado is False
+
+    def test_a_morte_nao_contamina_os_outros_membros(self, calibracao):
+        """Um morto nao pode fazer os vivos lerem errado."""
+        obs = extrair(self._ler("morto.png"), calibracao)
+
+        for indice in (0, 1, 2):
+            linha = obs.linhas[indice]
+            assert linha.estado is EstadoDaLinha.COM_MEMBRO
+            assert linha.hp == pytest.approx(1.0, abs=0.02)
+
+    def test_a_ui_continua_visivel_com_um_membro_morto(self, calibracao):
+        """Se a visibilidade caisse junto com o HP, um wipe silenciaria tudo."""
+        obs = extrair(self._ler("morto.png"), calibracao)
+        assert obs.ui_visivel is True

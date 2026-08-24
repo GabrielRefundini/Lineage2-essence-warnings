@@ -18,6 +18,7 @@ import argparse  # noqa: E402
 import logging  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
+from datetime import datetime  # noqa: E402
 from logging.handlers import RotatingFileHandler  # noqa: E402
 from pathlib import Path  # noqa: E402
 
@@ -27,6 +28,7 @@ from .calibracao import (  # noqa: E402
     descrever_geometria_da_tela,
 )
 from .config import ConfigAusente, config_do_chatwoot  # noqa: E402
+from .console import destacar  # noqa: E402
 from .frames import MssSource, ReplaySource, SaudeDoFrame  # noqa: E402
 from .gravador import Gravador  # noqa: E402
 from .notificador import (  # noqa: E402
@@ -34,6 +36,7 @@ from .notificador import (  # noqa: E402
     NotificadorChatwoot,
     NotificadorDeConsole,
     formatar,
+    formatar_console,
 )
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
 from .visao import EstadoDaLinha, extrair  # noqa: E402
@@ -245,11 +248,19 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 continue
 
             for evento in eventos:
-                texto = formatar(evento)
-                log.info("EVENTO: %s", texto)
                 total_eventos += 1
+
+                # No console, direto e em destaque: o usuario esta na frente da
+                # tela e pode conferir no jogo agora mesmo.
+                hora = datetime.fromtimestamp(evento.momento).strftime("%H:%M:%S")
+                log.info(
+                    "%s", destacar(formatar_console(evento), evento.tipo, hora)
+                )
+
+                # No WhatsApp, cauteloso: quem le esta longe e nao tem como
+                # conferir, entao a redacao precisa sobreviver a um erro.
                 if despachante:
-                    despachante.despachar(texto)
+                    despachante.despachar(formatar(evento))
 
             agora = time.monotonic()
             if agora - ultimo_status >= args.status_a_cada:

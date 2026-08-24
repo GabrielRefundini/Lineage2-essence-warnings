@@ -81,6 +81,44 @@ def formatar(evento: Evento) -> str:
     return f"[{hora}] {evento.tipo.value}: {evento.membro or ''}".strip()
 
 
+def formatar_console(evento: Evento) -> str:
+    """Texto curto e direto para quem esta olhando o console agora.
+
+    Deliberadamente DIFERENTE do texto que vai para o WhatsApp. La a redacao e
+    cautelosa ("possivel morte") porque quem le esta longe e nao tem como
+    conferir; aqui o usuario esta na frente da tela e pode olhar o jogo no
+    mesmo segundo. Ser direto no console e mais util e nao custa nada.
+    """
+    quem = evento.membro or "?"
+
+    if evento.tipo is TipoDeEvento.MORREU:
+        return f"{quem.upper()} MORREU"
+
+    if evento.tipo is TipoDeEvento.RESSUSCITOU:
+        if evento.segundos_no_estado:
+            return (
+                f"{quem.upper()} FOI RESSUSCITADO "
+                f"(ficou {_duracao_legivel(evento.segundos_no_estado)} morto)"
+            )
+        return f"{quem.upper()} FOI RESSUSCITADO"
+
+    if evento.tipo is TipoDeEvento.SAIU:
+        return f"{quem.upper()} SAIU DA PARTY"
+
+    if evento.tipo is TipoDeEvento.ENTROU:
+        return f"{quem.upper()} ENTROU NA PARTY"
+
+    if evento.tipo is TipoDeEvento.CEGUEIRA_LONGA:
+        tempo = _duracao_legivel(evento.segundos_no_estado or 0)
+        return f"SEM VISAO DA PARTY HA {tempo} - NADA E DETECTADO AGORA"
+
+    if evento.tipo is TipoDeEvento.VISAO_RECUPERADA:
+        tempo = _duracao_legivel(evento.segundos_no_estado or 0)
+        return f"VISAO RECUPERADA - estive cego por {tempo}"
+
+    return evento.tipo.value.upper()
+
+
 def _duracao_legivel(segundos: float) -> str:
     segundos = int(segundos)
     if segundos < 60:
