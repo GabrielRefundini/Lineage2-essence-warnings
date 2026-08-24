@@ -56,6 +56,24 @@ O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado.
 
 ## Accumulated Context
 
+### Aprendizados extraídos
+
+| Fase | Arquivo | D / L / P / S |
+|---|---|---|
+| 6 — A agenda como fonte de eventos | [06-LEARNINGS.md](phases/06-a-agenda-como-fonte-de-eventos/06-LEARNINGS.md) | 8 / 4 / 4 / 2 |
+| 7 — Silenciamento por janela de evento | [07-LEARNINGS.md](phases/07-silenciamento-por-janela-de-evento/07-LEARNINGS.md) | 7 / 5 / 5 / 3 |
+
+**O fio que atravessa as duas fases:** a lógica pura deste projeto está sólida
+(rastreador 98%, visão 95%, agenda 94%) e **todo o risco mora na integração**
+(`__main__.py` 20%, `captura_janela.py` 19%). Os 3 de 3 warnings do code review
+moravam lá. Duas fontes independentes — leitura de código e medição de cobertura
+— apontando o mesmo lugar.
+
+**E um padrão que já apareceu quatro vezes:** toda máquina de estado que anuncia
+transições precisa distinguir *"mudou"* de *"foi assim que eu encontrei"*.
+Entrada de membro, você-em-party, cliente caído e silêncio — todos exigiram um
+terceiro estado registrando ter observado o mundo no estado oposto.
+
 ### Decisões
 
 - [v2]: **O relógio é uma segunda fonte de eventos, e entra pelo mesmo seam da tela.** A agenda despacha pelo `Despachante`, nunca chamando `enviar()` direto. É a regra 6 do roadmap v1 aplicada à segunda fonte — se a agenda furar o seam, o silenciamento fica impossível de acrescentar depois.
