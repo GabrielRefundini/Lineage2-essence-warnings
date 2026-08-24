@@ -272,3 +272,53 @@ class TestConsoleDoSilencio:
         assert chamadas, "nenhuma chamada encontrada"
         for chamada in chamadas:
             assert "silencio" in chamada, f"sem silencio: {chamada.strip()}"
+
+
+class TestAgendaUsaOTempoDoFrame:
+    """No replay, a agenda tem que usar o tempo GRAVADO, nao o relogio.
+
+    O projeto ja aplicava essa disciplina ao rastreador, e o comentario no
+    codigo explica por que: "num replay o tempo vem do arquivo, nao do relogio
+    — e o que faz uma sessao de uma hora produzir os mesmos eventos ao ser
+    reproduzida em trinta segundos".
+
+    A agenda tinha nascido furando essa regra. Duas consequencias:
+
+    - reproduzir uma sessao gravada durante um TvT NAO reproduziria o silencio
+      daquele TvT, entao a pergunta "por que nao recebi alerta naquele horario"
+      seria indepuravel offline;
+    - reproduzir uma gravacao as 14h50 dispararia um aviso de TvT DE VERDADE no
+      grupo, no meio de uma depuracao.
+    """
+
+    def test_o_laco_nao_usa_o_relogio_de_parede_para_a_agenda(self):
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        fonte = inspect.getsource(principal.laco_principal)
+        for chamada in ("silencio.atualizar(", "avisos_devidos("):
+            i = fonte.index(chamada)
+            trecho = fonte[i : i + 120]
+            assert "datetime.now()" not in trecho, (
+                f"{chamada} usa o relogio de parede em vez do tempo do frame"
+            )
+
+    def test_o_tempo_da_agenda_vem_do_frame(self):
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        fonte = inspect.getsource(principal.laco_principal)
+        assert "agora_do_frame = datetime.fromtimestamp(momento)" in fonte
+        # `momento` e exatamente o que o rastreador recebe
+        assert "rastreador.observar(observacao, momento)" in fonte
+
+    def test_o_modo_so_agenda_usa_o_relogio_mesmo(self):
+        """La nao existe frame, entao o relogio e a unica fonte de tempo."""
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        fonte = inspect.getsource(principal.laco_da_agenda)
+        assert "agora = datetime.now()" in fonte

@@ -556,14 +556,25 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 time.sleep(args.intervalo)
                 continue
 
-            encerrou = silencio.atualizar(datetime.now())
+            # A AGENDA USA O MESMO TEMPO DO RASTREADOR, e nao o relogio de
+            # parede. Num replay `momento` vem do arquivo, e isso importa por
+            # dois motivos:
+            #
+            # - reproduzir uma sessao gravada durante um TvT reproduz o
+            #   SILENCIO daquele TvT. Sem isso, nao daria para depurar offline
+            #   a pergunta "por que nao recebi alerta naquele horario";
+            # - sem isso, reproduzir uma gravacao as 14h50 dispararia um aviso
+            #   de TvT DE VERDADE no grupo, no meio de uma depuracao.
+            agora_do_frame = datetime.fromtimestamp(momento)
+
+            encerrou = silencio.atualizar(agora_do_frame)
             if encerrou:
                 log.info(destacar(encerrou))
                 if despachante:
                     despachante.despachar(encerrou, Categoria.SEMPRE)
 
             for aviso in avisos_devidos(
-                datetime.now(), eventos_agendados, registro_da_agenda.enviados()
+                agora_do_frame, eventos_agendados, registro_da_agenda.enviados()
             ):
                 if not registro_da_agenda.marcar(aviso.chave):
                     continue
