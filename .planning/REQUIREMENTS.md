@@ -124,13 +124,69 @@ Adiado para depois da v1. Rastreado mas fora do roadmap atual.
 
 ## Traceability
 
-Preenchido durante a criação do roadmap.
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DELV-01 | Phase 1 | Pending |
+| DELV-02 | Phase 1 | Pending |
+| DELV-03 | Phase 1 | Pending |
+| DELV-04 | Phase 4 | Pending |
+| DELV-05 | Phase 4 | Pending |
+| DELV-06 | Phase 4 | Pending |
+| DELV-07 | Phase 4 | Pending |
+| DELV-08 | Phase 4 | Pending |
+| DELV-09 | Phase 4 | Pending |
+| CAPT-01 | Phase 1 | Pending |
+| CAPT-02 | Phase 1 | Pending |
+| CAPT-03 | Phase 1 | Pending |
+| CAPT-04 | Phase 1 | Pending |
+| CAPT-05 | Phase 1 | Pending |
+| CAPT-06 | Phase 1 | Pending |
+| CAPT-07 | Phase 1 | Pending |
+| CALI-01 | Phase 2 | Pending |
+| CALI-02 | Phase 2 | Pending |
+| CALI-03 | Phase 2 | Pending |
+| CALI-04 | Phase 2 | Pending |
+| CALI-05 | Phase 2 | Pending |
+| DTCT-01 | Phase 2 | Pending |
+| DTCT-02 | Phase 2 | Pending |
+| DTCT-03 | Phase 2 | Pending |
+| DTCT-04 | Phase 2 | Pending |
+| DTCT-05 | Phase 2 | Pending |
+| DTCT-06 | Phase 2 | Pending |
+| DTCT-07 | Phase 2 | Pending |
+| ALRT-01 | Phase 3 | Pending |
+| ALRT-02 | Phase 3 | Pending |
+| ALRT-03 | Phase 3 | Pending |
+| ALRT-04 | Phase 3 | Pending |
+| ALRT-05 | Phase 3 | Pending |
+| ALRT-06 | Phase 3 | Pending |
+| ALRT-07 | Phase 3 | Pending |
+| ALRT-08 | Phase 3 | Pending |
+| ALRT-09 | Phase 3 | Pending |
+| ALRT-10 | Phase 3 | Pending |
+| ALRT-11 | Phase 4 | Pending |
+| OPER-01 | Phase 1 | Pending |
+| OPER-02 | Phase 3 | Pending |
+| OPER-03 | Phase 4 | Pending |
+| OPER-04 | Phase 4 | Pending |
+| OPER-05 | Phase 4 | Pending |
+| OPER-06 | Phase 4 | Pending |
+| OPER-07 | Phase 3 | Pending |
+| OPER-08 | Phase 1 | Pending |
+| TEST-01 | Phase 3 | Pending |
+| TEST-02 | Phase 3 | Pending |
+| TEST-03 | Phase 3 | Pending |
+| TEST-04 | Phase 3 | Pending |
+| SAFE-01 | Phase 1 | Pending |
+| SAFE-02 | Phase 1 | Pending |
+| SAFE-03 | Phase 1 | Pending |
+| SAFE-04 | Phase 1 | Pending |
 
 **Coverage:**
 - v1 requirements: 55 total
-- Mapped to phases: pending
-- Unmapped: pending
+- Mapped to phases: 55 (Fase 1: 16, Fase 2: 12, Fase 3: 16, Fase 4: 11)
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-08-24*
-*Last updated: 2026-08-24 after initial definition*
+*Last updated: 2026-08-24 after roadmap creation (traceability filled)*

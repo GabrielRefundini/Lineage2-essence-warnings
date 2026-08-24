@@ -1,0 +1,87 @@
+---
+gsd_state_version: '1.0'  # placeholder; syncStateFrontmatter overwrites on first state.* call
+status: planning
+progress:
+  total_phases: 4
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+---
+
+# Project State
+
+## Project Reference
+
+See: .planning/PROJECT.md (updated 2026-08-24)
+
+**Core value:** Quando alguém da party morre ou sai da PT, a galera fica sabendo no WhatsApp em segundos — mesmo quem está AFK.
+**Current focus:** Phase 1 — Gate de entrega e fundação de captura
+
+## Current Position
+
+Phase: 1 of 4 (Gate de entrega e fundação de captura)
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-08-24 — Roadmap criado (4 fases, 55/55 requisitos mapeados)
+
+Progress: [░░░░░░░░░░] 0%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 0
+- Average duration: —
+- Total execution time: 0.0 hours
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| - | - | - | - |
+
+**Recent Trend:**
+- Last 5 plans: —
+- Trend: —
+
+*Updated after each plan completion*
+
+## Accumulated Context
+
+### Decisions
+
+Decisions are logged in PROJECT.md Key Decisions table.
+Recent decisions affecting current work:
+
+- [Roadmap]: `mss` para captura, não `dxcam` — `dxcam.grab()` devolve `None` em frame não alterado, e uma party window parada em AFK é exatamente esse caso (leitura ingênua = modo cego falso)
+- [Roadmap]: Identidade por índice de linha + roster configurado em `config.toml`; OCR só bootstrap/re-âncora, e nunca dispara alerta sozinho (v1 dispensa OCR por completo — vai para v2)
+- [Roadmap]: Cooldown mora na FSM, não no notificador — "um alerta até ressuscitar" é propriedade de estado, não janela de tempo
+- [Roadmap]: BLIND congela os contadores de debounce em vez de zerá-los — uma morte 200 ms antes de um alt-tab ainda alerta na volta
+- [Roadmap]: Blind curto continua só no console (decisão do usuário mantida), mas blind longo (~5 min) escala para uma mensagem no WhatsApp — silêncio de cobertura é o pior modo de falha do domínio
+
+### Pending Todos
+
+[From .planning/todos/pending/ — ideas captured during sessions]
+
+None yet.
+
+### Blockers/Concerns
+
+- **[Fase 1 — portão duro]** Qual provedor de WhatsApp está por trás do inbox do Chatwoot? Se for a Cloud API oficial da Meta, mensagens iniciadas pelo negócio fora da janela de 24h exigem template aprovado e grupos ficam inviáveis — o Chatwoot devolve `200 OK` e a Meta descarta em silêncio. Armadilha: testar mandando mensagem para o número **abre** a janela e produz sucesso enganoso; o teste tem que ser para um número calado há mais de 24h.
+- **[Aberto — falso negativo silencioso]** O cliente atualiza o HP de membro distante ao vivo ou congela o último valor conhecido? Se congela, morte longe deixa a barra cheia para sempre. Testar na sessão gravada da Fase 1: membro distante tomando dano deve fazer a barra cair na tela do usuário.
+- **[Aberto — nomeação de eventos]** A party window compacta as linhas quando alguém sai? Um par de screenshots antes/depois resolve. Se não compacta, o índice de linha basta sozinho.
+- **[Aberto — limiar de cor]** O matiz da barra de HP muda com o nível? Varredura em 90/70/50/30/10/1% na sessão gravada decide se limiar por hue é sólido.
+
+## Deferred Items
+
+Items acknowledged and deferred at milestone close, most recent first:
+
+| Category | Item | Status | Deferred At | Milestone |
+|----------|------|--------|-------------|-----------|
+| *(none)* | | | | |
+
+## Session Continuity
+
+Last session: 2026-08-24
+Stopped at: ROADMAP.md e STATE.md criados; traceability de REQUIREMENTS.md preenchida
+Resume file: None
