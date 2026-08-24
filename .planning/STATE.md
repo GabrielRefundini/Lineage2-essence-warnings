@@ -72,6 +72,12 @@ O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado.
 - **[Aberto — não testável agora]** Morte de membro: o usuário não conseguiu testar. Toda a lógica de morte foi verificada com frames sintéticos, mas **nunca contra uma morte real**. É o que a gravação de sessão existe para resolver.
 - **[Aberto — limiar de cor]** O matiz da barra de HP muda com o nível? Na captura real todos estavam em 100%. Uma sessão gravada com HP variando resolve.
 
+## Quick Tasks Completed
+
+| Data | Tarefa | Resultado |
+|------|--------|-----------|
+| 2026-08-24 | [identidade-por-imagem-do-nome](quick/20260824-identidade-por-imagem-do-nome/SUMMARY.md) | O nome no alerta vem de reconhecer a IMAGEM do nome na tela, não da posição da linha. Margem medida de 0.546 (mesmo nome 1.000, outros máx 0.454). Resolve o alerta sair com o nome errado quando a ordem da party muda. |
+
 ## Próximos passos
 
 1. **Confirmar o gate de entrega** — `.env` + `check_whatsapp.py inboxes/conversas/enviar`, confirmando no celular
