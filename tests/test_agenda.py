@@ -259,3 +259,98 @@ class TestLerAgenda:
         with pytest.raises(AgendaInvalida) as erro:
             ler_agenda(caminho)
         assert "TOML" in str(erro.value)
+
+
+class TestAgendaRealDoUsuario:
+    """O `config.toml` versionado, exatamente como ele esta no repositorio.
+
+    Estes testes existem para pegar um dedo errado no arquivo. A agenda e dado,
+    nao codigo — mas um dado errado aqui significa a party esperando um TvT que
+    nao vai acontecer, ou perdendo um que vai.
+    """
+
+    @pytest.fixture
+    def agenda(self):
+        from pathlib import Path
+
+        raiz = Path(__file__).resolve().parent.parent
+        return ler_agenda(raiz / "config.toml")
+
+    def test_o_arquivo_do_repositorio_e_valido(self, agenda):
+        assert len(agenda) == 2
+        assert {e.nome for e in agenda} == {"TvT", "Prime"}
+
+    def test_tvt_tem_os_tres_horarios_todo_dia(self, agenda):
+        tvt = next(e for e in agenda if e.nome == "TvT")
+        assert tvt.horarios == ((15, 0), (17, 0), (21, 50))
+        assert tvt.dias == TODOS_OS_DIAS
+
+    def test_prime_as_20h_de_segunda_a_quinta(self, agenda):
+        prime = next(e for e in agenda if e.nome == "Prime")
+        assert prime.horarios == ((20, 0),)
+        assert prime.dias == frozenset({0, 1, 2, 3})
+
+    def test_as_duracoes_de_silencio_estao_no_esquema_para_a_fase_7(self, agenda):
+        """Lidas e ignoradas nesta fase.
+
+        Moram no arquivo desde ja para o usuario nao ter que editar a mao um
+        config que ja editou quando a Fase 7 chegar.
+        """
+        por_nome = {e.nome: e for e in agenda}
+        assert por_nome["TvT"].silenciar_minutos == 15
+        assert por_nome["Prime"].silenciar_minutos == 120
+
+    def test_um_dia_inteiro_produz_exatamente_os_avisos_esperados(self, agenda):
+        """Varre uma segunda-feira minuto a minuto.
+
+        Segunda tem TvT (3 horarios) e Prime (1), dois avisos cada = 8.
+        """
+        from datetime import timedelta
+
+        enviados: set[str] = set()
+        saidas = []
+        instante = SEGUNDA
+        for _ in range(24 * 60):
+            for aviso in avisos_devidos(instante, agenda, enviados):
+                enviados.add(aviso.chave)
+                saidas.append((aviso.evento, aviso.tipo, aviso.devido_em.strftime("%H:%M")))
+            instante += timedelta(minutes=1)
+
+        assert saidas == [
+            ("TvT", TipoDeAviso.ANTES, "14:50"),
+            ("TvT", TipoDeAviso.AGORA, "15:00"),
+            ("TvT", TipoDeAviso.ANTES, "16:50"),
+            ("TvT", TipoDeAviso.AGORA, "17:00"),
+            ("Prime", TipoDeAviso.ANTES, "19:50"),
+            ("Prime", TipoDeAviso.AGORA, "20:00"),
+            ("TvT", TipoDeAviso.ANTES, "21:40"),
+            ("TvT", TipoDeAviso.AGORA, "21:50"),
+        ]
+
+    def test_no_sabado_o_prime_nao_aparece(self, agenda):
+        from datetime import timedelta
+
+        sabado = SEGUNDA + timedelta(days=5)
+        enviados: set[str] = set()
+        nomes = []
+        instante = sabado
+        for _ in range(24 * 60):
+            for aviso in avisos_devidos(instante, agenda, enviados):
+                enviados.add(aviso.chave)
+                nomes.append(aviso.evento)
+            instante += timedelta(minutes=1)
+
+        assert set(nomes) == {"TvT"}
+        assert len(nomes) == 6, "3 horarios de TvT x 2 avisos"
+
+    def test_mudar_a_antecedencia_nao_exige_tocar_em_codigo(self, tmp_path):
+        """AGEN-04: uma atualizacao do jogo nao pode custar um commit."""
+        caminho = tmp_path / "config.toml"
+        caminho.write_text(
+            '[[evento]]\nnome = "TvT"\nhorarios = ["15:00"]\n'
+            "avisar_minutos_antes = 25\n",
+            encoding="utf-8",
+        )
+        eventos = ler_agenda(caminho)
+        assert avisos_devidos(em(14, 35), eventos, set())[0].tipo is TipoDeAviso.ANTES
+        assert avisos_devidos(em(14, 50), eventos, set()) == []
