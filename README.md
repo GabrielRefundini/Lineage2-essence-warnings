@@ -263,19 +263,21 @@ o problema às 15h enquanto você está AFK.
 
 ### Rodar só os avisos, sem o jogo aberto
 
-```bash
-python -m l2scanner --so-agenda
-```
+**Dois cliques em `avisos-tvt.bat`.**
 
 Esse modo não vigia party nenhuma: ele só olha o relógio. Serve para deixar
 rodando enquanto ninguém está jogando — que é justamente quando o lembrete de
 TvT vale mais, porque quem está online já vê o evento na tela.
 
-Para testar sem esperar o horário:
+Para testar sem esperar o horário, numa janela de comando **nesta pasta**:
 
-```bash
-python -m l2scanner --testar-agenda --dry-run
 ```
+.venv\Scripts\python -m l2scanner --testar-agenda --dry-run
+```
+
+> Use sempre `.venv\Scripts\python`, não `python`. O projeto tem um ambiente
+> próprio, montado pelo `vigiar-party.bat` na primeira execução, e o `python`
+> do sistema pode nem estar no PATH.
 
 ### Um limite honesto
 
