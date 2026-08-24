@@ -163,10 +163,31 @@ class Calibracao:
             altura=lay.nome_altura,
         )
 
+    @property
+    def nomes_com_assinatura(self) -> set[str]:
+        """Quem tem impressao digital visual gravada."""
+        return {a.nome for a in self.assinaturas}
+
     def nome_da_linha(self, indice: int) -> str:
-        """Nome configurado, ou um rotulo generico se a lista for mais curta."""
+        """Rotulo de uma linha que NAO foi reconhecida.
+
+        Um nome que tem assinatura gravada nunca pode ser usado aqui. A
+        assinatura e a autoridade sobre onde aquela pessoa esta: se ela nao
+        casou nesta linha, esta linha nao e dela.
+
+        Sem esta regra o rotulo por posicao mente exatamente como o alerta
+        mentia. Visto ao vivo: Korzis reconhecido na linha 0, linha 1 sem
+        reconhecimento e com HP 0% — e `nomes[1]` era "Korzis". O scanner
+        estava a um debounce de anunciar "Korzis morreu" com o Korzis vivo a
+        57% na linha de cima.
+
+        Sem assinatura NENHUMA, o nome por posicao volta a valer: e o modo
+        antigo, e ali ele e o melhor palpite disponivel.
+        """
         if 0 <= indice < len(self.nomes):
-            return self.nomes[indice]
+            nome = self.nomes[indice]
+            if nome not in self.nomes_com_assinatura:
+                return nome
         return f"Membro {indice + 1}"
 
     def salvar(self, caminho: Path) -> None:

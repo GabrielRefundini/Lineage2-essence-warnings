@@ -155,6 +155,15 @@ class Rastreador:
     # tem mais chance de morrer sem ninguem perceber.
     nome_proprio: str | None = None
 
+    # Se ha assinaturas visuais gravadas. Quando ha, a lista `nomes` deixa de
+    # valer como identidade por posicao — ela so serviria para atribuir o nome
+    # de uma pessoa a uma linha que nao e dela.
+    assinaturas_configuradas: bool = False
+
+    # Nomes que tem assinatura visual gravada. Eles nunca servem de rotulo por
+    # POSICAO: a assinatura e quem diz onde a pessoa esta.
+    nomes_reservados: set[str] = field(default_factory=set)
+
     # Estado POR PESSOA. A chave e a identidade, nunca a posicao — a party
     # window reordena, e guardar por posicao atribui eventos a quem nao os
     # viveu.
@@ -193,9 +202,16 @@ class Rastreador:
         return self._portao
 
     def nome_de(self, indice: int) -> str:
-        """Nome configurado para uma POSICAO. Usado so como ultimo recurso."""
+        """Nome configurado para uma POSICAO. Usado so como ultimo recurso.
+
+        Nomes com assinatura gravada ficam de fora: se a assinatura nao casou
+        nesta linha, esta linha nao e daquela pessoa, e usar o nome dela aqui
+        produz um alerta com o nome errado — o pior modo de falha do produto.
+        """
         if 0 <= indice < len(self.nomes):
-            return self.nomes[indice]
+            nome = self.nomes[indice]
+            if nome not in self.nomes_reservados:
+                return nome
         return f"Membro {indice + 1}"
 
     def estado_de_membro(self, identidade: str) -> EstadoDoMembro:
@@ -222,6 +238,28 @@ class Rastreador:
     def _nome_exibido(self, identidade: str) -> str:
         """Nome que vai no alerta. Nunca a chave interna."""
         return self._rotulo.get(identidade, identidade)
+
+    def _rotular(self, linha: LeituraDeLinha, identidade: str) -> str:
+        """Como esta linha deve ser CHAMADA num alerta.
+
+        Regra dura: uma linha NAO reconhecida jamais pega emprestado o nome de
+        outra pessoa. A lista do config e ordenada por posicao, e a posicao nao
+        e identidade — usar `nomes[1]` para uma linha desconhecida faz o alerta
+        sair com o nome de quem esta vivo em outra linha.
+
+        Isso quase aconteceu de verdade: a linha 1, nao reconhecida e com HP
+        zerado, estava rotulada "Korzis" enquanto o Korzis real estava vivo na
+        linha 0. Faltava um debounce para anunciar a morte da pessoa errada.
+
+        "Membro 2" e feio. Anunciar a morte de quem esta vivo e pior.
+        """
+        if linha.nome:
+            return linha.nome
+        if self.assinaturas_configuradas:
+            return f"Membro {linha.indice + 1}"
+        # Sem assinatura nenhuma nao ha identidade visual em jogo, e o nome por
+        # posicao e a unica informacao que existe.
+        return self.nome_de(linha.indice)
 
     def observar(self, obs: Observacao, agora: float) -> list[Evento]:
         """Processa uma observacao e devolve os eventos confirmados nela."""
@@ -351,7 +389,7 @@ class Rastreador:
                 continue
             identidade = _chave_da_linha(linha)
             self._identidade_por_linha[linha.indice] = identidade
-            self._rotulo[identidade] = linha.nome or self.nome_de(linha.indice)
+            self._rotulo[identidade] = self._rotular(linha, identidade)
             interno = self._membros.setdefault(identidade, _EstadoInterno())
             interno.hp_visto = linha.hp
             interno.linhas_quando_visto = obs.membros_presentes
@@ -368,7 +406,7 @@ class Rastreador:
             identidade = _chave_da_linha(linha)
             presentes[identidade] = linha
             self._identidade_por_linha[linha.indice] = identidade
-            self._rotulo[identidade] = linha.nome or self.nome_de(linha.indice)
+            self._rotulo[identidade] = self._rotular(linha, identidade)
 
         # O proprio personagem entra como mais um membro, com a leitura vinda
         # da barra dele no topo da tela. Tratar igual aos outros faz morte e

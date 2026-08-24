@@ -236,7 +236,11 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     if gravador:
         log.info("Gravando em %s", gravador.pasta)
 
-    rastreador = Rastreador(nomes=list(cal.nomes), nome_proprio=cal.nome_proprio)
+    rastreador = Rastreador(
+        nomes=list(cal.nomes),
+        nome_proprio=cal.nome_proprio,
+        nomes_reservados=cal.nomes_com_assinatura,
+    )
     despachante = montar_despachante(args)
     if despachante:
         despachante.iniciar()

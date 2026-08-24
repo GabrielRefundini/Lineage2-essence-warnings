@@ -616,3 +616,77 @@ class TestPiscarDeReconhecimento:
             eventos.extend(r.observar(self._obs(self.NOMES), 20 + i))
 
         assert eventos == []
+
+
+class TestLinhaDesconhecidaNaoRoubaNome:
+    """Uma linha nao reconhecida jamais pode usar o nome de outra pessoa.
+
+    A lista `nomes` do config e ordenada por POSICAO, e posicao nao e
+    identidade. Com identidade visual em jogo, usar `nomes[1]` para uma linha
+    desconhecida faz o alerta sair com o nome de quem esta vivo noutra linha.
+
+    Quase aconteceu: a linha 1, nao reconhecida e com HP ZERADO, estava
+    rotulada "Korzis" enquanto o Korzis real aparecia vivo na linha 0. Faltava
+    um debounce para anunciar a morte de quem estava vivo.
+
+    "Membro 2" e feio. Anunciar a morte da pessoa errada e pior.
+    """
+
+    def _obs(self, pares):
+        from l2scanner.visao import LeituraDeLinha, Observacao
+
+        linhas = []
+        for i, (nome, hp) in enumerate(pares):
+            linhas.append(
+                LeituraDeLinha(
+                    i,
+                    EstadoDaLinha.COM_MEMBRO,
+                    hp,
+                    1.0,
+                    nome=nome,
+                    confianca_do_nome=0.98 if nome else 0.0,
+                )
+            )
+        return Observacao(0, True, tuple(linhas))
+
+    def test_morte_em_linha_desconhecida_nao_usa_nome_de_outro(self):
+        from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
+
+        r = Rastreador(
+            nomes=["Kaus", "Korzis"],
+            assinaturas_configuradas=True,
+            ajustes=Ajustes(confirmacoes_para_morte=2),
+        )
+        # linha 0 = Korzis reconhecido e vivo; linha 1 = desconhecida, HP zerado
+        for i in range(15):
+            r.observar(self._obs([("Korzis", 1.0), (None, 1.0)]), -100 + i)
+
+        eventos = []
+        for i in range(5):
+            eventos.extend(r.observar(self._obs([("Korzis", 1.0), (None, 0.0)]), 10 + i))
+
+        mortes = [e.membro for e in eventos if e.tipo is TipoDeEvento.MORREU]
+        assert mortes, "a morte na linha desconhecida precisa ser reportada"
+        assert "Korzis" not in mortes, (
+            "o Korzis esta VIVO na linha 0; a linha 1 nao pode usar o nome dele"
+        )
+        assert mortes == ["Membro 2"]
+
+    def test_sem_assinaturas_o_nome_por_posicao_ainda_vale(self):
+        """Sem identidade visual, o nome por posicao e a unica informacao."""
+        from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
+
+        r = Rastreador(
+            nomes=["Kaus", "Korzis"],
+            assinaturas_configuradas=False,
+            ajustes=Ajustes(confirmacoes_para_morte=2),
+        )
+        for i in range(15):
+            r.observar(self._obs([(None, 1.0), (None, 1.0)]), -100 + i)
+
+        eventos = []
+        for i in range(5):
+            eventos.extend(r.observar(self._obs([(None, 1.0), (None, 0.0)]), 10 + i))
+
+        mortes = [e.membro for e in eventos if e.tipo is TipoDeEvento.MORREU]
+        assert mortes == ["Korzis"]
