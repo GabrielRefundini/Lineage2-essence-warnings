@@ -87,6 +87,18 @@ def formatar(evento: Evento) -> str:
             f"Estive cego por {tempo} — posso ter perdido eventos nesse intervalo."
         )
 
+    if evento.tipo is TipoDeEvento.VOCE_SEM_PARTY:
+        quem = evento.membro or "Voce"
+        return (
+            f"[{hora}] {quem} nao esta mais na party — saiu ou foi removido. "
+            f"A party window sumiu da tela, e a partir de agora so o proprio "
+            f"personagem esta sendo vigiado."
+        )
+
+    if evento.tipo is TipoDeEvento.VOCE_ENTROU_EM_PARTY:
+        quem = evento.membro or "Voce"
+        return f"[{hora}] {quem} entrou em party. Voltei a vigiar o grupo."
+
     return f"[{hora}] {evento.tipo.value}: {evento.membro or ''}".strip()
 
 
@@ -124,6 +136,12 @@ def formatar_console(evento: Evento) -> str:
     if evento.tipo is TipoDeEvento.VISAO_RECUPERADA:
         tempo = _duracao_legivel(evento.segundos_no_estado or 0)
         return f"VISAO RECUPERADA - estive cego por {tempo}"
+
+    if evento.tipo is TipoDeEvento.VOCE_SEM_PARTY:
+        return f"{(evento.membro or 'VOCE').upper()} SAIU OU FOI REMOVIDO DA PARTY"
+
+    if evento.tipo is TipoDeEvento.VOCE_ENTROU_EM_PARTY:
+        return f"{(evento.membro or 'VOCE').upper()} ENTROU EM PARTY"
 
     return evento.tipo.value.upper()
 

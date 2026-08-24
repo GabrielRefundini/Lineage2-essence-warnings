@@ -89,6 +89,8 @@ _ESTILO = {
     TipoDeEvento.ENTROU: ("+", _CIANO),
     TipoDeEvento.CEGUEIRA_LONGA: ("~", _AMARELO + _NEGRITO),
     TipoDeEvento.VISAO_RECUPERADA: ("~", _CIANO),
+    TipoDeEvento.VOCE_SEM_PARTY: ("-", _AMARELO + _NEGRITO),
+    TipoDeEvento.VOCE_ENTROU_EM_PARTY: ("+", _CIANO),
 }
 
 

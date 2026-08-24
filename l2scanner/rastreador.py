@@ -59,6 +59,11 @@ class TipoDeEvento(Enum):
     CEGUEIRA_LONGA = "cegueira_longa"
     VISAO_RECUPERADA = "visao_recuperada"
 
+    # Voce saiu (ou foi expulso) da party. Nao da para distinguir os dois pela
+    # tela — os dois deixam a party window sumir e a sua barra intacta.
+    VOCE_SEM_PARTY = "voce_sem_party"
+    VOCE_ENTROU_EM_PARTY = "voce_entrou_em_party"
+
 
 @dataclass(frozen=True)
 class Evento:
@@ -89,6 +94,11 @@ class Ajustes:
     confirmacoes_para_saida: int = 5
 
     confirmacoes_para_entrada: int = 3
+
+    # Quantas leituras seguidas sem party window, COM a sua barra visivel, ate
+    # concluir que voce nao esta mais em party. Alto de proposito: trocar de
+    # zona e abrir menu tambem escondem a party window por alguns frames.
+    confirmacoes_para_voce_sem_party: int = 8
 
     # Tolerancia depois de recuperar a visao: a UI redesenha em partes e as
     # barras leem zero por um ou dois frames.
@@ -166,6 +176,12 @@ class Rastreador:
     # e uma entrada de verdade.
     _aquecido: bool = field(default=False, init=False)
 
+    # Rastreio de "voce esta em party?". So faz sentido quando a barra propria
+    # esta calibrada: e ela que distingue "sai da party" de "perdi a visao".
+    _voce_em_party: bool | None = field(default=None, init=False)
+    _contador_sem_party: int = field(default=0, init=False)
+    _contador_com_party: int = field(default=0, init=False)
+
     @property
     def portao(self) -> PortaoGlobal:
         return self._portao
@@ -205,7 +221,19 @@ class Rastreador:
         """Processa uma observacao e devolve os eventos confirmados nela."""
         eventos: list[Evento] = []
 
-        # --- PORTAO GLOBAL PRIMEIRO. Nunca depois das linhas. ---
+        # --- VOCE ESTA EM PARTY? ---
+        # A pergunta so e respondivel porque a SUA barra e lida separado da
+        # party window. A combinacao "minha barra esta la, a party window nao"
+        # e unica:
+        #   alt-tab / jogo coberto -> a captura por janela ve tudo, nada some
+        #   tela de loading        -> some tudo, a sua barra inclusive
+        #   voce fora da party     -> so a party window some
+        # Sem a barra propria, "sair da party" era indistinguivel de "perdi a
+        # visao" e o scanner ficava calado.
+        if obs.hp_proprio is not None:
+            eventos.extend(self._avaliar_se_voce_esta_em_party(obs, agora))
+
+        # --- PORTAO GLOBAL. Nunca depois das linhas. ---
         if not obs.ui_visivel:
             if self._portao is not PortaoGlobal.CEGO:
                 self._portao = PortaoGlobal.CEGO
@@ -263,6 +291,51 @@ class Rastreador:
         eventos.extend(self._processar(obs, agora))
         self._primeira_observacao = False
         return eventos
+
+    def _avaliar_se_voce_esta_em_party(
+        self, obs: Observacao, agora: float
+    ) -> list[Evento]:
+        """Decide se o usuario ainda esta em party, e avisa quando muda."""
+        tem_party = obs.ui_visivel and obs.membros_presentes > 0
+
+        if tem_party:
+            self._contador_sem_party = 0
+            self._contador_com_party += 1
+        else:
+            self._contador_com_party = 0
+            self._contador_sem_party += 1
+
+        limite = self.ajustes.confirmacoes_para_voce_sem_party
+
+        if self._contador_sem_party >= limite:
+            if self._voce_em_party is not False:
+                era_conhecido = self._voce_em_party is True
+                self._voce_em_party = False
+                # Comeco frio: se voce ja estava sem party quando o scanner
+                # ligou, nao anunciamos nada.
+                if era_conhecido:
+                    return [
+                        Evento(
+                            tipo=TipoDeEvento.VOCE_SEM_PARTY,
+                            momento=agora,
+                            membro=self.nome_proprio,
+                        )
+                    ]
+
+        elif self._contador_com_party >= self.ajustes.confirmacoes_para_entrada:
+            if self._voce_em_party is not True:
+                era_conhecido = self._voce_em_party is False
+                self._voce_em_party = True
+                if era_conhecido:
+                    return [
+                        Evento(
+                            tipo=TipoDeEvento.VOCE_ENTROU_EM_PARTY,
+                            momento=agora,
+                            membro=self.nome_proprio,
+                        )
+                    ]
+
+        return []
 
     def _registrar_leituras(self, obs: Observacao) -> None:
         """Atualiza HP e o mapa de exibicao, sem concluir nada."""
