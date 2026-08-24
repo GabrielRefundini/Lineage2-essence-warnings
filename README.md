@@ -21,7 +21,8 @@ Concretamente, o scanner **nunca**:
 Essas garantias não são só promessa de documentação: **nenhuma biblioteca de
 automação de input entra na lista de dependências** (`pyautogui`, `pydirectinput`
 e afins estão fora por decisão de projeto), o que torna a violação estruturalmente
-impossível em vez de apenas proibida.
+impossível em vez de apenas proibida. Há um teste que quebra o build se alguém
+adicionar uma.
 
 **Sobre risco de banimento — sem promessa vazia:** capturar a tela é
 categoricamente menos arriscado do que ler memória, injetar código ou automatizar
@@ -30,92 +31,162 @@ nenhuma fonte oficial declara que ler a tela é *explicitamente permitido*, e
 sistemas anticheat são opacos por design. Portanto: **risco mínimo, não risco
 zero.** Use com essa informação em mãos.
 
-## Estado atual
+## Começando
 
-Em construção. Veja `.planning/ROADMAP.md` para o plano completo.
+### 1. Configure a entrega
 
-| Fase | O que entrega | Status |
-|------|---------------|--------|
-| 1 | Gate de entrega no WhatsApp + fundação de captura e gravação | Em andamento |
-| 2 | Calibração visual e leitura das barras | Não iniciada |
-| 3 | Rastreador de estado, console ao vivo e replay | Não iniciada |
-| 4 | Entrega no WhatsApp e vigilância do próprio scanner | Não iniciada |
+Copie `ENV-EXEMPLO.txt` para um arquivo chamado `.env` e preencha com os dados do
+seu Chatwoot. O `.env` está no `.gitignore` — o token não é commitado e nunca
+aparece em log.
 
-## Configuração
-
-Copie `ENV-EXEMPLO.txt` para um arquivo chamado `.env` na raiz do projeto e
-preencha com os dados do seu Chatwoot. O `.env` está no `.gitignore` — o token
-não é commitado e não aparece em nenhum log.
-
-## Gate de entrega (Fase 1)
-
-Antes de qualquer código de detecção, é preciso provar que uma mensagem
-**iniciada pelo scanner** chega de verdade no celular de quem está AFK. Rode na
-ordem:
+Depois rode, nesta ordem:
 
 ```bash
 python tools/check_whatsapp.py inboxes
 ```
 
-Descobre qual provedor de WhatsApp está por trás de cada inbox e diz se
-mensagem livre é permitida.
+Descobre qual provedor de WhatsApp está por trás de cada inbox e diz se mensagem
+livre é permitida.
 
 ```bash
 python tools/check_whatsapp.py conversas
 ```
 
-Lista as conversas com seus IDs, para você escolher os destinos dos alertas e
-preencher `CHATWOOT_CONVERSAS` no `.env`.
+Lista as conversas com seus IDs. Escolha os destinos e preencha
+`CHATWOOT_CONVERSAS` no `.env`.
 
 ```bash
 python tools/check_whatsapp.py enviar
 ```
 
-Envia uma mensagem de teste.
+Envia uma mensagem de teste. **Confirme no celular** — resposta `200` do Chatwoot
+não prova entrega.
 
-> **Por que isso importa tanto:** na API oficial da Meta, mensagens iniciadas
-> pelo negócio fora de uma janela de 24 horas exigem template previamente
-> aprovado — e o Chatwoot responde `200 OK` enquanto a Meta descarta a mensagem
-> em silêncio. Como quem está AFK não mandou mensagem nenhuma, *todos* os
-> alertas cairiam nesse caso. Com um bridge não-oficial (Baileys, Evolution,
-> WAHA) a regra não existe. O comando `inboxes` diz em qual caso você está.
+> **Por que esse teste importa tanto:** na API oficial da Meta, mensagens
+> iniciadas pelo negócio fora de uma janela de 24 horas exigem template
+> previamente aprovado — e o Chatwoot responde `200 OK` enquanto a Meta descarta
+> a mensagem em silêncio. Como quem está AFK não mandou mensagem nenhuma, *todos*
+> os alertas cairiam nesse caso.
+>
+> **No seu caso isso não é problema:** você usa o fork `fazer-ai/chatwoot` com
+> Baileys, que é um bridge não-oficial. A regra das 24 horas não se aplica e o
+> envio para grupo funciona.
 >
 > **Armadilha do teste:** se você mandar mensagem para o número e logo depois
-> testar, a janela de 24h abre e o teste passa por engano. Teste com um número
-> que esteja calado há mais de um dia — e confirme no celular. Resposta `200`
-> do Chatwoot não prova entrega.
+> testar, a janela abre e o teste passa por engano. Teste com um número calado há
+> mais de um dia.
 
-## Gravar uma sessão de farm
+### 2. Calibre
 
-O evento que o scanner existe para pegar — alguém da PT morrer — é raro e não se
-reproduz sob demanda. Por isso o gravador vem antes da detecção: você farma com
-ele ligado, banca uma morte de verdade, e aquela sessão vira ao mesmo tempo a
-base de calibração e um teste de regressão permanente.
-
-Abra `gravar-sessao.bat`, troque os números da linha `--regiao` pelas
-coordenadas da sua party window (`esquerda,topo,largura,altura`) e dê dois
-cliques. Deixe rodando enquanto farma; `Ctrl+C` encerra e fecha a gravação
-direito.
-
-Ou pela linha de comando:
+Com o jogo aberto e a party window visível na tela:
 
 ```bash
-python -m l2scanner --record --rotulo farm --regiao 1713,330,450,300
+python -m l2scanner.calibrar --auto --nomes "J4guar,Kaus,TioMad,Korzis"
+```
+
+Ele procura o padrão das barras na tela, deduz todo o layout sozinho e grava
+`calibration.json`. Também gera `calibracao-conferencia.png` com as regiões
+desenhadas por cima — **abra essa imagem e confira**. Número conferindo com número
+não prova que a região está no lugar certo; ver a imagem prova.
+
+Se a detecção automática errar:
+
+```bash
+python -m l2scanner.calibrar --selecionar --nomes "J4guar,Kaus,TioMad,Korzis"
+```
+
+Aí você marca a party window arrastando o mouse.
+
+**Recalibre sempre que** mover a party window, mudar a resolução ou trocar o
+arranjo de monitores. O scanner se recusa a iniciar se a geometria da tela mudou
+desde a calibração — é melhor falhar alto do que medir a região errada calado.
+
+### 3. Vigie
+
+```bash
+python -m l2scanner
+```
+
+Ou dê dois cliques em `vigiar-party.bat`, que monta o ambiente sozinho na
+primeira execução.
+
+Deixe a janela aberta enquanto farma. `Ctrl+C` encerra.
+
+Antes de confiar, rode uma vez em modo simulação para ver os alertas sem enviar
+nada:
+
+```bash
+python -m l2scanner --dry-run
+```
+
+## Gravar uma sessão
+
+O evento que o scanner existe para pegar — alguém da PT morrer — é raro e não se
+reproduz sob demanda. Por isso vale farmar com gravação ligada: quando alguém
+morrer numa sessão gravada, aquele frame vira ao mesmo tempo a base de calibração
+e um teste de regressão permanente.
+
+```bash
+python -m l2scanner --record --rotulo farm
 ```
 
 A sessão fica em `recordings/`, com um PNG por frame e um `observacoes.jsonl`.
 PNG porque é sem perda — compressão com perda destruiria justamente as bordas de
 barra que precisamos medir.
 
+Para reproduzir uma sessão gravada, sem o jogo aberto e sem rede:
+
+```bash
+python -m l2scanner --replay recordings/20260824-120000-farm --dry-run
+```
+
+O replay usa os **horários gravados**, não o relógio: uma sessão de uma hora
+reproduzida em trinta segundos produz exatamente os mesmos eventos.
+
+## Opções
+
+| Opção | O que faz |
+|---|---|
+| `--dry-run` | Mostra os alertas no console sem enviar nada |
+| `--test-alert` | Envia um alerta de teste e sai (não precisa do jogo) |
+| `--record` | Grava a sessão em disco |
+| `--replay PASTA` | Reproduz uma sessão gravada |
+| `--intervalo N` | Segundos entre capturas (padrão: 1) |
+| `--status-a-cada N` | Segundos entre blocos de status no console |
+| `--sem-aviso-de-inicio` | Não avisa no WhatsApp ao ligar e desligar |
+| `-v` | Log detalhado |
+
+## Como ele evita alarme falso
+
+Um scanner que acerta 90% das vezes é pior do que nenhum scanner: a party silencia
+o grupo e o único alerta verdadeiro se perde junto. Por isso a maior parte do
+código é sobre *não* alertar:
+
+- **Morte só é confirmada após leituras seguidas de HP zerado.** Um frame borrado
+  ou um efeito passando por cima da barra não dispara nada.
+- **Sair do estado morto exige mais confirmações do que entrar.** Sem essa
+  assimetria, um piscar de HP produziria "ressuscitou" seguido de "morreu" sem
+  fim.
+- **Enquanto a party window não estiver visível, nada é enviado** — e essa
+  verificação acontece *antes* das verificações por membro. Se fosse depois, um
+  único alt-tab viraria quatro alertas de "saiu da party".
+- **Perder a visão congela os contadores em vez de zerar.** Uma morte que começou
+  logo antes de um alt-tab ainda alerta quando a visão volta.
+- **Ao recuperar a visão há um período de tolerância**, porque a UI redesenha em
+  partes e as barras leem zero por um ou dois frames.
+- **Cada evento gera exatamente um alerta.** Um morto por cinco minutos não vira
+  cinco minutos de mensagens.
+- **O texto é fraseado para sobreviver a um erro:** "HP zerado — possível morte",
+  nunca "MORREU".
+
 ## Requisitos
 
 Python 3.12 ou superior.
 
-O gate de entrega (`tools/check_whatsapp.py`) usa apenas a biblioteca padrão —
-roda sem instalar nada.
+O gate de entrega (`tools/check_whatsapp.py`) usa apenas a biblioteca padrão.
 
-O scanner precisa das dependências de `requirements.txt` (`mss`, `opencv-python`,
-`numpy`). O `gravar-sessao.bat` monta o ambiente sozinho na primeira execução.
+O scanner precisa de `mss`, `opencv-python` e `numpy` (veja `requirements.txt`).
+Os arquivos `.bat` montam o ambiente sozinhos na primeira execução.
 
 Para rodar os testes:
 
