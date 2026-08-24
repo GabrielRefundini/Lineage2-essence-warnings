@@ -27,10 +27,12 @@ TRES ARESTAS QUE PARECEM DETALHE E NAO SAO:
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from enum import Enum
+from pathlib import Path
 
 # Quanto tempo depois do alvo um aviso ainda pode sair.
 #
@@ -233,3 +235,100 @@ class RegistroEmMemoria:
             return False
         self._chaves.add(chave)
         return True
+
+
+# Quantos dias de marcadores guardar antes de podar. Curto de proposito: o
+# unico uso e "isto ja saiu?", e essa pergunta so importa para hoje e para a
+# virada de dia.
+DIAS_DE_MARCADOR = 3
+
+
+class RegistroEmDisco:
+    """Quais avisos ja sairam — a prova de restart E de duas instancias.
+
+    DUAS EXIGENCIAS QUE PARECEM SEPARADAS E SAO A MESMA:
+
+      AGEN-06  reiniciar o scanner nao pode reenviar um aviso ja enviado
+      AGEN-07  duas instancias rodando nao podem fazer o grupo receber em dobro
+
+    As duas pedem um registro DURAVEL e FORA DO PROCESSO de qual aviso ja saiu.
+    Resolver uma sem a outra deixa metade do bug em pe — e o usuario roda duas
+    instancias lado a lado (Yazalaque e Faerlina), entao a metade que sobrasse
+    apareceria no primeiro dia.
+
+    A IMPLEMENTACAO E UM ARQUIVO VAZIO POR AVISO, criado com O_CREAT | O_EXCL.
+
+    Essa combinacao e ATOMICA no Windows: entre duas instancias competindo pelo
+    mesmo aviso no mesmo instante, exatamente uma cria o arquivo e a outra leva
+    FileExistsError. Quem criou despacha; quem falhou cala. Nao precisa de lock,
+    nao precisa de biblioteca, e nao tem janela de corrida entre ler e escrever
+    — que e justamente o furo de um "le o JSON, checa, escreve o JSON".
+
+    E o mesmo arquivo que resolve o restart, porque ele esta em disco.
+
+    POR QUE NAO DERIVAR DO outbox.jsonl: ele ja registra tudo que foi enviado,
+    com hora. Tentador e errado — exigiria casar o TEXTO da mensagem para saber
+    o que cada linha era, e o texto e exatamente a parte que muda quando alguem
+    melhora a redacao. Registro de intencao precisa de chave estruturada.
+    """
+
+    def __init__(self, pasta: Path) -> None:
+        self._pasta = pasta
+        self._pasta.mkdir(parents=True, exist_ok=True)
+        self.podar()
+
+    def enviados(self) -> set[str]:
+        """Avisos ja registrados por QUALQUER instancia.
+
+        Serve para o caminho comum, evitando criar arquivo a toa. NAO e a
+        garantia — a garantia e o O_EXCL do `marcar`, porque entre este read e
+        aquele write a outra instancia pode ter escrito.
+        """
+        try:
+            return {caminho.name for caminho in self._pasta.iterdir()}
+        except OSError:
+            return set()
+
+    def marcar(self, chave: str) -> bool:
+        """True se ESTE processo deve enviar. False se alguem ja enviou.
+
+        Aqui mora a garantia. A decisao de despachar tem que ser esta chamada,
+        nunca uma checagem anterior.
+        """
+        alvo = self._pasta / chave
+        try:
+            descritor = os.open(alvo, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return False
+        except OSError:
+            # Disco cheio, permissao, pasta sumiu. Preferir o aviso duplicado
+            # ao aviso perdido: a party consegue ignorar uma repeticao, mas nao
+            # consegue adivinhar um TvT que ninguem anunciou.
+            return True
+        os.close(descritor)
+        return True
+
+    def podar(self, hoje: date | None = None) -> int:
+        """Apaga marcadores velhos. Devolve quantos foram apagados.
+
+        Sem isto a pasta cresce para sempre — devagar, mas para sempre.
+        """
+        hoje = hoje or date.today()
+        limite = hoje - timedelta(days=DIAS_DE_MARCADOR)
+        apagados = 0
+        try:
+            nomes = list(self._pasta.iterdir())
+        except OSError:
+            return 0
+        for caminho in nomes:
+            try:
+                dia = date.fromisoformat(caminho.name.split("_", 1)[0])
+            except (ValueError, IndexError):
+                continue  # nao e um marcador nosso; nao mexer
+            if dia < limite:
+                try:
+                    caminho.unlink()
+                    apagados += 1
+                except OSError:
+                    pass
+        return apagados

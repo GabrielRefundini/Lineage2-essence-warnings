@@ -29,7 +29,7 @@ from .calibracao import (  # noqa: E402
     descrever_geometria_da_tela,
 )
 from .agenda import (  # noqa: E402
-    RegistroEmMemoria,
+    RegistroEmDisco,
     avisos_devidos,
     proxima_ocorrencia,
     texto_do_aviso,
@@ -58,6 +58,9 @@ ARQUIVO_CALIBRACAO = RAIZ / "calibration.json"
 PASTA_GRAVACOES = RAIZ / "recordings"
 PASTA_LOGS = RAIZ / "logs"
 ARQUIVO_OUTBOX = RAIZ / "outbox.jsonl"
+# Marcadores de "este aviso ja saiu". Compartilhada pelas DUAS instancias
+# que o usuario roda — e o que impede o grupo de receber tudo em dobro.
+PASTA_AGENDA = RAIZ / ".agenda"
 
 INTERVALO_PADRAO = 1.0
 
@@ -269,7 +272,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     # silenciar; furar ele aqui tornaria o silenciamento impossivel de
     # acrescentar depois sem reescrever isto.
     eventos_agendados = ler_agenda()
-    registro_da_agenda = RegistroEmMemoria()
+    registro_da_agenda = RegistroEmDisco(PASTA_AGENDA)
     if eventos_agendados:
         proximo = proxima_ocorrencia(datetime.now(), eventos_agendados)
         if proximo:

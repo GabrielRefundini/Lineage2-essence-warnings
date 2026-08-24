@@ -24,6 +24,10 @@ recordings/
 !l2scanner/recursos/*.png
 
 # Saída em tempo de execução
+# .agenda/ guarda marcadores de "este aviso ja saiu" — estado local desta
+# maquina, igual ao outbox. Versionar faria um clone novo achar que ja
+# avisou o TvT de um dia que ele nunca viveu, e calar de verdade.
+.agenda/
 outbox.jsonl
 events.jsonl
 logs/

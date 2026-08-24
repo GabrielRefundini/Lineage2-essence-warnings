@@ -354,3 +354,136 @@ class TestAgendaRealDoUsuario:
         eventos = ler_agenda(caminho)
         assert avisos_devidos(em(14, 35), eventos, set())[0].tipo is TipoDeAviso.ANTES
         assert avisos_devidos(em(14, 50), eventos, set()) == []
+
+
+class TestRegistroEmDisco:
+    """Um aviso, uma vez — a prova de restart e de duas instancias.
+
+    O usuario roda DUAS instancias lado a lado (Yazalaque e Faerlina). Sem
+    isto, o grupo receberia cada lembrete de TvT em dobro, todo dia, tres vezes
+    por dia.
+    """
+
+    def test_duas_instancias_no_mesmo_instante_so_uma_envia(self, tmp_path):
+        """A garantia central da tarefa.
+
+        `O_CREAT | O_EXCL` e atomico no Windows: entre duas instancias
+        competindo pelo mesmo aviso, exatamente uma cria o arquivo.
+        """
+        from l2scanner.agenda import RegistroEmDisco
+
+        a = RegistroEmDisco(tmp_path)
+        b = RegistroEmDisco(tmp_path)
+        chave = "2026-08-24_tvt-1500_agora"
+
+        assert [a.marcar(chave), b.marcar(chave)] == [True, False]
+
+    def test_muitas_instancias_competindo_produzem_um_envio_so(self, tmp_path):
+        from l2scanner.agenda import RegistroEmDisco
+
+        chave = "2026-08-24_tvt-2150_antes"
+        registros = [RegistroEmDisco(tmp_path) for _ in range(8)]
+        assert sum(1 for r in registros if r.marcar(chave)) == 1
+
+    def test_competicao_de_verdade_com_threads(self, tmp_path):
+        """Nao basta chamar em sequencia — o risco e a corrida.
+
+        Um "le o JSON, checa, escreve o JSON" passaria no teste sequencial e
+        falharia aqui, porque tem janela entre o read e o write.
+        """
+        import threading
+
+        from l2scanner.agenda import RegistroEmDisco
+
+        chave = "2026-08-24_prime-2000_agora"
+        vencedores = []
+        trava = threading.Lock()
+        largada = threading.Event()
+
+        def tentar():
+            registro = RegistroEmDisco(tmp_path)
+            largada.wait()
+            if registro.marcar(chave):
+                with trava:
+                    vencedores.append(1)
+
+        threads = [threading.Thread(target=tentar) for _ in range(16)]
+        for t in threads:
+            t.start()
+        largada.set()
+        for t in threads:
+            t.join()
+
+        assert len(vencedores) == 1, f"{len(vencedores)} instancias enviariam"
+
+    def test_reiniciar_o_scanner_nao_reenvia(self, tmp_path):
+        """AGEN-06: o marcador esta em disco, entao sobrevive ao processo."""
+        from l2scanner.agenda import RegistroEmDisco
+
+        chave = "2026-08-24_tvt-1700_agora"
+        assert RegistroEmDisco(tmp_path).marcar(chave) is True
+        # processo morre, sobe de novo, do zero
+        assert RegistroEmDisco(tmp_path).marcar(chave) is False
+
+    def test_enviados_enxerga_o_que_a_outra_instancia_escreveu(self, tmp_path):
+        from l2scanner.agenda import RegistroEmDisco
+
+        a = RegistroEmDisco(tmp_path)
+        b = RegistroEmDisco(tmp_path)
+        a.marcar("2026-08-24_tvt-1500_antes")
+        assert "2026-08-24_tvt-1500_antes" in b.enviados()
+
+    def test_a_agenda_inteira_com_registro_duravel_nao_duplica(self, tmp_path):
+        """Ponta a ponta: dois dias de agenda real, duas instancias, um envio."""
+        from datetime import timedelta
+
+        from l2scanner.agenda import RegistroEmDisco
+
+        raiz = __import__("pathlib").Path(__file__).resolve().parent.parent
+        agenda = ler_agenda(raiz / "config.toml")
+
+        enviados_por = {"A": [], "B": []}
+        instante = SEGUNDA
+        for _ in range(2 * 24 * 60):
+            for etiqueta in ("A", "B"):
+                registro = RegistroEmDisco(tmp_path)
+                for aviso in avisos_devidos(instante, agenda, registro.enviados()):
+                    if registro.marcar(aviso.chave):
+                        enviados_por[etiqueta].append(aviso.chave)
+            instante += timedelta(minutes=1)
+
+        todos = enviados_por["A"] + enviados_por["B"]
+        assert len(todos) == len(set(todos)), "houve aviso duplicado"
+        # Segunda: 8 avisos. Terca: 8. Nenhum a mais, nenhum a menos.
+        assert len(todos) == 16
+
+    def test_poda_apaga_o_velho_e_preserva_o_de_hoje(self, tmp_path):
+        from datetime import date as _date
+
+        from l2scanner.agenda import RegistroEmDisco
+
+        registro = RegistroEmDisco(tmp_path)
+        registro.marcar("2026-08-01_tvt-1500_agora")  # antigo
+        registro.marcar("2026-08-24_tvt-1500_agora")  # de hoje
+
+        apagados = registro.podar(hoje=_date(2026, 8, 24))
+
+        assert apagados == 1
+        assert registro.enviados() == {"2026-08-24_tvt-1500_agora"}
+
+    def test_poda_nao_mexe_em_arquivo_que_nao_e_nosso(self, tmp_path):
+        from datetime import date as _date
+
+        from l2scanner.agenda import RegistroEmDisco
+
+        (tmp_path / "leiame.txt").write_text("nao me apague", encoding="utf-8")
+        registro = RegistroEmDisco(tmp_path)
+        registro.podar(hoje=_date(2030, 1, 1))
+        assert (tmp_path / "leiame.txt").exists()
+
+    def test_a_pasta_e_criada_se_nao_existir(self, tmp_path):
+        from l2scanner.agenda import RegistroEmDisco
+
+        alvo = tmp_path / "nao" / "existe" / "ainda"
+        RegistroEmDisco(alvo)
+        assert alvo.is_dir()
