@@ -374,3 +374,59 @@ mesmo com as linhas 2 e 3 sem assinatura.
 - saida real: linha some -> SAIU dispara, mesmo com linhas nao calibradas
 - frame 40 (linha-fantasma na 6) -> `ui_visivel` continua True
 - oracle_type: derived (contrato de atribuicao) + specified (eventos esperados)
+
+
+---
+
+## RESOLVIDO — 2026-08-24
+
+Verificado ao vivo: **90 segundos com a party parada, zero eventos**. A sessão
+que originou a investigação teve 64 eventos falsos no mesmo tipo de cenário.
+
+### Sete correções, não cinco
+
+Às cinco propostas (A–E) somaram-se duas descobertas feitas durante a aplicação:
+
+**F. Linha não reconhecida pegava emprestado o nome de outra pessoa.**
+A linha 1, sem reconhecimento e com HP ZERADO, era rotulada `nomes[1]` =
+"Korzis" — com o Korzis real vivo na linha 0. Faltava um debounce para anunciar
+a morte de quem estava vivo. A lista do config é ordenada por posição, e
+posição não é identidade; com assinaturas em jogo ela deixa de valer como
+atribuição. Agora sai "Membro 2" — feio, mas honesto.
+
+**G. Passar a reconhecer alguém não é uma entrada.**
+Depois de A–E, o arranque anunciou "Kaus entrou na party" com o Kaus lá o tempo
+todo. É o espelho exato do bug de saída que a correção E resolveu, e a resposta
+é o mesmo sinal: a party window **crescer**. Quem entra adiciona uma linha; um
+nome recém-reconhecido não muda contagem nenhuma.
+
+### O padrão por trás de tudo
+
+Cinco dos sete bugs são a mesma confusão em roupas diferentes: **tratar
+mudança de reconhecimento como mudança de realidade**. O reconhecimento falhar,
+voltar, ou acertar a pessoa errada não muda quem está na party — mas cada um
+desses casos alterava o conjunto de identidades, e o rastreador lia a alteração
+como evento.
+
+A resposta em todos foi a mesma: **a contagem de linhas é o sinal físico**.
+Ela cresce quando alguém entra, encolhe quando alguém sai, e não se mexe quando
+só o reconhecimento oscila.
+
+### Verificação
+
+| Critério | Resultado |
+|---|---|
+| Assinatura em duas linhas no mesmo frame | 0 nos 4 frames adversariais |
+| Não calibrado virando calibrado | 0 |
+| Party estável gerando evento | 0 em 90s ao vivo |
+| Saída real detectada | sim, com o nome certo |
+| Suíte | 215 testes |
+
+### Pendência conhecida, não bloqueante
+
+Não existe fixture de um membro calibrado **sem** coroa que depois **vira**
+líder. A busca deslizante nunca cobriu esse caso (alargava para a esquerda, a
+coroa empurra para a direita) e foi removida por inflar casamentos errados em
++0.37 sem ajudar nenhum correto (+0.00, em 8 de 8 medidos). Se a transição de
+liderança quebrar o reconhecimento, a resposta é **duas assinaturas por
+membro** — nunca voltar ao `.max()` irrestrito.
