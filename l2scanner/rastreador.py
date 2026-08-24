@@ -224,6 +224,28 @@ class Rastreador:
     _contador_sem_party: int = field(default=0, init=False)
     _contador_com_party: int = field(default=0, init=False)
 
+    # Se o scanner ja conseguiu ver a party window pelo menos UMA vez.
+    #
+    # Enquanto for False, o veredito "voce nao esta em party" nao e
+    # conhecimento — e so a ausencia de leitura. A diferenca importa na volta:
+    # sem isto, um arranque que demora a enxergar a tela fixava False em
+    # silencio e depois anunciava "voce entrou em party" quando a visao voltava,
+    # com voce na mesma party o tempo todo. Aconteceu as 18:08.
+    #
+    # Os pixels de "liguei fora de party e entrei" e de "liguei e demorei para
+    # ler a tela" sao IDENTICOS, entao nao da para separar os dois por imagem.
+    # Entre anunciar uma entrada que voce mesmo fez (e portanto ja sabe) e
+    # inventar uma que nao houve, calar e a escolha certa.
+    _ja_viu_party_window: bool = field(default=False, init=False)
+
+    # Se o veredito "voce nao esta em party" que esta valendo agora foi firmado
+    # COM a party window ja tendo sido vista alguma vez. Guardado no instante em
+    # que o veredito e firmado, e nao consultado na volta: quando a entrada
+    # confirma, a party window ja esta visivel ha varios frames e
+    # `_ja_viu_party_window` ja virou True — perguntar naquele momento sempre
+    # responderia "sim" e a guarda seria inutil.
+    _sem_party_era_confiavel: bool = field(default=False, init=False)
+
     @property
     def portao(self) -> PortaoGlobal:
         return self._portao
@@ -403,6 +425,7 @@ class Rastreador:
         tem_party = obs.ui_visivel and obs.membros_presentes > 0
 
         if tem_party:
+            self._ja_viu_party_window = True
             self._contador_sem_party = 0
             self._contador_com_party += 1
         else:
@@ -413,8 +436,15 @@ class Rastreador:
 
         if self._contador_sem_party >= limite:
             if self._voce_em_party is not False:
-                era_conhecido = self._voce_em_party is True
+                # "Sem party" so vale como conhecimento se ja tivermos visto a
+                # party window alguma vez. Antes disso e ausencia de leitura, e
+                # tratar as duas coisas como iguais e o que fazia a volta da
+                # visao virar um "voce entrou em party" que nunca aconteceu.
+                era_conhecido = (
+                    self._voce_em_party is True and self._ja_viu_party_window
+                )
                 self._voce_em_party = False
+                self._sem_party_era_confiavel = self._ja_viu_party_window
                 # Comeco frio: se voce ja estava sem party quando o scanner
                 # ligou, nao anunciamos nada.
                 if era_conhecido:
@@ -428,7 +458,9 @@ class Rastreador:
 
         elif self._contador_com_party >= self.ajustes.confirmacoes_para_entrada:
             if self._voce_em_party is not True:
-                era_conhecido = self._voce_em_party is False
+                era_conhecido = (
+                    self._voce_em_party is False and self._sem_party_era_confiavel
+                )
                 self._voce_em_party = True
                 if era_conhecido:
                     return [

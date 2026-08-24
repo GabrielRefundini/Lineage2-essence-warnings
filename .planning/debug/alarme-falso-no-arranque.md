@@ -215,29 +215,28 @@ files_changed:
   - tests/test_identidade.py (TestArranqueNaoInventaEntrada, 5 testes)
   - tests/test_voce_na_party.py (TestCegueiraNaoEsaidaDaParty, 4 testes)
 
-## Pendencia CONHECIDA — terceiro falso positivo, NAO corrigido
+## Terceiro falso positivo — CORRIGIDO (decisao do usuario)
 
 logs/scanner.log 18:08:00 "YAZALAQUE ENTROU EM PARTY", numa sessao em modo
-simulacao (nao foi entregue no WhatsApp). Caminho diferente dos dois acima e
-ainda aberto — reproduzido:
+simulacao (nao chegou ao WhatsApp). Caminho diferente dos dois acima:
 
-  arranque, 14 frames sem conseguir ler a party window, barra propria lendo
+  arranque, ~14 frames sem conseguir ler a party window, barra propria lendo
   100% normal, party LA o tempo todo -> VOCE_ENTROU_EM_PARTY na recuperacao
 
 Mecanismo: `_voce_em_party` comeca None; 8 leituras sem party window fixam False
 em silencio (comeco frio, correto); a recuperacao entao ve False -> True e trata
 como transicao conhecida, anunciando.
 
-Por que NAO foi corrigido junto: a leitura e AMBIGUA de verdade. "Liguei o
-scanner sem estar em party e depois entrei" produz exatamente os mesmos pixels
-que "liguei o scanner e demorei 14 s para conseguir ler a party window". O
-primeiro DEVE anunciar; o segundo nao. Separar os dois exige um sinal positivo
-de "a party window esta ausente" que hoje nao existe — so existe "nao consegui
-le-la".
+A leitura e AMBIGUA de verdade — "liguei fora de party e entrei" produz os
+mesmos pixels que "liguei e demorei para ler a tela" — entao nao havia correcao
+puramente tecnica. Usuario escolheu CALAR NO ARRANQUE.
 
-Duas saidas, e a escolha e de produto, nao tecnica:
-  (a) calar no comeco frio: nunca anunciar VOCE_ENTROU_EM_PARTY quando o
-      primeiro veredito "sem party" foi firmado sem NUNCA ter visto a party
-      window. Mata o falso positivo, e o preco e nao avisar quando voce entra
-      numa party logo depois de ligar o scanner.
-  (b) manter como esta e aceitar um alarme falso por arranque ruim.
+Implementado: `_ja_viu_party_window` marca se a party window ja foi vista
+alguma vez, e `_sem_party_era_confiavel` congela esse fato NO INSTANTE em que o
+veredito "sem party" e firmado. Consultar na volta nao funcionaria: quando a
+entrada confirma, a party window ja esta visivel ha varios frames e a resposta
+seria sempre "sim".
+
+Preco aceito: entrar numa party logo depois de ligar o scanner nao gera aviso.
+Sair de uma party e voltar (com a window ja vista antes) continua avisando nas
+duas pontas — coberto por `test_saida_e_volta_de_verdade_ainda_avisam_as_duas`.

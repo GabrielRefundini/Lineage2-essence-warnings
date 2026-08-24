@@ -246,3 +246,56 @@ class TestCegueiraNaoEsaidaDaParty:
         assert [
             e for e in eventos if e.tipo is TipoDeEvento.VOCE_SEM_PARTY
         ] == []
+
+
+class TestArranqueCegoNaoEEntradaEmParty:
+    """Demorar para enxergar a party window nao e "voce entrou em party".
+
+    logs/scanner.log 18:07:46-18:08:00: o scanner subiu, passou ~14 s sem
+    conseguir ler a party window (a barra propria lendo 100% normal o tempo
+    todo) e anunciou "YAZALAQUE ENTROU EM PARTY" quando a visao voltou. A party
+    estava la desde antes do scanner ligar.
+
+    Mecanismo: `_voce_em_party` comeca None; N leituras sem party window fixam
+    False em silencio (comeco frio, correto); a recuperacao entao ve
+    False -> True e trata como transicao CONHECIDA, anunciando.
+
+    Os pixels de "liguei o bot fora de party e depois entrei numa" e de "liguei
+    o bot e demorei para conseguir ler a tela" sao identicos — nao existe imagem
+    que separe os dois. A escolha e calar: anunciar uma entrada que voce mesmo
+    fez (e portanto ja sabe) vale menos do que nao inventar uma que nao houve.
+    """
+
+    def test_visao_voltando_no_arranque_nao_anuncia_entrada(self):
+        r = Rastreador(
+            nomes=list(MEMBROS),
+            nome_proprio="Yazalaque",
+            ajustes=Ajustes(
+                confirmacoes_para_voce_sem_party=4, confirmacoes_para_entrada=3
+            ),
+        )
+        # nunca vimos a party window; a barra propria le normal
+        eventos = alimentar(r, sem_party(hp_proprio=1.0), vezes=14, inicio=0)
+        eventos += alimentar(r, com_party(), vezes=10, inicio=100)
+
+        assert [
+            e for e in eventos if e.tipo is TipoDeEvento.VOCE_ENTROU_EM_PARTY
+        ] == [], "a party estava la o tempo todo; quem chegou foi a visao"
+
+    def test_saida_e_volta_de_verdade_ainda_avisam_as_duas(self):
+        """A guarda so vale para o comeco frio.
+
+        Depois de ter visto a party window uma vez, "sem party" volta a ser
+        conhecimento e o ciclo completo precisa avisar nas duas pontas.
+        """
+        r = novo()  # aquece 15 frames COM party
+
+        saida = alimentar(r, sem_party(hp_proprio=1.0), vezes=8, inicio=10)
+        volta = alimentar(r, com_party(), vezes=6, inicio=100)
+
+        assert [
+            e.membro for e in saida if e.tipo is TipoDeEvento.VOCE_SEM_PARTY
+        ] == ["Yazalaque"]
+        assert [
+            e.membro for e in volta if e.tipo is TipoDeEvento.VOCE_ENTROU_EM_PARTY
+        ] == ["Yazalaque"]
