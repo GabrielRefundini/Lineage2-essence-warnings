@@ -265,12 +265,28 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
         )
 
         if not presente:
-            linhas.append(
-                LeituraDeLinha(
-                    indice=i, estado=EstadoDaLinha.VAZIA, hp=None, mp=None
+            # Primeiro vao: a party window ACABA aqui. A regiao capturada e mais
+            # alta que a janela de proposito, entao tudo abaixo deste ponto e
+            # chat, minimapa ou terreno.
+            #
+            # Sair do laco (em vez de continuar) e uma correcao de CORRETUDE,
+            # nao de desempenho. Uma linha de chat com contraste alto passa no
+            # teste do icone, e ai `_bordas_da_barra_intactas` roda sobre lixo,
+            # falha, e derruba `ui_visivel` do frame INTEIRO — cegando o scanner
+            # por causa de uma linha que a propria logica ja considera
+            # inexistente. `_truncar_no_primeiro_vao` descartava essa linha
+            # depois, tarde demais: a cegueira ja tinha acontecido.
+            #
+            # Medido: 1 frame em 60 entrava em modo cego por isso, e cada um
+            # custava ~4 frames de "[reajustando]" com todos os membros em
+            # estado desconhecido.
+            for j in range(i, layout.max_linhas):
+                linhas.append(
+                    LeituraDeLinha(
+                        indice=j, estado=EstadoDaLinha.VAZIA, hp=None, mp=None
+                    )
                 )
-            )
-            continue
+            break
 
         regiao_hp = Regiao(
             esquerda=layout.barra_x,
