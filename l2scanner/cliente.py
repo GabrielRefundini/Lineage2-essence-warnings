@@ -124,6 +124,22 @@ def carregar_template(caminho: Path | None = None) -> np.ndarray | None:
     return cv2.imread(str(alvo))
 
 
+# Faixa da janela onde o dialogo modal pode aparecer, em FRACOES da janela.
+#
+# O dialogo e modal e CENTRADO — medido no frame real: o centro dele cai em
+# x=860 numa janela de 1720, ou seja, exatamente no meio. Fracoes em vez de
+# pixels para sobreviver a mudanca de resolucao.
+#
+# Isto nao e microotimizacao. Varrer a janela inteira custava 121 ms POR FRAME,
+# medido — 12% do orcamento de um tick a 1 Hz, gastos continuamente numa maquina
+# que tambem roda dois clientes de Lineage 2, para procurar um evento que
+# acontece uma vez por manutencao.
+#
+# A margem e generosa de proposito: o template real ocupa x entre 0.41 e 0.59 e
+# y entre 0.53 e 0.58, bem dentro da faixa abaixo.
+FAIXA_DO_DIALOGO = (0.20, 0.30, 0.80, 0.80)  # (x0, y0, x1, y1)
+
+
 def casar_dialogo(
     pixels: np.ndarray | None, template: np.ndarray | None
 ) -> float | None:
@@ -132,6 +148,10 @@ def casar_dialogo(
     None quando a pergunta nao e respondivel — sem template gravado, ou frame
     menor que ele. `None` e "nao sei", nunca 0.0: um scanner que confunde as
     duas coisas anuncia o contrario do que esta vendo.
+
+    A busca cobre so a faixa central da janela (ver `FAIXA_DO_DIALOGO`). Se a
+    faixa nao couber o template — janela pequena demais — cai de volta para o
+    frame inteiro, porque perder a deteccao e pior do que gastar o tempo.
     """
     if pixels is None or template is None:
         return None
@@ -142,7 +162,20 @@ def casar_dialogo(
         or pixels.shape[1] < template.shape[1]
     ):
         return None
-    resultado = cv2.matchTemplate(pixels, template, cv2.TM_CCOEFF_NORMED)
+
+    altura, largura = pixels.shape[:2]
+    fx0, fy0, fx1, fy1 = FAIXA_DO_DIALOGO
+    recorte = pixels[
+        int(altura * fy0) : int(altura * fy1),
+        int(largura * fx0) : int(largura * fx1),
+    ]
+    if (
+        recorte.shape[0] < template.shape[0]
+        or recorte.shape[1] < template.shape[1]
+    ):
+        recorte = pixels
+
+    resultado = cv2.matchTemplate(recorte, template, cv2.TM_CCOEFF_NORMED)
     return float(resultado.max())
 
 

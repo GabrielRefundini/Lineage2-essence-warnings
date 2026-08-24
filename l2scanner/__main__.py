@@ -314,9 +314,13 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
         while True:
             agora = datetime.now()
             encerrou = silencio.atualizar(agora)
-            if encerrou and despachante:
+            if encerrou:
+                # Loga SEMPRE, despacha se houver para onde. Sem essa
+                # separacao, quem roda sem .env e sem --dry-run perdia a
+                # mensagem ate no console — silencio que nao deveria existir.
                 log.info(destacar(encerrou))
-                despachante.despachar(encerrou, Categoria.SEMPRE)
+                if despachante:
+                    despachante.despachar(encerrou, Categoria.SEMPRE)
 
             for aviso in avisos_devidos(agora, eventos, registro.enviados()):
                 if not registro.marcar(aviso.chave):
@@ -535,36 +539,17 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
             if gravador:
                 gravador.gravar(frame, time.time())
 
-            try:
-                observacao = extrair(frame, cal)
-                # O estado do CLIENTE vem da fonte, nao da analise de pixels da
-                # party window: o titulo da janela e sinal do Windows, e o
-                # dialogo de desconexao aparece longe da regiao calibrada. So a
-                # captura por janela tem as duas coisas.
-                if hasattr(fonte, "estado_do_cliente"):
-                    observacao = replace(
-                        observacao, estado_do_cliente=fonte.estado_do_cliente()
-                    )
-                # Num replay o tempo vem do arquivo, nao do relogio: e o que
-                # faz uma sessao de uma hora produzir os mesmos eventos ao ser
-                # reproduzida em trinta segundos.
-                momento = frame.momento if frame.momento is not None else time.time()
-                eventos = rastreador.observar(observacao, momento)
-                ultima_observacao = observacao
-            except Exception:
-                log.exception("Erro ao analisar o frame — seguindo")
-                time.sleep(args.intervalo)
-                continue
-
-            # A AGENDA USA O MESMO TEMPO DO RASTREADOR, e nao o relogio de
-            # parede. Num replay `momento` vem do arquivo, e isso importa por
-            # dois motivos:
+            # A AGENDA VEM ANTES DA EXTRACAO, e isso e de proposito.
             #
-            # - reproduzir uma sessao gravada durante um TvT reproduz o
-            #   SILENCIO daquele TvT. Sem isso, nao daria para depurar offline
-            #   a pergunta "por que nao recebi alerta naquele horario";
-            # - sem isso, reproduzir uma gravacao as 14h50 dispararia um aviso
-            #   de TvT DE VERDADE no grupo, no meio de uma depuracao.
+            # Ela nao depende de um unico pixel — o aviso vem do relogio. Se
+            # ficasse depois do `try` da extracao, um erro de leitura faria o
+            # `continue` engolir o lembrete de TvT junto, o que contradiz a
+            # razao inteira de a agenda existir.
+            #
+            # O tempo vem do FRAME, nao do relogio de parede: num replay isso e
+            # o que faz uma sessao gravada durante um TvT reproduzir o silencio
+            # daquele TvT.
+            momento = frame.momento if frame.momento is not None else time.time()
             agora_do_frame = datetime.fromtimestamp(momento)
 
             encerrou = silencio.atualizar(agora_do_frame)
@@ -581,7 +566,30 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 texto = texto_do_aviso(aviso)
                 log.info(destacar(texto))
                 if despachante:
+                    # SEMPRE: o lembrete atravessa o silencio. De segunda a
+                    # quinta o aviso do TvT das 21h40 cai dentro do silencio do
+                    # Prime — sem isto, a funcionalidade se anula sozinha.
                     despachante.despachar(texto, Categoria.SEMPRE)
+
+            try:
+                observacao = extrair(frame, cal)
+                # O estado do CLIENTE vem da fonte, nao da analise de pixels da
+                # party window: o titulo da janela e sinal do Windows, e o
+                # dialogo de desconexao aparece longe da regiao calibrada. So a
+                # captura por janela tem as duas coisas.
+                if hasattr(fonte, "estado_do_cliente"):
+                    observacao = replace(
+                        observacao, estado_do_cliente=fonte.estado_do_cliente()
+                    )
+                # `momento` ja foi calculado acima, do FRAME e nao do relogio:
+                # e o que faz uma sessao de uma hora produzir os mesmos eventos
+                # ao ser reproduzida em trinta segundos.
+                eventos = rastreador.observar(observacao, momento)
+                ultima_observacao = observacao
+            except Exception:
+                log.exception("Erro ao analisar o frame — seguindo")
+                time.sleep(args.intervalo)
+                continue
 
             # Cego por muito tempo com o jogo bem ali na frente quase sempre
             # significa calibracao errada, nao alt-tab. Vale dizer isso em vez
@@ -650,9 +658,10 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 despachante.despachar("Scanner encerrado — nao estou mais vigiando.")
             despachante.encerrar()
             log.info(
-                "Entrega: %d enviados, %d falharam",
+                "Entrega: %d enviados, %d falharam, %d silenciados por evento",
                 despachante.entregues,
                 despachante.falhados,
+                despachante.silenciados,
             )
 
         total = sum(contagem.values())

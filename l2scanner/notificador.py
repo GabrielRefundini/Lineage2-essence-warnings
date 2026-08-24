@@ -26,8 +26,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from enum import Enum
+from pathlib import Path
 from queue import Empty, Queue
 from typing import Protocol
 

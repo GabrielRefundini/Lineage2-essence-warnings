@@ -322,3 +322,102 @@ class TestAgendaUsaOTempoDoFrame:
 
         fonte = inspect.getsource(principal.laco_da_agenda)
         assert "agora = datetime.now()" in fonte
+
+
+class TestCorrecoesDaRevisao:
+    """Travas para os achados do code review de 2026-08-24.
+
+    Os tres warnings eram todos de INTEGRACAO — coisas que os testes unitarios
+    nao alcancam porque vivem no laco principal. Por isso estes testes leem a
+    fonte: e a unica forma de afirmar ordem de execucao sem subir o scanner
+    inteiro com um jogo aberto.
+    """
+
+    def _fonte(self, funcao):
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        return inspect.getsource(getattr(principal, funcao))
+
+    def test_a_agenda_roda_ANTES_da_extracao(self):
+        """W-02. A agenda nao depende de um unico pixel.
+
+        Se ficar depois do `try` da extracao, um erro de leitura faz o
+        `continue` engolir o lembrete de TvT junto — o que contradiz a razao
+        inteira de a agenda existir.
+        """
+        fonte = self._fonte("laco_principal")
+        pos_agenda = fonte.index("avisos_devidos(")
+        pos_extracao = fonte.index("observacao = extrair(frame, cal)")
+        assert pos_agenda < pos_extracao, (
+            "a agenda voltou para depois da extracao; um erro de pixel passa a "
+            "calar o lembrete de TvT"
+        )
+
+    def test_o_encerramento_e_logado_mesmo_sem_despachante(self):
+        """W-03. Silencio que nao deveria existir.
+
+        Quem roda sem .env e sem --dry-run perdia a mensagem ate no console.
+        """
+        fonte = self._fonte("laco_da_agenda")
+        assert "if encerrou and despachante:" not in fonte, (
+            "o `and despachante` cala o console tambem"
+        )
+        assert "if encerrou:" in fonte
+
+    def test_o_resumo_mostra_quantos_foram_silenciados(self):
+        """I-01. Depois de um TvT, 3 engolidos e 300 engolidos sao coisas bem
+        diferentes — e essa diferenca e o sinal de que o silencio funcionou."""
+        fonte = self._fonte("laco_principal")
+        assert "despachante.silenciados" in fonte
+
+
+class TestBuscaDoDialogoNaFaixaCentral:
+    """W-01. Varrer a janela inteira custava 121 ms POR FRAME, medido.
+
+    Sao 12% do orcamento de um tick a 1 Hz, gastos continuamente numa maquina
+    que tambem roda dois clientes de Lineage 2, para procurar um evento que
+    acontece uma vez por manutencao.
+
+    O dialogo e modal e CENTRADO — medido, o centro dele cai exatamente no meio
+    da janela.
+    """
+
+    def test_o_positivo_real_continua_casando(self):
+        """A otimizacao nao pode custar a deteccao."""
+        from pathlib import Path
+
+        import cv2
+
+        from l2scanner.cliente import carregar_template, casar_dialogo
+
+        fixture = (
+            Path(__file__).parent
+            / "fixtures"
+            / "cliente"
+            / "dialogo_desconexao_recorte.png"
+        )
+        recorte = cv2.imread(str(fixture))
+        pontuacao = casar_dialogo(recorte, carregar_template())
+        assert pontuacao is not None and pontuacao >= 0.99
+
+    def test_janela_pequena_demais_cai_para_o_frame_inteiro(self):
+        """Perder a deteccao e pior do que gastar o tempo."""
+        import numpy as np
+
+        from l2scanner.cliente import carregar_template, casar_dialogo
+
+        template = carregar_template()
+        altura, largura = template.shape[:2]
+        # Cabe o template, mas a faixa central sozinha nao caberia.
+        quadro = np.zeros((altura + 4, largura + 4, 3), dtype=np.uint8)
+        assert casar_dialogo(quadro, template) is not None
+
+    def test_a_faixa_cobre_com_folga_a_posicao_real_medida(self):
+        """O template real ocupa x 0.41-0.59 e y 0.53-0.58 da janela."""
+        from l2scanner.cliente import FAIXA_DO_DIALOGO
+
+        fx0, fy0, fx1, fy1 = FAIXA_DO_DIALOGO
+        assert fx0 <= 0.41 and fx1 >= 0.59, "a faixa horizontal corta o dialogo"
+        assert fy0 <= 0.53 and fy1 >= 0.58, "a faixa vertical corta o dialogo"
