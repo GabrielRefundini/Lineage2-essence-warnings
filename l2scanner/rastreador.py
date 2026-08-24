@@ -134,6 +134,11 @@ class Rastreador:
     ajustes: Ajustes = field(default_factory=Ajustes)
     nomes: list[str] = field(default_factory=list)
 
+    # Nome do proprio personagem. Ele nao aparece na propria party window, mas
+    # o estado dele e rastreado igual ao dos outros — inclusive porque e quem
+    # tem mais chance de morrer sem ninguem perceber.
+    nome_proprio: str | None = None
+
     # Estado POR PESSOA. A chave e a identidade, nunca a posicao — a party
     # window reordena, e guardar por posicao atribui eventos a quem nao os
     # viveu.
@@ -284,11 +289,49 @@ class Rastreador:
             self._identidade_por_linha[linha.indice] = identidade
             self._rotulo[identidade] = linha.nome or self.nome_de(linha.indice)
 
+        # O proprio personagem entra como mais um membro, com a leitura vinda
+        # da barra dele no topo da tela. Tratar igual aos outros faz morte e
+        # ressurreicao dele passarem pelo mesmo debounce e pela mesma
+        # histerese, sem codigo duplicado.
+        if obs.hp_proprio is not None and self.nome_proprio:
+            chave = f"@{self.nome_proprio}"
+            presentes[chave] = LeituraDeLinha(
+                indice=-1,
+                estado=EstadoDaLinha.COM_MEMBRO,
+                hp=obs.hp_proprio,
+                mp=None,
+                nome=self.nome_proprio,
+                confianca_do_nome=1.0,
+            )
+            self._rotulo[chave] = self.nome_proprio
+
         # --- Quem sumiu da party ---
         # Comparar CONJUNTOS de identidade, e nao posicoes, e o que faz "TioMad
         # saiu" ser atribuido ao TioMad mesmo quando a party inteira reordena.
+        #
+        # MAS: se alguma linha esta OCUPADA e nao foi reconhecida, nao da para
+        # afirmar que ninguem saiu — o membro "sumido" pode ser exatamente quem
+        # esta naquela linha, so que a imagem falhou naquele frame. Congelar os
+        # contadores aqui e o que impede um piscar de reconhecimento de virar
+        # "Korzis saiu da party" com o Korzis na tela. Aconteceu de verdade.
+        # A regra so vale quando ha identidade em jogo. Sem nenhum membro
+        # rastreado por nome, estamos no modo antigo (chave por posicao) e
+        # congelar travaria a deteccao de saida para sempre.
+        ha_membro_nomeado = any(not k.startswith("#linha") for k in self._membros)
+        alguma_linha_sem_identidade = ha_membro_nomeado and any(
+            l.estado is EstadoDaLinha.COM_MEMBRO and not l.nome for l in obs.linhas
+        )
+
         for identidade, interno in self._membros.items():
             if identidade in presentes:
+                continue
+            if alguma_linha_sem_identidade:
+                continue
+            # Uma chave de POSICAO (`#linhaN`) so existe porque o
+            # reconhecimento falhou naquele frame. Quando ele volta, ela some —
+            # e anunciar isso como saida inventaria um membro que nunca
+            # existiu, com o rotulo de quem ainda esta na tela.
+            if ha_membro_nomeado and identidade.startswith("#linha"):
                 continue
 
             interno.contador_morte = 0
@@ -336,9 +379,14 @@ class Rastreador:
                 # AUSENTE -> presente e sempre uma entrada. DESCONHECIDO ->
                 # presente so e entrada se o scanner ja passou do aquecimento;
                 # antes disso e so a party que ja existia sendo descoberta.
+                # Uma linha NAO reconhecida vira uma chave `#linhaN`. Se ela
+                # aparecesse como "entrou", um piscar de reconhecimento criaria
+                # um membro fantasma entrando na party — o espelho do falso
+                # "saiu" que a mesma piscada causava.
+                e_chave_de_posicao = identidade.startswith("#linha")
                 entrou_de_verdade = (
                     interno.estado is EstadoDoMembro.AUSENTE or self._aquecido
-                )
+                ) and not (e_chave_de_posicao and ha_membro_nomeado)
                 interno.estado = (
                     EstadoDoMembro.MORTO if morto_agora else EstadoDoMembro.VIVO
                 )

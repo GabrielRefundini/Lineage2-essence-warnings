@@ -328,11 +328,19 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
     ):
         ui_visivel = False
 
-    hp_proprio = (
-        medir_barra(pixels, cal.hp_proprio, cal.limiares_hp)
-        if cal.hp_proprio
-        else None
-    )
+    # A barra do proprio personagem vem de um recorte SEPARADO: ela fica no
+    # topo da janela, longe da party window. Sem isso, a morte do usuario —
+    # justamente quem esta AFK sem ninguem olhando — nunca seria detectada.
+    hp_proprio = None
+    recorte_proprio = frame.extras.get("hp_proprio")
+    if recorte_proprio is not None and recorte_proprio.size:
+        regiao_inteira = Regiao(
+            esquerda=0,
+            topo=0,
+            largura=recorte_proprio.shape[1],
+            altura=recorte_proprio.shape[0],
+        )
+        hp_proprio = medir_barra(recorte_proprio, regiao_inteira, cal.limiares_hp)
 
     return Observacao(
         indice_do_frame=frame.indice,

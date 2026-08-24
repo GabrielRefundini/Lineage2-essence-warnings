@@ -15,7 +15,7 @@ Duas ideias sustentam este modulo:
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Iterator, Protocol
@@ -56,6 +56,11 @@ class Frame:
     # sem ela, o debounce mediria o tempo do replay, nao o do farm, e o
     # harness de regressao nao provaria nada.
     momento: float | None = None
+
+    # Recortes de outras regioes da tela, por nome. A barra do proprio
+    # personagem fica no TOPO da janela, longe da party window — nao da para
+    # cobrir as duas com um retangulo so sem capturar meia tela junto.
+    extras: dict[str, np.ndarray] = field(default_factory=dict)
 
     @property
     def utilizavel(self) -> bool:
@@ -146,10 +151,13 @@ class MssSource:
     por minutos e concluiria que perdeu a visao. O mss sempre devolve pixels.
     """
 
-    def __init__(self, regiao: Regiao) -> None:
+    def __init__(
+        self, regiao: Regiao, extras: dict[str, Regiao] | None = None
+    ) -> None:
         import mss  # importado aqui: exige DPI ja declarado
 
         self._regiao = regiao
+        self._extras = extras or {}
         self._mss = mss.mss()
         self._saude = _ClassificadorDeSaude()
         self._contador = 0
@@ -159,10 +167,18 @@ class MssSource:
         # mss devolve BGRA; descartamos o canal alfa
         pixels = np.asarray(bruto, dtype=np.uint8)[:, :, :3]
 
+        # Cada extra e uma captura propria: no caminho do desktop nao ha um
+        # frame completo de onde recortar.
+        recortes: dict[str, np.ndarray] = {}
+        for nome, regiao in self._extras.items():
+            cru = self._mss.grab(regiao.como_dict_mss())
+            recortes[nome] = np.asarray(cru, dtype=np.uint8)[:, :, :3]
+
         frame = Frame(
             pixels=pixels,
             indice=self._contador,
             saude=self._saude.classificar(pixels),
+            extras=recortes,
         )
         self._contador += 1
         return frame

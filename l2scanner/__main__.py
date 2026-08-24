@@ -152,6 +152,16 @@ def desenhar_status(rastreador: Rastreador, cal: Calibracao, obs) -> str:
         hp = f"{leitura.hp:5.0%}" if leitura.hp is not None else "  -- "
         linhas.append(f"  {nome:<12s} {simbolos[estado]:<6s} HP {hp}")
 
+    # Voce nao aparece na sua propria party window, entao entra numa linha
+    # separada — mas com o mesmo rastreio e o mesmo debounce dos outros.
+    if obs.hp_proprio is not None and cal.nome_proprio:
+        estado_proprio = rastreador.estado_de_membro(f"@{cal.nome_proprio}")
+        rotulo = f"{cal.nome_proprio} (voce)"
+        linhas.append(
+            f"  {rotulo:<12s} {simbolos[estado_proprio]:<6s} "
+            f"HP {obs.hp_proprio:5.0%}"
+        )
+
     return "\n".join(linhas)
 
 
@@ -200,12 +210,25 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 "janela. Vai funcionar, mas ARRASTAR o jogo quebra a leitura. "
                 "Rode calibrar.bat para corrigir."
             )
-        fonte = JanelaSource(args.janela, regiao, relativa=cal.party_window_na_janela is not None)
+        extras = {"hp_proprio": cal.hp_proprio} if cal.hp_proprio else None
+        fonte = JanelaSource(
+            args.janela,
+            regiao,
+            relativa=cal.party_window_na_janela is not None,
+            extras=extras,
+        )
         log.info("Lendo a janela '%s' — funciona com o jogo coberto", args.janela)
         log.info("Janela MINIMIZADA continua sem funcionar: o Windows para de "
                  "produzir frames e nao ha API que contorne isso.")
     else:
+        # No caminho do desktop a barra propria esta em coordenadas da
+        # JANELA, entao so da para captura-la pelo caminho --janela.
         fonte = MssSource(cal.party_window)
+        if cal.hp_proprio:
+            log.warning(
+                "A barra do seu personagem so e lida com --janela. "
+                "Sem ela, a SUA morte nao sera detectada."
+            )
         log.info("Lendo o desktop — o jogo precisa estar visivel. "
                  "Use --janela para funcionar com ele coberto.")
 
@@ -213,12 +236,15 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     if gravador:
         log.info("Gravando em %s", gravador.pasta)
 
-    rastreador = Rastreador(nomes=list(cal.nomes))
+    rastreador = Rastreador(nomes=list(cal.nomes), nome_proprio=cal.nome_proprio)
     despachante = montar_despachante(args)
     if despachante:
         despachante.iniciar()
 
-    nomes = ", ".join(cal.nomes) if cal.nomes else "(sem lista configurada)"
+    todos = list(cal.nomes)
+    if cal.nome_proprio and cal.hp_proprio:
+        todos.append(f"{cal.nome_proprio} (voce)")
+    nomes = ", ".join(todos) if todos else "(sem lista configurada)"
     log.info("Monitorando: %s", nomes)
 
     # Aperto de mao inicial: e o que faz o silencio significar alguma coisa.

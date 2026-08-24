@@ -206,6 +206,60 @@ def achar_icone_a_esquerda(
     return melhor if melhor_desvio > 30 else None
 
 
+def achar_barra_do_proprio(
+    pixels: np.ndarray, origem_janela: tuple[int, int] = (0, 0)
+) -> Regiao | None:
+    """Acha a barra de HP do proprio personagem, no topo da janela.
+
+    Ela e visualmente diferente das da party: bem mais alta (~24 px contra 8),
+    e tem o texto "HP 3597/3597" desenhado por cima. A altura e o que a
+    identifica sem ambiguidade — nada mais na tela e uma faixa vermelha
+    saturada tao grossa.
+
+    O texto por cima nao atrapalha a medicao: a barra e alta o bastante para
+    que as letras nao ocupem metade de nenhuma coluna.
+    """
+    # A busca e relativa ao topo da JANELA DO JOGO, nao ao topo da imagem.
+    # Quando a calibracao roda pelo desktop, a imagem e a tela virtual inteira
+    # — num arranjo de tres monitores, seus primeiros 260 pixels sao de outro
+    # monitor, e a barra nunca apareceria.
+    jx, jy = origem_janela
+    faixa_do_topo = pixels[jy : jy + 260, jx : jx + 900]
+    if faixa_do_topo.size == 0:
+        return None
+    hsv = cv2.cvtColor(faixa_do_topo, cv2.COLOR_BGR2HSV)
+    h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    vermelho = (((h <= 12) | (h >= 168)) & (s > 150) & (v > 60)).astype(np.uint8)
+
+    numero, _, estatisticas, _ = cv2.connectedComponentsWithStats(
+        vermelho, connectivity=8
+    )
+    candidatas = []
+    for i in range(1, numero):
+        x, y, larg, alt, area = estatisticas[i]
+        if larg < 80 or not (14 <= alt <= 40):
+            continue
+        if larg < alt * 3:
+            continue
+        if area < larg * alt * 0.5:
+            continue
+        candidatas.append((int(x), int(y), int(larg), int(alt)))
+
+    if not candidatas:
+        return None
+
+    # A barra do proprio personagem e a MAIS A ESQUERDA E MAIS ACIMA. Nao a
+    # mais larga: quando ha um alvo selecionado, a barra dele aparece no topo
+    # ao centro e e MAIS larga que a nossa — escolher pela largura pegava o
+    # monstro em vez do jogador.
+    #
+    # A posicao e estavel porque a barra do personagem e ancorada no canto
+    # superior esquerdo da UI; a do alvo flutua no centro.
+    x, y, larg, alt = min(candidatas, key=lambda c: (c[0], c[1]))
+    # devolve em coordenadas RELATIVAS a janela, como a party window
+    return Regiao(esquerda=x, topo=y, largura=larg, altura=alt)
+
+
 def calibrar_automatico(pixels: np.ndarray, ox: int, oy: int) -> Calibracao | None:
     """Deduz toda a calibracao a partir de uma captura da tela."""
     print("Procurando barras de HP na tela...")
@@ -440,6 +494,10 @@ def main() -> int:
         help="voce marca a party window com o mouse",
     )
     parser.add_argument(
+        "--eu",
+        help="nome do SEU personagem (se omitido, sai do titulo da janela)",
+    )
+    parser.add_argument(
         "--nomes",
         help="nomes dos membros em ordem, separados por virgula "
         "(ex.: J4guar,Kaus,TioMad,Korzis)",
@@ -477,7 +535,43 @@ def main() -> int:
 
     # Descobre a qual cliente esta party window pertence. Com duas instancias
     # abertas, adivinhar significaria vigiar o personagem errado.
-    cal.janela = janela_que_contem(cal.party_window.esquerda, cal.party_window.topo)
+    # Decide pela janela que contem o CENTRO da party window, nao o canto.
+    # O canto e fragil: a deteccao automatica pode marca-lo alguns pixels a
+    # esquerda da borda real, e com duas instancias lado a lado isso atribui a
+    # party a instancia vizinha — foi o que aconteceu, o canto caiu 12 px
+    # dentro da janela da Faerlina e a calibracao inteira saiu no cliente
+    # errado.
+    cal.janela = janela_que_contem(
+        cal.party_window.esquerda + cal.party_window.largura // 2,
+        cal.party_window.topo + cal.party_window.altura // 2,
+    )
+
+    # A barra do proprio personagem. Sem ela a morte do usuario nunca e
+    # detectada — e ele e quem tem mais chance de morrer AFK, porque e o unico
+    # sem outra pessoa olhando por ele.
+    origem = (0, 0)
+    if cal.janela:
+        try:
+            jx, jy = origem_da_janela(achar_janela(cal.janela))
+            # `pixels` pode ser o desktop (offset ox,oy) ou o frame da janela
+            # (ja com origem nela). Descobrimos por qual caminho viemos.
+            origem = (jx - ox, jy - oy)
+        except Exception:
+            origem = (0, 0)
+    propria = achar_barra_do_proprio(pixels, origem)
+    if propria is not None:
+        cal.hp_proprio = Regiao(
+            esquerda=propria.esquerda,
+            topo=propria.topo,
+            largura=propria.largura,
+            altura=propria.altura,
+        )
+    if args.eu:
+        cal.nome_proprio = args.eu.strip()
+    elif cal.janela and " - " in cal.janela:
+        # o titulo da janela e "Personagem - XM Essence"
+        cal.nome_proprio = cal.janela.split(" - ")[0].strip()
+
 
     # Guarda a party window TAMBEM em coordenadas relativas ao canto da janela
     # do jogo. As coordenadas de desktop so valem enquanto a janela nao se
@@ -531,6 +625,13 @@ def main() -> int:
     print(f"  party window : {pw.largura}x{pw.altura} em ({pw.esquerda},{pw.topo})")
     print(f"  barras       : {cal.layout.barra_largura}x{cal.layout.barra_altura}")
     print(f"  espacamento  : {cal.layout.passo} px entre membros")
+    if cal.hp_proprio:
+        r = cal.hp_proprio
+        quem = cal.nome_proprio or "(nome nao identificado)"
+        print(f"  voce         : {quem} — barra em ({r.esquerda},{r.topo}) {r.largura}x{r.altura}")
+    else:
+        print("  voce         : barra propria NAO encontrada — sua morte nao")
+        print("                 sera detectada. A barra de HP do topo esta visivel?")
     if cal.janela:
         print(f"  janela       : {cal.janela}")
         if cal.party_window_na_janela:

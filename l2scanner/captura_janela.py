@@ -204,7 +204,11 @@ class JanelaSource:
     """
 
     def __init__(
-        self, titulo_da_janela: str, regiao: Regiao, relativa: bool = False
+        self,
+        titulo_da_janela: str,
+        regiao: Regiao,
+        relativa: bool = False,
+        extras: dict[str, Regiao] | None = None,
     ) -> None:
         from windows_capture import (
             Frame as FrameWGC,
@@ -220,6 +224,9 @@ class JanelaSource:
         # captura — e ai mover a janela entre a calibracao e a execucao
         # faria a conta sair errada.
         self._relativa = relativa
+        # Recortar extras aqui e de graca: o frame completo da janela ja
+        # esta em maos. No caminho do desktop cada extra custa uma captura.
+        self._extras = extras or {}
         self._hwnd = achar_janela(titulo_da_janela)
 
         self._ultimo: np.ndarray | None = None
@@ -335,9 +342,39 @@ class JanelaSource:
         else:
             saude = self._saude.classificar(recorte)
 
-        frame = Frame(pixels=recorte, indice=self._contador, saude=saude)
+        recortes: dict[str, np.ndarray] = {}
+        for nome, extra in self._extras.items():
+            ex = self._extra_para_janela(extra, completo)
+            if ex is not None:
+                recortes[nome] = ex
+
+        frame = Frame(
+            pixels=recorte,
+            indice=self._contador,
+            saude=saude,
+            extras=recortes,
+        )
         self._contador += 1
         return frame
+
+    def _extra_para_janela(
+        self, extra: Regiao, completo: np.ndarray
+    ) -> np.ndarray | None:
+        """Recorta uma regiao extra do frame completo da janela."""
+        if self._relativa:
+            x, y = extra.esquerda, extra.topo
+        else:
+            ox, oy = origem_da_janela(self._hwnd)
+            x, y = extra.esquerda - ox, extra.topo - oy
+        if x < 0 or y < 0:
+            return None
+        recorte = completo[y : y + extra.altura, x : x + extra.largura]
+        if (
+            recorte.shape[0] != extra.altura
+            or recorte.shape[1] != extra.largura
+        ):
+            return None
+        return recorte
 
     def fechar(self) -> None:
         self._parar.set()

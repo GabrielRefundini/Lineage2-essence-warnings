@@ -117,10 +117,16 @@ class Calibracao:
     # Geometria da tela quando isto foi calibrado, para detectar mudanca
     geometria_da_tela: str
 
-    # Barra de HP do proprio personagem (fica no topo da tela, fora da party
-    # window). RELATIVA a party_window se estiver dentro dela; caso contrario
-    # exige uma captura separada — deixado para depois.
+    # Barra de HP do proprio personagem. Fica no TOPO da janela do jogo, longe
+    # da party window — o usuario nao aparece na propria party window, entao
+    # sem isto a morte DELE nunca seria detectada. E justamente quem tem mais
+    # chance de morrer AFK, porque e o unico sem outra pessoa olhando.
+    #
+    # Guardada em coordenadas RELATIVAS a janela do jogo, como a party window.
     hp_proprio: Regiao | None = None
+
+    # Nome do proprio personagem, para o alerta dizer quem morreu.
+    nome_proprio: str | None = None
 
     # Nomes dos membros, em ordem de linha. Fonte da verdade para identidade —
     # nunca leitura de texto da tela, que erraria um glifo e inventaria um
@@ -173,6 +179,7 @@ class Calibracao:
             "limiares_hp": asdict(self.limiares_hp),
             "limiares_mp": asdict(self.limiares_mp),
             "hp_proprio": self.hp_proprio.como_dict() if self.hp_proprio else None,
+            "nome_proprio": self.nome_proprio,
             "nomes": self.nomes,
             "assinaturas": [a.como_dict() for a in self.assinaturas],
             "janela": self.janela,
@@ -216,6 +223,7 @@ class Calibracao:
             hp_proprio=(
                 Regiao.de_dict(dados["hp_proprio"]) if dados.get("hp_proprio") else None
             ),
+            nome_proprio=dados.get("nome_proprio"),
             nomes=list(dados.get("nomes", [])),
             assinaturas=[
                 Assinatura.de_dict(a) for a in dados.get("assinaturas", [])

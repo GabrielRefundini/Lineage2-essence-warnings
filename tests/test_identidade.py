@@ -427,3 +427,99 @@ class TestLiderDaParty:
         # verde de grama medido na tela real: V~83
         grama = np.full((10, 10, 3), (70, 110, 75), dtype=np.uint8)
         assert not mascara_de_texto(grama).any()
+
+
+class TestPiscarDeReconhecimento:
+    """Um frame sem reconhecer nao pode virar "fulano saiu da party".
+
+    Aconteceu de verdade em 2026-08-24: o reconhecimento falhou num frame
+    durante a reaquisicao e o scanner anunciou "Korzis: saiu da party" com o
+    Korzis na tela.
+
+    Com o estado chaveado por identidade, uma linha nao reconhecida vira
+    `#linha0` e o "Korzis" some do conjunto de presentes — o rastreador conclui
+    que ele saiu. A correcao: se alguma linha OCUPADA nao foi reconhecida, nao
+    da para afirmar que ninguem saiu, porque o membro "sumido" pode ser
+    exatamente quem esta nela.
+    """
+
+    NOMES = ["Korzis", "J4guar", "Kaus", "TioMad"]
+
+    def _obs(self, nomes_por_linha):
+        from l2scanner.visao import LeituraDeLinha, Observacao
+
+        linhas = []
+        for i, nome in enumerate(nomes_por_linha):
+            if nome is None:
+                linhas.append(LeituraDeLinha(i, EstadoDaLinha.VAZIA, None, None))
+            else:
+                # string vazia = linha ocupada, mas nao reconhecida
+                reconhecido = nome or None
+                linhas.append(
+                    LeituraDeLinha(
+                        i,
+                        EstadoDaLinha.COM_MEMBRO,
+                        1.0,
+                        1.0,
+                        nome=reconhecido,
+                        confianca_do_nome=0.98 if reconhecido else 0.0,
+                    )
+                )
+        return Observacao(0, True, tuple(linhas))
+
+    def _aquecido(self):
+        from l2scanner.rastreador import Ajustes, Rastreador
+
+        r = Rastreador(
+            nomes=list(self.NOMES), ajustes=Ajustes(confirmacoes_para_saida=3)
+        )
+        for i in range(15):
+            r.observar(self._obs(self.NOMES), -100 + i)
+        return r
+
+    def test_linha_nao_reconhecida_nao_gera_saida(self):
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._aquecido()
+
+        # o Korzis continua na tela, mas a imagem falha em reconhece-lo
+        eventos = []
+        for i in range(10):
+            eventos.extend(
+                r.observar(self._obs(["", "J4guar", "Kaus", "TioMad"]), 10 + i)
+            )
+
+        saidas = [e for e in eventos if e.tipo is TipoDeEvento.SAIU]
+        assert saidas == [], (
+            "o Korzis esta na tela; falhar em reconhece-lo nao pode virar "
+            "um anuncio de que ele saiu da party"
+        )
+
+    def test_saida_de_verdade_ainda_e_detectada(self):
+        """A protecao nao pode cegar o scanner para saidas reais."""
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._aquecido()
+
+        eventos = []
+        for i in range(10):
+            eventos.extend(
+                r.observar(self._obs(["Korzis", "J4guar", "Kaus", None]), 10 + i)
+            )
+
+        saidas = [e.membro for e in eventos if e.tipo is TipoDeEvento.SAIU]
+        assert saidas == ["TioMad"]
+
+    def test_reconhecimento_volta_e_nada_e_anunciado(self):
+        """Piscar e voltar nao deixa rastro."""
+        r = self._aquecido()
+
+        eventos = []
+        for i in range(4):
+            eventos.extend(
+                r.observar(self._obs(["", "J4guar", "Kaus", "TioMad"]), 10 + i)
+            )
+        for i in range(6):
+            eventos.extend(r.observar(self._obs(self.NOMES), 20 + i))
+
+        assert eventos == []
