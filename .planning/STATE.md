@@ -68,8 +68,8 @@ None yet.
 ### Blockers/Concerns
 
 - **[Fase 1 — portão duro]** Qual provedor de WhatsApp está por trás do inbox do Chatwoot? Se for a Cloud API oficial da Meta, mensagens iniciadas pelo negócio fora da janela de 24h exigem template aprovado e grupos ficam inviáveis — o Chatwoot devolve `200 OK` e a Meta descarta em silêncio. Armadilha: testar mandando mensagem para o número **abre** a janela e produz sucesso enganoso; o teste tem que ser para um número calado há mais de 24h.
-- **[Aberto — falso negativo silencioso]** O cliente atualiza o HP de membro distante ao vivo ou congela o último valor conhecido? Se congela, morte longe deixa a barra cheia para sempre. Testar na sessão gravada da Fase 1: membro distante tomando dano deve fazer a barra cair na tela do usuário.
-- **[Aberto — nomeação de eventos]** A party window compacta as linhas quando alguém sai? Um par de screenshots antes/depois resolve. Se não compacta, o índice de linha basta sozinho.
+- ~~**[Aberto — falso negativo silencioso]**~~ **RESOLVIDO 2026-08-24 (teste do usuário): o HP de membro distante ATUALIZA AO VIVO**, não congela. Morte longe é detectável normalmente. Não há necessidade de detector de barra congelada por este motivo (o detector de frame estático continua valendo para o caso de jogo travado).
+- **[Parcialmente aberto — nomeação de eventos]** A party window compacta as linhas quando alguém sai? O usuário enviou o par antes/depois (2026-08-24), mas **o teste foi inconclusivo**: quem saiu foi J4guar, que era o **último** da lista — nesse caso "compactar" e "preservar posição" produzem exatamente a mesma imagem. **O que os prints PROVARAM:** a janela é ancorada no topo e encolhe por baixo (altura varia com o número de membros), logo a âncora de visibilidade da UI deve ficar no TOPO da janela, nunca na borda inferior. **Teste que falta:** sair um membro do MEIO (ex.: Kaus, com Korzis abaixo) e ver se Korzis sobe de posição.
 - **[Aberto — limiar de cor]** O matiz da barra de HP muda com o nível? Varredura em 90/70/50/30/10/1% na sessão gravada decide se limiar por hue é sólido.
 
 ## Deferred Items
