@@ -200,11 +200,25 @@ class Rastreador:
     # e uma entrada de verdade.
     _aquecido: bool = field(default=False, init=False)
 
-    # Rastreio de "voce esta em party?". So faz sentido quando a barra propria
-    # esta calibrada: e ela que distingue "sai da party" de "perdi a visao".
     # Quantas linhas a party window tinha no ultimo frame processado. E a
     # referencia para decidir se ela cresceu ou encolheu.
-    _ultima_contagem_estavel: int = field(default=0, init=False)
+    #
+    # None ate o primeiro frame rastreado, e a distincao importa: com 0 como
+    # valor inicial, o primeiro frame comparava 4 linhas contra uma linha de
+    # base que nunca existiu e concluia "a party cresceu de 0 para 4". Esse
+    # True ficava gravado por membro (`apareceu_com_crescimento` e guardado, nao
+    # reavaliado), e quem confirmasse a entrada depois do aquecimento disparava
+    # um ENTROU falso — bastava UM frame de falha de reconhecimento para
+    # atrasar alguem o suficiente. Foi o "TioMad entrou na party" as 18:18 com
+    # a party parada desde antes do scanner ligar.
+    #
+    # Sem linha de base nao existe crescimento: o primeiro frame so a
+    # estabelece. Uma entrada de verdade nos primeiros segundos passa calada, o
+    # que e o mesmo comeco frio que `_aquecido` ja aplica ao resto.
+    _ultima_contagem_estavel: int | None = field(default=None, init=False)
+
+    # Rastreio de "voce esta em party?". So faz sentido quando a barra propria
+    # esta calibrada: e ela que distingue "sai da party" de "perdi a visao".
 
     _voce_em_party: bool | None = field(default=None, init=False)
     _contador_sem_party: int = field(default=0, init=False)
@@ -352,7 +366,40 @@ class Rastreador:
     def _avaliar_se_voce_esta_em_party(
         self, obs: Observacao, agora: float
     ) -> list[Evento]:
-        """Decide se o usuario ainda esta em party, e avisa quando muda."""
+        """Decide se o usuario ainda esta em party, e avisa quando muda.
+
+        SAIR DA PARTY NAO ENCOSTA NO SEU HP. Essa e a assimetria que separa os
+        dois casos que a party window sumindo produz:
+
+          voce saiu da party -> a party window some, a SUA barra continua
+                                sendo lida normalmente
+          o scanner cegou    -> a party window "some" porque nao da para le-la,
+                                e a sua barra le 0% porque o recorte tambem
+                                esta ilegivel
+
+        `medir_barra` devolve 0.0 para um recorte preto, nunca None, entao
+        `hp_proprio is not None` so quer dizer "a regiao esta calibrada" — nao
+        "a minha barra esta visivel". Sem esta guarda, 90 s de cegueira leram
+        como "minha barra esta la a 0%, a party window sumiu" e produziram
+        "YAZALAQUE SAIU OU FOI REMOVIDO DA PARTY" as 18:19:50 seguido de
+        "YAZALAQUE ENTROU EM PARTY" as 18:21:19, com a party intacta o tempo
+        todo (logs/scanner.log mostra "[SEM VISAO] Yazalaque (voce) ok HP 0%"
+        nos 90 s entre os dois).
+
+        Na duvida, congelar. Um alerta de saida que nao veio e recuperavel; um
+        que veio errado destroi a confianca na ferramenta inteira.
+        """
+        hp_proprio_zerado = (
+            obs.hp_proprio is not None
+            and obs.hp_proprio <= self.ajustes.fracao_hp_considerada_zero
+        )
+        if not obs.ui_visivel and hp_proprio_zerado:
+            # Cegueira, nao saida. Congela os dois contadores — nem "sem party"
+            # nem "com party" avancam — pelo mesmo motivo que o portao global
+            # congela morte e ressurreicao: uma leitura impossivel nao e
+            # evidencia de nada.
+            return []
+
         tem_party = obs.ui_visivel and obs.membros_presentes > 0
 
         if tem_party:
@@ -528,7 +575,8 @@ class Rastreador:
                     # de reavaliar, porque a entrada so confirma depois de N
                     # leituras e ate la a janela ja parou de crescer.
                     interno.apareceu_com_crescimento = (
-                        linhas_agora > self._ultima_contagem_estavel
+                        self._ultima_contagem_estavel is not None
+                        and linhas_agora > self._ultima_contagem_estavel
                     )
                 interno.contador_entrada += 1
                 if interno.contador_entrada < self.ajustes.confirmacoes_para_entrada:

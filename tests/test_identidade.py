@@ -762,3 +762,96 @@ class TestPassarAReconhecerNaoEEntrar:
 
         entradas = [e.membro for e in eventos if e.tipo is TipoDeEvento.ENTROU]
         assert entradas == ["Korzis"]
+
+
+class TestArranqueNaoInventaEntrada:
+    """A linha de base da contagem de linhas nao pode nascer em ZERO.
+
+    Visto ao vivo as 18:18: a party estava fixa desde antes do scanner ligar e
+    mesmo assim saiu "TioMad entrou na party" 7 segundos depois do arranque,
+    entregue no WhatsApp.
+
+    O mecanismo: `_ultima_contagem_estavel` comecava em 0 e so era escrito no
+    fim de `_processar`. No PRIMEIRO frame rastreado, `linhas_agora > 0` era
+    verdade para todo mundo, entao `apareceu_com_crescimento` era gravado True
+    para cada membro. Esse flag e guardado de proposito (a entrada so confirma
+    depois de N leituras), entao o valor errado virava permanente.
+
+    Os membros reconhecidos desde o primeiro frame escapavam porque confirmavam
+    juntos, enquanto `_aquecido` ainda era False. Bastava UM frame de falha de
+    reconhecimento para atrasar alguem para o lado errado dessa porta.
+
+    Sem linha de base nao existe crescimento. O primeiro frame so a estabelece.
+    """
+
+    NOMES = ["Korzis", "J4guar", "TioMad", "Kaus"]
+
+    def _obs(self, nomes):
+        from l2scanner.visao import LeituraDeLinha, Observacao
+
+        linhas = tuple(
+            LeituraDeLinha(
+                i,
+                EstadoDaLinha.COM_MEMBRO,
+                1.0,
+                1.0,
+                nome=n,
+                confianca_do_nome=0.98 if n else 0.0,
+            )
+            for i, n in enumerate(nomes)
+        )
+        return Observacao(0, True, linhas, hp_proprio=1.0)
+
+    def _novo(self):
+        from l2scanner.rastreador import Ajustes, Rastreador
+
+        return Rastreador(
+            nomes=list(self.NOMES),
+            nome_proprio="Yazalaque",
+            assinaturas_configuradas=True,
+            nomes_reservados=set(self.NOMES),
+            ajustes=Ajustes(confirmacoes_para_entrada=3),
+        )
+
+    @pytest.mark.parametrize("frame_da_piscada", [4, 5, 6, 7])
+    def test_piscada_no_arranque_nao_vira_entrada(self, frame_da_piscada):
+        """Party PARADA em 4 linhas. Um frame sem reconhecer o TioMad.
+
+        A contagem de linhas nunca muda — ninguem entrou. O parametro varre o
+        atraso, porque o bug so aparecia quando a confirmacao do membro
+        atrasado cruzava o instante em que `_aquecido` virava True.
+        """
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._novo()
+        eventos = []
+        for n in range(16):
+            nomes = list(self.NOMES)
+            if n == frame_da_piscada:
+                nomes[2] = None  # linha OCUPADA, so nao reconhecida
+            eventos.extend(r.observar(self._obs(nomes), float(n)))
+
+        entradas = [
+            f"{e.membro}" for e in eventos if e.tipo is TipoDeEvento.ENTROU
+        ]
+        assert entradas == [], (
+            f"a party window teve 4 linhas em 100% dos frames; um frame de "
+            f"falha de reconhecimento nao pode virar entrada. Saiu: {entradas}"
+        )
+
+    def test_entrada_de_verdade_no_arranque_ainda_funciona(self):
+        """A linha de base nao pode DESLIGAR a deteccao — so atrasa um frame."""
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._novo()
+        for n in range(12):
+            r.observar(self._obs(self.NOMES[:3]), float(n))
+
+        eventos = []
+        for n in range(8):
+            eventos.extend(r.observar(self._obs(self.NOMES), 100.0 + n))
+
+        entradas = [e.membro for e in eventos if e.tipo is TipoDeEvento.ENTROU]
+        assert entradas == ["Kaus"], (
+            "a party cresceu de 3 para 4 linhas — isso e uma entrada de verdade"
+        )
