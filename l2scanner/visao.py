@@ -207,12 +207,17 @@ def _identificar_linha(pixels: np.ndarray, cal: Calibracao, indice: int):
     if not cal.assinaturas:
         return Casamento(nome=None, confianca=0.0)
 
+    from .identidade import MARGEM_DE_BUSCA
+
+    # A regiao de BUSCA e mais larga que a do molde, para o casamento poder
+    # deslizar e absorver a coroa do lider.
     regiao = cal.regiao_do_nome(indice)
+    esquerda = max(0, regiao.esquerda - MARGEM_DE_BUSCA)
     recorte = pixels[
         regiao.topo : regiao.topo + regiao.altura,
-        regiao.esquerda : regiao.esquerda + regiao.largura,
+        esquerda : regiao.esquerda + regiao.largura,
     ]
-    if recorte.shape[0] != regiao.altura or recorte.shape[1] != regiao.largura:
+    if recorte.shape[0] != regiao.altura or recorte.shape[1] < regiao.largura:
         return Casamento(nome=None, confianca=0.0)
 
     return identificar(recorte, cal.assinaturas)

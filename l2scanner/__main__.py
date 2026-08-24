@@ -144,7 +144,10 @@ def desenhar_status(rastreador: Rastreador, cal: Calibracao, obs) -> str:
     for leitura in obs.linhas:
         if leitura.estado is EstadoDaLinha.VAZIA:
             continue
-        nome = cal.nome_da_linha(leitura.indice)
+        # O nome reconhecido pela imagem vence a posicao da linha: a party
+        # window reordena, e mostrar o nome por posicao seria mentir na tela
+        # do mesmo jeito que mentia no alerta.
+        nome = leitura.nome or cal.nome_da_linha(leitura.indice)
         estado = rastreador.estado_de(leitura.indice)
         hp = f"{leitura.hp:5.0%}" if leitura.hp is not None else "  -- "
         linhas.append(f"  {nome:<12s} {simbolos[estado]:<6s} HP {hp}")

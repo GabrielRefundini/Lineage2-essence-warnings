@@ -233,3 +233,197 @@ class TestRastreadorUsaONomeReconhecido:
             "o alerta precisa nomear quem a IMAGEM identificou, nao quem a "
             "lista diz que ocupa aquela posicao"
         )
+
+
+class TestReordenacaoDaPartyNoRastreador:
+    """O falso positivo que aconteceu de verdade, em 2026-08-24.
+
+    O TioMad saiu da party e o alerta anunciou: "Korzis: saiu da party".
+
+    Causa: o rastreador guardava estado por POSICAO DE LINHA. Quando a party
+    reordenou para [Korzis, J4guar, Kaus] e a linha 3 esvaziou, ele buscou o
+    nome na posicao 3 da lista configurada — "Korzis".
+
+    A identidade visual sozinha nao resolvia: ela rotulava a linha, mas a
+    maquina de estados continuava indexada por posicao. So passou a funcionar
+    quando o ESTADO tambem passou a ser guardado por pessoa.
+    """
+
+    NOMES = ["J4guar", "Kaus", "TioMad", "Korzis"]
+
+    def _obs(self, nomes_por_linha, hp=None):
+        from l2scanner.visao import LeituraDeLinha, Observacao
+
+        hp = hp or {}
+        linhas = []
+        for i, nome in enumerate(nomes_por_linha):
+            if nome is None:
+                linhas.append(
+                    LeituraDeLinha(i, EstadoDaLinha.VAZIA, None, None)
+                )
+            else:
+                linhas.append(
+                    LeituraDeLinha(
+                        i,
+                        EstadoDaLinha.COM_MEMBRO,
+                        hp.get(nome, 1.0),
+                        1.0,
+                        nome=nome,
+                        confianca_do_nome=0.98,
+                    )
+                )
+        return Observacao(0, True, tuple(linhas))
+
+    def _rastreador_aquecido(self):
+        from l2scanner.rastreador import Ajustes, Rastreador
+
+        r = Rastreador(
+            nomes=list(self.NOMES),
+            ajustes=Ajustes(confirmacoes_para_saida=3, confirmacoes_para_morte=3),
+        )
+        for i in range(15):
+            r.observar(self._obs(self.NOMES), -100 + i)
+        return r
+
+    def test_saida_e_atribuida_a_quem_saiu_mesmo_com_a_party_reordenada(self):
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._rastreador_aquecido()
+
+        # o caso exato: TioMad sai e a party vira [Korzis, J4guar, Kaus]
+        eventos = []
+        for i in range(6):
+            eventos.extend(
+                r.observar(self._obs(["Korzis", "J4guar", "Kaus", None]), 10 + i)
+            )
+
+        saidas = [e.membro for e in eventos if e.tipo is TipoDeEvento.SAIU]
+        assert saidas == ["TioMad"], (
+            "quem saiu foi o TioMad; atribuir a outro manda a party socorrer "
+            "a pessoa errada e ninguem desconfia"
+        )
+
+    def test_reordenar_sozinho_nao_gera_evento_nenhum(self):
+        """Trocar de posicao nao e sair nem entrar."""
+        r = self._rastreador_aquecido()
+
+        eventos = []
+        for i in range(10):
+            eventos.extend(
+                r.observar(self._obs(["Korzis", "TioMad", "Kaus", "J4guar"]), 10 + i)
+            )
+
+        assert eventos == []
+
+    def test_morte_apos_reordenacao_nomeia_o_membro_certo(self):
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._rastreador_aquecido()
+
+        # party reordena e, depois, o J4guar morre na linha 1
+        for i in range(6):
+            r.observar(self._obs(["Korzis", "J4guar", "Kaus", None]), 10 + i)
+
+        eventos = []
+        for i in range(6):
+            eventos.extend(
+                r.observar(
+                    self._obs(
+                        ["Korzis", "J4guar", "Kaus", None], hp={"J4guar": 0.0}
+                    ),
+                    30 + i,
+                )
+            )
+
+        mortes = [e.membro for e in eventos if e.tipo is TipoDeEvento.MORREU]
+        assert mortes == ["J4guar"]
+
+    def test_sem_reconhecimento_o_nome_ainda_vem_da_lista(self):
+        """Degrada em vez de mostrar a chave interna.
+
+        Sem nome reconhecido o estado e chaveado por posicao — pior, mas o
+        alerta ainda diz um nome de gente, nao "#linha2".
+        """
+        from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
+        from l2scanner.visao import LeituraDeLinha, Observacao
+
+        def sem_nome(hps):
+            linhas = [
+                LeituraDeLinha(i, EstadoDaLinha.COM_MEMBRO, hp, 1.0)
+                for i, hp in enumerate(hps)
+            ]
+            return Observacao(0, True, tuple(linhas))
+
+        r = Rastreador(
+            nomes=list(self.NOMES), ajustes=Ajustes(confirmacoes_para_morte=2)
+        )
+        for i in range(15):
+            r.observar(sem_nome([1.0, 1.0, 1.0, 1.0]), -100 + i)
+
+        eventos = []
+        for i in range(4):
+            eventos.extend(r.observar(sem_nome([1.0, 1.0, 0.0, 1.0]), 10 + i))
+
+        mortes = [e.membro for e in eventos if e.tipo is TipoDeEvento.MORREU]
+        assert mortes == ["TioMad"]
+        assert not any("#linha" in (e.membro or "") for e in eventos)
+
+
+class TestLiderDaParty:
+    """O lider da party quebrava o reconhecimento de duas formas.
+
+    Aconteceu de verdade: o Korzis virou lider e o scanner parou de reconhece-lo,
+    mostrando "J4guar" duas vezes no console.
+
+    1. O jogo pinta o nome do lider de AMARELO. A mascara exigia "claro E
+       dessaturado", e o amarelo tem saturacao 118 — era rejeitado inteiro.
+    2. O lider ganha uma COROA antes do nome, que empurra o texto para a
+       direita. Comparar posicao a posicao nao sobrevive a esse deslocamento.
+
+    A correcao foi mascara so por brilho (o brilho separa texto de terreno com
+    folga: 206 contra 83) e casamento deslizante.
+    """
+
+    PASTA = FIXTURES
+
+    @pytest.fixture
+    def calibracao(self):
+        return Calibracao.carregar(self.PASTA / "calibracao.json")
+
+    @pytest.fixture
+    def frame_com_lider(self):
+        px = cv2.imread(str(self.PASTA / "party_com_lider.png"), cv2.IMREAD_COLOR)
+        assert px is not None
+        return Frame(pixels=px, indice=0, saude=SaudeDoFrame.OK)
+
+    def test_o_lider_e_reconhecido(self, frame_com_lider, calibracao):
+        obs = extrair(frame_com_lider, calibracao)
+        nomes = [l.nome for l in obs.linhas[:4]]
+        assert nomes == calibracao.nomes, (
+            "o lider tem nome amarelo e coroa; se o reconhecimento nao "
+            "aguentar isso, ele some da lista e outro membro aparece duplicado"
+        )
+
+    def test_ninguem_aparece_duplicado(self, frame_com_lider, calibracao):
+        """O sintoma que o usuario viu: o mesmo nome em duas linhas."""
+        obs = extrair(frame_com_lider, calibracao)
+        reconhecidos = [l.nome for l in obs.linhas if l.nome]
+        assert len(reconhecidos) == len(set(reconhecidos))
+
+    def test_texto_amarelo_entra_na_mascara(self):
+        """Amarelo do lider: claro, mas saturado."""
+        import numpy as np
+
+        amarelo = np.full((10, 10, 3), (40, 200, 220), dtype=np.uint8)
+        assert mascara_de_texto(amarelo).all(), (
+            "o nome do lider e amarelo — rejeita-lo apaga o membro do "
+            "reconhecimento inteiro"
+        )
+
+    def test_terreno_continua_fora_da_mascara(self):
+        """A regra ficou mais permissiva, mas nao pode deixar o cenario entrar."""
+        import numpy as np
+
+        # verde de grama medido na tela real: V~83
+        grama = np.full((10, 10, 3), (70, 110, 75), dtype=np.uint8)
+        assert not mascara_de_texto(grama).any()

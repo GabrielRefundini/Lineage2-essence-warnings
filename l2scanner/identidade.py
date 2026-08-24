@@ -43,11 +43,22 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-# Um pixel conta como texto se for claro E dessaturado. O texto da UI e branco
-# com contorno escuro; o terreno do jogo e colorido. Sao os dois eixos que
-# separam melhor — medido na tela real.
-VALOR_MINIMO_DO_TEXTO = 165
-SATURACAO_MAXIMA_DO_TEXTO = 70
+# Um pixel conta como texto se for CLARO. So isso.
+#
+# A versao anterior exigia tambem ser dessaturado, o que funcionava ate o
+# usuario virar lider da party: o jogo pinta o nome do lider de AMARELO, com
+# saturacao 118, e a regra o rejeitava. O membro simplesmente sumia do
+# reconhecimento.
+#
+# Medido na tela real: texto branco V=206 S=5, texto amarelo do lider V=206
+# S=118, terreno V=83 S=96. O brilho separa os tres com folga; a saturacao nao
+# separa o amarelo do terreno. Entao o brilho e o unico criterio.
+VALOR_MINIMO_DO_TEXTO = 180
+
+# Quanto o casamento pode deslizar horizontalmente. O lider ganha uma COROA
+# antes do nome, que empurra o texto para a direita — sem tolerancia, virar
+# lider fazia o membro deixar de ser reconhecido.
+MARGEM_DE_BUSCA = 24
 
 # Abaixo disto, nao afirmamos quem e. Fica bem acima do melhor caso de nomes
 # diferentes (0.454) e bem abaixo do pior caso do mesmo nome (1.000).
@@ -62,14 +73,15 @@ PIXELS_MINIMOS_DE_TEXTO = 12
 
 
 def mascara_de_texto(bgr: np.ndarray) -> np.ndarray:
-    """Marca os pixels que sao texto da UI, descartando o cenario."""
+    """Marca os pixels que sao texto da UI, descartando o cenario.
+
+    So brilho, de proposito: o nome do LIDER da party e amarelo e seria
+    rejeitado por qualquer filtro de saturacao que ainda barrasse o terreno.
+    """
     if bgr.size == 0:
         return np.zeros((0, 0), dtype=np.uint8)
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    e_texto = (hsv[:, :, 2] > VALOR_MINIMO_DO_TEXTO) & (
-        hsv[:, :, 1] < SATURACAO_MAXIMA_DO_TEXTO
-    )
-    return e_texto.astype(np.uint8)
+    return (hsv[:, :, 2] > VALOR_MINIMO_DO_TEXTO).astype(np.uint8)
 
 
 @dataclass(frozen=True)
@@ -113,16 +125,23 @@ def criar_assinatura(nome: str, recorte_do_nome: np.ndarray) -> Assinatura:
     return Assinatura(nome=nome, mascara=mascara_de_texto(recorte_do_nome))
 
 
-def _correlacionar(a: np.ndarray, b: np.ndarray) -> float:
-    """Quanto duas mascaras se parecem, de -1 a 1."""
-    if a.shape != b.shape or a.size == 0:
+def _correlacionar(alvo: np.ndarray, molde: np.ndarray) -> float:
+    """Procura o molde dentro do alvo, aceitando deslocamento.
+
+    Deslizar em vez de comparar posicao a posicao e o que faz o reconhecimento
+    sobreviver a coroa do lider, que empurra o nome alguns pixels para a
+    direita. Sem isso, quem virasse lider deixava de ser reconhecido.
+    """
+    if alvo.size == 0 or molde.size == 0:
         return 0.0
-    fa, fb = a.astype(np.float32), b.astype(np.float32)
-    # mascara toda igual (tudo 0 ou tudo 1) tem desvio zero e quebra a
-    # correlacao normalizada; nesse caso so a igualdade exata conta
-    if fa.std() < 1e-6 or fb.std() < 1e-6:
-        return 1.0 if np.array_equal(a, b) else 0.0
-    return float(cv2.matchTemplate(fa, fb, cv2.TM_CCOEFF_NORMED)[0][0])
+    if molde.shape[0] > alvo.shape[0] or molde.shape[1] > alvo.shape[1]:
+        return 0.0
+
+    fa, fm = alvo.astype(np.float32), molde.astype(np.float32)
+    # mascara uniforme (tudo 0 ou tudo 1) tem desvio zero e quebra a correlacao
+    if fa.std() < 1e-6 or fm.std() < 1e-6:
+        return 0.0
+    return float(cv2.matchTemplate(fa, fm, cv2.TM_CCOEFF_NORMED).max())
 
 
 @dataclass(frozen=True)
