@@ -277,6 +277,20 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
 
     linhas = _truncar_no_primeiro_vao(linhas)
 
+    # Uma party window com ZERO membros nao existe: se ela esta na tela, tem
+    # pelo menos uma linha. Ver a ancora e nao ver nenhum icone significa que a
+    # calibracao aponta para o lugar errado — a party window foi arrastada, o
+    # jogo foi redimensionado, ou a UI mudou.
+    #
+    # Sem esta regra, um deslocamento de 15 a 40 px passa pela ancora e faz
+    # TODAS as linhas lerem como vazias — e o rastreador anunciaria que a party
+    # inteira saiu. Quatro alertas falsos de uma vez, por causa de um frame
+    # arrastado sem querer.
+    if ui_visivel and not any(
+        l.estado is EstadoDaLinha.COM_MEMBRO for l in linhas
+    ):
+        ui_visivel = False
+
     hp_proprio = (
         medir_barra(pixels, cal.hp_proprio, cal.limiares_hp)
         if cal.hp_proprio

@@ -222,3 +222,74 @@ class TestInvarianteDeSeguranca:
                     f"'{proibida}' apareceu em requirements.txt. "
                     f"O scanner e somente leitura — ver l2scanner/__init__.py."
                 )
+
+
+class TestOrigemDaJanela:
+    """A origem visivel da janela, para a captura por janela acertar o recorte.
+
+    Nao usar GetWindowRect: no Windows 10/11 ele inclui a borda invisivel de
+    redimensionamento. Medido nesta maquina: 7 px de diferenca na horizontal —
+    o bastante para a ancora de visibilidade cair fora e o scanner se declarar
+    cego com a party window bem na frente dele.
+    """
+
+    def test_usa_os_limites_do_dwm_e_nao_o_getwindowrect(self):
+        import ctypes
+
+        from l2scanner import captura_janela
+
+        chamou = {"dwm": False, "getwindowrect": False}
+
+        class DwmFalso:
+            def DwmGetWindowAttribute(self, hwnd, attr, rect, tamanho):
+                chamou["dwm"] = True
+                rect._obj.left = 1720
+                rect._obj.top = 0
+                return 0  # S_OK
+
+        class User32Falso:
+            def GetWindowRect(self, hwnd, rect):
+                chamou["getwindowrect"] = True
+                rect._obj.left = 1713
+                rect._obj.top = 0
+                return 1
+
+        original_dwm = ctypes.windll.dwmapi
+        original_user = captura_janela._user32
+        try:
+            ctypes.windll.dwmapi = DwmFalso()
+            captura_janela._user32 = User32Falso()
+            assert captura_janela.origem_da_janela(1) == (1720, 0)
+        finally:
+            ctypes.windll.dwmapi = original_dwm
+            captura_janela._user32 = original_user
+
+        assert chamou["dwm"], "o DWM precisa ser consultado primeiro"
+        assert not chamou["getwindowrect"], (
+            "GetWindowRect so entra como plano B, quando o DWM falha"
+        )
+
+    def test_cai_no_getwindowrect_se_o_dwm_falhar(self):
+        import ctypes
+
+        from l2scanner import captura_janela
+
+        class DwmQueFalha:
+            def DwmGetWindowAttribute(self, hwnd, attr, rect, tamanho):
+                return -1  # erro
+
+        class User32Falso:
+            def GetWindowRect(self, hwnd, rect):
+                rect._obj.left = 1713
+                rect._obj.top = 0
+                return 1
+
+        original_dwm = ctypes.windll.dwmapi
+        original_user = captura_janela._user32
+        try:
+            ctypes.windll.dwmapi = DwmQueFalha()
+            captura_janela._user32 = User32Falso()
+            assert captura_janela.origem_da_janela(1) == (1713, 0)
+        finally:
+            ctypes.windll.dwmapi = original_dwm
+            captura_janela._user32 = original_user

@@ -28,6 +28,11 @@ from .calibracao import (  # noqa: E402
     descrever_geometria_da_tela,
 )
 from .config import ConfigAusente, config_do_chatwoot  # noqa: E402
+from .captura_janela import (  # noqa: E402
+    JanelaNaoEncontrada,
+    JanelaSource,
+    listar_janelas_do_jogo,
+)
 from .console import destacar  # noqa: E402
 from .frames import MssSource, ReplaySource, SaudeDoFrame  # noqa: E402
 from .gravador import Gravador  # noqa: E402
@@ -48,6 +53,11 @@ PASTA_LOGS = RAIZ / "logs"
 ARQUIVO_OUTBOX = RAIZ / "outbox.jsonl"
 
 INTERVALO_PADRAO = 1.0
+
+# Quantas leituras cegas seguidas ate sugerir recalibrar. A 1 Hz sao ~30s:
+# tempo demais para um alt-tab qualquer, curto o bastante para o usuario
+# ainda lembrar do que mexeu.
+TICKS_CEGO_PARA_SUGERIR_RECALIBRAR = 30
 
 log = logging.getLogger("l2scanner")
 
@@ -175,8 +185,17 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     if args.replay:
         fonte = ReplaySource(Path(args.replay))
         log.info("Reproduzindo %s (%d frames)", args.replay, len(fonte))
+    elif args.janela:
+        # Captura a janela do jogo direto, em vez do desktop composto: assim
+        # cobrir o jogo com o navegador nao cega mais o scanner.
+        fonte = JanelaSource(args.janela, cal.party_window)
+        log.info("Lendo a janela '%s' — funciona com o jogo coberto", args.janela)
+        log.info("Janela MINIMIZADA continua sem funcionar: o Windows para de "
+                 "produzir frames e nao ha API que contorne isso.")
     else:
         fonte = MssSource(cal.party_window)
+        log.info("Lendo o desktop — o jogo precisa estar visivel. "
+                 "Use --janela para funcionar com ele coberto.")
 
     gravador = Gravador(PASTA_GRAVACOES, args.rotulo) if args.record else None
     if gravador:
@@ -202,6 +221,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     erros_seguidos = 0
     total_eventos = 0
     ultima_observacao = None
+    ticks_cego = 0
 
     try:
         while True:
@@ -246,6 +266,22 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 log.exception("Erro ao analisar o frame — seguindo")
                 time.sleep(args.intervalo)
                 continue
+
+            # Cego por muito tempo com o jogo bem ali na frente quase sempre
+            # significa calibracao errada, nao alt-tab. Vale dizer isso em vez
+            # de deixar o usuario olhando "SEM VISAO" sem saber o porque.
+            if not observacao.ui_visivel:
+                ticks_cego += 1
+                if ticks_cego == TICKS_CEGO_PARA_SUGERIR_RECALIBRAR:
+                    log.warning(
+                        "Sem visao da party ha %d leituras seguidas. Se o jogo "
+                        "esta aberto e a party window visivel, ela pode ter "
+                        "sido ARRASTADA ou o jogo REDIMENSIONADO — nesse caso "
+                        "rode calibrar.bat de novo.",
+                        ticks_cego,
+                    )
+            else:
+                ticks_cego = 0
 
             for evento in eventos:
                 total_eventos += 1
@@ -340,6 +376,16 @@ def main() -> int:
         "--replay", help="reproduz uma pasta de sessao gravada, sem o jogo"
     )
     parser.add_argument(
+        "--janela",
+        nargs="?",
+        const="AUTO",
+        help=(
+            "le a janela do jogo direto, funcionando com ela coberta por "
+            "outras janelas. Sem valor, escolhe a unica janela do XM "
+            "Essence aberta. Nao funciona com a janela minimizada."
+        ),
+    )
+    parser.add_argument(
         "--intervalo",
         type=float,
         default=INTERVALO_PADRAO,
@@ -373,6 +419,8 @@ def main() -> int:
     if args.test_alert:
         return comando_teste_de_alerta(args)
 
+    janela_pedida = args.janela == "AUTO"
+
     try:
         cal = Calibracao.carregar(ARQUIVO_CALIBRACAO)
         # Sessao gravada foi feita noutra hora; conferir a tela de agora nao faz
@@ -383,7 +431,29 @@ def main() -> int:
         log.error("%s", erro)
         return 2
 
-    return laco_principal(args, cal)
+    if janela_pedida:
+        # A calibracao sabe a qual cliente a party window pertence. Com duas
+        # instancias abertas, adivinhar significaria vigiar o char errado.
+        if cal.janela:
+            args.janela = cal.janela
+        else:
+            janelas = listar_janelas_do_jogo()
+            if not janelas:
+                log.error("Nenhuma janela do jogo aberta. O jogo esta rodando?")
+                return 2
+            if len(janelas) > 1:
+                log.error("Ha mais de uma janela do jogo aberta:")
+                for titulo in janelas:
+                    log.error('   --janela "%s"', titulo)
+                log.error("Escolha uma, ou recalibre para gravar qual e.")
+                return 2
+            args.janela = janelas[0]
+
+    try:
+        return laco_principal(args, cal)
+    except JanelaNaoEncontrada as erro:
+        log.error("%s", erro)
+        return 2
 
 
 if __name__ == "__main__":

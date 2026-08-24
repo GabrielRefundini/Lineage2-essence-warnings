@@ -117,6 +117,11 @@ class Calibracao:
     # membro fantasma entrando e saindo da party.
     nomes: list[str] = field(default_factory=list)
 
+    # Titulo da janela do jogo a que esta party window pertence. Descoberto
+    # pela calibracao. Com duas instancias abertas, adivinhar daria errado — e
+    # errar aqui significa vigiar a party do personagem errado.
+    janela: str | None = None
+
     versao: int = VERSAO_DO_ESQUEMA
 
     def nome_da_linha(self, indice: int) -> str:
@@ -136,6 +141,7 @@ class Calibracao:
             "limiares_mp": asdict(self.limiares_mp),
             "hp_proprio": self.hp_proprio.como_dict() if self.hp_proprio else None,
             "nomes": self.nomes,
+            "janela": self.janela,
         }
         caminho.write_text(
             json.dumps(dados, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -172,6 +178,7 @@ class Calibracao:
                 Regiao.de_dict(dados["hp_proprio"]) if dados.get("hp_proprio") else None
             ),
             nomes=list(dados.get("nomes", [])),
+            janela=dados.get("janela"),
             versao=versao,
         )
 

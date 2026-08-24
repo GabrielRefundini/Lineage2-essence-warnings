@@ -58,7 +58,10 @@ if not exist ".venv\Scripts\python.exe" (
     echo.
 )
 
-".venv\Scripts\python.exe" -m l2scanner %*
+REM --janela le a janela do jogo direto, entao cobrir o jogo com o
+REM navegador nao cega mais o scanner. Tire a flag para voltar a ler o
+REM desktop (mais simples, mas exige o jogo visivel).
+".venv\Scripts\python.exe" -m l2scanner --janela %*
 goto fim
 
 :erro_venv

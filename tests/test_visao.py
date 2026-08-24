@@ -390,20 +390,24 @@ class TestOclusaoPorOutraJanela:
         assert obs.linhas[3].hp_zerado is True
 
 
-class TestMorteRealDoJogo:
-    """Uma morte de VERDADE, capturada do cliente em 2026-08-24.
+class TestBarrasVaziasEstadoDesconhecido:
+    """Frame REAL do cliente onde um membro aparece com as barras vazias.
 
-    Diferente das outras fixtures, esta nao foi editada: o J4guar morreu no
-    farm e a party window foi capturada como estava. CP, HP e MP dele aparecem
-    todos vazios enquanto os outros tres seguem com HP cheio.
+    Capturado em 2026-08-24, sem edicao: o J4guar aparece com CP vazio, HP
+    vazio e MP em 2%, enquanto os outros tres seguem com HP cheio. O icone de
+    classe e o nome dele continuam na party window.
 
-    Esta e a prova mais forte que o projeto tem de que a deteccao funciona:
-    todo o resto foi verificado contra frames que eu mesmo pintei, e um frame
-    pintado so prova que o codigo concorda comigo, nao que ele concorda com o
-    jogo.
+    ATENCAO — O QUE ESTE FRAME NAO PROVA: nao sabemos se ele estava MORTO.
+    O usuario afirmou que nao estava. Se um membro vivo pode aparecer assim
+    (fora de alcance, queda de conexao, troca de zona), entao "HP zerado" NAO
+    e suficiente para concluir morte, e o produto precisa de um segundo sinal.
+
+    Estes testes verificam apenas o que e verificavel: que a LEITURA dos pixels
+    corresponde ao que se ve na imagem. A INTERPRETACAO desse estado esta em
+    aberto — ver .planning/STATE.md.
     """
 
-    PASTA = FIXTURES / "morte_real"
+    PASTA = FIXTURES / "barras_vazias_estado_desconhecido"
 
     @pytest.fixture
     def calibracao(self) -> Calibracao:
@@ -411,36 +415,78 @@ class TestMorteRealDoJogo:
 
     @pytest.fixture
     def frame(self) -> Frame:
-        pixels = cv2.imread(str(self.PASTA / "j4guar_morto.png"), cv2.IMREAD_COLOR)
+        pixels = cv2.imread(
+            str(self.PASTA / "j4guar_barras_vazias.png"), cv2.IMREAD_COLOR
+        )
         assert pixels is not None
         return Frame(pixels=pixels, indice=0, saude=SaudeDoFrame.OK)
 
-    def test_j4guar_le_hp_zerado(self, frame, calibracao):
+    def test_le_hp_zerado_no_membro_afetado(self, frame, calibracao):
         obs = extrair(frame, calibracao)
         assert obs.linhas[0].hp == pytest.approx(0.0, abs=0.02)
 
-    def test_j4guar_continua_na_party(self, frame, calibracao):
-        """Morrer nao tira ninguem da party — o icone de classe fica.
+    def test_membro_continua_na_party(self, frame, calibracao):
+        """Barras vazias nao tiram ninguem da party — o icone de classe fica.
 
-        Se o icone sumisse junto com o HP, morte e saida seriam o mesmo evento
-        e o scanner nao teria como distinguir.
+        Isto e o que separa "HP zerado" de "saiu da PT", e vale
+        independentemente de o membro estar morto ou noutro estado.
         """
         obs = extrair(frame, calibracao)
         assert obs.linhas[0].estado is EstadoDaLinha.COM_MEMBRO
         assert obs.linhas[0].hp_zerado is True
 
-    def test_os_outros_tres_seguem_vivos(self, frame, calibracao):
-        """Uma morte real nao contamina a leitura dos vivos."""
+    def test_os_outros_tres_leem_hp_cheio(self, frame, calibracao):
+        """Um membro com barras vazias nao contamina a leitura dos outros."""
         obs = extrair(frame, calibracao)
         for indice in (1, 2, 3):
             assert obs.linhas[indice].hp == pytest.approx(1.0, abs=0.02)
             assert obs.linhas[indice].hp_zerado is False
 
-    def test_a_ui_continua_visivel_com_um_morto(self, frame, calibracao):
-        """Morte nao pode cegar o scanner — seria calar no pior momento."""
+    def test_a_ui_continua_visivel(self, frame, calibracao):
+        """Barras vazias nao podem cegar o scanner."""
         obs = extrair(frame, calibracao)
         assert obs.ui_visivel is True
 
-    def test_exatamente_um_membro_morto(self, frame, calibracao):
+    def test_exatamente_um_membro_com_hp_zerado(self, frame, calibracao):
         obs = extrair(frame, calibracao)
         assert sum(1 for l in obs.linhas if l.hp_zerado) == 1
+
+
+class TestPartyVaziaNaoExiste:
+    """Ver a ancora e nao ver nenhum membro significa calibracao errada.
+
+    Uma party window com ZERO membros nao existe no jogo: se ela esta na tela,
+    tem pelo menos uma linha. Sem esta regra, arrastar o frame da party de 15 a
+    40 px passa pela ancora e faz TODAS as linhas lerem como vazias — e o
+    rastreador anunciaria que a party inteira saiu. Quatro alertas falsos de
+    uma vez, por causa de um frame movido sem querer.
+    """
+
+    def test_ancora_sem_nenhum_membro_derruba_a_visibilidade(self, calibracao):
+        """Terreno uniforme: nenhum icone de classe em lugar nenhum."""
+        pixels = np.full((520, 200, 3), (95, 115, 100), dtype=np.uint8)
+        # ruido leve para nao virar "frame congelado" por acaso
+        gerador = np.random.default_rng(7)
+        pixels = np.clip(
+            pixels.astype(int) + gerador.integers(-12, 12, pixels.shape), 0, 255
+        ).astype(np.uint8)
+
+        # mancha escura de alto contraste no canto: passa como ancora
+        pixels[0:28, 0:40] = 15
+        pixels[6:14, 6:20] = 230
+
+        obs = extrair(
+            Frame(pixels=pixels, indice=0, saude=SaudeDoFrame.OK), calibracao
+        )
+
+        assert obs.membros_presentes == 0
+        assert obs.ui_visivel is False, (
+            "party window sem nenhum membro nao existe — e sinal de que a "
+            "calibracao aponta para o lugar errado"
+        )
+
+    def test_party_de_verdade_continua_visivel(self, frame_real, calibracao):
+        """A regra nao pode cegar o scanner no caso normal."""
+        obs = extrair(frame_real, calibracao)
+        assert obs.ui_visivel is True
+        assert obs.membros_presentes == 4

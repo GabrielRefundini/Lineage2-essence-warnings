@@ -39,6 +39,7 @@ from .calibracao import (  # noqa: E402
     LayoutDaParty,
     descrever_geometria_da_tela,
 )
+from .captura_janela import janela_que_contem  # noqa: E402
 from .frames import Regiao  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -122,17 +123,32 @@ def agrupar_em_party(barras: list[BarraEncontrada]) -> list[BarraEncontrada]:
 
 
 def deduzir_passo(barras: list[BarraEncontrada]) -> int | None:
-    """Espacamento vertical entre membros consecutivos."""
+    """Espacamento vertical entre membros consecutivos.
+
+    Tolera VAOS de proposito. Um membro morto tem a barra de HP vazia, entao
+    ele nao aparece na lista de barras vermelhas — e a distancia ate o proximo
+    vira o dobro do passo. Exigir espacamento perfeitamente regular faria a
+    calibracao falhar justamente quando alguem da party esta morto, que e
+    quando o usuario mais quer o scanner funcionando.
+
+    Entao o passo e a MENOR distancia observada, e as demais precisam ser
+    multiplos aproximados dela.
+    """
     if len(barras) < 2:
         return None
 
     distancias = [barras[i + 1].y - barras[i].y for i in range(len(barras) - 1)]
-    mediana = int(np.median(distancias))
+    passo = min(distancias)
 
-    # Se as distancias nao forem consistentes, isto nao e uma party window
-    if any(abs(d - mediana) > 3 for d in distancias):
+    if passo < 10:  # barras coladas nao sao linhas de party
         return None
-    return mediana
+
+    for distancia in distancias:
+        multiplo = round(distancia / passo)
+        if multiplo < 1 or abs(distancia - multiplo * passo) > 3:
+            return None
+
+    return int(passo)
 
 
 def achar_barra_azul_abaixo(
@@ -201,7 +217,11 @@ def calibrar_automatico(pixels: np.ndarray, ox: int, oy: int) -> Calibracao | No
         print("  Isso normalmente significa que peguei coisa que nao e party.")
         return None
 
-    print(f"  {len(party)} membros, espacamento de {passo} px")
+    vaos = sum(round((party[i+1].y - party[i].y) / passo) - 1
+               for i in range(len(party) - 1))
+    print(f"  {len(party)} barras visiveis, espacamento de {passo} px")
+    if vaos:
+        print(f"  {vaos} vao(s) — provavelmente membro morto, barra vazia")
 
     primeira = party[0]
     mp = achar_barra_azul_abaixo(pixels, primeira)
@@ -391,6 +411,10 @@ def main() -> int:
     if args.nomes:
         cal.nomes = [n.strip() for n in args.nomes.split(",") if n.strip()]
 
+    # Descobre a qual cliente esta party window pertence. Com duas instancias
+    # abertas, adivinhar significaria vigiar o personagem errado.
+    cal.janela = janela_que_contem(cal.party_window.esquerda, cal.party_window.topo)
+
     cal.salvar(ARQUIVO_CALIBRACAO)
 
     pw = cal.party_window
@@ -398,6 +422,10 @@ def main() -> int:
     print(f"  party window : {pw.largura}x{pw.altura} em ({pw.esquerda},{pw.topo})")
     print(f"  barras       : {cal.layout.barra_largura}x{cal.layout.barra_altura}")
     print(f"  espacamento  : {cal.layout.passo} px entre membros")
+    if cal.janela:
+        print(f"  janela       : {cal.janela}")
+    else:
+        print("  janela       : nao identificada — --janela precisara do titulo")
     if cal.nomes:
         print(f"  membros      : {', '.join(cal.nomes)}")
     else:

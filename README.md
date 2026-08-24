@@ -122,6 +122,21 @@ python -m l2scanner
 
 Deixe a janela aberta enquanto farma. `Ctrl+C` encerra.
 
+**Funciona com o jogo coberto por outras janelas.** O `.bat` já usa `--janela`,
+que lê a janela do jogo diretamente em vez do desktop — então você pode navegar,
+assistir vídeo ou trabalhar por cima do jogo sem cegar o scanner.
+
+> **Minimizado não funciona, e não é limitação do scanner.** Uma janela
+> minimizada para de produzir frames no Windows, e nenhuma API contorna isso.
+> Deixe o jogo aberto atrás de outras janelas, não minimizado.
+
+Para voltar a ler o desktop (mais simples, menos peças, mas exige o jogo
+visível):
+
+```bash
+python -m l2scanner
+```
+
 Antes de confiar, rode uma vez em modo simulação para ver os alertas sem enviar
 nada:
 
@@ -161,6 +176,7 @@ reproduzida em trinta segundos produz exatamente os mesmos eventos.
 | `--test-alert` | Envia um alerta de teste e sai (não precisa do jogo) |
 | `--record` | Grava a sessão em disco |
 | `--replay PASTA` | Reproduz uma sessão gravada |
+| `--janela` | Lê a janela do jogo — funciona com ela coberta |
 | `--intervalo N` | Segundos entre capturas (padrão: 1) |
 | `--status-a-cada N` | Segundos entre blocos de status no console |
 | `--sem-aviso-de-inicio` | Não avisa no WhatsApp ao ligar e desligar |

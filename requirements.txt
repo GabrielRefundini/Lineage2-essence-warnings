@@ -11,6 +11,12 @@ opencv-python>=4.10,<5
 
 numpy>=2.0
 
+# Captura da janela do jogo mesmo coberta por outras (--janela).
+# Validado no spike 001: o XM Essence continua renderizando sem foco.
+# NAO resolve janela minimizada — nada resolve, o Windows para de
+# produzir frames e nao ha API que contorne.
+windows-capture>=1.4
+
 # NAO ADICIONE AQUI, POR DECISAO DE PROJETO:
 #   pyautogui, pydirectinput, keyboard, pynput ou qualquer lib de input.
 # O scanner e somente leitura. Manter essas libs fora da arvore de dependencias
