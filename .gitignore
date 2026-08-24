@@ -7,6 +7,11 @@ recordings/
 *.png
 *.bmp
 
+# ...mas os frames de referência dos testes são versionados de propósito:
+# são a verdade contra a qual a detecção é verificada, e sem eles um bug de
+# leitura só reaparece quando alguém morrer de novo no jogo.
+!tests/fixtures/*.png
+
 # Saída em tempo de execução
 outbox.jsonl
 events.jsonl

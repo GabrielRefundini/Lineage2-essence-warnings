@@ -8,7 +8,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from l2scanner.calibracao import Calibracao, CalibracaoInvalida
+from l2scanner.calibracao import (
+    LIMIARES_HP_PADRAO,
+    LIMIARES_MP_PADRAO,
+    Calibracao,
+    CalibracaoInvalida,
+    LayoutDaParty,
+)
 from l2scanner.frames import (
     FRAMES_IDENTICOS_PARA_CONGELADO,
     Regiao,
@@ -114,11 +120,26 @@ class TestRegiao:
 class TestCalibracao:
     """CAPT-07: recusar iniciar se a tela mudou desde a calibracao."""
 
-    def _calibracao(self, geometria: str) -> Calibracao:
+    def _calibracao(self, geometria: str, **extras) -> Calibracao:
         return Calibracao(
             party_window=Regiao(0, 0, 100, 100),
             ancora=Regiao(0, 0, 100, 8),
+            layout=LayoutDaParty(
+                icone_x=38,
+                icone_y=37,
+                icone_tamanho=24,
+                barra_x=68,
+                barra_largura=120,
+                barra_altura=8,
+                hp_y=43,
+                mp_y=54,
+                passo=61,
+                max_linhas=8,
+            ),
+            limiares_hp=LIMIARES_HP_PADRAO,
+            limiares_mp=LIMIARES_MP_PADRAO,
             geometria_da_tela=geometria,
+            **extras,
         )
 
     def test_mesma_geometria_passa(self):
@@ -136,11 +157,10 @@ class TestCalibracao:
             cal.conferir_geometria("1920x1080+0+0")
 
     def test_ida_e_volta_em_disco(self, tmp_path):
-        original = Calibracao(
-            party_window=Regiao(1713, 330, 450, 300),
-            ancora=Regiao(0, 0, 450, 8),
-            geometria_da_tela="1920x1080+0+0",
+        original = self._calibracao(
+            "1920x1080+0+0",
             hp_proprio=Regiao(1750, 40, 200, 20),
+            nomes=["TioMad", "Kaus"],
         )
         caminho = tmp_path / "calibration.json"
         original.salvar(caminho)
@@ -149,6 +169,22 @@ class TestCalibracao:
         assert voltou.party_window == original.party_window
         assert voltou.ancora == original.ancora
         assert voltou.hp_proprio == original.hp_proprio
+        assert voltou.layout == original.layout
+        assert voltou.limiares_hp == original.limiares_hp
+        assert voltou.nomes == ["TioMad", "Kaus"]
+
+    def test_nome_configurado_vence(self, tmp_path):
+        cal = self._calibracao("1920x1080+0+0", nomes=["TioMad", "Kaus"])
+        assert cal.nome_da_linha(0) == "TioMad"
+        assert cal.nome_da_linha(1) == "Kaus"
+
+    def test_linha_sem_nome_configurado_ganha_rotulo_generico(self):
+        """O scanner precisa funcionar mesmo com a lista incompleta.
+
+        Melhor alertar "Membro 3 morreu" do que nao alertar.
+        """
+        cal = self._calibracao("1920x1080+0+0", nomes=["TioMad"])
+        assert cal.nome_da_linha(2) == "Membro 3"
 
     def test_versao_incompativel_recusa(self, tmp_path):
         caminho = tmp_path / "calibration.json"
