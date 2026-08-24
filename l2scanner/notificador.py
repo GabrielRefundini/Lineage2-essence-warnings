@@ -35,6 +35,15 @@ from .rastreador import Evento, TipoDeEvento
 TIMEOUT_CONEXAO = (3, 10)  # (conectar, ler) em segundos
 MAX_TENTATIVAS = 4
 
+# O Chatwoot pode estar atras do Cloudflare, e o User-Agent padrao do urllib
+# ("Python-urllib/3.x") e barrado pela verificacao de integridade de navegador
+# com erro 1010. Um User-Agent normal resolve — nao e disfarce, e so nao se
+# anunciar como script para um filtro que barra scripts por padrao.
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+
 
 def formatar(evento: Evento) -> str:
     """Texto que chega no celular.
@@ -205,6 +214,8 @@ class NotificadorChatwoot:
         # Header plano, sem prefixo Bearer — e assim que o Chatwoot espera
         req.add_header("api_access_token", self._config.token)
         req.add_header("Content-Type", "application/json")
+        req.add_header("User-Agent", USER_AGENT)
+        req.add_header("Accept", "application/json")
 
         try:
             with urllib.request.urlopen(

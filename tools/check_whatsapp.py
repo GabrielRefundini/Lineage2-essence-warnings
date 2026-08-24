@@ -35,14 +35,68 @@ ARQUIVO_ENV = RAIZ / ".env"
 
 TIMEOUT_CONEXAO = 10
 
-# channel_type do Chatwoot -> (rotulo legivel, mensagem livre permitida?)
-PROVEDORES = {
-    "Channel::Whatsapp": ("WhatsApp (Cloud API oficial da Meta ou provedor equivalente)", False),
-    "Channel::Baileys": ("WhatsApp via Baileys (bridge nao-oficial)", True),
-    "Channel::Api": ("Canal API generico", True),
-    "Channel::WebWidget": ("Widget de site", True),
-    "Channel::TelegramBot": ("Telegram", True),
+# O Chatwoot pode estar atras do Cloudflare, e o User-Agent padrao do urllib
+# ("Python-urllib/3.x") e barrado pela verificacao de integridade de navegador
+# com erro 1010. Um User-Agent normal resolve — nao e disfarce, e so nao se
+# anunciar como script para um filtro que barra scripts por padrao.
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+
+# O que decide se mensagem livre e permitida NAO e o channel_type, e o PROVIDER.
+#
+# Descoberto na pratica: o fork fazer-ai/chatwoot usa `Channel::Whatsapp` com
+# `provider: baileys`. Olhar so o channel_type classificava um bridge
+# nao-oficial como se fosse a Cloud API da Meta, e o veredito saia invertido —
+# dizia que o projeto precisava de template aprovado quando nao precisava.
+PROVIDERS_NAO_OFICIAIS = {
+    "baileys": "Baileys",
+    "evolution": "Evolution API",
+    "waha": "WAHA",
+    "wppconnect": "WPPConnect",
+    "unoapi": "UnoAPI",
 }
+
+PROVIDERS_OFICIAIS = {
+    "default": "Cloud API oficial da Meta",
+    "whatsapp_cloud": "WhatsApp Cloud API (Meta)",
+    "360dialog": "360dialog",
+    "twilio": "Twilio",
+}
+
+CANAIS_LIVRES = {
+    "Channel::Api": "Canal API generico",
+    "Channel::WebWidget": "Widget de site",
+    "Channel::TelegramBot": "Telegram",
+}
+
+
+def classificar(inbox: dict) -> tuple[str, bool | None]:
+    """Devolve (rotulo legivel, mensagem livre permitida?).
+
+    `None` na segunda posicao significa "nao catalogado, confira a mao".
+    """
+    tipo = inbox.get("channel_type", "?")
+    provider = (inbox.get("provider") or "").lower()
+
+    if tipo == "Channel::Whatsapp":
+        if provider in PROVIDERS_NAO_OFICIAIS:
+            return (
+                f"WhatsApp via {PROVIDERS_NAO_OFICIAIS[provider]} "
+                f"(bridge nao-oficial)",
+                True,
+            )
+        if provider in PROVIDERS_OFICIAIS:
+            return f"WhatsApp via {PROVIDERS_OFICIAIS[provider]}", False
+        if not provider:
+            return "WhatsApp (provider nao informado — assumindo oficial)", False
+        return f"WhatsApp via '{provider}' (provider nao catalogado)", None
+
+    if tipo in CANAIS_LIVRES:
+        return CANAIS_LIVRES[tipo], True
+
+    return tipo, None
 
 
 class ErroDeConfig(Exception):
@@ -102,6 +156,8 @@ def chamar_api(
     req = urllib.request.Request(url, data=dados, method=metodo)
     req.add_header("api_access_token", env["CHATWOOT_TOKEN"])
     req.add_header("Content-Type", "application/json")
+    req.add_header("User-Agent", USER_AGENT)
+    req.add_header("Accept", "application/json")
 
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_CONEXAO) as resposta:
@@ -113,6 +169,13 @@ def chamar_api(
             raise ErroDeApi(
                 "401 - token rejeitado. Confira o CHATWOOT_TOKEN no .env "
                 "(deve ser o access token do seu perfil de usuario)."
+            ) from erro
+        if erro.code == 403 and "1010" in detalhe:
+            raise ErroDeApi(
+                "403 do Cloudflare (codigo 1010): a requisicao foi barrada "
+                "antes de chegar no Chatwoot. Se persistir, libere o IP desta "
+                "maquina nas regras do Cloudflare, ou desative a verificacao "
+                "de integridade de navegador para o caminho /api/."
             ) from erro
         if erro.code == 404:
             raise ErroDeApi(
@@ -140,10 +203,10 @@ def cmd_inboxes(env: dict[str, str]) -> int:
 
     algum_livre = False
     for inbox in inboxes:
-        tipo = inbox.get("channel_type", "?")
-        rotulo, livre = PROVEDORES.get(tipo, (tipo, None))
+        rotulo, livre = classificar(inbox)
+        provider = inbox.get("provider") or "-"
         print(f"  [{inbox.get('id')}] {inbox.get('name')}")
-        print(f"       tipo: {tipo}")
+        print(f"       tipo: {inbox.get('channel_type')}  |  provider: {provider}")
         print(f"       ou seja: {rotulo}")
 
         if livre is True:
