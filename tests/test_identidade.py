@@ -690,3 +690,75 @@ class TestLinhaDesconhecidaNaoRoubaNome:
 
         mortes = [e.membro for e in eventos if e.tipo is TipoDeEvento.MORREU]
         assert mortes == ["Korzis"]
+
+
+class TestPassarAReconhecerNaoEEntrar:
+    """Reconhecer alguem que ja estava la nao e uma entrada.
+
+    Visto ao vivo: no arranque de uma sessao com a party PARADA, o scanner
+    anunciou "Kaus entrou na party" — o Kaus estava na party o tempo todo, so
+    nao vinha sendo reconhecido.
+
+    Uma identidade nova aparece por dois motivos bem diferentes: alguem entrou
+    (a party window ganha uma linha) ou o reconhecimento passou a funcionar
+    (a contagem de linhas nao muda). O sinal que separa os dois e o mesmo que
+    separa saida real de falha de reconhecimento — a janela crescer ou encolher.
+    """
+
+    def _obs(self, nomes):
+        from l2scanner.visao import LeituraDeLinha, Observacao
+
+        linhas = tuple(
+            LeituraDeLinha(
+                i,
+                EstadoDaLinha.COM_MEMBRO,
+                1.0,
+                1.0,
+                nome=n,
+                confianca_do_nome=0.98 if n else 0.0,
+            )
+            for i, n in enumerate(nomes)
+        )
+        return Observacao(0, True, linhas)
+
+    def test_reconhecer_alguem_que_ja_estava_la_nao_gera_entrada(self):
+        from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
+
+        r = Rastreador(
+            nomes=["Kaus"],
+            assinaturas_configuradas=True,
+            ajustes=Ajustes(confirmacoes_para_entrada=3),
+        )
+        # 4 linhas o tempo todo; no comeco nenhuma e reconhecida
+        for i in range(15):
+            r.observar(self._obs([None, None, None, None]), -100 + i)
+
+        # o reconhecimento passa a funcionar para a linha 3 — mesma contagem
+        eventos = []
+        for i in range(10):
+            eventos.extend(r.observar(self._obs([None, None, None, "Kaus"]), 10 + i))
+
+        entradas = [e for e in eventos if e.tipo is TipoDeEvento.ENTROU]
+        assert entradas == [], (
+            "a party continuou com 4 linhas; o Kaus so passou a ser "
+            "reconhecido, nao entrou"
+        )
+
+    def test_entrada_de_verdade_continua_sendo_detectada(self):
+        """A party CRESCE quando alguem entra — esse sinal precisa sobreviver."""
+        from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
+
+        r = Rastreador(
+            nomes=["Kaus", "Korzis"],
+            assinaturas_configuradas=True,
+            ajustes=Ajustes(confirmacoes_para_entrada=3),
+        )
+        for i in range(15):
+            r.observar(self._obs(["Kaus"]), -100 + i)
+
+        eventos = []
+        for i in range(6):
+            eventos.extend(r.observar(self._obs(["Kaus", "Korzis"]), 10 + i))
+
+        entradas = [e.membro for e in eventos if e.tipo is TipoDeEvento.ENTROU]
+        assert entradas == ["Korzis"]

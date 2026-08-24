@@ -129,7 +129,16 @@ class _EstadoInterno:
     # E o que distingue "ele saiu" de "o reconhecimento falhou": quando alguem
     # sai de verdade a party window ENCOLHE, porque as linhas compactam. Uma
     # falha de reconhecimento nao muda a contagem de linhas nenhuma.
+    #
+    # O mesmo sinal, ao contrario, separa "entrou" de "passei a reconhecer":
+    # quem entra faz a janela CRESCER; um nome que so agora foi reconhecido nao
+    # muda contagem nenhuma.
     linhas_quando_visto: int = 0
+
+    # Se a party window CRESCEU no frame em que este membro apareceu. Guardado
+    # em vez de reavaliado: a entrada so confirma apos N leituras, e no
+    # enesimo frame a janela ja parou de crescer. Reavaliar perderia o evento.
+    apareceu_com_crescimento: bool = False
 
 
 def _chave_da_linha(linha: LeituraDeLinha) -> str:
@@ -193,6 +202,10 @@ class Rastreador:
 
     # Rastreio de "voce esta em party?". So faz sentido quando a barra propria
     # esta calibrada: e ela que distingue "sai da party" de "perdi a visao".
+    # Quantas linhas a party window tinha no ultimo frame processado. E a
+    # referencia para decidir se ela cresceu ou encolheu.
+    _ultima_contagem_estavel: int = field(default=0, init=False)
+
     _voce_em_party: bool | None = field(default=None, init=False)
     _contador_sem_party: int = field(default=0, init=False)
     _contador_com_party: int = field(default=0, init=False)
@@ -509,6 +522,14 @@ class Rastreador:
                 EstadoDoMembro.AUSENTE,
                 EstadoDoMembro.DESCONHECIDO,
             ):
+                if interno.contador_entrada == 0:
+                    # Primeiro frame em que vemos esta identidade: e AGORA que
+                    # a pergunta "a party cresceu?" tem resposta. Guardar em vez
+                    # de reavaliar, porque a entrada so confirma depois de N
+                    # leituras e ate la a janela ja parou de crescer.
+                    interno.apareceu_com_crescimento = (
+                        linhas_agora > self._ultima_contagem_estavel
+                    )
                 interno.contador_entrada += 1
                 if interno.contador_entrada < self.ajustes.confirmacoes_para_entrada:
                     continue
@@ -521,9 +542,21 @@ class Rastreador:
                 # um membro fantasma entrando na party — o espelho do falso
                 # "saiu" que a mesma piscada causava.
                 e_chave_de_posicao = identidade.startswith("#linha")
+
+                # A PARTY WINDOW CRESCEU? Se nao cresceu, ninguem entrou.
+                #
+                # Mesmo raciocinio da saida, espelhado. Uma identidade nova
+                # aparece por dois motivos bem diferentes: alguem entrou de
+                # verdade (a janela ganha uma linha), ou o reconhecimento
+                # passou a funcionar para quem ja estava la (a contagem nao
+                # muda). Sem esta checagem, o segundo caso vira "Kaus entrou na
+                # party" com o Kaus na party o tempo todo — foi o que apareceu
+                # no arranque de uma sessao com a party parada.
                 entrou_de_verdade = (
-                    interno.estado is EstadoDoMembro.AUSENTE or self._aquecido
-                ) and not (e_chave_de_posicao and ha_membro_nomeado)
+                    (interno.estado is EstadoDoMembro.AUSENTE or self._aquecido)
+                    and not (e_chave_de_posicao and ha_membro_nomeado)
+                    and interno.apareceu_com_crescimento
+                )
                 interno.estado = (
                     EstadoDoMembro.MORTO if morto_agora else EstadoDoMembro.VIVO
                 )
@@ -580,6 +613,8 @@ class Rastreador:
                         )
                 else:
                     interno.contador_ressurreicao = 0
+
+        self._ultima_contagem_estavel = linhas_agora
 
         # O aquecimento termina quando o primeiro membro assume um estado real.
         # Marcar DEPOIS do laco evita que os membros processados mais tarde na
