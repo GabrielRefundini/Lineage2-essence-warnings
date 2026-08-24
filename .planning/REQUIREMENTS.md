@@ -136,31 +136,31 @@ categoria de problema que o projeto ainda nao tinha.
 
 ### Agenda (AGEN)
 
-- [ ] **AGEN-01**: O scanner avisa no WhatsApp 10 minutos antes de cada evento agendado, e de novo no horario exato do evento
-- [ ] **AGEN-02**: TvT esta agendado para 15:00, 17:00 e 21:50, todos os sete dias da semana
-- [ ] **AGEN-03**: Prime esta agendado para 20:00, de segunda a quinta-feira
-- [ ] **AGEN-04**: Os horarios, os dias e os nomes dos eventos ficam em `config.toml`, editaveis a mao com comentario — nunca no codigo. Uma atualizacao do jogo que mude os horarios nao pode exigir mexer em Python
-- [ ] **AGEN-05**: A agenda funciona com o jogo FECHADO. O aviso vem do relogio, nao da tela, e quem mais precisa do lembrete e justamente quem nao esta online
-- [ ] **AGEN-06**: Reiniciar o scanner nao reenvia um aviso ja enviado. O estado de "ja avisei este evento hoje" sobrevive ao processo
-- [ ] **AGEN-07**: Com duas instancias do scanner rodando (o usuario roda Yazalaque e Faerlina lado a lado), o grupo recebe cada aviso UMA vez, nao duas
-- [ ] **AGEN-08**: Um evento cujo horario ja passou quando o scanner sobe nao dispara aviso atrasado
+- [x] **AGEN-01**: O scanner avisa no WhatsApp 10 minutos antes de cada evento agendado, e de novo no horario exato do evento
+- [x] **AGEN-02**: TvT esta agendado para 15:00, 17:00 e 21:50, todos os sete dias da semana
+- [x] **AGEN-03**: Prime esta agendado para 20:00, de segunda a quinta-feira
+- [x] **AGEN-04**: Os horarios, os dias e os nomes dos eventos ficam em `config.toml`, editaveis a mao com comentario — nunca no codigo. Uma atualizacao do jogo que mude os horarios nao pode exigir mexer em Python
+- [x] **AGEN-05**: A agenda funciona com o jogo FECHADO. O aviso vem do relogio, nao da tela, e quem mais precisa do lembrete e justamente quem nao esta online
+- [x] **AGEN-06**: Reiniciar o scanner nao reenvia um aviso ja enviado. O estado de "ja avisei este evento hoje" sobrevive ao processo
+- [x] **AGEN-07**: Com duas instancias do scanner rodando (o usuario roda Yazalaque e Faerlina lado a lado), o grupo recebe cada aviso UMA vez, nao duas
+- [x] **AGEN-08**: Um evento cujo horario ja passou quando o scanner sobe nao dispara aviso atrasado
 
 ### Silenciamento (MUTE)
 
-- [ ] **MUTE-01**: Durante um evento agendado, os eventos do scanner sao silenciados por completo — morte, ressurreicao, saida, entrada, jogo caiu, cegueira e voce-sem-party
-- [ ] **MUTE-02**: A janela de silencio do TvT dura 15 minutos a partir do horario do evento
-- [ ] **MUTE-03**: A janela de silencio do Prime dura 2 horas a partir do horario do evento
-- [ ] **MUTE-04**: Janelas de silencio sobrepostas se comportam como UNIAO. De segunda a quinta o Prime (20:00-22:00) engole o TvT das 21:50, cuja janela vai ate 22:05 — o silencio termina as 22:05, nunca as 22:00
-- [ ] **MUTE-05**: Os avisos de AGENDA atravessam o silencio SEMPRE. Sem isto, de segunda a quinta o lembrete do TvT das 21:50 cairia dentro do silencio do Prime e a funcionalidade se anularia sozinha
-- [ ] **MUTE-06**: Ao fim de cada janela de silencio, o grupo recebe UMA mensagem dizendo que o evento encerrou e que os convites de party estao sendo reenviados. Sem resumo do que foi engolido
-- [ ] **MUTE-07**: O que foi silenciado continua indo para o log e para o console. Silencio e do WhatsApp, nunca do registro — depurar um farm depois exige o registro completo
-- [ ] **MUTE-08**: O console mostra que esta em janela de silencio, e ate quando. Um scanner calado precisa parecer calado de proposito
+- [x] **MUTE-01**: Durante um evento agendado, os eventos do scanner sao silenciados por completo — morte, ressurreicao, saida, entrada, jogo caiu, cegueira e voce-sem-party
+- [x] **MUTE-02**: A janela de silencio do TvT dura 15 minutos a partir do horario do evento
+- [x] **MUTE-03**: A janela de silencio do Prime dura 2 horas a partir do horario do evento
+- [x] **MUTE-04**: Janelas de silencio sobrepostas se comportam como UNIAO. De segunda a quinta o Prime (20:00-22:00) engole o TvT das 21:50, cuja janela vai ate 22:05 — o silencio termina as 22:05, nunca as 22:00
+- [x] **MUTE-05**: Os avisos de AGENDA atravessam o silencio SEMPRE. Sem isto, de segunda a quinta o lembrete do TvT das 21:50 cairia dentro do silencio do Prime e a funcionalidade se anularia sozinha
+- [x] **MUTE-06**: Ao fim de cada janela de silencio, o grupo recebe UMA mensagem dizendo que o evento encerrou e que os convites de party estao sendo reenviados. Sem resumo do que foi engolido
+- [x] **MUTE-07**: O que foi silenciado continua indo para o log e para o console. Silencio e do WhatsApp, nunca do registro — depurar um farm depois exige o registro completo
+- [x] **MUTE-08**: O console mostra que esta em janela de silencio, e ate quando. Um scanner calado precisa parecer calado de proposito
 
 ### Operacao (OPER, continuando a numeracao)
 
-- [ ] **OPER-09**: O usuario pode rodar so a agenda, sem vigilancia de party e sem o jogo aberto
-- [ ] **OPER-10**: O usuario pode testar um aviso de agenda sob demanda, sem esperar as 15h
-- [ ] **OPER-11**: `--dry-run` cobre a agenda e o silenciamento igual cobre o resto: tudo no console, nada enviado
+- [x] **OPER-09**: O usuario pode rodar so a agenda, sem vigilancia de party e sem o jogo aberto
+- [x] **OPER-10**: O usuario pode testar um aviso de agenda sob demanda, sem esperar as 15h
+- [x] **OPER-11**: `--dry-run` cobre a agenda e o silenciamento igual cobre o resto: tudo no console, nada enviado
 
 ## Out of Scope (deste milestone)
 
@@ -172,6 +172,21 @@ categoria de problema que o projeto ainda nao tinha.
 | Rodar com o PC desligado | "Independente do jogo" nao e "independente do PC". Se a maquina estiver desligada as 15h nao ha aviso. Um agendamento no servidor resolveria, mas e outro projeto |
 | Ajuste automatico de horario apos atualizacao do jogo | Nao ha fonte confiavel para ler os horarios novos. O usuario edita `config.toml`, que e justamente por que AGEN-04 existe |
 | Fuso horario configuravel | Os horarios sao a hora local da maquina, que e a mesma do usuario. O Brasil nao tem mais horario de verao desde 2019, entao nao ha deslocamento sazonal a tratar |
+
+## Traceability — Milestone v2
+
+| Requisito | Fase | Status |
+|---|---|---|
+| AGEN-01 a AGEN-04 | Fase 6 | Completo |
+| AGEN-05, OPER-09, OPER-10, OPER-11 | Fase 6 | Completo |
+| AGEN-06, AGEN-07, AGEN-08 | Fase 6 | Completo |
+| MUTE-01 a MUTE-08 | Fase 7 | Completo |
+
+**Cobertura v2:** 19 de 19 mapeados e implementados. 80 testes novos.
+
+**Falta validação humana**, não implementação:
+- Deixar `--so-agenda` rodando e ver um aviso real chegar no WhatsApp
+- Atravessar um TvT de verdade e confirmar que o silêncio cala e o encerramento chega
 
 ## Traceability
 
