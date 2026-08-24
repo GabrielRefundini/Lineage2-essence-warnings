@@ -385,8 +385,10 @@ def _tentar_pelas_janelas_do_jogo() -> Calibracao | None:
         return None
 
     print()
-    print("Nada achado no desktop — algo pode estar cobrindo a party window.")
+    print("Nada achado no desktop — outra JANELA pode estar por cima.")
     print("Tentando ler as janelas do jogo por dentro...")
+    print("(isto enxerga atras de outros programas, mas NAO atras da UI")
+    print(" do proprio jogo: inventario e ficha sao desenhados por ele)")
     print()
 
     for titulo in janelas:
@@ -477,6 +479,21 @@ def main() -> int:
     # abertas, adivinhar significaria vigiar o personagem errado.
     cal.janela = janela_que_contem(cal.party_window.esquerda, cal.party_window.topo)
 
+    # Guarda a party window TAMBEM em coordenadas relativas ao canto da janela
+    # do jogo. As coordenadas de desktop so valem enquanto a janela nao se
+    # mexer; as relativas acompanham o jogo se ele for arrastado.
+    if cal.janela:
+        try:
+            jx, jy = origem_da_janela(achar_janela(cal.janela))
+            cal.party_window_na_janela = Regiao(
+                esquerda=cal.party_window.esquerda - jx,
+                topo=cal.party_window.topo - jy,
+                largura=cal.party_window.largura,
+                altura=cal.party_window.altura,
+            )
+        except Exception:
+            cal.party_window_na_janela = None
+
     # Grava a impressao digital visual do nome de cada membro. E isso que
     # permite dizer QUEM morreu quando a ordem da party muda — sem isso a
     # identidade viria da posicao da linha, e um alerta com o nome errado manda
@@ -516,6 +533,12 @@ def main() -> int:
     print(f"  espacamento  : {cal.layout.passo} px entre membros")
     if cal.janela:
         print(f"  janela       : {cal.janela}")
+        if cal.party_window_na_janela:
+            rel = cal.party_window_na_janela
+            print(
+                f"  dentro dela  : ({rel.esquerda},{rel.topo}) — o scanner "
+                f"acompanha se voce arrastar o jogo"
+            )
     else:
         print("  janela       : nao identificada — --janela precisara do titulo")
     if cal.nomes:

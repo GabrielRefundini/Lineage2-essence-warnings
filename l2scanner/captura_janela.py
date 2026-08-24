@@ -203,7 +203,9 @@ class JanelaSource:
     scanner nao sabe qual dos dois esta usando.
     """
 
-    def __init__(self, titulo_da_janela: str, regiao: Regiao) -> None:
+    def __init__(
+        self, titulo_da_janela: str, regiao: Regiao, relativa: bool = False
+    ) -> None:
         from windows_capture import (
             Frame as FrameWGC,
             InternalCaptureControl,
@@ -212,6 +214,12 @@ class JanelaSource:
 
         self._titulo = titulo_da_janela
         self._regiao = regiao
+        # `relativa` diz se a regiao ja esta em coordenadas do canto da
+        # janela. Se estiver, arrastar o jogo nao afeta nada. Se nao, ela
+        # esta em coordenadas de desktop e precisa ser convertida a cada
+        # captura — e ai mover a janela entre a calibracao e a execucao
+        # faria a conta sair errada.
+        self._relativa = relativa
         self._hwnd = achar_janela(titulo_da_janela)
 
         self._ultimo: np.ndarray | None = None
@@ -301,9 +309,12 @@ class JanelaSource:
         # A calibracao esta em coordenadas de DESKTOP e o frame comeca no canto
         # da JANELA. Recalcular a origem a cada captura faz o scanner acompanhar
         # o jogo se ele for arrastado — o `mss` quebraria calado nesse caso.
-        ox, oy = origem_da_janela(self._hwnd)
-        x = self._regiao.esquerda - ox
-        y = self._regiao.topo - oy
+        if self._relativa:
+            x, y = self._regiao.esquerda, self._regiao.topo
+        else:
+            ox, oy = origem_da_janela(self._hwnd)
+            x = self._regiao.esquerda - ox
+            y = self._regiao.topo - oy
 
         recorte = (
             completo[y : y + self._regiao.altura, x : x + self._regiao.largura]

@@ -138,6 +138,12 @@ class Calibracao:
     # errar aqui significa vigiar a party do personagem errado.
     janela: str | None = None
 
+    # A MESMA party window, mas em coordenadas relativas ao canto da janela do
+    # jogo. `party_window` esta em coordenadas de desktop, que so valem
+    # enquanto a janela nao se mexer; esta aqui sobrevive a arrastar o jogo
+    # para outro lugar da tela, porque acompanha a janela.
+    party_window_na_janela: Regiao | None = None
+
     versao: int = VERSAO_DO_ESQUEMA
 
     def regiao_do_nome(self, indice: int) -> Regiao:
@@ -170,6 +176,11 @@ class Calibracao:
             "nomes": self.nomes,
             "assinaturas": [a.como_dict() for a in self.assinaturas],
             "janela": self.janela,
+            "party_window_na_janela": (
+                self.party_window_na_janela.como_dict()
+                if self.party_window_na_janela
+                else None
+            ),
         }
         caminho.write_text(
             json.dumps(dados, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -210,6 +221,11 @@ class Calibracao:
                 Assinatura.de_dict(a) for a in dados.get("assinaturas", [])
             ],
             janela=dados.get("janela"),
+            party_window_na_janela=(
+                Regiao.de_dict(dados["party_window_na_janela"])
+                if dados.get("party_window_na_janela")
+                else None
+            ),
             versao=versao,
         )
 

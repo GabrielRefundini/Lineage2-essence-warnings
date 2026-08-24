@@ -188,7 +188,16 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     elif args.janela:
         # Captura a janela do jogo direto, em vez do desktop composto: assim
         # cobrir o jogo com o navegador nao cega mais o scanner.
-        fonte = JanelaSource(args.janela, cal.party_window)
+        # A regiao relativa a janela sobrevive a arrastar o jogo; a de
+        # desktop so vale enquanto ele nao se mexer.
+        regiao = cal.party_window_na_janela or cal.party_window
+        if cal.party_window_na_janela is None:
+            log.warning(
+                "Esta calibracao e antiga e nao guarda a posicao dentro da "
+                "janela. Vai funcionar, mas ARRASTAR o jogo quebra a leitura. "
+                "Rode calibrar.bat para corrigir."
+            )
+        fonte = JanelaSource(args.janela, regiao, relativa=cal.party_window_na_janela is not None)
         log.info("Lendo a janela '%s' — funciona com o jogo coberto", args.janela)
         log.info("Janela MINIMIZADA continua sem funcionar: o Windows para de "
                  "produzir frames e nao ha API que contorne isso.")

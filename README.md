@@ -98,8 +98,21 @@ python -m l2scanner.calibrar --selecionar --nomes "J4guar,Kaus,TioMad,Korzis"
 
 Aí você marca a party window arrastando o mouse.
 
-**Recalibre sempre que** mover a party window, mudar a resolução ou trocar o
-arranjo de monitores. O scanner se recusa a iniciar se a geometria da tela mudou
+### Duas instâncias do jogo abertas
+
+A calibração descobre **sozinha** a qual cliente a party window pertence — ela
+verifica qual janela do jogo contém a região que você calibrou — e grava o
+título junto. O scanner então lê exatamente aquela janela.
+
+As janelas são filtradas pelo executável do jogo, então uma aba de navegador
+chamada "XM Essence" não entra na conta.
+
+Para monitorar o outro personagem, recalibre com a party window **dele** visível.
+Para monitorar os dois ao mesmo tempo, seria preciso rodar duas cópias com
+arquivos de calibração separados — não suportado hoje.
+
+**Recalibre sempre que** mover a party window dentro do jogo, mudar a resolução
+ou trocar o arranjo de monitores. O scanner se recusa a iniciar se a geometria da tela mudou
 desde a calibração — é melhor falhar alto do que medir a região errada calado.
 
 ### 3. Vigie
@@ -126,9 +139,18 @@ Deixe a janela aberta enquanto farma. `Ctrl+C` encerra.
 que lê a janela do jogo diretamente em vez do desktop — então você pode navegar,
 assistir vídeo ou trabalhar por cima do jogo sem cegar o scanner.
 
-> **Minimizado não funciona, e não é limitação do scanner.** Uma janela
-> minimizada para de produzir frames no Windows, e nenhuma API contorna isso.
-> Deixe o jogo aberto atrás de outras janelas, não minimizado.
+> **O que a leitura por janela resolve e o que não resolve:**
+>
+> | Situação | Funciona? |
+> |---|---|
+> | Navegador, Discord ou qualquer programa por cima do jogo | Sim |
+> | Jogo arrastado para outro lugar da tela | Sim, acompanha |
+> | Jogo sem foco, em segundo plano | Sim |
+> | **Inventário ou ficha aberta dentro do jogo** | **Não** — quem desenha é o próprio jogo, sobre a mesma imagem |
+> | **Janela minimizada** | **Não** — o Windows para de produzir frames, e nenhuma API contorna |
+>
+> Nos dois casos que não funcionam, o scanner entra em modo cego e não alerta
+> nada — em vez de ler errado e inventar quatro mortes.
 
 Para voltar a ler o desktop (mais simples, menos peças, mas exige o jogo
 visível):

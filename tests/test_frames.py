@@ -293,3 +293,74 @@ class TestOrigemDaJanela:
         finally:
             ctypes.windll.dwmapi = original_dwm
             captura_janela._user32 = original_user
+
+
+class TestPosicaoRelativaAJanela:
+    """A party window precisa acompanhar o jogo se ele for arrastado.
+
+    `party_window` esta em coordenadas de DESKTOP, que so valem enquanto a
+    janela nao se mexer. `party_window_na_janela` esta em coordenadas do canto
+    da janela — e essa sobrevive a arrastar o jogo para outro monitor.
+
+    Sem isso, mover a janela do jogo entre a calibracao e a execucao faz o
+    scanner ler uma regiao deslocada exatamente pela distancia que a janela
+    andou, e passar o farm inteiro medindo o lugar errado.
+    """
+
+    def _calibracao(self, **extras) -> Calibracao:
+        base = dict(
+            party_window=Regiao(1738, 325, 174, 522),
+            ancora=Regiao(0, 0, 40, 28),
+            layout=LayoutDaParty(
+                icone_x=12,
+                icone_y=34,
+                icone_tamanho=24,
+                barra_x=42,
+                barra_largura=120,
+                barra_altura=8,
+                hp_y=40,
+                mp_y=51,
+                passo=61,
+                max_linhas=8,
+            ),
+            limiares_hp=LIMIARES_HP_PADRAO,
+            limiares_mp=LIMIARES_MP_PADRAO,
+            geometria_da_tela="3440x1440+0+0",
+        )
+        base.update(extras)
+        return Calibracao(**base)
+
+    def test_posicao_relativa_sobrevive_ao_disco(self, tmp_path):
+        original = self._calibracao(
+            janela="Yazalaque - XM Essence",
+            party_window_na_janela=Regiao(18, 325, 174, 522),
+        )
+        caminho = tmp_path / "calibration.json"
+        original.salvar(caminho)
+
+        voltou = Calibracao.carregar(caminho)
+        assert voltou.party_window_na_janela == Regiao(18, 325, 174, 522)
+        assert voltou.janela == "Yazalaque - XM Essence"
+
+    def test_calibracao_antiga_sem_posicao_relativa_ainda_carrega(self, tmp_path):
+        """Degradar e melhor do que quebrar: a calibracao antiga continua valendo."""
+        original = self._calibracao(janela="Yazalaque - XM Essence")
+        caminho = tmp_path / "calibration.json"
+        original.salvar(caminho)
+
+        voltou = Calibracao.carregar(caminho)
+        assert voltou.party_window_na_janela is None
+        assert voltou.party_window == Regiao(1738, 325, 174, 522)
+
+    def test_a_posicao_relativa_nao_muda_quando_a_janela_anda(self):
+        """O ponto todo: a mesma party window em duas posicoes de janela.
+
+        Em coordenadas de desktop os dois casos dao numeros diferentes; em
+        coordenadas da janela, o mesmo — que e o que o scanner precisa.
+        """
+        # janela em (1720,0), party em (1738,325) -> relativa (18,325)
+        relativa_antes = Regiao(1738 - 1720, 325 - 0, 174, 522)
+        # a mesma janela arrastada para (400,100); a party anda junto
+        relativa_depois = Regiao((400 + 18) - 400, (100 + 325) - 100, 174, 522)
+
+        assert relativa_antes == relativa_depois == Regiao(18, 325, 174, 522)
