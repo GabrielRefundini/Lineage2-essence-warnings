@@ -16,6 +16,13 @@ recordings/
 !tests/fixtures/**/
 !tests/fixtures/**/*.png
 
+# O template do dialogo de desconexao NAO e a tela do usuario: e um pedaco da
+# UI do cliente, igual em qualquer maquina. Ele e CODIGO, nao dado local — sem
+# ele versionado, um clone novo perde a deteccao de desconexao inteira e o
+# scanner volta a ficar cego calado quando o servidor cai.
+!l2scanner/recursos/
+!l2scanner/recursos/*.png
+
 # Saída em tempo de execução
 outbox.jsonl
 events.jsonl
