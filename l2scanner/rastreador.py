@@ -64,6 +64,12 @@ class TipoDeEvento(Enum):
     VOCE_SEM_PARTY = "voce_sem_party"
     VOCE_ENTROU_EM_PARTY = "voce_entrou_em_party"
 
+    # O CLIENTE caiu: dialogo de desconexao na tela, ou de volta na tela de
+    # login. Cegueira com causa conhecida nao e cegueira — e um evento, e e o
+    # evento que explica todos os outros silencios que vierem depois dele.
+    JOGO_CAIU = "jogo_caiu"
+    JOGO_VOLTOU = "jogo_voltou"
+
 
 @dataclass(frozen=True)
 class Evento:
@@ -94,6 +100,16 @@ class Ajustes:
     confirmacoes_para_saida: int = 5
 
     confirmacoes_para_entrada: int = 3
+
+    # Quantas leituras seguidas com o cliente caido ate anunciar. Baixo de
+    # proposito, ao contrario de todos os outros: o titulo da janela e prova,
+    # nao inferencia sobre pixels, e nao pisca. Duas leituras existem so para
+    # atravessar o frame exato da troca de tela.
+    confirmacoes_para_jogo_caiu: int = 2
+
+    # Voltar exige mais, pela mesma histerese assimetrica das mortes: a tela de
+    # selecao de personagem passa rapido e nao e "voltou a jogar".
+    confirmacoes_para_jogo_voltou: int = 4
 
     # Quantas leituras seguidas sem party window, COM a sua barra visivel, ate
     # concluir que voce nao esta mais em party. Alto de proposito: trocar de
@@ -238,6 +254,20 @@ class Rastreador:
     # inventar uma que nao houve, calar e a escolha certa.
     _ja_viu_party_window: bool = field(default=False, init=False)
 
+    # O cliente esta caido (tela de login ou dialogo de desconexao) AGORA.
+    _cliente_caido: bool = field(default=False, init=False)
+    _contador_cliente_caido: int = field(default=0, init=False)
+    _contador_cliente_de_pe: int = field(default=0, init=False)
+
+    # Ja vimos o cliente JOGANDO alguma vez. Antes disso, "caido" e o estado
+    # em que o scanner encontrou o mundo, nao uma queda que aconteceu.
+    _cliente_ja_esteve_de_pe: bool = field(default=False, init=False)
+
+    # A queda que esta valendo agora chegou a ser anunciada. Sem isto, um
+    # scanner ligado com o jogo fechado anunciaria "o jogo voltou" no primeiro
+    # login do dia sem nunca ter dito que caiu.
+    _queda_anunciada: bool = field(default=False, init=False)
+
     # Se o veredito "voce nao esta em party" que esta valendo agora foi firmado
     # COM a party window ja tendo sido vista alguma vez. Guardado no instante em
     # que o veredito e firmado, e nao consultado na volta: quando a entrada
@@ -314,6 +344,18 @@ class Rastreador:
         """Processa uma observacao e devolve os eventos confirmados nela."""
         eventos: list[Evento] = []
 
+        # --- O CLIENTE CAIU? Antes de tudo. ---
+        # Esta pergunta vem primeiro porque a resposta dela EXPLICA todas as
+        # outras. Com o jogo caido, a party window nao esta escondida: ela nao
+        # existe. Deixar as avaliacoes seguintes rodarem produziria "voce saiu
+        # da party" e "fulano saiu" a partir de uma tela de login — que foi
+        # exatamente a familia de alarme falso corrigida hoje mais cedo.
+        eventos.extend(self._avaliar_o_cliente(obs, agora))
+        if self._cliente_caido:
+            # Caido congela tudo, igual a cegueira. A diferenca e que agora o
+            # silencio tem nome, e a party ja foi avisada do motivo.
+            return eventos
+
         # --- VOCE ESTA EM PARTY? ---
         # A pergunta so e respondivel porque a SUA barra e lida separado da
         # party window. A combinacao "minha barra esta la, a party window nao"
@@ -384,6 +426,88 @@ class Rastreador:
         eventos.extend(self._processar(obs, agora))
         self._primeira_observacao = False
         return eventos
+
+    def _avaliar_o_cliente(self, obs: Observacao, agora: float) -> list[Evento]:
+        """O cliente caiu, ou voltou? Debounce proprio, estado proprio.
+
+        Cegueira com causa conhecida nao e cegueira. Ate hoje o scanner so
+        sabia dizer "sem visao da party", e essa frase cobria o jogo coberto,
+        um menu aberto, o servidor em manutencao e o cliente na tela de login.
+        Para quem esta no WhatsApp as tres ultimas sao a mesma coisa — o jogo
+        caiu — e nenhuma delas era dita.
+
+        Na sessao de 2026-08-24 o servidor entrou em manutencao e o scanner
+        passou 90 s, e depois 5 min, repetindo "sem visao" sem nunca dizer o
+        motivo. O `outbox.jsonl` registra os dois silencios.
+        """
+        estado = obs.estado_do_cliente
+        if estado is None:
+            return []
+
+        from .cliente import EstadoDoCliente
+
+        if estado is EstadoDoCliente.DESCONHECIDO:
+            # Nao da para decidir. Congela os dois contadores: nao e evidencia
+            # de que caiu nem de que esta de pe.
+            return []
+
+        caido_agora = estado in (
+            EstadoDoCliente.TELA_DE_LOGIN,
+            EstadoDoCliente.DESCONECTADO,
+        )
+
+        if caido_agora:
+            self._contador_cliente_de_pe = 0
+            self._contador_cliente_caido += 1
+        else:
+            self._contador_cliente_caido = 0
+            self._contador_cliente_de_pe += 1
+
+        if self._contador_cliente_caido >= self.ajustes.confirmacoes_para_jogo_caiu:
+            if not self._cliente_caido:
+                self._cliente_caido = True
+                # COMECO FRIO: ligar o scanner com o jogo ja na tela de login
+                # nao e "o jogo caiu" — o usuario esta olhando para a tela.
+                # A guarda e "ja vi o cliente de pe alguma vez", e nao
+                # `_primeira_observacao`: essa fica presa em True para sempre
+                # quando o cliente ja sobe caido, porque `_processar` (o unico
+                # lugar que a limpa) nunca chega a rodar.
+                if self._cliente_ja_esteve_de_pe:
+                    self._queda_anunciada = True
+                    return [
+                        Evento(
+                            tipo=TipoDeEvento.JOGO_CAIU,
+                            momento=agora,
+                            membro=self.nome_proprio,
+                            detalhe=(
+                                "tela de login"
+                                if estado is EstadoDoCliente.TELA_DE_LOGIN
+                                else "desconectado do servidor"
+                            ),
+                        )
+                    ]
+
+        elif (
+            self._contador_cliente_de_pe
+            >= self.ajustes.confirmacoes_para_jogo_voltou
+        ):
+            estava_caido = self._cliente_caido
+            self._cliente_caido = False
+            self._cliente_ja_esteve_de_pe = True
+            # So anuncia a volta se a QUEDA foi anunciada. Senao um scanner
+            # ligado com o jogo fechado diria "o jogo voltou" no primeiro
+            # login do dia, sem nunca ter dito que caiu.
+            if estava_caido and self._queda_anunciada:
+                self._queda_anunciada = False
+                return [
+                    Evento(
+                        tipo=TipoDeEvento.JOGO_VOLTOU,
+                        momento=agora,
+                        membro=self.nome_proprio,
+                    )
+                ]
+
+        return []
 
     def _avaliar_se_voce_esta_em_party(
         self, obs: Observacao, agora: float

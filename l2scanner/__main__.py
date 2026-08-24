@@ -18,6 +18,7 @@ import argparse  # noqa: E402
 import logging  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
+from dataclasses import replace  # noqa: E402
 from datetime import datetime  # noqa: E402
 from logging.handlers import RotatingFileHandler  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -139,6 +140,17 @@ def desenhar_status(rastreador: Rastreador, cal: Calibracao, obs) -> str:
         PortaoGlobal.CEGO: "SEM VISAO",
         PortaoGlobal.REAQUISICAO: "reajustando",
     }[rastreador.portao]
+
+    # Quando o cliente caiu, o motivo VENCE o portao. "SEM VISAO" e verdade mas
+    # nao ajuda; "JOGO CAIU - TELA DE LOGIN" diz o que fazer a respeito. Foi a
+    # falta disso que deixou o usuario olhando 90 s de "SEM VISAO" enquanto o
+    # servidor estava em manutencao.
+    from .cliente import EstadoDoCliente
+
+    if obs.estado_do_cliente is EstadoDoCliente.TELA_DE_LOGIN:
+        portao = "JOGO CAIU - TELA DE LOGIN"
+    elif obs.estado_do_cliente is EstadoDoCliente.DESCONECTADO:
+        portao = "JOGO CAIU - DESCONECTADO DO SERVIDOR"
 
     linhas = [f"[{portao}]"]
     for leitura in obs.linhas:
@@ -298,6 +310,14 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
 
             try:
                 observacao = extrair(frame, cal)
+                # O estado do CLIENTE vem da fonte, nao da analise de pixels da
+                # party window: o titulo da janela e sinal do Windows, e o
+                # dialogo de desconexao aparece longe da regiao calibrada. So a
+                # captura por janela tem as duas coisas.
+                if hasattr(fonte, "estado_do_cliente"):
+                    observacao = replace(
+                        observacao, estado_do_cliente=fonte.estado_do_cliente()
+                    )
                 # Num replay o tempo vem do arquivo, nao do relogio: e o que
                 # faz uma sessao de uma hora produzir os mesmos eventos ao ser
                 # reproduzida em trinta segundos.

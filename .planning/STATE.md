@@ -2,8 +2,8 @@
 gsd_state_version: '1.0'
 status: implementado
 progress:
-  total_phases: 4
-  completed_phases: 4
+  total_phases: 5
+  completed_phases: 5
   total_plans: 6
   completed_plans: 6
   percent: 97
@@ -34,8 +34,9 @@ Progress: [█████████▓] 97%
 | 2 | Calibrador automático + leitura das barras | ✓ verificado contra a tela real |
 | 3 | Rastreador de estado, debounce, histerese, portão de cegueira | ✓ 226 testes; morte real detectada em campo |
 | 4 | Notificador Chatwoot, console ao vivo, replay | ✓ verificado ao vivo |
+| 5 | Tela de login e desconexão do servidor viram evento | ✓ verificado ao vivo contra as duas janelas |
 
-**226 testes passando**, todos sem precisar do jogo aberto ou de rede.
+**255 testes passando**, todos sem precisar do jogo aberto ou de rede.
 
 ## Calibração real medida (2026-08-24)
 
@@ -55,6 +56,10 @@ O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado.
 
 ### Decisões
 
+- [Fase 5]: **O título da janela é o sinal mais confiável do projeto.** `Yazalaque - XM Essence` jogando, `XM Essence` na tela de login. Texto do Windows: sem limiar, sem HSV, sem calibração, imune a mudança de resolução.
+- [Fase 5]: **`windows-capture` casa `window_name` por SUBSTRING.** Pedir `XM Essence` devolve o frame de `Faerlina - XM Essence`. A tela de login não é endereçável por nome — é detectada relendo o título do hwnd que já temos.
+- [Fase 5]: **O diálogo de desconexão precisa de pixels porque o título não muda com ele aberto.** É o caso mais importante: AFK + caído deixa o diálogo parado para sempre. Margem medida ao vivo: 0.9997 contra 0.5051, limiar 0.90.
+
 - [Fase 2]: **A saturação é o discriminador, não o matiz.** A parte vazia da barra é transparente e mostra o terreno do jogo (S≈75), enquanto a barra cheia é sólida (S≈210). Um chão avermelhado enganaria um teste só de matiz.
 - [Fase 2]: **O ícone de classe é o indicador de presença.** "HP zerado" e "linha ausente" leem exatamente igual nas barras (0%). O ícone existe independente do HP: margem medida de 43-52 de desvio contra 9-10 do terreno.
 - [Fase 2]: **A âncora fica no topo da janela.** Verificado pelos prints do usuário: a party window é ancorada em cima e encolhe por baixo. Uma âncora embaixo sumiria sozinha quando a PT diminuísse.
@@ -72,7 +77,11 @@ O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado.
 - ~~**[Aberto] Morte de membro nunca testada contra uma morte real**~~ **RESOLVIDO EM CAMPO 2026-08-24, sessão 13:21-13:42**: 12 eventos de morte/ressurreição num combate real, com HP em gradiente (J4guar 0%, Kaus caindo a 0%, TioMad 72%, Korzis 100% no mesmo frame — assinatura de luta ao vivo, não de tela parada). Nomes corretos e durações plausíveis (`KAUS MORREU 13:39:56` -> `KAUS FOI RESSUSCITADO (ficou 16s morto) 13:40:12`). Os 4 membros morreram e ressuscitaram ao menos uma vez. **Rodou em modo console** — o `outbox.jsonl` só começa às 16:44.
 - ~~**[Aberto — limiar de cor]** O matiz muda com o nível de HP?~~ **RESOLVIDO POR OBSERVAÇÃO**: `logs/scanner.log` tem leituras em toda a faixa (0%, 2%, 22%, 32%, 42-56%, 63%, 68%, 72-82%, 88%, 99%, 100%). A calibração lê o gradiente inteiro, não só os extremos.
 
-- **[ABERTO — o mais grave] Cegueira recorrente e longa.** O scanner passa períodos longos sem conseguir ler a party window, e está piorando dentro da mesma sessão:
+- ~~**[ABERTO — o mais grave] Cegueira recorrente e longa**~~ **CAUSA ENCONTRADA E TRATADA 2026-08-24 (Fase 5)**: era o SERVIDOR EM MANUTENÇÃO. Os prints do usuário mostram "Server Maintence 00 minutes 00 seconds", "You cannot use this item because the server will restart in a few minutes" e o diálogo "You have been disconnected from the server.<7>". Os 90 s e os 5 min de silêncio eram o cliente caindo. O scanner agora reconhece os dois estados e avisa com o motivo. **A cegueira não era defeito de calibração** — era o jogo fora do ar, e o produto simplesmente não sabia dizer isso.
+
+  Detalhe original, mantido para histórico:
+
+- **[histórico] Cegueira recorrente e longa.** O scanner passa períodos longos sem conseguir ler a party window, e está piorando dentro da mesma sessão:
 
       18:19:50-18:21:19   90 s sem visão (a barra própria também lendo 0%)
       18:35               "Scanner sem visao da party ha 5min" (registrado no outbox)
@@ -91,8 +100,7 @@ O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado.
 
 ## Próximos passos
 
-1. **Resolver a cegueira recorrente** — é a única pendência que impede o produto de cumprir o que promete. Diagnosticar por que a party window deixa de ser legível por minutos.
-2. **Fechar a última milha** — uma morte real com a entrega LIGADA. Detecção (13:39) e entrega (18:17) já foram validadas em campo, mas nunca na mesma sessão. É o único critério do milestone que nenhuma evidência cobre.
+1. **Fechar a última milha** — uma morte real com a entrega LIGADA. Detecção (13:39) e entrega (18:17) já foram validadas em campo, mas nunca na mesma sessão. É o único critério do milestone que nenhuma evidência cobre.
 3. **Confirmar em farm que os alarmes falsos acabaram** — reiniciar com as correções de hoje e farmar uma sessão inteira sem evento espúrio.
 
 ## Session Continuity

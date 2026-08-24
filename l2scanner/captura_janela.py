@@ -34,6 +34,10 @@ from .frames import Frame, Regiao, SaudeDoFrame, _ClassificadorDeSaude
 # Quanto esperar pelo primeiro frame antes de desistir
 SEGUNDOS_PARA_PRIMEIRO_FRAME = 5.0
 
+# Sentinela para "ainda nao tentei carregar", distinta de None ("tentei e nao
+# existe"). Sem ela o disco seria lido a cada frame.
+_NAO_CARREGADO = object()
+
 _user32 = ctypes.windll.user32
 
 
@@ -228,6 +232,10 @@ class JanelaSource:
         # esta em maos. No caminho do desktop cada extra custa uma captura.
         self._extras = extras or {}
         self._hwnd = achar_janela(titulo_da_janela)
+        # Carregado sob demanda, uma vez. `_NAO_CARREGADO` distingue "ainda nao
+        # tentei" de "tentei e nao existe" — sem isso o disco seria lido a cada
+        # frame quando o template nao estivesse gravado.
+        self._template_do_dialogo = _NAO_CARREGADO
 
         self._ultimo: np.ndarray | None = None
         self._trava = threading.Lock()
@@ -375,6 +383,30 @@ class JanelaSource:
         ):
             return None
         return recorte
+
+    def estado_do_cliente(self):
+        """Jogando, na tela de login, ou desconectado?
+
+        Mora aqui porque so esta classe tem as duas coisas necessarias: o hwnd
+        (para reler o titulo, que muda quando o cliente volta ao login) e o
+        frame COMPLETO da janela (onde o dialogo de desconexao aparece, longe
+        da party window).
+
+        Releitura a cada chamada de proposito: o titulo muda embaixo de nos, e
+        e justamente essa mudanca que queremos ver.
+        """
+        from .cliente import estado_do_cliente, titulo_da_janela
+
+        if self._template_do_dialogo is _NAO_CARREGADO:
+            from .cliente import carregar_template
+
+            self._template_do_dialogo = carregar_template()
+
+        return estado_do_cliente(
+            titulo_da_janela(self._hwnd),
+            self.capturar_completo(),
+            self._template_do_dialogo,
+        )
 
     def fechar(self) -> None:
         self._parar.set()

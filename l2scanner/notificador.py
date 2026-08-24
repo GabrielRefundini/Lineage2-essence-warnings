@@ -99,6 +99,26 @@ def formatar(evento: Evento) -> str:
         quem = evento.membro or "Voce"
         return f"[{hora}] {quem} entrou em party. Voltei a vigiar o grupo."
 
+    if evento.tipo is TipoDeEvento.JOGO_CAIU:
+        quem = evento.membro or "O jogo"
+        motivo = (
+            "voltou para a tela de login"
+            if evento.detalhe == "tela de login"
+            else "foi desconectado do servidor"
+        )
+        return (
+            f"[{hora}] O cliente do {quem} {motivo}. "
+            f"Nao estou vigiando ninguem enquanto isso — pode ser queda de "
+            f"conexao ou manutencao do servidor."
+        )
+
+    if evento.tipo is TipoDeEvento.JOGO_VOLTOU:
+        quem = evento.membro or "O jogo"
+        return (
+            f"[{hora}] O cliente do {quem} voltou ao jogo. "
+            f"Voltei a vigiar a party."
+        )
+
     return f"[{hora}] {evento.tipo.value}: {evento.membro or ''}".strip()
 
 
@@ -142,6 +162,17 @@ def formatar_console(evento: Evento) -> str:
 
     if evento.tipo is TipoDeEvento.VOCE_ENTROU_EM_PARTY:
         return f"{(evento.membro or 'VOCE').upper()} ENTROU EM PARTY"
+
+    if evento.tipo is TipoDeEvento.JOGO_CAIU:
+        motivo = (
+            "TELA DE LOGIN"
+            if evento.detalhe == "tela de login"
+            else "DESCONECTADO DO SERVIDOR"
+        )
+        return f"O JOGO CAIU - {motivo} - NADA E DETECTADO AGORA"
+
+    if evento.tipo is TipoDeEvento.JOGO_VOLTOU:
+        return "O JOGO VOLTOU - vigiando a party de novo"
 
     return evento.tipo.value.upper()
 

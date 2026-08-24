@@ -31,8 +31,9 @@ import cv2
 import numpy as np
 
 from .calibracao import Calibracao, LimiaresDeCor
-from .identidade import identificar_linhas
+from .cliente import EstadoDoCliente
 from .frames import Frame, Regiao, SaudeDoFrame
+from .identidade import identificar_linhas
 
 
 class EstadoDaLinha(Enum):
@@ -74,6 +75,13 @@ class Observacao:
     ui_visivel: bool
     linhas: tuple[LeituraDeLinha, ...]
     hp_proprio: float | None = None
+
+    # Em que estado o CLIENTE esta (jogando, tela de login, desconectado).
+    # Vem de fora da analise de pixels da party window — o titulo da janela e
+    # um sinal do Windows, nao da imagem — por isso entra como campo em vez de
+    # ser deduzido aqui. `None` significa "ninguem perguntou", e nunca vira
+    # evento.
+    estado_do_cliente: EstadoDoCliente | None = None
 
     @property
     def membros_presentes(self) -> int:
