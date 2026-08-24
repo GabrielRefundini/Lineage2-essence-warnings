@@ -228,6 +228,8 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
             )
         )
 
+    linhas = _truncar_no_primeiro_vao(linhas)
+
     hp_proprio = (
         medir_barra(pixels, cal.hp_proprio, cal.limiares_hp)
         if cal.hp_proprio
@@ -240,3 +242,41 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
         linhas=tuple(linhas),
         hp_proprio=hp_proprio,
     )
+
+
+def _truncar_no_primeiro_vao(
+    linhas: list[LeituraDeLinha],
+) -> list[LeituraDeLinha]:
+    """Forca a VAZIA tudo que vem depois da primeira linha vazia.
+
+    A party window nunca tem buraco: os membros ocupam as linhas de cima para
+    baixo, sem pular. "Membro 3 presente, 4 ausente, 5 presente" e impossivel
+    no jogo.
+
+    Isso importa porque a regiao capturada e mais alta que a janela de
+    proposito (para caber uma party cheia), e o excedente cai em cima do chat e
+    do minimapa — que tem contraste alto e poderiam ser lidos como icone de
+    classe. Sem essa regra, uma linha de chat colorida viraria um quinto membro
+    fantasma, e depois a "saida" dele viraria um alerta que nunca aconteceu.
+    """
+    resultado: list[LeituraDeLinha] = []
+    achou_vao = False
+
+    for linha in linhas:
+        if achou_vao:
+            resultado.append(
+                LeituraDeLinha(
+                    indice=linha.indice,
+                    estado=EstadoDaLinha.VAZIA,
+                    hp=None,
+                    mp=None,
+                )
+            )
+            continue
+
+        if linha.estado is EstadoDaLinha.VAZIA:
+            achou_vao = True
+
+        resultado.append(linha)
+
+    return resultado

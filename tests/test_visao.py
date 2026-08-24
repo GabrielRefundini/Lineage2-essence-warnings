@@ -213,3 +213,53 @@ class TestVoltaDoMatizVermelho:
         bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
         assert medir_barra(bgr, Regiao(0, 0, 120, 8), LIMIARES_HP_PADRAO) == 0.0
+
+
+class TestSemBuracoNaLista:
+    """A party window nunca tem vao: membros ocupam as linhas de cima pra baixo.
+
+    Isto importa porque a regiao capturada e mais alta que a janela de proposito
+    (para caber uma party cheia), e o excedente cai em cima do chat e do
+    minimapa — que tem contraste alto e poderiam passar por icone de classe.
+    """
+
+    def _frame_com_icone_falso_no_fim(self, calibracao) -> Frame:
+        """Simula o chat disparando o detector de icone numa linha distante."""
+        pixels = np.full((520, 200, 3), (110, 120, 100), dtype=np.uint8)
+        lay = calibracao.layout
+
+        def pintar_icone(indice: int) -> None:
+            dy = indice * lay.passo
+            y, x = lay.icone_y + dy, lay.icone_x
+            # quadrado escuro com miolo claro: exatamente o que o detector busca
+            pixels[y : y + lay.icone_tamanho, x : x + lay.icone_tamanho] = (20, 20, 20)
+            pixels[y + 6 : y + 18, x + 6 : x + 18] = (240, 240, 240)
+
+        pintar_icone(0)
+        pintar_icone(1)
+        # vao nas linhas 2 e 3, e um "icone" falso na 4 (chat colorido)
+        pintar_icone(4)
+
+        return Frame(pixels=pixels, indice=0, saude=SaudeDoFrame.OK)
+
+    def test_linha_apos_o_vao_e_descartada(self, calibracao):
+        frame = self._frame_com_icone_falso_no_fim(calibracao)
+        obs = extrair(frame, calibracao)
+
+        assert obs.linhas[0].estado is EstadoDaLinha.COM_MEMBRO
+        assert obs.linhas[1].estado is EstadoDaLinha.COM_MEMBRO
+        assert obs.linhas[2].estado is EstadoDaLinha.VAZIA
+        assert obs.linhas[4].estado is EstadoDaLinha.VAZIA, (
+            "um icone falso depois de um vao viraria membro fantasma, e a "
+            "'saida' dele viraria alerta de um evento que nunca aconteceu"
+        )
+
+    def test_membro_fantasma_nao_entra_na_contagem(self, calibracao):
+        frame = self._frame_com_icone_falso_no_fim(calibracao)
+        obs = extrair(frame, calibracao)
+        assert obs.membros_presentes == 2
+
+    def test_party_contigua_nao_e_afetada(self, frame_real, calibracao):
+        """A regra nao pode cortar uma party legitima."""
+        obs = extrair(frame_real, calibracao)
+        assert obs.membros_presentes == 4
