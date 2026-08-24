@@ -156,3 +156,55 @@ contador que ninguém lê.
 
 É o mesmo lugar onde os bugs de hoje de manhã moravam. Vale como sinal: neste
 projeto, a lógica pura está sólida e o risco mora na integração.
+
+---
+
+## Segunda passada — cobertura e caminho quente (2026-08-24, após as correções)
+
+### A cobertura confirma o achado da revisão, de forma independente
+
+| Camada | Cobertura |
+|---|---|
+| `rastreador.py` | 98% |
+| `visao.py` / `agenda.py` / `identidade.py` | 94–95% |
+| **`__main__.py`** | **20%** |
+| **`captura_janela.py`** | **19%** |
+
+Os **3 de 3 warnings** desta revisão moravam em `__main__.py`. A revisão chegou
+nisso lendo código; a cobertura chega no mesmo lugar por medição. Duas fontes
+independentes apontando o mesmo risco: **a lógica pura está sólida e o perigo
+mora na integração.**
+
+### O caminho quente era 98% um só `matchTemplate`
+
+| Operação | Custo |
+|---|---|
+| `extrair()` — toda a análise da party window | **0,7 ms** |
+| `matchTemplate` do diálogo (após W-01) | **47 ms** |
+
+O scanner gastava ~98% do CPU procurando, a 1 Hz, um evento que acontece uma vez
+por manutenção.
+
+**Correção:** cadência. Um diálogo de desconexão não pisca — aparece e fica até
+alguém clicar. Conferir a cada 5 s detecta a mesma coisa: **47 ms/s → 9,4 ms/s**,
+e o tick inteiro passa a custar 1% do orçamento. O título continua sendo lido a
+cada tick, porque custa microssegundos e a tela de login não pode esperar.
+
+O veredito de desconexão **gruda** entre buscas. Sem isso o estado oscilaria a
+cada tick, as confirmações nunca chegariam a duas seguidas, e o alerta
+simplesmente não sairia.
+
+### A lógica saiu da camada intestável
+
+A cadência foi implementada em `captura_janela.py` (19%) e **movida** para
+`cliente.py` (85%) antes de ser considerada pronta. Lógica que *decide* alguma
+coisa não pode viver onde só um jogo aberto consegue exercitá-la — que é
+exatamente a condição que deixou os três warnings passarem.
+
+Resultado: `cliente.py` 81% → 85%, com 7 testes cobrindo a cadência, o veredito
+grudento e o título continuando fresco.
+
+### Código morto removido
+
+`RegistroEmMemoria` (28 linhas) ficou órfão quando a Tarefa 3 da Fase 6 o
+substituiu por `RegistroEmDisco`. Nada o referenciava.
