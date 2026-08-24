@@ -206,3 +206,71 @@ def estado_do_cliente(
     if pontuacao >= limiar_do_dialogo:
         return EstadoDoCliente.DESCONECTADO
     return EstadoDoCliente.EM_JOGO
+
+
+class VigiaDoCliente:
+    """Decide o estado do cliente, com CADENCIA para a busca cara.
+
+    Mora aqui, e nao no `JanelaSource`, por um motivo de testabilidade que a
+    cobertura tornou obvio: `captura_janela.py` esta em 19% e `rastreador.py`
+    em 98%, e os tres warnings do code review moravam todos na camada de baixa
+    cobertura. Logica que decide alguma coisa nao pode viver onde so um jogo
+    aberto consegue exercita-la.
+
+    A CADENCIA existe porque as duas perguntas tem custos absurdamente
+    diferentes:
+
+      titulo da janela  ~0.001 ms  -> a cada tick, sempre
+      matchTemplate     ~45 ms     -> a cada poucos segundos
+
+    Medido: o matchTemplate sozinho seria ~98% do CPU do scanner a 1 Hz (contra
+    0,7 ms de toda a analise da party window). E ele nao precisa dessa
+    frequencia — um dialogo de desconexao nao pisca, ele aparece e FICA ate
+    alguem clicar.
+
+    O VEREDITO DE DESCONEXAO GRUDA entre buscas. Sem isso o estado oscilaria
+    DESCONECTADO/EM_JOGO a cada tick e o debounce do rastreador nunca fecharia
+    as confirmacoes — o alerta simplesmente nunca sairia.
+    """
+
+    def __init__(
+        self,
+        template: np.ndarray | None,
+        segundos_entre_buscas: float = 5.0,
+        limiar_do_dialogo: float = 0.90,
+    ) -> None:
+        self._template = template
+        self._intervalo = segundos_entre_buscas
+        self._limiar = limiar_do_dialogo
+        self._ultima_busca: float | None = None
+        self._viu_dialogo = False
+
+    def avaliar(self, titulo: str | None, obter_pixels, agora: float):
+        """`obter_pixels` so e chamado quando a busca vence.
+
+        Passar um chamavel em vez dos pixels e o que faz a cadencia valer a
+        pena: nos ticks em que nao ha busca, o frame nem chega a ser copiado.
+        """
+        if titulo is None:
+            return EstadoDoCliente.DESCONHECIDO
+
+        # O titulo e prova e custa quase nada — sempre primeiro, sempre fresco.
+        if esta_na_tela_de_login(titulo):
+            self._viu_dialogo = False
+            return EstadoDoCliente.TELA_DE_LOGIN
+
+        vencido = (
+            self._ultima_busca is None
+            or agora - self._ultima_busca >= self._intervalo
+        )
+        if vencido:
+            self._ultima_busca = agora
+            pontuacao = casar_dialogo(obter_pixels(), self._template)
+            if pontuacao is not None:
+                self._viu_dialogo = pontuacao >= self._limiar
+
+        return (
+            EstadoDoCliente.DESCONECTADO
+            if self._viu_dialogo
+            else EstadoDoCliente.EM_JOGO
+        )

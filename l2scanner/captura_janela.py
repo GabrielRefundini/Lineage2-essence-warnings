@@ -34,9 +34,13 @@ from .frames import Frame, Regiao, SaudeDoFrame, _ClassificadorDeSaude
 # Quanto esperar pelo primeiro frame antes de desistir
 SEGUNDOS_PARA_PRIMEIRO_FRAME = 5.0
 
-# Sentinela para "ainda nao tentei carregar", distinta de None ("tentei e nao
-# existe"). Sem ela o disco seria lido a cada frame.
-_NAO_CARREGADO = object()
+# De quanto em quanto tempo procurar o dialogo de desconexao.
+#
+# Medido: o matchTemplate custa ~45 ms, contra 0,7 ms de toda a analise da
+# party window. A 1 Hz ele sozinho seria ~98% do CPU do scanner. E um dialogo
+# de desconexao nao pisca — aparece e FICA ate alguem clicar — entao conferir
+# a cada cinco segundos detecta a mesma coisa por um nono do custo.
+SEGUNDOS_ENTRE_BUSCAS_DO_DIALOGO = 5.0
 
 _user32 = ctypes.windll.user32
 
@@ -232,10 +236,9 @@ class JanelaSource:
         # esta em maos. No caminho do desktop cada extra custa uma captura.
         self._extras = extras or {}
         self._hwnd = achar_janela(titulo_da_janela)
-        # Carregado sob demanda, uma vez. `_NAO_CARREGADO` distingue "ainda nao
-        # tentei" de "tentei e nao existe" — sem isso o disco seria lido a cada
-        # frame quando o template nao estivesse gravado.
-        self._template_do_dialogo = _NAO_CARREGADO
+        # Montado sob demanda: carregar o template do disco no __init__ faria
+        # toda calibracao e todo teste pagarem por ele sem nunca usar.
+        self._vigia = None
 
         self._ultimo: np.ndarray | None = None
         self._trava = threading.Lock()
@@ -389,23 +392,27 @@ class JanelaSource:
 
         Mora aqui porque so esta classe tem as duas coisas necessarias: o hwnd
         (para reler o titulo, que muda quando o cliente volta ao login) e o
-        frame COMPLETO da janela (onde o dialogo de desconexao aparece, longe
-        da party window).
+        frame COMPLETO da janela (onde o dialogo aparece, longe da party
+        window).
 
-        Releitura a cada chamada de proposito: o titulo muda embaixo de nos, e
-        e justamente essa mudanca que queremos ver.
+        A DECISAO em si mora no `VigiaDoCliente`, em cliente.py. Aqui ficou so
+        a coleta — logica que decide alguma coisa nao pode viver num modulo que
+        so um jogo aberto consegue exercitar.
         """
-        from .cliente import estado_do_cliente, titulo_da_janela
+        from .cliente import VigiaDoCliente, titulo_da_janela
 
-        if self._template_do_dialogo is _NAO_CARREGADO:
+        if self._vigia is None:
             from .cliente import carregar_template
 
-            self._template_do_dialogo = carregar_template()
+            self._vigia = VigiaDoCliente(
+                carregar_template(),
+                segundos_entre_buscas=SEGUNDOS_ENTRE_BUSCAS_DO_DIALOGO,
+            )
 
-        return estado_do_cliente(
+        return self._vigia.avaliar(
             titulo_da_janela(self._hwnd),
-            self.capturar_completo(),
-            self._template_do_dialogo,
+            self.capturar_completo,
+            time.monotonic(),
         )
 
     def fechar(self) -> None:

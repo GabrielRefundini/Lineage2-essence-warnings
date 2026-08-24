@@ -212,34 +212,6 @@ def texto_do_aviso(aviso: Aviso) -> str:
     return f"{aviso.evento} comecou agora, as {hora}."
 
 
-class RegistroEmMemoria:
-    """Guarda quais avisos ja sairam, so enquanto o processo vive.
-
-    Suficiente para uma sessao. NAO resolve reiniciar o scanner nem duas
-    instancias rodando lado a lado — as duas coisas que fariam o grupo receber
-    o mesmo aviso duas vezes. Quem resolve isso e o registro duravel da
-    Tarefa 3, que implementa esta mesma interface.
-
-    A interface existe desde ja justamente para essa troca nao mexer no laco.
-    """
-
-    def __init__(self) -> None:
-        self._chaves: set[str] = set()
-
-    def enviados(self) -> set[str]:
-        return self._chaves
-
-    def marcar(self, chave: str) -> bool:
-        """True se ESTE processo deve enviar. False se ja foi enviado."""
-        if chave in self._chaves:
-            return False
-        self._chaves.add(chave)
-        return True
-
-
-# Quantos dias de marcadores guardar antes de podar. Curto de proposito: o
-# unico uso e "isto ja saiu?", e essa pergunta so importa para hoje e para a
-# virada de dia.
 DIAS_DE_MARCADOR = 3
 
 

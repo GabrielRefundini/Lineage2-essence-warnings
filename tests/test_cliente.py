@@ -302,3 +302,152 @@ class TestMensagens:
         linha = formatar_console(self._ev(TipoDeEvento.JOGO_CAIU, "tela de login"))
         assert "JOGO_CAIU" not in linha
         assert "TELA DE LOGIN" in linha
+
+
+class TestVigiaDoCliente:
+    """A cadencia da busca cara, agora testavel.
+
+    Esta logica morava no `JanelaSource`, num modulo de 19% de cobertura que so
+    um jogo aberto consegue exercitar — a mesma camada onde os tres warnings do
+    code review moravam. Foi movida para ca justamente por isso.
+
+    Medido: o titulo custa ~0,001 ms e o matchTemplate ~45 ms, contra 0,7 ms de
+    toda a analise da party window. A 1 Hz o template sozinho seria ~98% do CPU
+    do scanner, para procurar um evento que acontece uma vez por manutencao.
+    """
+
+    def _vigia(self, casa_o_dialogo, intervalo=5.0):
+        """Vigia com um template falso e um casamento controlado."""
+        import numpy as np
+
+        from l2scanner.cliente import VigiaDoCliente
+
+        vigia = VigiaDoCliente(
+            template=np.zeros((2, 2, 3), dtype=np.uint8),
+            segundos_entre_buscas=intervalo,
+        )
+        # O que importa e a CADENCIA, entao trocamos a medicao por um valor fixo
+        vigia._contagem = 0
+
+        def falso(pixels, template):
+            vigia._contagem += 1
+            return 0.99 if casa_o_dialogo else 0.10
+
+        import l2scanner.cliente as mod
+
+        vigia._original = mod.casar_dialogo
+        mod.casar_dialogo = falso
+        return vigia, mod
+
+    def _restaurar(self, vigia, mod):
+        mod.casar_dialogo = vigia._original
+
+    def test_a_busca_cara_nao_roda_a_cada_tick(self):
+        vigia, mod = self._vigia(casa_o_dialogo=False, intervalo=5.0)
+        try:
+            for tick in range(10):  # 10 segundos, 1 Hz
+                vigia.avaliar("Faerlina - XM Essence", lambda: object(), float(tick))
+            assert vigia._contagem == 2, (
+                f"buscou {vigia._contagem} vezes em 10s; esperado 2 (a cada 5s)"
+            )
+        finally:
+            self._restaurar(vigia, mod)
+
+    def test_o_titulo_e_avaliado_a_cada_tick_mesmo_assim(self):
+        """A tela de login nao pode esperar cinco segundos.
+
+        O titulo custa microssegundos — nao ha motivo para atrasar.
+        """
+        from l2scanner.cliente import EstadoDoCliente
+
+        vigia, mod = self._vigia(casa_o_dialogo=False)
+        try:
+            vigia.avaliar("Faerlina - XM Essence", lambda: object(), 0.0)
+            # 1 segundo depois, MUITO antes da proxima busca cara
+            estado = vigia.avaliar("XM Essence", lambda: object(), 1.0)
+            assert estado is EstadoDoCliente.TELA_DE_LOGIN
+        finally:
+            self._restaurar(vigia, mod)
+
+    def test_o_veredito_de_desconexao_GRUDA_entre_buscas(self):
+        """Sem isto o debounce do rastreador nunca fecharia.
+
+        O estado oscilaria DESCONECTADO/EM_JOGO a cada tick, as confirmacoes
+        nunca chegariam a 2 seguidas, e o alerta simplesmente nao sairia.
+        """
+        from l2scanner.cliente import EstadoDoCliente
+
+        vigia, mod = self._vigia(casa_o_dialogo=True, intervalo=5.0)
+        try:
+            estados = [
+                vigia.avaliar("Faerlina - XM Essence", lambda: object(), float(t))
+                for t in range(5)
+            ]
+            assert all(e is EstadoDoCliente.DESCONECTADO for e in estados), estados
+            assert vigia._contagem == 1, "buscou mais de uma vez em 5 segundos"
+        finally:
+            self._restaurar(vigia, mod)
+
+    def test_a_primeira_chamada_sempre_busca(self):
+        """Subir o scanner com o dialogo ja na tela tem que detectar na hora."""
+        from l2scanner.cliente import EstadoDoCliente
+
+        vigia, mod = self._vigia(casa_o_dialogo=True)
+        try:
+            estado = vigia.avaliar("Faerlina - XM Essence", lambda: object(), 0.0)
+            assert estado is EstadoDoCliente.DESCONECTADO
+            assert vigia._contagem == 1
+        finally:
+            self._restaurar(vigia, mod)
+
+    def test_os_pixels_so_sao_pedidos_quando_a_busca_vence(self):
+        """Passar um chamavel e o que faz a cadencia valer a pena.
+
+        Nos ticks sem busca, o frame nem chega a ser copiado.
+        """
+        vigia, mod = self._vigia(casa_o_dialogo=False, intervalo=5.0)
+        pedidos = []
+        try:
+            for tick in range(5):
+                vigia.avaliar(
+                    "Faerlina - XM Essence",
+                    lambda t=tick: pedidos.append(t) or object(),
+                    float(tick),
+                )
+            assert pedidos == [0], f"pixels pedidos em {pedidos}, esperado so no 0"
+        finally:
+            self._restaurar(vigia, mod)
+
+    def test_voltar_para_o_login_limpa_o_veredito_grudado(self):
+        """Senao um dialogo antigo sobreviveria a volta ao login."""
+        from l2scanner.cliente import EstadoDoCliente
+
+        vigia, mod = self._vigia(casa_o_dialogo=True, intervalo=100.0)
+        try:
+            assert (
+                vigia.avaliar("Faerlina - XM Essence", lambda: object(), 0.0)
+                is EstadoDoCliente.DESCONECTADO
+            )
+            assert (
+                vigia.avaliar("XM Essence", lambda: object(), 1.0)
+                is EstadoDoCliente.TELA_DE_LOGIN
+            )
+            # de volta ao jogo, e o dialogo velho nao pode ressuscitar
+            assert (
+                vigia.avaliar("Faerlina - XM Essence", lambda: object(), 2.0)
+                is EstadoDoCliente.EM_JOGO
+            )
+        finally:
+            self._restaurar(vigia, mod)
+
+    def test_sem_titulo_e_desconhecido_sem_gastar_a_busca(self):
+        from l2scanner.cliente import EstadoDoCliente
+
+        vigia, mod = self._vigia(casa_o_dialogo=True)
+        try:
+            assert vigia.avaliar(None, lambda: object(), 0.0) is (
+                EstadoDoCliente.DESCONHECIDO
+            )
+            assert vigia._contagem == 0
+        finally:
+            self._restaurar(vigia, mod)
