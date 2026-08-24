@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .frames import Regiao
+from .identidade import Assinatura
 
 VERSAO_DO_ESQUEMA = 2
 
@@ -66,6 +67,15 @@ class LayoutDaParty:
 
     passo: int  # distancia vertical entre membros consecutivos
     max_linhas: int
+
+    # Recorte do NOME, relativo ao icone da mesma linha. Fica logo acima dele.
+    # O recorte precisa ser JUSTO: medido na tela real, um recorte largo deixa
+    # o terreno dominar a comparacao e a margem entre nomes cai de 0.55 para
+    # 0.04 — a diferenca entre funcionar e nao funcionar.
+    nome_dx: int = 26  # a partir do icone, pulando o emblema de classe
+    nome_dy: int = -24
+    nome_largura: int = 100
+    nome_altura: int = 20
 
     # Limiares de contraste para "tem icone aqui".
     # Medidos na tela real: linha com membro da desvio 43-52 e 46-52% de pixels
@@ -117,12 +127,29 @@ class Calibracao:
     # membro fantasma entrando e saindo da party.
     nomes: list[str] = field(default_factory=list)
 
+    # Assinaturas visuais dos nomes, gravadas na calibracao. Sao elas que
+    # permitem dizer QUEM morreu mesmo quando a ordem da party muda — sem elas
+    # a identidade viria da posicao da linha, e um alerta com o nome errado
+    # manda a party socorrer a pessoa errada.
+    assinaturas: list = field(default_factory=list)
+
     # Titulo da janela do jogo a que esta party window pertence. Descoberto
     # pela calibracao. Com duas instancias abertas, adivinhar daria errado — e
     # errar aqui significa vigiar a party do personagem errado.
     janela: str | None = None
 
     versao: int = VERSAO_DO_ESQUEMA
+
+    def regiao_do_nome(self, indice: int) -> Regiao:
+        """Onde fica o texto do nome da linha `indice`, dentro da party window."""
+        lay = self.layout
+        deslocamento = indice * lay.passo
+        return Regiao(
+            esquerda=lay.icone_x + lay.nome_dx,
+            topo=lay.icone_y + deslocamento + lay.nome_dy,
+            largura=lay.nome_largura,
+            altura=lay.nome_altura,
+        )
 
     def nome_da_linha(self, indice: int) -> str:
         """Nome configurado, ou um rotulo generico se a lista for mais curta."""
@@ -141,6 +168,7 @@ class Calibracao:
             "limiares_mp": asdict(self.limiares_mp),
             "hp_proprio": self.hp_proprio.como_dict() if self.hp_proprio else None,
             "nomes": self.nomes,
+            "assinaturas": [a.como_dict() for a in self.assinaturas],
             "janela": self.janela,
         }
         caminho.write_text(
@@ -178,6 +206,9 @@ class Calibracao:
                 Regiao.de_dict(dados["hp_proprio"]) if dados.get("hp_proprio") else None
             ),
             nomes=list(dados.get("nomes", [])),
+            assinaturas=[
+                Assinatura.de_dict(a) for a in dados.get("assinaturas", [])
+            ],
             janela=dados.get("janela"),
             versao=versao,
         )

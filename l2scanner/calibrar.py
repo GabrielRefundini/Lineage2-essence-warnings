@@ -39,7 +39,14 @@ from .calibracao import (  # noqa: E402
     LayoutDaParty,
     descrever_geometria_da_tela,
 )
-from .captura_janela import janela_que_contem  # noqa: E402
+from .captura_janela import (  # noqa: E402
+    JanelaSource,
+    janela_que_contem,
+    listar_janelas_do_jogo,
+    origem_da_janela,
+    achar_janela,
+)
+from .identidade import criar_assinatura  # noqa: E402
 from .frames import Regiao  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -367,6 +374,54 @@ def conferir_visualmente(cal: Calibracao, pixels: np.ndarray, ox: int, oy: int) 
     print("Se nao baterem, rode de novo com --selecionar.")
 
 
+def _tentar_pelas_janelas_do_jogo() -> Calibracao | None:
+    """Procura a party window lendo cada janela do jogo por dentro.
+
+    Serve para quando algo esta cobrindo a party window na tela: a captura por
+    janela ve o jogo por baixo do que estiver em cima.
+    """
+    janelas = listar_janelas_do_jogo()
+    if not janelas:
+        return None
+
+    print()
+    print("Nada achado no desktop — algo pode estar cobrindo a party window.")
+    print("Tentando ler as janelas do jogo por dentro...")
+    print()
+
+    for titulo in janelas:
+        print(f"  {titulo}")
+        try:
+            hwnd = achar_janela(titulo)
+            ox, oy = origem_da_janela(hwnd)
+            # A regiao aqui e irrelevante: usamos o frame completo, porque
+            # ainda nao sabemos onde a party window esta — e o que vamos achar.
+            fonte = JanelaSource(titulo, Regiao(ox, oy, 1, 1))
+        except Exception as erro:
+            print(f"    nao consegui ler: {erro}")
+            continue
+
+        try:
+            import time
+
+            time.sleep(0.6)  # deixa chegar um frame de verdade
+            completo = fonte.capturar_completo()
+        finally:
+            fonte.fechar()
+
+        if completo is None or completo.size == 0:
+            print("    nenhum frame utilizavel")
+            continue
+
+        print(f"    janela lida: {completo.shape[1]}x{completo.shape[0]}")
+        cal = calibrar_automatico(completo, ox, oy)
+        if cal is not None:
+            cal.janela = titulo
+            return cal
+
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="l2scanner.calibrar",
@@ -402,6 +457,13 @@ def main() -> int:
     else:
         cal = calibrar_automatico(pixels, ox, oy)
 
+        # O desktop mostra o que esta POR CIMA. Se o inventario, a ficha do
+        # personagem ou qualquer painel estiver aberto sobre a party window, a
+        # busca falha. Nesse caso olhamos a janela do jogo direto, que enxerga
+        # por baixo — assim o usuario nao precisa fechar o que estava fazendo.
+        if cal is None:
+            cal = _tentar_pelas_janelas_do_jogo()
+
     if cal is None:
         print("\nCalibracao nao concluida.")
         print("Deixe a party window visivel na tela e tente de novo.")
@@ -414,6 +476,36 @@ def main() -> int:
     # Descobre a qual cliente esta party window pertence. Com duas instancias
     # abertas, adivinhar significaria vigiar o personagem errado.
     cal.janela = janela_que_contem(cal.party_window.esquerda, cal.party_window.topo)
+
+    # Grava a impressao digital visual do nome de cada membro. E isso que
+    # permite dizer QUEM morreu quando a ordem da party muda — sem isso a
+    # identidade viria da posicao da linha, e um alerta com o nome errado manda
+    # a party socorrer a pessoa errada.
+    if cal.nomes:
+        pw = cal.party_window
+        janela_px = pixels[
+            pw.topo - oy : pw.topo - oy + pw.altura,
+            pw.esquerda - ox : pw.esquerda - ox + pw.largura,
+        ]
+        assinaturas = []
+        for indice, nome in enumerate(cal.nomes):
+            regiao = cal.regiao_do_nome(indice)
+            recorte = janela_px[
+                regiao.topo : regiao.topo + regiao.altura,
+                regiao.esquerda : regiao.esquerda + regiao.largura,
+            ]
+            if recorte.shape[0] != regiao.altura:
+                print(f"  aviso: recorte do nome de {nome} caiu fora da janela")
+                continue
+            assinatura = criar_assinatura(nome, recorte)
+            if assinatura.pixels_de_texto < 12:
+                print(
+                    f"  aviso: quase nenhum texto no recorte de {nome} — "
+                    f"a linha {indice + 1} estava vazia?"
+                )
+                continue
+            assinaturas.append(assinatura)
+        cal.assinaturas = assinaturas
 
     cal.salvar(ARQUIVO_CALIBRACAO)
 
@@ -428,6 +520,14 @@ def main() -> int:
         print("  janela       : nao identificada — --janela precisara do titulo")
     if cal.nomes:
         print(f"  membros      : {', '.join(cal.nomes)}")
+        if cal.assinaturas:
+            print(
+                f"  identidade   : {len(cal.assinaturas)} nome(s) gravados por "
+                f"imagem — a ordem da party pode mudar sem errar o alerta"
+            )
+        else:
+            print("  identidade   : nenhuma assinatura gravada; o nome virá da")
+            print("                 ORDEM da lista, e mudar a ordem erra o alerta")
     else:
         print("  membros      : nenhum nome configurado")
         print("                 (use --nomes para os alertas dizerem quem morreu)")

@@ -274,6 +274,16 @@ class JanelaSource:
             f"nenhuma API do Windows contorna isso."
         )
 
+    def capturar_completo(self) -> np.ndarray | None:
+        """A janela inteira, sem recortar. Usado pela calibracao.
+
+        A calibracao precisa varrer a janela toda atras do padrao das barras —
+        ela ainda nao sabe onde a party window esta, que e justamente o que
+        vai descobrir.
+        """
+        with self._trava:
+            return None if self._ultimo is None else self._ultimo.copy()
+
     def capturar(self) -> Frame:
         with self._trava:
             completo = None if self._ultimo is None else self._ultimo.copy()

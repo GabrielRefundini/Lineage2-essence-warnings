@@ -31,6 +31,7 @@ import cv2
 import numpy as np
 
 from .calibracao import Calibracao, LimiaresDeCor
+from .identidade import identificar
 from .frames import Frame, Regiao, SaudeDoFrame
 
 
@@ -49,6 +50,12 @@ class LeituraDeLinha:
     estado: EstadoDaLinha
     hp: float | None  # fracao 0.0-1.0, ou None se a linha esta vazia
     mp: float | None
+
+    # Quem esta nesta linha, reconhecido pela imagem do nome. None quando nao
+    # da para afirmar — e ai o rastreador cai para "Membro N", que e feio mas
+    # honesto. Chutar um nome manda a party socorrer a pessoa errada.
+    nome: str | None = None
+    confianca_do_nome: float = 0.0
 
     @property
     def hp_zerado(self) -> bool:
@@ -193,6 +200,24 @@ def _bordas_da_barra_intactas(
     return True
 
 
+def _identificar_linha(pixels: np.ndarray, cal: Calibracao, indice: int):
+    """Reconhece quem esta na linha, se houver assinaturas gravadas."""
+    from .identidade import Casamento
+
+    if not cal.assinaturas:
+        return Casamento(nome=None, confianca=0.0)
+
+    regiao = cal.regiao_do_nome(indice)
+    recorte = pixels[
+        regiao.topo : regiao.topo + regiao.altura,
+        regiao.esquerda : regiao.esquerda + regiao.largura,
+    ]
+    if recorte.shape[0] != regiao.altura or recorte.shape[1] != regiao.largura:
+        return Casamento(nome=None, confianca=0.0)
+
+    return identificar(recorte, cal.assinaturas)
+
+
 def extrair(frame: Frame, cal: Calibracao) -> Observacao:
     """Le um frame inteiro. Funcao pura: mesmo frame, mesma saida, sempre."""
     layout = cal.layout
@@ -266,12 +291,19 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
         ):
             ui_visivel = False
 
+        # Identidade pela IMAGEM do nome, nao pela posicao da linha. A party
+        # window compacta as linhas quando alguem sai, entao a posicao nao e
+        # uma identidade — e so um lugar.
+        casamento = _identificar_linha(pixels, cal, i)
+
         linhas.append(
             LeituraDeLinha(
                 indice=i,
                 estado=EstadoDaLinha.COM_MEMBRO,
                 hp=medir_barra(pixels, regiao_hp, cal.limiares_hp),
                 mp=medir_barra(pixels, regiao_mp, cal.limiares_mp),
+                nome=casamento.nome,
+                confianca_do_nome=casamento.confianca,
             )
         )
 
@@ -332,7 +364,7 @@ def _truncar_no_primeiro_vao(
                     hp=None,
                     mp=None,
                 )
-            )
+            )  # nome descartado junto: linha vazia nao tem dono
             continue
 
         if linha.estado is EstadoDaLinha.VAZIA:

@@ -219,7 +219,12 @@ class Rastreador:
         for linha in obs.linhas:
             interno = self._linhas.setdefault(linha.indice, _EstadoInterno())
             interno.hp_visto = linha.hp
-            nome = self.nome_de(linha.indice)
+
+            # O nome reconhecido pela imagem vence a posicao da linha. A party
+            # window compacta as linhas quando alguem sai, entao a posicao e um
+            # lugar, nao uma identidade — e um alerta com o nome errado manda a
+            # party socorrer a pessoa errada.
+            nome = linha.nome or self.nome_de(linha.indice)
 
             if linha.estado is EstadoDaLinha.VAZIA:
                 interno.contador_morte = 0
