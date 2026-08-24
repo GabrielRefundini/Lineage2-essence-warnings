@@ -1,0 +1,25 @@
+# Segredos — NUNCA commitar
+.env
+*.token
+
+# Sessões gravadas (grandes, e contêm a tela do usuário)
+recordings/
+*.png
+*.bmp
+
+# Saída em tempo de execução
+outbox.jsonl
+events.jsonl
+logs/
+*.log
+
+# Calibração é local da máquina — cada tela tem a sua
+calibration.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/

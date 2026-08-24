@@ -1,0 +1,19 @@
+# Copie este arquivo para um arquivo chamado .env (na raiz do projeto) e preencha.
+# O .env está no .gitignore e nunca é commitado — o token não sai da sua máquina.
+#
+# Onde achar cada coisa no Chatwoot:
+#   CHATWOOT_URL     — o endereço do seu Chatwoot na VPS (sem barra no final)
+#   CHATWOOT_ACCOUNT — aparece na própria URL quando você navega:
+#                      https://seu-chatwoot/app/accounts/1/dashboard  ->  o "1"
+#   CHATWOOT_TOKEN   — Perfil (canto inferior esquerdo) > Configurações do perfil
+#                      > Token de acesso. É o "access token" do seu usuário.
+
+CHATWOOT_URL=https://seu-chatwoot.exemplo.com
+CHATWOOT_ACCOUNT=1
+CHATWOOT_TOKEN=cole_seu_token_aqui
+
+# Para onde os alertas vão. Preencha depois de rodar:
+#     python tools/check_whatsapp.py conversas
+# que lista as conversas com seus IDs.
+# Aceita vários IDs separados por vírgula (ex.: 12,34,56).
+CHATWOOT_CONVERSAS=
