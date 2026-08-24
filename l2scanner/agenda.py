@@ -214,6 +214,11 @@ def texto_do_aviso(aviso: Aviso) -> str:
 
 DIAS_DE_MARCADOR = 3
 
+# Prefixo dos marcadores de CANCELAMENTO, para nao se confundirem com os de
+# "ja avisei". Namespaces diferentes no mesmo diretorio: a poda, a atomicidade
+# e o compartilhamento entre instancias valem para os dois de graca.
+PREFIXO_CANCELADO = "cancelado_"
+
 
 class RegistroEmDisco:
     """Quais avisos ja sairam — a prova de restart E de duas instancias.
@@ -280,6 +285,23 @@ class RegistroEmDisco:
         os.close(descritor)
         return True
 
+    def cancelar(self, chave_da_ocorrencia: str) -> bool:
+        """Marca uma ocorrencia como cancelada. True se ESTE processo marcou.
+
+        Mesma atomicidade dos avisos: com as duas instancias do usuario
+        rodando, exatamente uma vence — e e ela que anuncia no grupo. A outra
+        le o marcador no proximo tick e para de silenciar do mesmo jeito.
+        """
+        return self.marcar(PREFIXO_CANCELADO + chave_da_ocorrencia)
+
+    def cancelados(self) -> set[str]:
+        """Ocorrencias canceladas, sem o prefixo."""
+        return {
+            nome[len(PREFIXO_CANCELADO) :]
+            for nome in self.enviados()
+            if nome.startswith(PREFIXO_CANCELADO)
+        }
+
     def podar(self, hoje: date | None = None) -> int:
         """Apaga marcadores velhos. Devolve quantos foram apagados.
 
@@ -293,8 +315,11 @@ class RegistroEmDisco:
         except OSError:
             return 0
         for caminho in nomes:
+            nome = caminho.name
+            if nome.startswith(PREFIXO_CANCELADO):
+                nome = nome[len(PREFIXO_CANCELADO) :]
             try:
-                dia = date.fromisoformat(caminho.name.split("_", 1)[0])
+                dia = date.fromisoformat(nome.split("_", 1)[0])
             except (ValueError, IndexError):
                 continue  # nao e um marcador nosso; nao mexer
             if dia < limite:
@@ -441,3 +466,22 @@ def ocorrencias_cancelaveis(
 
     achados.sort(key=lambda a: (not a[2], a[1]))
     return achados
+
+
+def texto_de_cancelamento(nome: str, inicio: datetime, rolando: bool) -> str:
+    """A mensagem que avisa o grupo que o silencio foi cancelado.
+
+    Vai para o grupo, e nao so para o console, porque o silencio e uma promessa
+    COLETIVA: a party inteira parou de receber alerta por causa dele. Cancelar
+    em silencio deixaria todo mundo achando que ainda esta calado.
+    """
+    hora = inicio.strftime("%H:%M")
+    if rolando:
+        return (
+            f"Silencio do {nome} das {hora} cancelado. "
+            f"Voltei a avisar mortes e saidas da party."
+        )
+    return (
+        f"O {nome} das {hora} nao vai silenciar hoje. "
+        f"Vou continuar avisando normalmente durante ele."
+    )

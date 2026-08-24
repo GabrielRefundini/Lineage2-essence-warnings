@@ -125,3 +125,60 @@ class TestDestaque:
         morte = destacar("X MORREU", TipoDeEvento.MORREU, "12:00:00")
         vida = destacar("X MORREU", TipoDeEvento.RESSUSCITOU, "12:00:00")
         assert morte != vida
+
+
+class TestDestacarSemEvento:
+    """Nem tudo que merece destaque no console e um Evento do rastreador.
+
+    Os avisos de agenda e o cancelamento de silencio vem do RELOGIO, nao da
+    tela, e nao tem TipoDeEvento nenhum.
+
+    Sem os defaults, `destacar(texto)` levantava TypeError. E como esse caminho
+    so executa quando um alerta de agenda vence DE VERDADE, o erro ficou
+    escondido desde a Fase 6 — o scanner teria crashado na primeira vez que
+    fosse falar sobre um TvT. Foi a cobertura de 20% do laco principal
+    cobrando.
+    """
+
+    def test_destacar_aceita_so_o_texto(self):
+        from l2scanner.console import destacar
+
+        bloco = destacar("TvT comeca em 10 minutos, as 21:50.")
+        assert "TvT comeca em 10 minutos" in bloco
+        assert bloco.count("\n") >= 2, "o bloco tem moldura"
+
+    def test_carimba_a_hora_de_agora_quando_nao_recebe_uma(self):
+        import re
+
+        from l2scanner.console import destacar
+
+        assert re.search(r"\[\d{2}:\d{2}\]", destacar("qualquer coisa"))
+
+    def test_continua_funcionando_com_os_tres_argumentos(self):
+        from l2scanner.console import destacar
+        from l2scanner.rastreador import TipoDeEvento
+
+        bloco = destacar("KAUS MORREU", TipoDeEvento.MORREU, "13:39")
+        assert "KAUS MORREU" in bloco and "13:39" in bloco
+
+    def test_todas_as_chamadas_do_laco_principal_sao_validas(self):
+        """A trava de verdade: exercita CADA chamada de destacar do __main__.
+
+        Um teste que so cobre a assinatura nao teria pego o bug — o que faltava
+        era alguem CHAMAR do jeito que o laco chama.
+        """
+        import inspect
+        import re
+
+        from l2scanner import __main__ as principal
+        from l2scanner.console import destacar
+
+        fonte = inspect.getsource(principal)
+        chamadas = re.findall(r"destacar\(([^)]*)\)", fonte)
+        assert len(chamadas) >= 5, f"esperava varias chamadas, achei {len(chamadas)}"
+
+        # Toda chamada com UM argumento tem que funcionar
+        de_um_argumento = [c for c in chamadas if "," not in c]
+        assert de_um_argumento, "nenhuma chamada de um argumento — teste obsoleto?"
+        for _ in de_um_argumento:
+            destacar("texto de exemplo")  # nao pode levantar

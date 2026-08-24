@@ -94,14 +94,28 @@ _ESTILO = {
 }
 
 
-def destacar(texto: str, tipo: TipoDeEvento, hora: str) -> str:
+def destacar(
+    texto: str, tipo: TipoDeEvento | None = None, hora: str | None = None
+) -> str:
     """Monta o bloco de destaque de um evento.
+
+    `tipo` e `hora` sao opcionais porque nem tudo que merece destaque no
+    console e um `Evento` do rastreador: os avisos de agenda e o cancelamento
+    de silencio vem do relogio, nao da tela, e nao tem TipoDeEvento nenhum.
+    Sem os defaults, chamar com um argumento so levanta TypeError — e como
+    esse caminho so executa quando um alerta de agenda vence de verdade, o erro
+    ficaria escondido ate a primeira vez que o scanner fosse falar sobre um
+    TvT. Foi exatamente o que aconteceu.
 
     Devolve uma string de varias linhas pronta para imprimir. O bloco cresce se
     o texto for longo, em vez de estourar a moldura — uma borda desalinhada
     parece defeito e tira a atencao do que importa.
     """
     marca, cor = _ESTILO.get(tipo, ("*", _CIANO))
+    if hora is None:
+        from datetime import datetime
+
+        hora = datetime.now().strftime("%H:%M")
 
     miolo = f"  {texto}"
     carimbo = f"  [{hora}]"

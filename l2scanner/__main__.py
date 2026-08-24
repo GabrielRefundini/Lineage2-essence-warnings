@@ -31,11 +31,15 @@ from .calibracao import (  # noqa: E402
 from .agenda import (  # noqa: E402
     Aviso,
     JanelaDeSilencio,
+    chave_da_ocorrencia,
+    ocorrencias_cancelaveis,
     RegistroEmDisco,
     TipoDeAviso,
     avisos_devidos,
+    HORAS_PARA_CANCELAR_ANTECIPADO,
     proxima_ocorrencia,
     silencio_ativo,
+    texto_de_cancelamento,
     texto_de_encerramento,
     texto_do_aviso,
 )
@@ -236,8 +240,9 @@ class ControleDoSilencio:
     mensagem de encerramento mesmo sem estar vigiando ninguem.
     """
 
-    def __init__(self, eventos) -> None:
+    def __init__(self, eventos, registro=None) -> None:
         self._eventos = eventos
+        self._registro = registro
         self._janela: JanelaDeSilencio | None = None
         # Vimos ESTA janela comecar, ou ja subimos dentro dela?
         self._viu_comecar = False
@@ -263,7 +268,8 @@ class ControleDoSilencio:
         falsos de arranque mais cedo neste projeto.
         """
         antes = self._janela
-        self._janela = silencio_ativo(agora, self._eventos)
+        cancelados = self._registro.cancelados() if self._registro else frozenset()
+        self._janela = silencio_ativo(agora, self._eventos, cancelados)
 
         if self._janela is None:
             saindo = antes is not None and self._viu_comecar
@@ -275,6 +281,70 @@ class ControleDoSilencio:
             self._viu_comecar = True
 
         return None
+
+
+def comando_cancelar_silencio(args: argparse.Namespace) -> int:
+    """Cancela o silencio de UMA ocorrencia — a que estiver rolando, ou a proxima.
+
+    Existe porque o Prime cala por DUAS HORAS e nem todo dia o usuario vai
+    fazer Prime. Sem isto, a unica saida seria editar o config.toml e
+    reiniciar, o que desliga o silencio para sempre em vez de para hoje.
+
+    Nao precisa do jogo aberto: e so um marcador em disco. As instancias do
+    scanner que ja estiverem rodando o enxergam no proximo tick.
+    """
+    eventos = ler_agenda()
+    if not eventos:
+        log.error("Nao ha agenda no config.toml — nao ha silencio para cancelar.")
+        return 2
+
+    registro = RegistroEmDisco(PASTA_AGENDA)
+    agora = datetime.now()
+    candidatos = ocorrencias_cancelaveis(agora, eventos, registro.cancelados())
+
+    if not candidatos:
+        log.info("Nenhum silencio para cancelar agora.")
+        proximo = proxima_ocorrencia(agora, eventos)
+        if proximo:
+            log.info(
+                "O proximo e %s as %s. Da para cancelar a partir de %dh antes.",
+                proximo[0],
+                proximo[1].strftime("%d/%m %H:%M"),
+                HORAS_PARA_CANCELAR_ANTECIPADO,
+            )
+        return 0
+
+    # O primeiro e o que esta rolando, se houver — a escolha mais provavel de
+    # quem esta pedindo para cancelar.
+    nome, inicio, rolando = candidatos[0]
+    chave = chave_da_ocorrencia(nome, inicio)
+
+    if not registro.cancelar(chave):
+        log.info("O silencio de %s ja estava cancelado.", nome)
+        return 0
+
+    if rolando:
+        log.info(destacar(f"SILENCIO DE {nome.upper()} CANCELADO - alertas voltaram"))
+    else:
+        log.info(
+            destacar(
+                f"{nome.upper()} DE {inicio.strftime('%H:%M')} NAO VAI SILENCIAR HOJE"
+            )
+        )
+
+    if len(candidatos) > 1:
+        restantes = ", ".join(
+            f"{n} {i.strftime('%H:%M')}" for n, i, _ in candidatos[1:]
+        )
+        log.info("Ainda da para cancelar: %s (rode de novo)", restantes)
+
+    despachante = montar_despachante(args)
+    if despachante:
+        despachante.iniciar()
+        despachante.despachar(texto_de_cancelamento(nome, inicio, rolando), Categoria.SEMPRE)
+        despachante.encerrar()
+
+    return 0
 
 
 def laco_da_agenda(args: argparse.Namespace) -> int:
@@ -302,7 +372,7 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
         despachante.iniciar()
 
     registro = RegistroEmDisco(PASTA_AGENDA)
-    silencio = ControleDoSilencio(eventos)
+    silencio = ControleDoSilencio(eventos, registro)
 
     nomes = ", ".join(e.nome for e in eventos)
     log.info("Modo agenda: vigiando o relogio, nao a tela. Eventos: %s", nomes)
@@ -472,7 +542,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     # acrescentar depois sem reescrever isto.
     eventos_agendados = ler_agenda()
     registro_da_agenda = RegistroEmDisco(PASTA_AGENDA)
-    silencio = ControleDoSilencio(eventos_agendados)
+    silencio = ControleDoSilencio(eventos_agendados, registro_da_agenda)
     if despachante:
         # O corte mora no transporte, nao na deteccao: o rastreador segue
         # decidindo e registrando tudo normalmente, e o que muda e so o
@@ -747,6 +817,15 @@ def main() -> int:
         dest="testar_agenda",
         help="envia um aviso de agenda de exemplo e sai, sem esperar o horario",
     )
+    parser.add_argument(
+        "--cancelar-silencio",
+        action="store_true",
+        dest="cancelar_silencio",
+        help=(
+            "cancela o silencio que esta rolando (ou marca o proximo para nao "
+            "silenciar). Nao precisa do jogo aberto."
+        ),
+    )
     parser.add_argument("-v", "--verboso", action="store_true", help="log detalhado")
 
     args = parser.parse_args()
@@ -764,6 +843,9 @@ def main() -> int:
 
     if args.testar_agenda:
         return comando_teste_de_agenda(args)
+
+    if args.cancelar_silencio:
+        return comando_cancelar_silencio(args)
 
     # O modo agenda sai ANTES de carregar calibracao e de procurar janela:
     # ele nao olha para a tela, entao exigir qualquer uma das duas seria
