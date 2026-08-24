@@ -1,0 +1,52 @@
+{
+  "versao": 2,
+  "geometria_da_tela": "3440x1440+0+0;1920x1080+1920+-1084;1920x1080+0+-1080",
+  "party_window": {
+    "esquerda": 1738,
+    "topo": 325,
+    "largura": 174,
+    "altura": 522
+  },
+  "ancora": {
+    "esquerda": 0,
+    "topo": 0,
+    "largura": 40,
+    "altura": 28
+  },
+  "layout": {
+    "icone_x": 12,
+    "icone_y": 34,
+    "icone_tamanho": 24,
+    "barra_x": 42,
+    "barra_largura": 120,
+    "barra_altura": 8,
+    "hp_y": 40,
+    "mp_y": 51,
+    "passo": 61,
+    "max_linhas": 8,
+    "icone_desvio_min": 25.0,
+    "icone_escuros_min": 0.15,
+    "ancora_desvio_min": 20.0,
+    "ancora_escuros_min": 0.02,
+    "borda_v_max": 40.0
+  },
+  "limiares_hp": {
+    "matiz_min": 168,
+    "matiz_max": 12,
+    "saturacao_min": 120,
+    "valor_min": 60
+  },
+  "limiares_mp": {
+    "matiz_min": 95,
+    "matiz_max": 130,
+    "saturacao_min": 120,
+    "valor_min": 60
+  },
+  "hp_proprio": null,
+  "nomes": [
+    "J4guar",
+    "Kaus",
+    "TioMad",
+    "Korzis"
+  ]
+}

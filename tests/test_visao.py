@@ -388,3 +388,59 @@ class TestOclusaoPorOutraJanela:
 
         assert obs.ui_visivel is True
         assert obs.linhas[3].hp_zerado is True
+
+
+class TestMorteRealDoJogo:
+    """Uma morte de VERDADE, capturada do cliente em 2026-08-24.
+
+    Diferente das outras fixtures, esta nao foi editada: o J4guar morreu no
+    farm e a party window foi capturada como estava. CP, HP e MP dele aparecem
+    todos vazios enquanto os outros tres seguem com HP cheio.
+
+    Esta e a prova mais forte que o projeto tem de que a deteccao funciona:
+    todo o resto foi verificado contra frames que eu mesmo pintei, e um frame
+    pintado so prova que o codigo concorda comigo, nao que ele concorda com o
+    jogo.
+    """
+
+    PASTA = FIXTURES / "morte_real"
+
+    @pytest.fixture
+    def calibracao(self) -> Calibracao:
+        return Calibracao.carregar(self.PASTA / "calibracao.json")
+
+    @pytest.fixture
+    def frame(self) -> Frame:
+        pixels = cv2.imread(str(self.PASTA / "j4guar_morto.png"), cv2.IMREAD_COLOR)
+        assert pixels is not None
+        return Frame(pixels=pixels, indice=0, saude=SaudeDoFrame.OK)
+
+    def test_j4guar_le_hp_zerado(self, frame, calibracao):
+        obs = extrair(frame, calibracao)
+        assert obs.linhas[0].hp == pytest.approx(0.0, abs=0.02)
+
+    def test_j4guar_continua_na_party(self, frame, calibracao):
+        """Morrer nao tira ninguem da party — o icone de classe fica.
+
+        Se o icone sumisse junto com o HP, morte e saida seriam o mesmo evento
+        e o scanner nao teria como distinguir.
+        """
+        obs = extrair(frame, calibracao)
+        assert obs.linhas[0].estado is EstadoDaLinha.COM_MEMBRO
+        assert obs.linhas[0].hp_zerado is True
+
+    def test_os_outros_tres_seguem_vivos(self, frame, calibracao):
+        """Uma morte real nao contamina a leitura dos vivos."""
+        obs = extrair(frame, calibracao)
+        for indice in (1, 2, 3):
+            assert obs.linhas[indice].hp == pytest.approx(1.0, abs=0.02)
+            assert obs.linhas[indice].hp_zerado is False
+
+    def test_a_ui_continua_visivel_com_um_morto(self, frame, calibracao):
+        """Morte nao pode cegar o scanner — seria calar no pior momento."""
+        obs = extrair(frame, calibracao)
+        assert obs.ui_visivel is True
+
+    def test_exatamente_um_membro_morto(self, frame, calibracao):
+        obs = extrair(frame, calibracao)
+        assert sum(1 for l in obs.linhas if l.hp_zerado) == 1
