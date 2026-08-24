@@ -26,15 +26,25 @@ from .calibracao import (  # noqa: E402
     CalibracaoInvalida,
     descrever_geometria_da_tela,
 )
-from .frames import MssSource, Regiao, SaudeDoFrame  # noqa: E402
+from .config import ConfigAusente, config_do_chatwoot  # noqa: E402
+from .frames import MssSource, ReplaySource, SaudeDoFrame  # noqa: E402
 from .gravador import Gravador  # noqa: E402
+from .notificador import (  # noqa: E402
+    Despachante,
+    NotificadorChatwoot,
+    NotificadorDeConsole,
+    formatar,
+)
+from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
+from .visao import EstadoDaLinha, extrair  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
 ARQUIVO_CALIBRACAO = RAIZ / "calibration.json"
 PASTA_GRAVACOES = RAIZ / "recordings"
 PASTA_LOGS = RAIZ / "logs"
+ARQUIVO_OUTBOX = RAIZ / "outbox.jsonl"
 
-INTERVALO_PADRAO = 1.0  # segundos entre capturas
+INTERVALO_PADRAO = 1.0
 
 log = logging.getLogger("l2scanner")
 
@@ -46,6 +56,15 @@ def configurar_log(verboso: bool) -> None:
     horas, o log e a unica forma de descobrir o porque depois.
     """
     PASTA_LOGS.mkdir(exist_ok=True)
+
+    # O console do Windows abre em cp1252 por padrao e engasga em acento e
+    # travessao — que aparecem no texto dos alertas. Sem isto, a mensagem que
+    # o usuario le no console fica cheia de caractere quebrado.
+    for fluxo in (sys.stdout, sys.stderr):
+        try:
+            fluxo.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
 
     formato = logging.Formatter(
         "%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S"
@@ -64,68 +83,122 @@ def configurar_log(verboso: bool) -> None:
     log.addHandler(console)
 
 
-def calibracao_provisoria(regiao: Regiao) -> Calibracao:
-    """Calibracao minima para gravar antes da Fase 2 existir.
+def montar_despachante(args: argparse.Namespace) -> Despachante | None:
+    """Monta o caminho de entrega, ou None se o scanner roda so no console."""
 
-    A ferramenta visual de calibracao chega na Fase 2. Ate la, `--regiao`
-    permite comecar a gravar sessoes hoje — que e o ponto todo de ter o
-    gravador antes da deteccao.
-    """
-    return Calibracao(
-        party_window=regiao,
-        # Ancora provisoria: faixa superior da propria janela. Na Fase 2 ela
-        # vira uma marca escolhida no olho. Fica no TOPO porque a party window
-        # e ancorada em cima e encolhe por baixo quando a PT diminui.
-        ancora=Regiao(esquerda=0, topo=0, largura=regiao.largura, altura=8),
-        geometria_da_tela=descrever_geometria_da_tela(),
+    def avisar_falha(texto: str, erro: str) -> None:
+        # Falha de entrega NUNCA e silenciosa: silencio treina a party a
+        # confiar num sinal que nao significa mais nada.
+        log.error("FALHA DE ENTREGA — %s | alerta: %s", erro, texto)
+
+    if args.dry_run:
+        log.info("Modo simulacao: alertas so no console, nada e enviado")
+        return Despachante(NotificadorDeConsole(), ao_falhar=avisar_falha)
+
+    try:
+        config = config_do_chatwoot()
+    except ConfigAusente as erro:
+        log.warning("Entrega no WhatsApp desativada — %s", erro)
+        log.warning("O scanner continua util no console. Use --dry-run para calar isto.")
+        return None
+
+    log.info(
+        "Entrega ativa: %d conversa(s) no Chatwoot", len(config.conversas)
+    )
+    return Despachante(
+        NotificadorChatwoot(config),
+        arquivo_outbox=ARQUIVO_OUTBOX,
+        ao_falhar=avisar_falha,
     )
 
 
-def resolver_calibracao(args: argparse.Namespace) -> Calibracao:
-    if args.regiao:
-        try:
-            e, t, l, a = (int(p) for p in args.regiao.split(","))
-        except ValueError:
-            raise CalibracaoInvalida(
-                "--regiao espera quatro inteiros: esquerda,topo,largura,altura\n"
-                "Ex.: --regiao 1713,330,450,300"
-            )
-        cal = calibracao_provisoria(Regiao(e, t, l, a))
-        cal.salvar(ARQUIVO_CALIBRACAO)
-        log.info("Calibracao provisoria gravada em %s", ARQUIVO_CALIBRACAO.name)
-        return cal
+def desenhar_status(rastreador: Rastreador, cal: Calibracao, obs) -> str:
+    """Bloco de status para o usuario conferir antes de sair AFK."""
+    simbolos = {
+        EstadoDoMembro.VIVO: "ok  ",
+        EstadoDoMembro.MORTO: "MORTO",
+        EstadoDoMembro.AUSENTE: "--  ",
+        EstadoDoMembro.DESCONHECIDO: "?   ",
+    }
 
-    cal = Calibracao.carregar(ARQUIVO_CALIBRACAO)
-    cal.conferir_geometria(descrever_geometria_da_tela())
-    return cal
+    portao = {
+        PortaoGlobal.RASTREANDO: "vigiando",
+        PortaoGlobal.CEGO: "SEM VISAO",
+        PortaoGlobal.REAQUISICAO: "reajustando",
+    }[rastreador.portao]
+
+    linhas = [f"[{portao}]"]
+    for leitura in obs.linhas:
+        if leitura.estado is EstadoDaLinha.VAZIA:
+            continue
+        nome = cal.nome_da_linha(leitura.indice)
+        estado = rastreador.estado_de(leitura.indice)
+        hp = f"{leitura.hp:5.0%}" if leitura.hp is not None else "  -- "
+        linhas.append(f"  {nome:<12s} {simbolos[estado]:<6s} HP {hp}")
+
+    return "\n".join(linhas)
+
+
+def comando_teste_de_alerta(args: argparse.Namespace) -> int:
+    """DELV-04: prova a entrega sem precisar do jogo aberto."""
+    despachante = montar_despachante(args)
+    if despachante is None:
+        log.error("Sem configuracao de entrega — nao ha o que testar.")
+        return 1
+
+    despachante.iniciar()
+    despachante.despachar(
+        "Teste do L2 Party Scanner. Se voce recebeu isso sem ter falado "
+        "comigo antes, o caminho de alerta esta funcionando."
+    )
+    despachante.encerrar()
+
+    if despachante.falhados:
+        log.error("O envio falhou. Veja o erro acima.")
+        return 1
+
+    log.info("Enviado. Agora confirme no celular: 200 do Chatwoot nao prova entrega.")
+    return 0
 
 
 def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
-    """Captura em intervalo fixo, opcionalmente gravando.
+    """Captura, le, decide e entrega — nesta ordem, a 1 Hz.
 
     O laco e a prova de falhas: uma excecao em qualquer etapa vira log e a
     proxima iteracao acontece. Um scanner que morre calado e pior do que nenhum
     scanner, porque a party aprende a confiar num silencio que nao significa
     mais nada.
     """
-    fonte = MssSource(cal.party_window)
-    gravador = Gravador(PASTA_GRAVACOES, args.rotulo) if args.record else None
+    if args.replay:
+        fonte = ReplaySource(Path(args.replay))
+        log.info("Reproduzindo %s (%d frames)", args.replay, len(fonte))
+    else:
+        fonte = MssSource(cal.party_window)
 
+    gravador = Gravador(PASTA_GRAVACOES, args.rotulo) if args.record else None
     if gravador:
         log.info("Gravando em %s", gravador.pasta)
 
-    log.info(
-        "Vigiando regiao %dx%d em (%d,%d) a cada %.1fs. Ctrl+C para parar.",
-        cal.party_window.largura,
-        cal.party_window.altura,
-        cal.party_window.esquerda,
-        cal.party_window.topo,
-        args.intervalo,
-    )
+    rastreador = Rastreador(nomes=list(cal.nomes))
+    despachante = montar_despachante(args)
+    if despachante:
+        despachante.iniciar()
+
+    nomes = ", ".join(cal.nomes) if cal.nomes else "(sem lista configurada)"
+    log.info("Monitorando: %s", nomes)
+
+    # Aperto de mao inicial: e o que faz o silencio significar alguma coisa.
+    # Sem ele, "nao recebi nada" e ambiguo entre "esta tudo bem" e "o scanner
+    # nem esta rodando".
+    if despachante and not args.sem_aviso_de_inicio:
+        despachante.despachar(f"Scanner ativo — monitorando {nomes}.")
 
     contagem = {estado: 0 for estado in SaudeDoFrame}
-    saude_anterior: SaudeDoFrame | None = None
+    saude_anterior = None
+    ultimo_status = 0.0
     erros_seguidos = 0
+    total_eventos = 0
+    ultima_observacao = None
 
     try:
         while True:
@@ -133,36 +206,55 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
 
             try:
                 frame = fonte.capturar()
-                erros_seguidos = 0
-
-                contagem[frame.saude] += 1
-
-                # So fala quando o estado MUDA — senao vira spam a 1 Hz
-                if frame.saude is not saude_anterior:
-                    if frame.saude is SaudeDoFrame.OK:
-                        log.info("Visao OK")
-                    elif frame.saude is SaudeDoFrame.FALHA_DE_CAPTURA:
-                        log.warning(
-                            "Falha de captura (frame preto/vazio) — "
-                            "sem visao, nenhum alerta seria enviado agora"
-                        )
-                    elif frame.saude is SaudeDoFrame.CONGELADO:
-                        log.warning(
-                            "Imagem congelada ha %d frames — jogo travado "
-                            "ou captura presa",
-                            30,
-                        )
-                    saude_anterior = frame.saude
-
-                if gravador:
-                    gravador.gravar(frame, time.time())
-
+            except StopIteration:
+                log.info("Fim da sessao gravada")
+                break
             except Exception:
                 erros_seguidos += 1
-                log.exception("Erro na iteracao (seguidos: %d)", erros_seguidos)
+                log.exception("Erro na captura (seguidos: %d)", erros_seguidos)
                 if erros_seguidos >= 10:
                     log.error("10 erros seguidos — encerrando para nao rodar cego")
                     return 1
+                time.sleep(args.intervalo)
+                continue
+
+            erros_seguidos = 0
+            contagem[frame.saude] += 1
+
+            if frame.saude is not saude_anterior:
+                if frame.saude is SaudeDoFrame.FALHA_DE_CAPTURA:
+                    log.warning("Falha de captura — sem visao, nada sera alertado")
+                elif frame.saude is SaudeDoFrame.CONGELADO:
+                    log.warning("Imagem congelada — jogo travado ou captura presa")
+                saude_anterior = frame.saude
+
+            if gravador:
+                gravador.gravar(frame, time.time())
+
+            try:
+                observacao = extrair(frame, cal)
+                # Num replay o tempo vem do arquivo, nao do relogio: e o que
+                # faz uma sessao de uma hora produzir os mesmos eventos ao ser
+                # reproduzida em trinta segundos.
+                momento = frame.momento if frame.momento is not None else time.time()
+                eventos = rastreador.observar(observacao, momento)
+                ultima_observacao = observacao
+            except Exception:
+                log.exception("Erro ao analisar o frame — seguindo")
+                time.sleep(args.intervalo)
+                continue
+
+            for evento in eventos:
+                texto = formatar(evento)
+                log.info("EVENTO: %s", texto)
+                total_eventos += 1
+                if despachante:
+                    despachante.despachar(texto)
+
+            agora = time.monotonic()
+            if agora - ultimo_status >= args.status_a_cada:
+                log.info("\n%s", desenhar_status(rastreador, cal, observacao))
+                ultimo_status = agora
 
             dormir = args.intervalo - (time.monotonic() - inicio)
             if dormir > 0:
@@ -172,6 +264,12 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         log.info("Encerrado pelo usuario")
 
     finally:
+        # Estado final sempre, independente do intervalo de status: num replay
+        # rapido o intervalo de relogio nunca fecha, e o usuario ficaria sem
+        # saber como a sessao terminou.
+        if ultima_observacao is not None:
+            log.info("Estado final:\n%s", desenhar_status(rastreador, cal, ultima_observacao))
+
         fonte.fechar()
         if gravador:
             gravador.fechar()
@@ -181,14 +279,26 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 gravador.pasta,
             )
 
+        if despachante:
+            if not args.sem_aviso_de_inicio:
+                despachante.despachar("Scanner encerrado — nao estou mais vigiando.")
+            despachante.encerrar()
+            log.info(
+                "Entrega: %d enviados, %d falharam",
+                despachante.entregues,
+                despachante.falhados,
+            )
+
         total = sum(contagem.values())
         if total:
             log.info(
-                "Resumo: %d frames — %d ok, %d falha de captura, %d congelados",
+                "Resumo: %d frames (%d ok, %d falha de captura, %d congelados), "
+                "%d eventos",
                 total,
                 contagem[SaudeDoFrame.OK],
                 contagem[SaudeDoFrame.FALHA_DE_CAPTURA],
                 contagem[SaudeDoFrame.CONGELADO],
+                total_eventos,
             )
 
     return 0
@@ -200,26 +310,42 @@ def main() -> int:
         description="Vigia a party window do Lineage 2 e avisa no WhatsApp.",
     )
     parser.add_argument(
-        "--record",
+        "--test-alert",
         action="store_true",
-        help="grava a sessao em disco (frames + observacoes)",
+        dest="test_alert",
+        help="envia um alerta de teste e sai (nao precisa do jogo aberto)",
     )
     parser.add_argument(
-        "--rotulo",
-        help="nome para identificar a gravacao (ex.: 'farm-noturno')",
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help="mostra os alertas no console sem enviar nada",
     )
     parser.add_argument(
-        "--regiao",
-        help=(
-            "calibracao provisoria: esquerda,topo,largura,altura da party window. "
-            "Grava calibration.json e ja comeca a rodar."
-        ),
+        "--record", action="store_true", help="grava a sessao em disco"
+    )
+    parser.add_argument("--rotulo", help="nome para identificar a gravacao")
+    parser.add_argument(
+        "--replay", help="reproduz uma pasta de sessao gravada, sem o jogo"
     )
     parser.add_argument(
         "--intervalo",
         type=float,
         default=INTERVALO_PADRAO,
         help=f"segundos entre capturas (padrao: {INTERVALO_PADRAO})",
+    )
+    parser.add_argument(
+        "--status-a-cada",
+        type=float,
+        default=30.0,
+        dest="status_a_cada",
+        help="segundos entre blocos de status no console",
+    )
+    parser.add_argument(
+        "--sem-aviso-de-inicio",
+        action="store_true",
+        dest="sem_aviso_de_inicio",
+        help="nao avisar no WhatsApp ao iniciar e encerrar",
     )
     parser.add_argument("-v", "--verboso", action="store_true", help="log detalhado")
 
@@ -229,12 +355,19 @@ def main() -> int:
     log.debug("Consciencia de DPI: %s", _MODO_DPI)
     if _MODO_DPI.startswith("FALHOU"):
         log.warning(
-            "Nao consegui declarar consciencia de DPI. Se a sua escala de tela "
-            "nao for 100%%, as coordenadas podem sair deslocadas."
+            "Nao consegui declarar consciencia de DPI. Se a escala de tela nao "
+            "for 100%%, as coordenadas podem sair deslocadas."
         )
 
+    if args.test_alert:
+        return comando_teste_de_alerta(args)
+
     try:
-        cal = resolver_calibracao(args)
+        cal = Calibracao.carregar(ARQUIVO_CALIBRACAO)
+        # Sessao gravada foi feita noutra hora; conferir a tela de agora nao faz
+        # sentido nesse caso.
+        if not args.replay:
+            cal.conferir_geometria(descrever_geometria_da_tela())
     except CalibracaoInvalida as erro:
         log.error("%s", erro)
         return 2

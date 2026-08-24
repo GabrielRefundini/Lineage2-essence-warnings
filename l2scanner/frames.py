@@ -50,6 +50,13 @@ class Frame:
     indice: int
     saude: SaudeDoFrame
 
+    # Momento em que o frame foi capturado. Ao vivo fica None e o laco usa o
+    # relogio; num replay vem do arquivo gravado. Essa distincao e o que faz
+    # uma sessao de uma hora reproduzir os MESMOS eventos em trinta segundos —
+    # sem ela, o debounce mediria o tempo do replay, nao o do farm, e o
+    # harness de regressao nao provaria nada.
+    momento: float | None = None
+
     @property
     def utilizavel(self) -> bool:
         return self.saude is SaudeDoFrame.OK
@@ -173,9 +180,26 @@ class ReplaySource:
     """
 
     def __init__(self, pasta: Path) -> None:
+        import json
+
         self._arquivos = sorted(pasta.glob("frame_*.png"))
         if not self._arquivos:
             raise FileNotFoundError(f"Nenhum frame_*.png em {pasta}")
+
+        # Momentos gravados, indexados por nome de arquivo. Sem eles o replay
+        # mediria o tempo do proprio replay em vez do tempo do farm.
+        self._momentos: dict[str, float] = {}
+        meta = pasta / "observacoes.jsonl"
+        if meta.exists():
+            for linha in meta.read_text(encoding="utf-8").splitlines():
+                if not linha.strip():
+                    continue
+                try:
+                    registro = json.loads(linha)
+                    self._momentos[registro["arquivo"]] = float(registro["momento"])
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    continue
+
         self._iterador: Iterator[Path] = iter(self._arquivos)
         self._saude = _ClassificadorDeSaude()
         self._contador = 0
@@ -195,6 +219,7 @@ class ReplaySource:
             pixels=pixels,
             indice=self._contador,
             saude=self._saude.classificar(pixels),
+            momento=self._momentos.get(caminho.name),
         )
         self._contador += 1
         return frame
