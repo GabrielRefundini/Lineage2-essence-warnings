@@ -1,12 +1,12 @@
 ---
-gsd_state_version: '1.0'  # placeholder; syncStateFrontmatter overwrites on first state.* call
-status: planning
+gsd_state_version: '1.0'
+status: implementado
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 4
+  total_plans: 6
+  completed_plans: 6
+  percent: 95
 ---
 
 # Project State
@@ -16,87 +16,71 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-24)
 
 **Core value:** Quando alguém da party morre ou sai da PT, a galera fica sabendo no WhatsApp em segundos — mesmo quem está AFK.
-**Current focus:** Phase 1 — Gate de entrega e fundação de captura
+**Current focus:** Aguardando validação em farm real
 
 ## Current Position
 
-Phase: 1 of 4 (Gate de entrega e fundação de captura)
-Plan: em execução
-Status: Fase 1 quase completa — falta só a confirmação empírica do gate (só o usuário pode fazer)
-Last activity: 2026-08-24 — Ferramenta do gate + captura com DPI + gravador + 16 testes passando
+Phase: 4 de 4 — todas implementadas
+Status: Código completo e verificado ao vivo. Falta apenas validação humana.
+Last activity: 2026-08-24 — Fases 1 a 4 construídas e testadas contra a tela real
 
-**Entregue na Fase 1:**
-- DELV-01, DELV-02: `tools/check_whatsapp.py` (comandos `inboxes`, `conversas`, `enviar`)
-- DELV-03: canal Baileys documentado em PROJECT.md Key Decisions
-- CAPT-01..07: captura com consciência de DPI, três estados de saúde de frame, laço à prova de falhas, recusa por mudança de geometria
-- OPER-01: `gravar-sessao.bat` (monta o ambiente sozinho)
-- OPER-08: token em `.env`, fora do git e fora dos logs
-- SAFE-01..04: invariante somente-leitura declarado em README + `__init__.py`, sem lib de input em requirements (com teste que verifica)
-- TEST-01: 16 testes rodando sem jogo, sem tela e sem rede
+Progress: [█████████░] 95%
 
-**Falta para fechar a Fase 1 (ação do usuário):**
-1. Copiar `ENV-EXEMPLO.txt` para `.env` e preencher os dados do Chatwoot
-2. `python tools/check_whatsapp.py inboxes` → confirmar que mostra `Channel::Baileys`
-3. `python tools/check_whatsapp.py conversas` → pegar os IDs de destino
-4. `python tools/check_whatsapp.py enviar` → confirmar no celular que chegou
+## O que foi construído
 
-Progress: [███████░░░] ~70% da Fase 1
+| Fase | Entrega | Estado |
+|------|---------|--------|
+| 1 | Gate de entrega + captura com DPI + gravador | ✓ código pronto, falta confirmar envio no celular |
+| 2 | Calibrador automático + leitura das barras | ✓ verificado contra a tela real |
+| 3 | Rastreador de estado, debounce, histerese, portão de cegueira | ✓ 29 testes |
+| 4 | Notificador Chatwoot, console ao vivo, replay | ✓ verificado ao vivo |
 
-## Performance Metrics
+**102 testes passando**, todos sem precisar do jogo aberto ou de rede.
 
-**Velocity:**
-- Total plans completed: 0
-- Average duration: —
-- Total execution time: 0.0 hours
+## Calibração real medida (2026-08-24)
 
-**By Phase:**
+Cliente XM Essence, janela do Yazalaque em (1713,0), monitor ultrawide 3440x1440.
+O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado.
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| - | - | - | - |
-
-**Recent Trend:**
-- Last 5 plans: —
-- Trend: —
-
-*Updated after each plan completion*
+| Elemento | Medida |
+|----------|--------|
+| Barras de HP | x 1780–1899, 120x8 px |
+| Barra de MP | 11 px abaixo do HP |
+| Ícone de classe | (1750, 359), 24x24 px |
+| Passo entre membros | 61 px |
+| Âncora da janela | canto da moldura em (1718, 328) |
+| HSV do vermelho cheio | H=5, S≈210, V≈144 |
 
 ## Accumulated Context
 
-### Decisions
+### Decisões
 
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- [Roadmap]: `mss` para captura, não `dxcam` — `dxcam.grab()` devolve `None` em frame não alterado, e uma party window parada em AFK é exatamente esse caso (leitura ingênua = modo cego falso)
-- [Roadmap]: Identidade por índice de linha + roster configurado em `config.toml`; OCR só bootstrap/re-âncora, e nunca dispara alerta sozinho (v1 dispensa OCR por completo — vai para v2)
-- [Roadmap]: Cooldown mora na FSM, não no notificador — "um alerta até ressuscitar" é propriedade de estado, não janela de tempo
-- [Roadmap]: BLIND congela os contadores de debounce em vez de zerá-los — uma morte 200 ms antes de um alt-tab ainda alerta na volta
-- [Roadmap]: Blind curto continua só no console (decisão do usuário mantida), mas blind longo (~5 min) escala para uma mensagem no WhatsApp — silêncio de cobertura é o pior modo de falha do domínio
-
-### Pending Todos
-
-[From .planning/todos/pending/ — ideas captured during sessions]
-
-None yet.
+- [Fase 2]: **A saturação é o discriminador, não o matiz.** A parte vazia da barra é transparente e mostra o terreno do jogo (S≈75), enquanto a barra cheia é sólida (S≈210). Um chão avermelhado enganaria um teste só de matiz.
+- [Fase 2]: **O ícone de classe é o indicador de presença.** "HP zerado" e "linha ausente" leem exatamente igual nas barras (0%). O ícone existe independente do HP: margem medida de 43-52 de desvio contra 9-10 do terreno.
+- [Fase 2]: **A âncora fica no topo da janela.** Verificado pelos prints do usuário: a party window é ancorada em cima e encolhe por baixo. Uma âncora embaixo sumiria sozinha quando a PT diminuísse.
+- [Fase 2]: **Tudo depois da primeira linha vazia é forçado a vazio.** A região capturada é mais alta que a janela de propósito, e o excedente cai sobre o chat e o minimapa — que têm contraste alto e virariam membro fantasma.
+- [Fase 3]: O portão de visibilidade é avaliado antes das linhas; cegueira congela contadores em vez de zerar; ressurreição exige mais confirmações que a morte.
+- [Fase 4]: O replay usa os horários gravados, não o relógio — senão uma sessão de uma hora reproduzida em trinta segundos mediria o debounce errado.
+- [Fase 1]: `mss` em vez de `dxcam` — `dxcam.grab()` devolve `None` em frame não alterado, e party window parada em AFK é exatamente esse caso.
 
 ### Blockers/Concerns
 
-- ~~**[Fase 1 — portão duro]**~~ **RESOLVIDO 2026-08-24: o usuário roda o fork `fazer-ai/chatwoot` com Baileys integrado** na VPS do projeto Atenda. Baileys é bridge **não-oficial**, portanto a regra da janela de 24h da Meta **não se aplica** — mensagem livre iniciada por nós funciona a qualquer hora, e o fork suporta conversas de grupo nativas. O maior risco do projeto caiu. **Falta apenas a confirmação empírica**: rodar `python tools/check_whatsapp.py inboxes` (deve mostrar `Channel::Baileys`) e depois `enviar`, confirmando no celular. A ferramenta já está construída e commitada.
-- ~~**[Aberto — falso negativo silencioso]**~~ **RESOLVIDO 2026-08-24 (teste do usuário): o HP de membro distante ATUALIZA AO VIVO**, não congela. Morte longe é detectável normalmente. Não há necessidade de detector de barra congelada por este motivo (o detector de frame estático continua valendo para o caso de jogo travado).
-- **[Parcialmente aberto — nomeação de eventos]** A party window compacta as linhas quando alguém sai? O usuário enviou o par antes/depois (2026-08-24), mas **o teste foi inconclusivo**: quem saiu foi J4guar, que era o **último** da lista — nesse caso "compactar" e "preservar posição" produzem exatamente a mesma imagem. **O que os prints PROVARAM:** a janela é ancorada no topo e encolhe por baixo (altura varia com o número de membros), logo a âncora de visibilidade da UI deve ficar no TOPO da janela, nunca na borda inferior. **Teste que falta:** sair um membro do MEIO (ex.: Kaus, com Korzis abaixo) e ver se Korzis sobe de posição.
-- **[Aberto — limiar de cor]** O matiz da barra de HP muda com o nível? Varredura em 90/70/50/30/10/1% na sessão gravada decide se limiar por hue é sólido.
+- ~~**[Fase 1 — portão duro] Provedor de WhatsApp**~~ **RESOLVIDO**: o usuário roda o fork `fazer-ai/chatwoot` com **Baileys** na VPS do projeto Atenda. Bridge não-oficial → sem a janela de 24h da Meta, mensagem livre a qualquer hora, envio para grupo funciona. **Falta a confirmação empírica** (rodar `check_whatsapp.py` e ver a mensagem chegar no celular).
+- ~~**[Falso negativo silencioso] HP de membro distante congela?**~~ **RESOLVIDO 2026-08-24 (teste do usuário): atualiza ao vivo.**
+- ~~**[Falso positivo] Fora de alcance parece morte?**~~ **RESOLVIDO 2026-08-24 (teste do usuário): distância não altera a barra.**
+- **[Aberto — nomeação de eventos]** A party window compacta as linhas quando sai alguém do MEIO? O teste do usuário foi inconclusivo: quem saiu (J4guar) era o último da lista, caso em que compactar e preservar posição produzem a mesma imagem. **Impacto limitado**: se compactar, um evento pode ser atribuído ao nome errado depois de alguém sair. **Teste**: sair o Kaus (com Korzis abaixo) e ver se o Korzis sobe.
+- **[Aberto — não testável agora]** Morte de membro: o usuário não conseguiu testar. Toda a lógica de morte foi verificada com frames sintéticos, mas **nunca contra uma morte real**. É o que a gravação de sessão existe para resolver.
+- **[Aberto — limiar de cor]** O matiz da barra de HP muda com o nível? Na captura real todos estavam em 100%. Uma sessão gravada com HP variando resolve.
 
-## Deferred Items
+## Próximos passos
 
-Items acknowledged and deferred at milestone close, most recent first:
-
-| Category | Item | Status | Deferred At | Milestone |
-|----------|------|--------|-------------|-----------|
-| *(none)* | | | | |
+1. **Confirmar o gate de entrega** — `.env` + `check_whatsapp.py inboxes/conversas/enviar`, confirmando no celular
+2. **Farmar com `--record` ligado** até bancar uma morte real
+3. **Rodar o replay** dessa sessão e conferir se o alerta de morte dispara na hora certa
+4. **Testar a compactação** — alguém do meio sair da PT
 
 ## Session Continuity
 
 Last session: 2026-08-24
-Stopped at: ROADMAP.md e STATE.md criados; traceability de REQUIREMENTS.md preenchida
+Stopped at: Fases 1-4 implementadas, 102 testes passando, verificado ao vivo contra o cliente aberto
 Resume file: None
