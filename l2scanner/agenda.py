@@ -320,8 +320,20 @@ class JanelaDeSilencio:
     fim: datetime
 
 
+def chave_da_ocorrencia(nome: str, alvo: datetime) -> str:
+    """Identidade duravel de UMA ocorrencia de evento.
+
+    Mesma forma da chave de aviso, sem o tipo: `{data}_{evento}-{HHMM}`. E o
+    que permite cancelar "o Prime de hoje as 20h" sem tocar no de amanha.
+    """
+    apelido = re.sub(r"[^a-z0-9]+", "-", nome.lower()).strip("-")
+    return f"{alvo.date().isoformat()}_{apelido}-{alvo.hour:02d}{alvo.minute:02d}"
+
+
 def silencio_ativo(
-    agora: datetime, eventos: list[EventoAgendado]
+    agora: datetime,
+    eventos: list[EventoAgendado],
+    cancelados: frozenset[str] | set[str] = frozenset(),
 ) -> JanelaDeSilencio | None:
     """A janela de silencio valendo agora, ou None.
 
@@ -345,6 +357,10 @@ def silencio_ativo(
             if evento.silenciar_minutos <= 0:
                 continue
             for inicio in _ocorrencias(evento, dia):
+                # Cancelado pelo usuario: esta ocorrencia deixa de silenciar,
+                # e so ela. O Prime de amanha continua valendo.
+                if chave_da_ocorrencia(evento.nome, inicio) in cancelados:
+                    continue
                 fim = inicio + timedelta(minutes=evento.silenciar_minutos)
                 if inicio <= agora < fim:
                     cobrindo.append(
@@ -377,3 +393,51 @@ def texto_de_encerramento(janela: JanelaDeSilencio) -> str:
         f"{janela.evento} encerrado. Os convites de party estao sendo "
         f"reenviados — fiquem atentos. Voltei a vigiar o grupo."
     )
+
+
+# Ate quanto tempo ANTES de um evento faz sentido cancela-lo por antecipacao.
+#
+# Nao e "qualquer momento": marcar as 10h que nao vai fazer o Prime das 20h e
+# quase sempre esquecimento, e o cancelamento ficaria pendurado o dia inteiro
+# sem que ninguem lembrasse. Tres horas cobrem "estou vendo que hoje nao rola"
+# sem virar armadilha.
+HORAS_PARA_CANCELAR_ANTECIPADO = 3
+
+
+def ocorrencias_cancelaveis(
+    agora: datetime,
+    eventos: list[EventoAgendado],
+    cancelados: frozenset[str] | set[str] = frozenset(),
+) -> list[tuple[str, datetime, bool]]:
+    """O que da para cancelar agora: (nome, inicio, ja_esta_rolando).
+
+    Cobre os DOIS momentos que o usuario pediu:
+
+    - **durante**: a janela ja comecou e ele quer os alertas de volta agora;
+    - **antes**: ele ja sabe que hoje nao vai, e marca para a janela nem
+      comecar.
+
+    Ordenada pelo que esta acontecendo primeiro, entao o primeiro item e
+    sempre a escolha mais provavel — e um cancelamento sem argumento pode
+    simplesmente pegar ele.
+    """
+    achados: list[tuple[str, datetime, bool]] = []
+    limite = agora + timedelta(hours=HORAS_PARA_CANCELAR_ANTECIPADO)
+    hoje = agora.date()
+
+    for deslocamento in (-1, 0, 1):
+        dia = hoje + timedelta(days=deslocamento)
+        for evento in eventos:
+            if evento.silenciar_minutos <= 0:
+                continue
+            for inicio in _ocorrencias(evento, dia):
+                if chave_da_ocorrencia(evento.nome, inicio) in cancelados:
+                    continue
+                fim = inicio + timedelta(minutes=evento.silenciar_minutos)
+                if inicio <= agora < fim:
+                    achados.append((evento.nome, inicio, True))
+                elif agora < inicio <= limite:
+                    achados.append((evento.nome, inicio, False))
+
+    achados.sort(key=lambda a: (not a[2], a[1]))
+    return achados

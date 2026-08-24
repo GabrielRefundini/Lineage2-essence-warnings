@@ -421,3 +421,141 @@ class TestBuscaDoDialogoNaFaixaCentral:
         fx0, fy0, fx1, fy1 = FAIXA_DO_DIALOGO
         assert fx0 <= 0.41 and fx1 >= 0.59, "a faixa horizontal corta o dialogo"
         assert fy0 <= 0.53 and fy1 >= 0.58, "a faixa vertical corta o dialogo"
+
+
+class TestCancelarOSilencio:
+    """O usuario pode cancelar o silencio de UMA ocorrencia.
+
+    Pedido dele: "preciso de uma forma de cancelar o silenciamento da prime se
+    eu quiser". O Prime cala por 2h, e nem todo dia ele vai fazer Prime.
+
+    DOIS MOMENTOS, os dois pedidos explicitamente:
+      - durante: a janela ja comecou e ele quer os alertas de volta agora
+      - antes:   ele ja sabe que hoje nao vai, e marca para nem comecar
+    """
+
+    @pytest.fixture
+    def agenda(self):
+        from pathlib import Path
+
+        from l2scanner.config import ler_agenda
+
+        raiz = Path(__file__).resolve().parent.parent
+        return ler_agenda(raiz / "config.toml")
+
+    def _em(self, hora, minuto, dia=None):
+        from tests.test_agenda import SEGUNDA
+
+        return (dia or SEGUNDA).replace(hour=hora, minute=minuto)
+
+    def test_cancelar_devolve_os_alertas_no_meio_da_janela(self, agenda):
+        from l2scanner.agenda import chave_da_ocorrencia, silencio_ativo
+
+        meio = self._em(20, 30)
+        assert silencio_ativo(meio, agenda) is not None, "deveria estar calado"
+
+        chave = chave_da_ocorrencia("Prime", self._em(20, 0))
+        assert silencio_ativo(meio, agenda, {chave}) is None
+
+    def test_cancelar_antes_impede_a_janela_de_comecar(self, agenda):
+        from l2scanner.agenda import chave_da_ocorrencia, silencio_ativo
+
+        chave = chave_da_ocorrencia("Prime", self._em(20, 0))
+        # cancelado as 19h; as 20h30 o silencio nem existe
+        assert silencio_ativo(self._em(20, 30), agenda, {chave}) is None
+
+    def test_cancelar_o_prime_NAO_cala_o_tvt(self, agenda):
+        """Cancelamento e por OCORRENCIA, nao por dia nem por tudo.
+
+        As 21h55 o TvT das 21h50 esta rolando por conta propria. Cancelar o
+        Prime nao pode levar o TvT junto.
+        """
+        from l2scanner.agenda import chave_da_ocorrencia, silencio_ativo
+
+        chave = chave_da_ocorrencia("Prime", self._em(20, 0))
+        janela = silencio_ativo(self._em(21, 55), agenda, {chave})
+        assert janela is not None
+        assert janela.evento == "TvT"
+        assert janela.fim == self._em(22, 5)
+        assert janela.inicio == self._em(21, 50), "a uniao ainda inclui o Prime"
+
+    def test_cancelar_hoje_nao_afeta_amanha(self, agenda):
+        from datetime import timedelta
+
+        from tests.test_agenda import SEGUNDA
+
+        from l2scanner.agenda import chave_da_ocorrencia, silencio_ativo
+
+        chave = chave_da_ocorrencia("Prime", self._em(20, 0))
+        terca = SEGUNDA + timedelta(days=1)
+        assert silencio_ativo(self._em(20, 30, terca), agenda, {chave}) is not None
+
+    def test_sem_cancelamento_o_comportamento_e_o_de_antes(self, agenda):
+        from l2scanner.agenda import silencio_ativo
+
+        assert silencio_ativo(self._em(20, 30), agenda) is not None
+        assert silencio_ativo(self._em(20, 30), agenda, frozenset()) is not None
+
+
+class TestOQueDaParaCancelar:
+    """A lista que o gatilho usa para saber o que oferecer."""
+
+    @pytest.fixture
+    def agenda(self):
+        from pathlib import Path
+
+        from l2scanner.config import ler_agenda
+
+        raiz = Path(__file__).resolve().parent.parent
+        return ler_agenda(raiz / "config.toml")
+
+    def _em(self, hora, minuto):
+        from tests.test_agenda import SEGUNDA
+
+        return SEGUNDA.replace(hour=hora, minute=minuto)
+
+    def test_no_meio_do_prime_o_primeiro_e_o_prime_rolando(self, agenda):
+        from l2scanner.agenda import ocorrencias_cancelaveis
+
+        itens = ocorrencias_cancelaveis(self._em(20, 30), agenda)
+        assert itens[0][0] == "Prime"
+        assert itens[0][2] is True, "deveria estar marcado como ja rolando"
+
+    def test_antes_do_prime_ele_aparece_como_futuro(self, agenda):
+        from l2scanner.agenda import ocorrencias_cancelaveis
+
+        itens = ocorrencias_cancelaveis(self._em(19, 0), agenda)
+        nomes = [(n, rolando) for n, _, rolando in itens]
+        assert ("Prime", False) in nomes
+
+    def test_o_que_esta_rolando_vem_antes_do_que_ainda_vai_comecar(self, agenda):
+        """O primeiro item e a escolha mais provavel de quem pede."""
+        from l2scanner.agenda import ocorrencias_cancelaveis
+
+        itens = ocorrencias_cancelaveis(self._em(20, 30), agenda)
+        rolando = [i for i, x in enumerate(itens) if x[2]]
+        futuros = [i for i, x in enumerate(itens) if not x[2]]
+        if rolando and futuros:
+            assert max(rolando) < min(futuros)
+
+    def test_evento_distante_demais_nao_aparece(self, agenda):
+        """Marcar as 10h que nao vai fazer o Prime das 20h e esquecimento.
+
+        O cancelamento ficaria pendurado o dia inteiro sem ninguem lembrar.
+        """
+        from l2scanner.agenda import ocorrencias_cancelaveis
+
+        itens = ocorrencias_cancelaveis(self._em(10, 0), agenda)
+        assert all(n != "Prime" for n, _, _ in itens)
+
+    def test_o_ja_cancelado_some_da_lista(self, agenda):
+        from l2scanner.agenda import chave_da_ocorrencia, ocorrencias_cancelaveis
+
+        chave = chave_da_ocorrencia("Prime", self._em(20, 0))
+        itens = ocorrencias_cancelaveis(self._em(20, 30), agenda, {chave})
+        assert all(n != "Prime" for n, _, _ in itens)
+
+    def test_madrugada_sem_nada_por_perto_devolve_vazio(self, agenda):
+        from l2scanner.agenda import ocorrencias_cancelaveis
+
+        assert ocorrencias_cancelaveis(self._em(4, 0), agenda) == []

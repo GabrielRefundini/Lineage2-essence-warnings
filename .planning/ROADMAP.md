@@ -95,15 +95,18 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Replanejar após a Fase 1**: a forma desta fase foi decidida no gate de entrega. Se o caminho confirmado for a API oficial da Meta, entra um sub-plano de criação e aprovação de template (latência externa fora do nosso controle) e o envio para grupo cai em favor de N envios 1:1.
 
 ### Phase 5: Reconhecer tela de login e desconexão do servidor
+
 **Goal**: Quando o cliente cai — servidor em manutenção, queda de conexão, volta para a tela de login — a party é avisada do motivo, em vez de receber silêncio ou, pior, um alarme falso de "fulano saiu da party"
 **Depends on**: Phase 4
 **Requirements**: OPER-02 (estendido), ALRT-11 (estendido)
 **Success Criteria** (what must be TRUE):
+
   1. O scanner distingue três coisas que antes eram todas "sem visão da party": o jogo coberto por outra janela, o cliente na tela de login, e o diálogo de desconexão aberto na tela
   2. A party recebe UMA mensagem dizendo que o jogo caiu, com o motivo, e UMA quando ele volta — nunca uma por leitura
   3. Com o jogo caído, nenhum evento de party é emitido: a party window não está escondida, ela não existe, e concluir "saiu da party" a partir de uma tela de login é o alarme falso que o dia inteiro foi gasto corrigindo
   4. Ligar o scanner com o jogo já na tela de login não anuncia queda nenhuma — o usuário está olhando para a tela
   5. O console mostra o motivo no lugar de "SEM VISAO", porque "SEM VISAO" é verdade e não ajuda
+
 **Plans**: executado direto (fase pequena, sem plano formal)
 
 **Os dois sinais têm forças diferentes, e isso é de projeto:**
@@ -122,11 +125,13 @@ Um **template** decide "desconectado", e esse precisa de pixels porque com o di�
 **Depends on**: Phase 4 (o caminho de entrega)
 **Requirements**: AGEN-01 a AGEN-08, OPER-09, OPER-10, OPER-11
 **Success Criteria** (what must be TRUE):
+
   1. O grupo recebe um aviso 10 minutos antes e outro no horário exato, para TvT (15:00, 17:00, 21:50, todo dia) e Prime (20:00, segunda a quinta)
   2. O usuário muda um horário editando `config.toml` com um comentário do lado, sem tocar em Python — uma atualização do jogo não pode custar um commit de código
   3. O scanner roda a agenda com o jogo FECHADO, numa máquina que não está farmando
   4. Reiniciar o scanner às 14:59 não reenvia o aviso das 14:50 que já saiu, e subir o scanner às 16h não dispara o aviso das 15h atrasado
   5. Com as duas instâncias do usuário rodando lado a lado, o grupo recebe cada aviso uma vez só
+
 **Plans**: [PLAN.md](phases/06-a-agenda-como-fonte-de-eventos/PLAN.md) · [SUMMARY.md](phases/06-a-agenda-como-fonte-de-eventos/SUMMARY.md) — 4 tarefas, concluída
 
 **O relógio é uma fonte de eventos, igual à tela.** A agenda entra pelo `Despachante` que já existe, exatamente como o rastreador entra — nunca chamando `enviar()` direto. Essa é a regra 6 do roadmap v1 ("o seam detecção→transporte nasce com o rastreador, nunca é retrofit"), e ela vale para a segunda fonte tanto quanto valeu para a primeira. Se a agenda furar o seam, o silenciamento da Fase 7 fica impossível de acrescentar depois.
@@ -141,6 +146,7 @@ Um **template** decide "desconectado", e esse precisa de pixels porque com o di�
 **Depends on**: Phase 6 (as janelas de silêncio SÃO a agenda)
 **Requirements**: MUTE-01 a MUTE-08
 **Success Criteria** (what must be TRUE):
+
   1. Durante uma janela de silêncio nenhum evento do scanner chega ao WhatsApp — nem morte, nem saída, nem "o jogo caiu"
   2. TvT silencia por 15 minutos e Prime por 2 horas, contados do horário do evento
   3. De segunda a quinta o silêncio termina às 22:05 e não às 22:00: a janela do TvT das 21:50 se estende além da do Prime, e janelas sobrepostas se comportam como união
@@ -198,6 +204,17 @@ Estas seis regras vieram da pesquisa e não são negociáveis num replanejamento
 4. **Rastreador antes do notificador** — o produto já vale com saída em console, e depurar detecção e rede ao mesmo tempo multiplica as variáveis.
 5. **Replay antes da rede** — a partir daí toda mudança é verificada contra regressão.
 6. **O seam detecção→transporte nasce com o rastreador** — nunca retrofit.
+
+### Phase 8: Cancelar o silenciamento pelo WhatsApp
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 7
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 8 to break down)
 
 ---
 *Roadmap created: 2026-08-24*
