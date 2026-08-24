@@ -27,6 +27,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from enum import Enum
 from queue import Empty, Queue
 from typing import Protocol
 
@@ -280,6 +281,24 @@ class NotificadorChatwoot:
             raise ErroDeEntrega(f"rede: {erro}", transitorio=True) from erro
 
 
+class Categoria(Enum):
+    """De onde a mensagem veio, e se o silencio se aplica a ela.
+
+    Existe porque durante TvT e Prime o scanner cala — mas os LEMBRETES de
+    TvT e Prime tem que atravessar esse silencio. Sem essa distincao, de
+    segunda a quinta o lembrete do TvT das 21h40 cairia dentro do silencio do
+    Prime e a funcionalidade se anularia sozinha.
+    """
+
+    # Eventos do scanner: morte, saida, entrada, jogo caiu, cegueira.
+    # Verdadeiros durante um TvT, e irrelevantes — em evento morre todo mundo
+    # o tempo todo.
+    NORMAL = "normal"
+
+    # Avisos de agenda e mensagens de ciclo de vida. Atravessam o silencio.
+    SEMPRE = "sempre"
+
+
 class Despachante:
     """Fila + thread de entrega. Isola a rede do laco de captura.
 
@@ -296,6 +315,11 @@ class Despachante:
         self._notificador = notificador
         self._outbox = arquivo_outbox
         self._ao_falhar = ao_falhar or (lambda texto, erro: None)
+        # Chamavel sem argumento que responde "estou em silencio agora?".
+        # Injetado em vez de consultado por dentro: o Despachante nao deveria
+        # precisar conhecer a agenda para entregar uma mensagem.
+        self.em_silencio = lambda: False
+        self.silenciados = 0
         self._fila: Queue[str | None] = Queue(maxsize=200)
         self._thread: threading.Thread | None = None
         self._rodando = False
@@ -309,8 +333,25 @@ class Despachante:
         )
         self._thread.start()
 
-    def despachar(self, texto: str) -> None:
-        """Enfileira. Grava no outbox ANTES de qualquer tentativa de rede."""
+    def despachar(
+        self, texto: str, categoria: Categoria = Categoria.NORMAL
+    ) -> None:
+        """Enfileira. Grava no outbox ANTES de qualquer tentativa de rede.
+
+        O SILENCIO E CORTADO AQUI, no transporte, e nao na deteccao. Silenciar
+        na deteccao corromperia o estado — quem morre e ressuscita durante o
+        silencio precisa sair do outro lado com o estado certo — e apagaria o
+        log, que e a unica ferramenta de depuracao pos-farm do projeto.
+
+        A mensagem silenciada NAO entra no outbox. O outbox existe para
+        garantir que nada se perca no caminho da rede; uma mensagem que
+        decidimos nao enviar nao esta a caminho de lugar nenhum. Ela esta no
+        log, que e onde ela pertence.
+        """
+        if categoria is Categoria.NORMAL and self.em_silencio():
+            self.silenciados += 1
+            return
+
         if self._outbox:
             registro = {"momento": time.time(), "texto": texto}
             with self._outbox.open("a", encoding="utf-8") as arquivo:

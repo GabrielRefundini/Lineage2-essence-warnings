@@ -30,10 +30,13 @@ from .calibracao import (  # noqa: E402
 )
 from .agenda import (  # noqa: E402
     Aviso,
+    JanelaDeSilencio,
     RegistroEmDisco,
     TipoDeAviso,
     avisos_devidos,
     proxima_ocorrencia,
+    silencio_ativo,
+    texto_de_encerramento,
     texto_do_aviso,
 )
 from .config import ConfigAusente, config_do_chatwoot, ler_agenda  # noqa: E402
@@ -46,6 +49,7 @@ from .console import destacar  # noqa: E402
 from .frames import MssSource, ReplaySource, SaudeDoFrame  # noqa: E402
 from .gravador import Gravador  # noqa: E402
 from .notificador import (  # noqa: E402
+    Categoria,
     Despachante,
     NotificadorChatwoot,
     NotificadorDeConsole,
@@ -210,6 +214,55 @@ def comando_teste_de_alerta(args: argparse.Namespace) -> int:
     return 0
 
 
+class ControleDoSilencio:
+    """Sabe se estamos calados agora, e avisa quando o silencio acaba.
+
+    Vive fora dos dois lacos porque os dois precisam dele: o laco principal
+    para calar os eventos do rastreador, e o `--so-agenda` para mandar a
+    mensagem de encerramento mesmo sem estar vigiando ninguem.
+    """
+
+    def __init__(self, eventos) -> None:
+        self._eventos = eventos
+        self._janela: JanelaDeSilencio | None = None
+        # Vimos ESTA janela comecar, ou ja subimos dentro dela?
+        self._viu_comecar = False
+        # Ja observamos ao menos um instante SEM silencio. Sem este terceiro
+        # estado, "acabei de entrar na janela" e "subi ja dentro dela" sao
+        # indistinguiveis — nos dois casos a janela anterior era None.
+        self._esteve_fora = False
+
+    @property
+    def janela(self) -> JanelaDeSilencio | None:
+        return self._janela
+
+    def ativo(self) -> bool:
+        return self._janela is not None
+
+    def atualizar(self, agora) -> str | None:
+        """Reavalia. Devolve a mensagem de encerramento, quando ela vence.
+
+        COMECO FRIO: se o scanner sobe JA dentro de uma janela, ele entra em
+        silencio mas nao anuncia o encerramento depois. Ele nunca viu o evento
+        comecar, e anunciar o fim de algo que nao acompanhou seria inventar
+        contexto que ele nao tem — o mesmo erro que produziu tres alarmes
+        falsos de arranque mais cedo neste projeto.
+        """
+        antes = self._janela
+        self._janela = silencio_ativo(agora, self._eventos)
+
+        if self._janela is None:
+            saindo = antes is not None and self._viu_comecar
+            self._viu_comecar = False
+            self._esteve_fora = True
+            if saindo:
+                return texto_de_encerramento(antes)
+        elif antes is None and self._esteve_fora:
+            self._viu_comecar = True
+
+        return None
+
+
 def laco_da_agenda(args: argparse.Namespace) -> int:
     """So o relogio. Sem jogo, sem calibracao, sem captura, sem rastreador.
 
@@ -235,6 +288,7 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
         despachante.iniciar()
 
     registro = RegistroEmDisco(PASTA_AGENDA)
+    silencio = ControleDoSilencio(eventos)
 
     nomes = ", ".join(e.nome for e in eventos)
     log.info("Modo agenda: vigiando o relogio, nao a tela. Eventos: %s", nomes)
@@ -245,13 +299,21 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
     try:
         while True:
             agora = datetime.now()
+            encerrou = silencio.atualizar(agora)
+            if encerrou and despachante:
+                log.info(destacar(encerrou))
+                despachante.despachar(encerrou, Categoria.SEMPRE)
+
             for aviso in avisos_devidos(agora, eventos, registro.enviados()):
                 if not registro.marcar(aviso.chave):
                     continue
                 texto = texto_do_aviso(aviso)
                 log.info(destacar(texto))
                 if despachante:
-                    despachante.despachar(texto)
+                    # SEMPRE: o lembrete atravessa o silencio. De segunda a
+                    # quinta o aviso do TvT das 21h40 cai dentro do silencio do
+                    # Prime — sem isto, a funcionalidade se anula sozinha.
+                    despachante.despachar(texto, Categoria.SEMPRE)
 
             # De hora em hora, repetir qual e o proximo. Um scanner que nao diz
             # quando vai falar de novo e indistinguivel de um scanner travado.
@@ -385,6 +447,12 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     # acrescentar depois sem reescrever isto.
     eventos_agendados = ler_agenda()
     registro_da_agenda = RegistroEmDisco(PASTA_AGENDA)
+    silencio = ControleDoSilencio(eventos_agendados)
+    if despachante:
+        # O corte mora no transporte, nao na deteccao: o rastreador segue
+        # decidindo e registrando tudo normalmente, e o que muda e so o
+        # que sai para o WhatsApp.
+        despachante.em_silencio = silencio.ativo
     if eventos_agendados:
         proximo = proxima_ocorrencia(datetime.now(), eventos_agendados)
         if proximo:
@@ -467,6 +535,12 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 time.sleep(args.intervalo)
                 continue
 
+            encerrou = silencio.atualizar(datetime.now())
+            if encerrou:
+                log.info(destacar(encerrou))
+                if despachante:
+                    despachante.despachar(encerrou, Categoria.SEMPRE)
+
             for aviso in avisos_devidos(
                 datetime.now(), eventos_agendados, registro_da_agenda.enviados()
             ):
@@ -475,7 +549,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 texto = texto_do_aviso(aviso)
                 log.info(destacar(texto))
                 if despachante:
-                    despachante.despachar(texto)
+                    despachante.despachar(texto, Categoria.SEMPRE)
 
             # Cego por muito tempo com o jogo bem ali na frente quase sempre
             # significa calibracao errada, nao alt-tab. Vale dizer isso em vez
