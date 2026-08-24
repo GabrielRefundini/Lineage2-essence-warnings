@@ -1,12 +1,12 @@
 ---
 gsd_state_version: '1.0'
-status: implementado
+status: milestone-v2-definido
 progress:
-  total_phases: 5
+  total_phases: 7
   completed_phases: 5
   total_plans: 6
   completed_plans: 6
-  percent: 97
+  percent: 71
 ---
 
 # Project State
@@ -16,15 +16,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-24)
 
 **Core value:** Quando alguém da party morre ou sai da PT, a galera fica sabendo no WhatsApp em segundos — mesmo quem está AFK.
-**Current focus:** Confiabilidade em campo — a cegueira recorrente é a última pendência real
+**Current focus:** Milestone v2 "Agenda e Silenciamento" — Fase 6 pronta para planejar
 
 ## Current Position
 
 Phase: 4 de 4 — todas implementadas
 Status: Código completo. Detecção e entrega validadas em campo SEPARADAMENTE; falta a última milha (morte real -> mensagem no WhatsApp) e resolver a cegueira recorrente.
-Last activity: 2026-08-24 — três alarmes falsos de arranque/cegueira corrigidos (589ac84, 7bb43f0)
+Last activity: 2026-08-24 — milestone v2 "Agenda e Silenciamento" definido: 22 requisitos, fases 6 e 7
 
-Progress: [█████████▓] 97%
+Progress: [███████░░░] 71% (5 de 7 fases)
 
 ## O que foi construído
 
@@ -55,6 +55,12 @@ O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado.
 ## Accumulated Context
 
 ### Decisões
+
+- [v2]: **O relógio é uma segunda fonte de eventos, e entra pelo mesmo seam da tela.** A agenda despacha pelo `Despachante`, nunca chamando `enviar()` direto. É a regra 6 do roadmap v1 aplicada à segunda fonte — se a agenda furar o seam, o silenciamento fica impossível de acrescentar depois.
+- [v2]: **O silenciamento vive no TRANSPORTE, não na detecção.** Silenciar na detecção corromperia o estado (quem morre e ressuscita durante o silêncio precisa sair do outro lado com o estado certo) e apagaria o log, que é a única ferramenta de depuração pós-farm do projeto.
+- [v2]: **Os avisos de agenda atravessam o silêncio sempre.** De segunda a quinta o TvT das 21:50 cai dentro do silêncio do Prime (20:00-22:00); sem essa regra a funcionalidade se anularia sozinha.
+- [v2]: **Janelas de silêncio sobrepostas são união, não substituição.** Seg-qui o silêncio termina às 22:05 (TvT 21:50 + 15min), não às 22:00 (fim do Prime).
+- [v2]: **"Já avisei este evento hoje" é estado durável e compartilhado.** Sobreviver ao restart e não duplicar entre as duas instâncias do usuário são o mesmo problema com o mesmo remédio.
 
 - [Fase 5]: **O título da janela é o sinal mais confiável do projeto.** `Yazalaque - XM Essence` jogando, `XM Essence` na tela de login. Texto do Windows: sem limiar, sem HSV, sem calibração, imune a mudança de resolução.
 - [Fase 5]: **`windows-capture` casa `window_name` por SUBSTRING.** Pedir `XM Essence` devolve o frame de `Faerlina - XM Essence`. A tela de login não é endereçável por nome — é detectada relendo o título do hwnd que já temos.

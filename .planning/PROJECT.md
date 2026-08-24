@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Um "scanner" que vigia a tela do Lineage 2 XM Essence enquanto o usuário farma em party e avisa no WhatsApp quando algo importante acontece: um membro da PT morreu, saiu do grupo ou ressuscitou. O envio de WhatsApp é feito via API do Chatwoot já configurado no servidor do usuário; a detecção é 100% passiva, por captura e análise de tela (sem tocar no processo do jogo).
+Um "scanner" que vigia a tela do Lineage 2 XM Essence enquanto o usuário farma em party e avisa no WhatsApp quando algo importante acontece: um membro da PT morreu, saiu do grupo ou ressuscitou. A partir do milestone v2 ele também vigia o **relógio**: avisa a party dos eventos agendados do jogo (TvT e Prime) e cala os alertas durante esses eventos, porque em evento morre todo mundo o tempo todo. O envio de WhatsApp é feito via API do Chatwoot já configurado no servidor do usuário; a detecção é 100% passiva, por captura e análise de tela (sem tocar no processo do jogo).
 
 ## Core Value
 
@@ -12,20 +12,33 @@ Quando alguém da party morre ou sai da PT, a galera fica sabendo no WhatsApp em
 
 ### Validated
 
-(None yet — ship to validate)
+<!-- Milestone v1, entregue 2026-08-24. 255 testes. -->
+
+- ✓ Detectar morte de membro da party — Fase 3, verificado em campo (12 eventos num combate real, 13:39-13:42)
+- ✓ Detectar saída de membro da party — Fase 3, verificado com o nome certo
+- ✓ Detectar ressurreição — Fase 3, verificado em campo
+- ✓ Monitorar o personagem do próprio usuário — Fase 2/3
+- ✓ Identificar QUEM morreu/saiu pelo nome — Fase 3, mas **por template da imagem do nome, não por OCR** (ver Key Decisions)
+- ✓ Enviar alerta via API do Chatwoot — Fase 4, entrega confirmada no celular
+- ✓ Modo "cego" sem falsos positivos — Fases 3 a 5, quatro rodadas de correção
+- ✓ Debounce e histerese assimétrica — Fase 3
+- ✓ Cooldown de um alerta por evento — Fase 3
+- ✓ Execução manual com console ao vivo — Fase 3
+- ✓ Reconhecer tela de login e desconexão do servidor — Fase 5
 
 ### Active
 
-- [ ] Detectar morte de membro da party (barra de HP zerada na party window, com moldura/MP ainda presentes)
-- [ ] Detectar saída de membro da party (linha do membro sumiu da party window)
-- [ ] Detectar ressurreição (HP voltou a subir depois de confirmado morto)
-- [ ] Monitorar também o personagem do próprio usuário (barra de HP no topo da tela)
-- [ ] Identificar QUEM morreu/saiu pelo nome (OCR dos nomes da party window)
-- [ ] Enviar alerta via API do Chatwoot para o grupo/números do WhatsApp da party
-- [ ] Modo "cego": suprimir alertas quando a party window inteira some (loading, alt-tab, jogo minimizado) — sem falsos positivos
-- [ ] Debounce/histerese: morte confirma após N capturas seguidas; saída após alguns segundos de ausência
-- [ ] Cooldown: 1 alerta por evento (não spammar até ressuscitar)
-- [ ] Execução manual: usuário inicia o script quando começa a farmar; console mostra status em tempo real
+<!-- Milestone v2 — "Agenda e Silenciamento", definido 2026-08-24. -->
+
+- [ ] Avisar a party 10 min antes e no horário de cada evento agendado do jogo
+- [ ] TvT às 15:00, 17:00 e 21:50, todo dia; Prime às 20:00, de segunda a quinta
+- [ ] Horários e dias em `config.toml`, editáveis à mão — uma atualização do jogo não pode custar um commit de código
+- [ ] A agenda funciona com o jogo FECHADO: o aviso vem do relógio, não da tela
+- [ ] Silenciar por completo os alertas do scanner durante o evento — 15 min no TvT, 2h no Prime
+- [ ] Janelas de silêncio sobrepostas se comportam como união
+- [ ] Os avisos de agenda atravessam o silêncio sempre
+- [ ] Uma mensagem ao fim de cada silêncio, dizendo que o evento encerrou e que os convites de party estão sendo reenviados
+- [ ] Nada de duplicar avisos: nem ao reiniciar o scanner, nem entre as duas instâncias que o usuário roda
 
 ### Out of Scope
 
@@ -35,6 +48,10 @@ Quando alguém da party morre ou sai da PT, a galera fica sabendo no WhatsApp em
 - Alerta de "perda de visão" no WhatsApp — v1 mostra só no console; usuário optou por não alertar
 - Modo "sempre ligado" (autostart com Windows) — v1 é manual; considerar em v2
 - Qualquer automação/ação dentro do jogo — o scanner é somente leitura, nunca envia input ao jogo
+- Enviar convite de party no jogo — cai direto na linha acima. A mensagem de fim de evento apenas AVISA que os convites estão sendo reenviados; quem convida é uma pessoa
+- Detectar na tela que o TvT começou — o relógio já sabe a hora; ler a tela seria calibração nova para responder o que já é de graça
+- Rodar com o PC desligado — "independente do jogo" não é "independente do PC". Um agendamento no servidor resolveria, e é outro projeto
+- Ajustar sozinho os horários depois de uma atualização do jogo — não há fonte confiável para lê-los; por isso os horários são configuráveis à mão
 
 ## Context
 
@@ -47,6 +64,10 @@ Quando alguém da party morre ou sai da PT, a galera fica sabendo no WhatsApp em
 - **Geometria da party window (VERIFICADO 2026-08-24, par de prints antes/depois)**: a janela é **ancorada no topo e encolhe por baixo** — a altura varia com o número de membros. Consequência de design: a âncora de visibilidade da UI deve ficar no TOPO da janela, nunca na borda inferior, senão ela some sozinha quando a PT diminui. **Ainda não verificado**: se as linhas compactam quando sai alguém do MEIO (o teste feito teve o último membro saindo, caso em que compactar e preservar posição são indistinguíveis)
 - **Chatwoot**: já configurado no servidor do usuário com fluxo de WhatsApp funcionando; o scanner só precisa dar POST na API
 - **Condições de operação**: party window travada em posição fixa; jogo visível (não minimizado — DirectX para de renderizar). Captura da janela via Windows Graphics Capture (janela em background) é evolução futura
+
+- **Estado real em 2026-08-24 (fim do v1)**: o texto acima descreve as suposições do começo do projeto e várias foram superadas. O que vale hoje: captura é por **janela** (Windows Graphics Capture), funciona com o jogo coberto e não depende mais de "jogo visível"; **janela minimizada continua impossível** e não há API que contorne. A identificação de nome **não usa OCR** — usa template da imagem do nome, decidido depois que OCR se mostrou desnecessário para um conjunto fechado de 4-8 nomes. O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado, o que é a razão de AGEN-07 existir.
+- **Eventos agendados do jogo (informado pelo usuário, 2026-08-24)**: TvT acontece às 15:00, 17:00 e 21:50 todos os dias; Prime às 20:00 de segunda a quinta. **Os horários mudam com atualizações do jogo** — foi o próprio usuário quem levantou isso, e é a razão de eles viverem em `config.toml` e não no código.
+- **Por que o silenciamento existe**: durante TvT e Prime as pessoas morrem e reorganizam party o tempo todo. Os alertas não ficam errados — ficam verdadeiros e irrelevantes. É a primeira vez que o projeto precisa de um filtro de RELEVÂNCIA em vez de um filtro de correção, e por isso ele vive no transporte, nunca na detecção.
 
 ## Constraints
 
@@ -85,4 +106,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-24 after initialization*
+*Last updated: 2026-08-24 after milestone v2 definition (Agenda e Silenciamento) — anteriormente: initialization*

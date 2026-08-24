@@ -19,6 +19,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Entrega no WhatsApp e vigilância do vigia** - Os eventos chegam no celular da party, e o silêncio do scanner passa a significar algo
 - [x] **Phase 5: Reconhecer tela de login e desconexão do servidor** - Cegueira com causa conhecida deixa de ser cegueira e vira um aviso com nome
 
+**Milestone v2 — Agenda e Silenciamento** (definido 2026-08-24)
+
+- [ ] **Phase 6: A agenda como fonte de eventos** - Lembrete de TvT e Prime nos horários certos, com o jogo fechado
+- [ ] **Phase 7: Silenciamento por janela de evento** - Durante o evento o scanner cala, porque toda morte é verdadeira e nenhuma é notícia
+
 ## Phase Details
 
 ### Phase 1: Gate de entrega e fundação de captura
@@ -111,10 +116,48 @@ Um **template** decide "desconectado", e esse precisa de pixels porque com o di�
 
 **Margem medida ao vivo**: diálogo real 0.9997, tela de login 0.5051, contra limiar 0.90.
 
+### Phase 6: A agenda como fonte de eventos
+
+**Goal**: O grupo recebe lembrete de TvT e Prime nos horários certos, com o jogo fechado, sem ninguém precisar lembrar
+**Depends on**: Phase 4 (o caminho de entrega)
+**Requirements**: AGEN-01 a AGEN-08, OPER-09, OPER-10, OPER-11
+**Success Criteria** (what must be TRUE):
+  1. O grupo recebe um aviso 10 minutos antes e outro no horário exato, para TvT (15:00, 17:00, 21:50, todo dia) e Prime (20:00, segunda a quinta)
+  2. O usuário muda um horário editando `config.toml` com um comentário do lado, sem tocar em Python — uma atualização do jogo não pode custar um commit de código
+  3. O scanner roda a agenda com o jogo FECHADO, numa máquina que não está farmando
+  4. Reiniciar o scanner às 14:59 não reenvia o aviso das 14:50 que já saiu, e subir o scanner às 16h não dispara o aviso das 15h atrasado
+  5. Com as duas instâncias do usuário rodando lado a lado, o grupo recebe cada aviso uma vez só
+**Plans**: TBD
+
+**O relógio é uma fonte de eventos, igual à tela.** A agenda entra pelo `Despachante` que já existe, exatamente como o rastreador entra — nunca chamando `enviar()` direto. Essa é a regra 6 do roadmap v1 ("o seam detecção→transporte nasce com o rastreador, nunca é retrofit"), e ela vale para a segunda fonte tanto quanto valeu para a primeira. Se a agenda furar o seam, o silenciamento da Fase 7 fica impossível de acrescentar depois.
+
+**O estado de "já avisei" é durável e compartilhado.** Duas exigências que parecem separadas — sobreviver ao restart (AGEN-06) e não duplicar entre instâncias (AGEN-07) — são o mesmo problema com o mesmo remédio: um registro em disco de qual evento de qual dia já foi anunciado, que as duas instâncias consultam. Resolver uma sem a outra deixa metade do bug em pé.
+
+**Limite honesto, dito no README**: "independente do jogo" não é "independente do PC". Com a máquina desligada às 15h não há aviso. Um agendamento no servidor resolveria e é outro projeto.
+
+### Phase 7: Silenciamento por janela de evento
+
+**Goal**: Durante TvT e Prime o scanner cala, porque em evento morre todo mundo o tempo todo e cada morte vira uma mensagem que ninguém quer ler
+**Depends on**: Phase 6 (as janelas de silêncio SÃO a agenda)
+**Requirements**: MUTE-01 a MUTE-08
+**Success Criteria** (what must be TRUE):
+  1. Durante uma janela de silêncio nenhum evento do scanner chega ao WhatsApp — nem morte, nem saída, nem "o jogo caiu"
+  2. TvT silencia por 15 minutos e Prime por 2 horas, contados do horário do evento
+  3. De segunda a quinta o silêncio termina às 22:05 e não às 22:00: a janela do TvT das 21:50 se estende além da do Prime, e janelas sobrepostas se comportam como união
+  4. O lembrete do TvT das 21:50 chega mesmo caindo dentro do silêncio do Prime — a agenda atravessa o silêncio sempre
+  5. Ao fim de cada janela o grupo recebe uma mensagem dizendo que o evento encerrou e que os convites de party estão sendo reenviados
+  6. Tudo que foi silenciado continua no log e no console, e o console mostra que está calado de propósito e até quando
+
+**Não é correção de bug — é filtro de relevância.** Os alertas durante um TvT são verdadeiros: as pessoas morreram mesmo. Eles só não são notícia. Essa distinção importa para o desenho: o silenciamento vive no TRANSPORTE, depois do rastreador ter decidido e registrado tudo normalmente. Silenciar na detecção corromperia o estado (um membro que morre e ressuscita durante o silêncio precisa sair do outro lado com o estado certo), e destruiria o log — que é a única ferramenta de depuração pós-farm que o projeto tem.
+
+**Silêncio é do WhatsApp, nunca do registro.** MUTE-07 não é conforto: sem ele, um falso positivo que aconteça durante um TvT fica invisível para sempre.
+
+**A ordem 6 → 7 é obrigatória**: a janela de silêncio é derivada da mesma entrada de agenda que gera o lembrete. Construir o silenciamento antes da agenda significaria escrever a definição de horários duas vezes, e elas divergiriam.
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Status | Completed |
 |-------|--------|-----------|
@@ -123,6 +166,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 3. Rastreador, console ao vivo e replay | Implementado, 29 testes | 2026-08-24 |
 | 4. Entrega no WhatsApp e vigilância do vigia | Implementado e verificado ao vivo | 2026-08-24 |
 | 5. Reconhecer tela de login e desconexão | Implementado e verificado ao vivo contra as duas janelas | 2026-08-24 |
+| 6. A agenda como fonte de eventos | Não iniciada | — |
+| 7. Silenciamento por janela de evento | Não iniciada | — |
 
 **255 testes passando.** A entrega no celular está confirmada e uma morte real já
 foi detectada em campo (13:39-13:42). Falta as duas coisas na MESMA sessão.
