@@ -21,11 +21,26 @@ See: .planning/PROJECT.md (updated 2026-08-24)
 ## Current Position
 
 Phase: 1 of 4 (Gate de entrega e fundação de captura)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-08-24 — Roadmap criado (4 fases, 55/55 requisitos mapeados)
+Plan: em execução
+Status: Fase 1 quase completa — falta só a confirmação empírica do gate (só o usuário pode fazer)
+Last activity: 2026-08-24 — Ferramenta do gate + captura com DPI + gravador + 16 testes passando
 
-Progress: [░░░░░░░░░░] 0%
+**Entregue na Fase 1:**
+- DELV-01, DELV-02: `tools/check_whatsapp.py` (comandos `inboxes`, `conversas`, `enviar`)
+- DELV-03: canal Baileys documentado em PROJECT.md Key Decisions
+- CAPT-01..07: captura com consciência de DPI, três estados de saúde de frame, laço à prova de falhas, recusa por mudança de geometria
+- OPER-01: `gravar-sessao.bat` (monta o ambiente sozinho)
+- OPER-08: token em `.env`, fora do git e fora dos logs
+- SAFE-01..04: invariante somente-leitura declarado em README + `__init__.py`, sem lib de input em requirements (com teste que verifica)
+- TEST-01: 16 testes rodando sem jogo, sem tela e sem rede
+
+**Falta para fechar a Fase 1 (ação do usuário):**
+1. Copiar `ENV-EXEMPLO.txt` para `.env` e preencher os dados do Chatwoot
+2. `python tools/check_whatsapp.py inboxes` → confirmar que mostra `Channel::Baileys`
+3. `python tools/check_whatsapp.py conversas` → pegar os IDs de destino
+4. `python tools/check_whatsapp.py enviar` → confirmar no celular que chegou
+
+Progress: [███████░░░] ~70% da Fase 1
 
 ## Performance Metrics
 
