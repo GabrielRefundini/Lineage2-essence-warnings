@@ -10,7 +10,11 @@ recordings/
 # ...mas os frames de referência dos testes são versionados de propósito:
 # são a verdade contra a qual a detecção é verificada, e sem eles um bug de
 # leitura só reaparece quando alguém morrer de novo no jogo.
-!tests/fixtures/*.png
+# O `!tests/fixtures/` precisa vir antes: o git não reabre um arquivo dentro de
+# um diretório já excluído, então desbloquear só o padrão *.png não bastaria.
+!tests/fixtures/
+!tests/fixtures/**/
+!tests/fixtures/**/*.png
 
 # Saída em tempo de execução
 outbox.jsonl
