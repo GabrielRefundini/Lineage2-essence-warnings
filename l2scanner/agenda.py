@@ -332,3 +332,76 @@ class RegistroEmDisco:
                 except OSError:
                     pass
         return apagados
+
+
+@dataclass(frozen=True)
+class JanelaDeSilencio:
+    """Um periodo em que os alertas do scanner nao vao para o WhatsApp.
+
+    `evento` e o que TERMINA POR ULTIMO, porque e ele que ainda estava
+    acontecendo quando o silencio acabou — e e o nome que faz sentido na
+    mensagem de encerramento.
+    """
+
+    evento: str
+    inicio: datetime
+    fim: datetime
+
+
+def silencio_ativo(
+    agora: datetime, eventos: list[EventoAgendado]
+) -> JanelaDeSilencio | None:
+    """A janela de silencio valendo agora, ou None.
+
+    JANELAS SOBREPOSTAS SAO UNIAO, NAO SUBSTITUICAO. Isso nao e refinamento, e
+    correcao: de segunda a quinta o Prime vai das 20:00 as 22:00 e o TvT das
+    21:50 vai ate 22:05. Substituir faria o silencio acabar as 22:00 e os
+    ultimos cinco minutos de TvT vazariam alerta — bem no auge do evento, que e
+    quando mais gente morre.
+
+    Funcao pura, igual ao resto da agenda: o tempo entra por parametro.
+    """
+    cobrindo: list[JanelaDeSilencio] = []
+    hoje = agora.date()
+
+    # Ontem entra porque uma janela de 2h iniciada as 23:00 atravessa a
+    # meia-noite. Amanha nao entra: uma janela que ainda nao comecou nao
+    # silencia nada.
+    for deslocamento in (-1, 0):
+        dia = hoje + timedelta(days=deslocamento)
+        for evento in eventos:
+            if evento.silenciar_minutos <= 0:
+                continue
+            for inicio in _ocorrencias(evento, dia):
+                fim = inicio + timedelta(minutes=evento.silenciar_minutos)
+                if inicio <= agora < fim:
+                    cobrindo.append(
+                        JanelaDeSilencio(evento=evento.nome, inicio=inicio, fim=fim)
+                    )
+
+    if not cobrindo:
+        return None
+
+    # A UNIAO: comeca no mais cedo, termina no mais tarde, e leva o nome de quem
+    # termina por ultimo.
+    ultima = max(cobrindo, key=lambda j: j.fim)
+    return JanelaDeSilencio(
+        evento=ultima.evento,
+        inicio=min(j.inicio for j in cobrindo),
+        fim=ultima.fim,
+    )
+
+
+def texto_de_encerramento(janela: JanelaDeSilencio) -> str:
+    """A unica mensagem que sai quando o silencio acaba.
+
+    Sem resumo do que foi engolido — decisao explicita do usuario.
+
+    ATENCAO: "os convites estao sendo reenviados" e TEXTO. O scanner NUNCA
+    envia input ao jogo; quem convida e uma pessoa. Essa frase avisa a galera
+    para ficar atenta ao convite, e nada mais.
+    """
+    return (
+        f"{janela.evento} encerrado. Os convites de party estao sendo "
+        f"reenviados — fiquem atentos. Voltei a vigiar o grupo."
+    )

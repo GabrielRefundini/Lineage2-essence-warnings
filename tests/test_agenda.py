@@ -543,3 +543,117 @@ class TestModoAgendaSemJogo:
         assert pos_agenda < pos_calibracao, (
             "o modo agenda esta atras da carga de calibracao"
         )
+
+
+class TestJanelaDeSilencio:
+    """Janelas sobrepostas sao UNIAO, e isso e correcao, nao refinamento.
+
+    De segunda a quinta o Prime vai das 20:00 as 22:00 e o TvT das 21:50 vai
+    ate 22:05. Substituir faria o silencio acabar as 22:00 e os ultimos cinco
+    minutos de TvT vazariam alerta — bem no auge do evento.
+    """
+
+    @pytest.fixture
+    def agenda(self):
+        from pathlib import Path
+
+        raiz = Path(__file__).resolve().parent.parent
+        return ler_agenda(raiz / "config.toml")
+
+    def test_dentro_do_tvt_ha_silencio(self, agenda):
+        from l2scanner.agenda import silencio_ativo
+
+        janela = silencio_ativo(em(15, 5), agenda)
+        assert janela is not None
+        assert janela.evento == "TvT"
+        assert janela.fim == em(15, 15)
+
+    def test_depois_do_tvt_nao_ha(self, agenda):
+        from l2scanner.agenda import silencio_ativo
+
+        assert silencio_ativo(em(15, 15), agenda) is None
+        assert silencio_ativo(em(16, 30), agenda) is None
+
+    def test_a_uniao_termina_as_2205_e_nao_as_2200(self, agenda):
+        """O caso que motivou a regra."""
+        from l2scanner.agenda import silencio_ativo
+
+        janela = silencio_ativo(em(21, 55), agenda)
+        assert janela is not None
+        assert janela.fim == em(22, 5), "a uniao encurtou para o fim do Prime"
+        assert janela.inicio == em(20, 0), "a uniao perdeu o inicio do Prime"
+        assert janela.evento == "TvT", "o nome tem que ser de quem termina por ultimo"
+
+    def test_entre_2200_e_2205_ainda_ha_silencio(self, agenda):
+        """O Prime ja acabou, o TvT nao."""
+        from l2scanner.agenda import silencio_ativo
+
+        janela = silencio_ativo(em(22, 2), agenda)
+        assert janela is not None and janela.fim == em(22, 5)
+
+    def test_as_2205_o_silencio_acabou(self, agenda):
+        from l2scanner.agenda import silencio_ativo
+
+        assert silencio_ativo(em(22, 5), agenda) is None
+
+    def test_no_sabado_nao_ha_prime_e_a_janela_e_so_do_tvt(self, agenda):
+        from datetime import timedelta
+
+        from l2scanner.agenda import silencio_ativo
+
+        sabado = SEGUNDA + timedelta(days=5)
+        janela = silencio_ativo(em(21, 55, sabado), agenda)
+        assert janela is not None
+        assert janela.inicio == em(21, 50, sabado)
+        assert janela.evento == "TvT"
+
+    def test_evento_sem_silenciar_minutos_nao_silencia(self):
+        from l2scanner.agenda import silencio_ativo
+
+        assert silencio_ativo(em(15, 5), [evento(silenciar_minutos=0)]) is None
+
+    def test_janela_atravessa_a_meia_noite(self):
+        from datetime import timedelta
+
+        from l2scanner.agenda import silencio_ativo
+
+        tarde = evento(horarios=((23, 30),), silenciar_minutos=120)
+        terca = SEGUNDA + timedelta(days=1)
+        janela = silencio_ativo(em(0, 30, terca), [tarde])
+        assert janela is not None
+        assert janela.inicio == em(23, 30), "a janela de ONTEM foi perdida"
+
+    def test_uma_segunda_inteira_minuto_a_minuto(self, agenda):
+        """Os minutos silenciados sao exatamente os esperados."""
+        from datetime import timedelta
+
+        from l2scanner.agenda import silencio_ativo
+
+        silenciados = []
+        instante = SEGUNDA
+        for _ in range(24 * 60):
+            if silencio_ativo(instante, agenda):
+                silenciados.append(instante.strftime("%H:%M"))
+            instante += timedelta(minutes=1)
+
+        esperados = []
+        for hora, minuto, duracao in ((15, 0, 15), (17, 0, 15), (20, 0, 125)):
+            base = SEGUNDA.replace(hour=hora, minute=minuto)
+            esperados += [
+                (base + timedelta(minutes=i)).strftime("%H:%M")
+                for i in range(duracao)
+            ]
+        # 20:00 + 125 min = ate 22:05, ja contando a uniao com o TvT das 21:50
+        assert silenciados == esperados
+
+    def test_o_texto_de_encerramento_nao_promete_enviar_convite(self):
+        from l2scanner.agenda import JanelaDeSilencio, texto_de_encerramento
+
+        texto = texto_de_encerramento(
+            JanelaDeSilencio("TvT", em(21, 50), em(22, 5))
+        )
+        assert "TvT" in texto
+        assert "reenviados" in texto
+        # O scanner NUNCA envia input ao jogo. A frase avisa, nao age.
+        assert "vou convidar" not in texto.lower()
+        assert "enviando convite" not in texto.lower()
