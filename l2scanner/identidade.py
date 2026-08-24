@@ -85,6 +85,21 @@ MARGEM_MINIMA_SOBRE_O_SEGUNDO = 0.12
 # Recorte com pouquissimo texto e linha vazia, nao nome
 PIXELS_MINIMOS_DE_TEXTO = 12
 
+# Quantas vezes o recorte pode ter mais pixels claros que a assinatura antes de
+# ser considerado CONTAMINADO.
+#
+# A mascara de texto so tem piso de brilho (V > 180), sem teto. Quando algo
+# claro passa na regiao do nome — medido: V mediano 230, S mediano 6, ou seja
+# BRANCO, nao terreno colorido — esses pixels entram na mascara e destroem a
+# correlacao. Um teto de saturacao nao ajuda: com S<=30 ainda sobravam 200 dos
+# 251 pixels. O sinal confiavel e o TAMANHO da mascara.
+#
+# Medido nas fixtures, recorte / assinatura:
+#     limpo         0.82  0.90  0.92  0.98  1.05  1.09
+#     contaminado   3.29  4.90
+# Nao ha zona cinzenta. 2.0 fica no meio do vazio.
+FATOR_MAXIMO_DE_CONTAMINACAO = 2.0
+
 
 def mascara_de_texto(bgr: np.ndarray) -> np.ndarray:
     """Marca os pixels que sao texto da UI, descartando o cenario.
@@ -189,9 +204,28 @@ def _pontuar(
     linha vazia, nao um nome que falhamos em ler.
     """
     mascara = mascara_de_texto(recorte)
-    if int(mascara.sum()) < PIXELS_MINIMOS_DE_TEXTO:
+    pixels = int(mascara.sum())
+    if pixels < PIXELS_MINIMOS_DE_TEXTO:
         return None
-    return [_correlacionar(mascara, a.mascara) for a in assinaturas]
+
+    pontos: list[float] = []
+    for assinatura in assinaturas:
+        # Um recorte com MUITO mais pixels claros do que este nome tem nao pode
+        # ser este nome — tem outra coisa dentro dele. Zerar o par e melhor do
+        # que deixar uma correlacao degradada disputar a linha: e assim que uma
+        # assinatura errada ganha um recorte que ninguem deveria ter ganhado.
+        #
+        # Note que isto NAO tenta salvar o reconhecimento do membro
+        # contaminado. Ele fica sem nome nesse frame, o que e a resposta
+        # honesta. O que a regra impede e a vaga vazia ser ocupada por outro.
+        excedente = (
+            assinatura.pixels_de_texto
+            and pixels > assinatura.pixels_de_texto * FATOR_MAXIMO_DE_CONTAMINACAO
+        )
+        pontos.append(
+            0.0 if excedente else _correlacionar(mascara, assinatura.mascara)
+        )
+    return pontos
 
 
 def identificar_linhas(

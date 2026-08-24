@@ -26,8 +26,15 @@ import pytest
 
 from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
+from l2scanner.identidade import _pontuar
 from l2scanner.rastreador import Rastreador, TipoDeEvento
-from l2scanner.visao import EstadoDaLinha, LeituraDeLinha, Observacao, extrair
+from l2scanner.visao import (
+    EstadoDaLinha,
+    LeituraDeLinha,
+    Observacao,
+    _recorte_do_nome,
+    extrair,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "party_estavel_com_vazamento"
 
@@ -233,3 +240,65 @@ class TestUnicidadeDaAssinatura:
         assert nomes.count("Kaus") <= 1
         assert nomes.count("Korzis") <= 1
         assert nomes[0] == "Kaus", "o membro nao afetado tem de continuar reconhecido"
+
+
+class TestRecorteContaminadoEhRejeitado:
+    """Correcao C — o GATILHO de toda a cadeia.
+
+    `mascara_de_texto` so tem piso de brilho (V > 180), sem teto. Quando algo
+    claro passa na regiao do nome, esses pixels entram na mascara e destroem a
+    correlacao. Medido na linha do Korzis, em 60 frames com a party PARADA:
+
+        limpo             43 px de mascara,  correlacao 0.976
+        vazamento leve   135 px,             correlacao 0.538
+        vazamento forte  201 px,             correlacao 0.433
+
+    Acontecia em 13% dos frames. E branco, nao terreno colorido (V mediano 230,
+    S mediano 6), entao um teto de saturacao nao resolve: com S<=30 ainda
+    sobravam 200 dos 251 pixels. O sinal confiavel e o TAMANHO da mascara.
+
+    O objetivo NAO e salvar o reconhecimento do membro contaminado — ele fica
+    sem nome nesse frame, que e a resposta honesta. O objetivo e impedir que a
+    vaga dele seja ocupada por outra assinatura, com uma correlacao degradada
+    de 0.433 disputando contra uma errada de 0.428.
+    """
+
+    def scores(self, rotulo, indice, calibracao):
+        pixels = cv2.imread(str(FIXTURES / f"{rotulo}.png"), cv2.IMREAD_COLOR)
+        recorte = _recorte_do_nome(pixels, calibracao, indice)
+        assert recorte is not None
+        return dict(
+            zip(
+                [a.nome for a in calibracao.assinaturas],
+                _pontuar(recorte, calibracao.assinaturas) or [],
+            )
+        )
+
+    @pytest.mark.parametrize("rotulo", ["vazamento_leve", "vazamento_forte"])
+    def test_recorte_contaminado_sai_da_disputa(self, rotulo, calibracao):
+        pontos = self.scores(rotulo, 1, calibracao)
+        assert pontos and all(v == 0.0 for v in pontos.values()), (
+            f"{rotulo}: recorte contaminado ainda disputa a linha com {pontos}"
+        )
+
+    def test_recorte_limpo_continua_pontuando_alto(self, calibracao):
+        """A regra nao pode custar o reconhecimento normal."""
+        pontos = self.scores("limpo", 1, calibracao)
+        assert pontos["Korzis"] > 0.90
+
+    def test_o_membro_contaminado_fica_sem_nome_e_nao_com_o_nome_errado(
+        self, calibracao
+    ):
+        obs = extrair(carregar("vazamento_forte"), calibracao)
+        linha = obs.linhas[1]
+        assert linha.estado is EstadoDaLinha.COM_MEMBRO, "ele continua na party"
+        assert linha.nome is None, (
+            "sem nome e a resposta honesta; com o nome errado o alerta manda a "
+            "party socorrer a pessoa errada"
+        )
+
+    def test_o_vizinho_nao_herda_a_vaga(self, calibracao):
+        """A vaga aberta pelo vazamento nao pode ser ocupada por outro."""
+        obs = extrair(carregar("vazamento_forte"), calibracao)
+        nomes = [l.nome for l in obs.linhas if l.nome]
+        assert nomes == ["Kaus"], f"alguem ocupou a vaga do contaminado: {nomes}"
