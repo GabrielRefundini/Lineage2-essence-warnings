@@ -92,6 +92,12 @@ O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado.
 
   **Teste**: comparar `calibration.json` com a posição atual da janela e gravar frames durante uma cegueira.
 
+## Pending Todos
+
+| Severidade | Todo | Área |
+|---|---|---|
+| minor | [Medir o template do diálogo contra gameplay normal](todos/pending/2026-08-24-medir-o-template-do-dialogo-contra-gameplay-normal.md) | testing |
+
 ## Quick Tasks Completed
 
 | Data | Tarefa | Resultado |
