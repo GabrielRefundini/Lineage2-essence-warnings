@@ -129,9 +129,17 @@ cd C:\Users\refun\Desktop\Lineage2-warnings
 python -m l2scanner
 ```
 
-> Se o cmd disser que `python` não é reconhecido mesmo estando instalado, é
+> **Duas pegadinhas do cmd nesta máquina:**
+>
+> Se ele disser que **`python` não é reconhecido** mesmo estando instalado, é
 > porque aquela janela foi aberta antes da instalação e carregou um PATH antigo.
-> Fechar e abrir o cmd resolve — ou simplesmente use o `.bat`.
+> Fechar e abrir o cmd resolve.
+>
+> Se ele disser que **`vigiar-party.bat` não é reconhecido** mesmo você estando
+> dentro da pasta, é a variável `NoDefaultCurrentDirectoryInExePath=1` — uma
+> proteção do Windows que impede o cmd de procurar programas na pasta atual.
+> Use `.igiar-party.bat` (com o `.\` na frente), ou dê dois cliques pelo
+> Explorer, onde a restrição não vale.
 
 Deixe a janela aberta enquanto farma. `Ctrl+C` encerra.
 

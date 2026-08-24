@@ -58,9 +58,37 @@ if not exist ".venv\Scripts\python.exe" (
     echo.
 )
 
+REM O ambiente pode ter sido montado antes de alguma dependencia nova entrar
+REM na lista. Conferir e barato; descobrir isso por um traceback no meio do
+REM farm nao e.
+".venv\Scripts\python.exe" -c "import mss,cv2,numpy,windows_capture" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo  Faltam dependencias novas. Instalando...
+    echo.
+    ".venv\Scripts\python.exe" -m pip install --quiet -r requirements.txt
+    if errorlevel 1 goto erro_deps
+    echo  Pronto.
+    echo.
+)
+
 REM --janela le a janela do jogo direto, entao cobrir o jogo com o
 REM navegador nao cega mais o scanner. Tire a flag para voltar a ler o
 REM desktop (mais simples, mas exige o jogo visivel).
+REM O ambiente pode ter sido montado antes de uma dependencia nova entrar na
+REM lista. Conferir custa um segundo; descobrir por um traceback no meio do
+REM farm custa a sessao inteira.
+".venv\Scripts\python.exe" -c "import mss,cv2,numpy,windows_capture" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo  Ha dependencias novas na lista. Instalando...
+    echo.
+    ".venv\Scripts\python.exe" -m pip install --quiet -r requirements.txt
+    if errorlevel 1 goto erro_deps
+    echo  Pronto.
+    echo.
+)
+
 ".venv\Scripts\python.exe" -m l2scanner --janela %*
 goto fim
 

@@ -33,6 +33,15 @@ if not defined PY (
     exit /b 1
 )
 
+REM Mesma conferencia do vigiar-party.bat: o ambiente pode estar defasado.
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" -c "import mss,cv2,numpy,windows_capture" >nul 2>&1
+    if errorlevel 1 (
+        echo  Instalando dependencias novas...
+        ".venv\Scripts\python.exe" -m pip install --quiet -r requirements.txt
+    )
+)
+
 echo.
 set /p NOMES="Nomes da party em ordem, separados por virgula (ENTER para pular): "
 
