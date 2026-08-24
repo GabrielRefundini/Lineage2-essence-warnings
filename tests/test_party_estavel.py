@@ -26,7 +26,8 @@ import pytest
 
 from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
-from l2scanner.visao import EstadoDaLinha, extrair
+from l2scanner.rastreador import Rastreador, TipoDeEvento
+from l2scanner.visao import EstadoDaLinha, LeituraDeLinha, Observacao, extrair
 
 FIXTURES = Path(__file__).parent / "fixtures" / "party_estavel_com_vazamento"
 
@@ -84,4 +85,98 @@ class TestLinhaFantasmaNaoCegaOScanner:
         estados = [l.estado is EstadoDaLinha.COM_MEMBRO for l in obs.linhas]
         assert estados == sorted(estados, reverse=True), (
             f"lista com vao no meio: {estados}"
+        )
+
+
+class TestSaidaRealVoltaASerDetectada:
+    """Correcao E.
+
+    A guarda anterior congelava a saida de TODOS sempre que QUALQUER linha
+    ocupada estivesse sem identidade. Parecia conservadora e era: com dois
+    membros da party sem assinatura gravada — o estado normal de quem acabou de
+    calibrar — a condicao valia em 100% dos frames e a deteccao de saida ficava
+    completamente desligada. Silenciosamente: o scanner nao reclamava, so nunca
+    avisava.
+
+    O discriminador certo nao e "alguma linha esta sem nome", e sim "a party
+    window ENCOLHEU". Quando alguem sai de verdade as linhas compactam e sobra
+    uma linha a menos. Quando o reconhecimento falha, a linha continua la.
+    """
+
+    NOMES = ["Kaus", "Korzis"]
+
+    def montar(self, nomes_por_linha):
+        """Uma observacao com uma linha por nome; None = nao reconhecida."""
+        linhas = [
+            LeituraDeLinha(
+                indice=i,
+                estado=EstadoDaLinha.COM_MEMBRO,
+                hp=1.0,
+                mp=1.0,
+                nome=nome,
+                confianca_do_nome=1.0 if nome else 0.0,
+            )
+            for i, nome in enumerate(nomes_por_linha)
+        ]
+        return Observacao(indice_do_frame=0, ui_visivel=True, linhas=tuple(linhas))
+
+    def aquecer(self, rastreador, obs, ate=15):
+        for t in range(ate):
+            rastreador.observar(obs, float(t))
+        return float(ate)
+
+    def test_saida_real_dispara_mesmo_com_linhas_nao_reconhecidas(self):
+        """O caso que estava quebrado: 2 membros sem assinatura na party."""
+        r = Rastreador(nomes=self.NOMES)
+        completa = self.montar(["Kaus", "Korzis", None, None])
+        t = self.aquecer(r, completa)
+
+        # Kaus sai: a linha some e as de baixo compactam.
+        depois = self.montar(["Korzis", None, None])
+        eventos = []
+        for i in range(20):
+            eventos += r.observar(depois, t + i)
+
+        saidas = [e for e in eventos if e.tipo is TipoDeEvento.SAIU]
+        assert saidas, (
+            "Kaus saiu de verdade e nenhum SAIU foi emitido — a guarda de "
+            "reconhecimento estava desligando a deteccao inteira"
+        )
+        assert [e.membro for e in saidas] == ["Kaus"]
+
+    def test_falha_de_reconhecimento_nao_vira_saida(self):
+        """O outro lado: a linha continua la, so nao sabemos de quem e."""
+        r = Rastreador(nomes=self.NOMES)
+        completa = self.montar(["Kaus", "Korzis", None, None])
+        t = self.aquecer(r, completa)
+
+        # O reconhecimento do Korzis pisca, mas a party continua com 4 linhas.
+        piscada = self.montar(["Kaus", None, None, None])
+        eventos = []
+        for i in range(20):
+            eventos += r.observar(piscada, t + i)
+
+        assert not [e for e in eventos if e.tipo is TipoDeEvento.SAIU], (
+            "a party window nao encolheu, entao ninguem saiu: anunciar saida "
+            "aqui e o falso alarme que o usuario reportou"
+        )
+
+    def test_nome_roubado_por_outra_assinatura_nao_vira_saida(self):
+        """O bug exato do relato: Korzis casou na linha do Kaus.
+
+        Observado em logs/scanner.log 17:21:09 — "Korzis, Korzis, TioMad,
+        J4guar" com o Kaus sumido, entre "KAUS SAIU" e "KAUS ENTROU".
+        """
+        r = Rastreador(nomes=self.NOMES)
+        completa = self.montar(["Kaus", "Korzis", None, None])
+        t = self.aquecer(r, completa)
+
+        roubada = self.montar(["Korzis", "Korzis", None, None])
+        eventos = []
+        for i in range(20):
+            eventos += r.observar(roubada, t + i)
+
+        assert not eventos, (
+            f"a party continua com 4 linhas; nada aconteceu de verdade. "
+            f"Eventos indevidos: {[(e.tipo.value, e.membro) for e in eventos]}"
         )

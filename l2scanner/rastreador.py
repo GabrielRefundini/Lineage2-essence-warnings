@@ -125,6 +125,12 @@ class _EstadoInterno:
     contador_entrada: int = 0
     hp_visto: float | None = None
 
+    # Quantas linhas a party window tinha da ultima vez que vimos este membro.
+    # E o que distingue "ele saiu" de "o reconhecimento falhou": quando alguem
+    # sai de verdade a party window ENCOLHE, porque as linhas compactam. Uma
+    # falha de reconhecimento nao muda a contagem de linhas nenhuma.
+    linhas_quando_visto: int = 0
+
 
 def _chave_da_linha(linha: LeituraDeLinha) -> str:
     """A identidade sob a qual esta linha e rastreada.
@@ -346,7 +352,9 @@ class Rastreador:
             identidade = _chave_da_linha(linha)
             self._identidade_por_linha[linha.indice] = identidade
             self._rotulo[identidade] = linha.nome or self.nome_de(linha.indice)
-            self._membros.setdefault(identidade, _EstadoInterno()).hp_visto = linha.hp
+            interno = self._membros.setdefault(identidade, _EstadoInterno())
+            interno.hp_visto = linha.hp
+            interno.linhas_quando_visto = obs.membros_presentes
 
     def _processar(self, obs: Observacao, agora: float) -> list[Evento]:
         eventos: list[Evento] = []
@@ -391,14 +399,31 @@ class Rastreador:
         # rastreado por nome, estamos no modo antigo (chave por posicao) e
         # congelar travaria a deteccao de saida para sempre.
         ha_membro_nomeado = any(not k.startswith("#linha") for k in self._membros)
-        alguma_linha_sem_identidade = ha_membro_nomeado and any(
-            l.estado is EstadoDaLinha.COM_MEMBRO and not l.nome for l in obs.linhas
-        )
+
+        # Quantas linhas a party window tem AGORA. A comparacao com quantas ela
+        # tinha da ultima vez que vimos cada membro e o que separa os dois
+        # motivos de alguem sumir do conjunto de identidades.
+        linhas_agora = obs.membros_presentes
 
         for identidade, interno in self._membros.items():
             if identidade in presentes:
                 continue
-            if alguma_linha_sem_identidade:
+
+            # A PARTY WINDOW ENCOLHEU? Se nao encolheu, ninguem saiu.
+            #
+            # Quando alguem sai de verdade, as linhas compactam e a janela fica
+            # com uma linha a menos. Quando o RECONHECIMENTO falha, a linha
+            # continua la — so nao sabemos de quem ela e. Nos dois casos a
+            # identidade some de `presentes`, e sem esta checagem os dois viram
+            # "saiu da party".
+            #
+            # A versao anterior congelava a saida sempre que QUALQUER linha
+            # ocupada estivesse sem identidade. Parecia conservador e era: com
+            # dois membros da party sem assinatura gravada, a condicao valia em
+            # 100% dos frames e a deteccao de saida ficava COMPLETAMENTE
+            # DESLIGADA. Medido: Kaus saia de verdade e `contador_saida` nem
+            # chegava a incrementar uma vez.
+            if linhas_agora >= interno.linhas_quando_visto:
                 continue
             # Uma chave de POSICAO (`#linhaN`) so existe porque o
             # reconhecimento falhou naquele frame. Quando ele volta, ela some —
@@ -435,6 +460,7 @@ class Rastreador:
             interno = self._membros.setdefault(identidade, _EstadoInterno())
             interno.hp_visto = linha.hp
             interno.contador_saida = 0
+            interno.linhas_quando_visto = linhas_agora
 
             morto_agora = (
                 linha.hp is not None
