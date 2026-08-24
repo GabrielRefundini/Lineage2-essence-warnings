@@ -3,10 +3,10 @@ gsd_state_version: '1.0'
 status: milestone-v2-definido
 progress:
   total_phases: 7
-  completed_phases: 5
+  completed_phases: 7
   total_plans: 6
   completed_plans: 6
-  percent: 86
+  percent: 100
 ---
 
 # Project State
@@ -16,15 +16,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-24)
 
 **Core value:** Quando alguém da party morre ou sai da PT, a galera fica sabendo no WhatsApp em segundos — mesmo quem está AFK.
-**Current focus:** Milestone v2 — Fase 7 (silenciamento), a última
+**Current focus:** Milestone v2 implementado; falta validação em campo
 
 ## Current Position
 
 Phase: 4 de 4 — todas implementadas
 Status: Código completo. Detecção e entrega validadas em campo SEPARADAMENTE; falta a última milha (morte real -> mensagem no WhatsApp) e resolver a cegueira recorrente.
-Last activity: 2026-08-24 — Fase 6 executada: agenda de TvT/Prime rodando sem o jogo
+Last activity: 2026-08-24 — Fase 7 executada: silenciamento com união de janelas
 
-Progress: [████████▓░] 86% (6 de 7 fases)
+Progress: [██████████] 100% (7 de 7 fases)
 
 ## O que foi construído
 
@@ -36,8 +36,9 @@ Progress: [████████▓░] 86% (6 de 7 fases)
 | 4 | Notificador Chatwoot, console ao vivo, replay | ✓ verificado ao vivo |
 | 5 | Tela de login e desconexão do servidor viram evento | ✓ verificado ao vivo contra as duas janelas |
 | 6 | Agenda de TvT e Prime, rodando sem o jogo aberto | ✓ verificado ao vivo com o cliente fechado |
+| 7 | Silêncio durante o evento, com união de janelas | ✓ simulado minuto a minuto de 19:45 a 22:10 |
 
-**310 testes passando**, todos sem precisar do jogo aberto ou de rede.
+**335 testes passando**, todos sem precisar do jogo aberto ou de rede.
 
 ## Calibração real medida (2026-08-24)
 

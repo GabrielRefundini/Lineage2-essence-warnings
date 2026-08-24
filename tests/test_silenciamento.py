@@ -212,3 +212,63 @@ class TestControleDoSilencio:
         assert "reenviados" in texto
         for proibido in ("vou convidar", "convidando", "enviando convite"):
             assert proibido not in texto.lower()
+
+
+class TestConsoleDoSilencio:
+    """MUTE-08: um scanner calado precisa PARECER calado de proposito.
+
+    Sem isto, "nao chegou nada no WhatsApp" e ambiguo entre "esta tudo bem",
+    "estou em silencio de TvT" e "o scanner quebrou". Depois de um dia inteiro
+    corrigindo alarme falso, a ambiguidade custa a confianca inteira.
+    """
+
+    def _status(self, silencio):
+        from l2scanner.__main__ import desenhar_status
+        from l2scanner.calibracao import Calibracao
+        from l2scanner.rastreador import Rastreador
+        from l2scanner.visao import Observacao
+
+        obs = Observacao(0, True, ())
+        cal = Calibracao.__new__(Calibracao)
+        return desenhar_status(Rastreador(), cal, obs, silencio)
+
+    def test_em_silencio_o_console_diz_ate_quando(self):
+        from datetime import datetime
+
+        from l2scanner.__main__ import ControleDoSilencio
+        from l2scanner.agenda import JanelaDeSilencio
+
+        controle = ControleDoSilencio([])
+        controle._janela = JanelaDeSilencio(
+            "TvT", datetime(2026, 8, 24, 21, 50), datetime(2026, 8, 24, 22, 5)
+        )
+        texto = self._status(controle)
+        assert "SILENCIO DE TVT" in texto
+        assert "22:05" in texto
+
+    def test_sem_silencio_o_console_nao_menciona_nada(self):
+        from l2scanner.__main__ import ControleDoSilencio
+
+        assert "SILENCIO" not in self._status(ControleDoSilencio([]))
+
+    def test_status_sem_silencio_algum_continua_funcionando(self):
+        """Compatibilidade: quem chama sem o parametro nao quebra."""
+        assert "SILENCIO" not in self._status(None)
+
+    def test_o_status_ao_vivo_recebe_o_silencio(self):
+        """A linha que aparece a cada 30s durante o farm.
+
+        E a que o usuario realmente le. Se so o 'estado final' mostrasse o
+        silencio, ele so descobriria o motivo depois de encerrar o scanner.
+        """
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        fonte = inspect.getsource(principal.laco_principal)
+        chamadas = [
+            linha for linha in fonte.splitlines() if "desenhar_status(" in linha
+        ]
+        assert chamadas, "nenhuma chamada encontrada"
+        for chamada in chamadas:
+            assert "silencio" in chamada, f"sem silencio: {chamada.strip()}"

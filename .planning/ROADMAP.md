@@ -22,7 +22,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Milestone v2 — Agenda e Silenciamento** (definido 2026-08-24)
 
 - [x] **Phase 6: A agenda como fonte de eventos** - Lembrete de TvT e Prime nos horários certos, com o jogo fechado
-- [ ] **Phase 7: Silenciamento por janela de evento** - Durante o evento o scanner cala, porque toda morte é verdadeira e nenhuma é notícia
+- [x] **Phase 7: Silenciamento por janela de evento** - Durante o evento o scanner cala, porque toda morte é verdadeira e nenhuma é notícia
 
 ## Phase Details
 
@@ -167,7 +167,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Entrega no WhatsApp e vigilância do vigia | Implementado e verificado ao vivo | 2026-08-24 |
 | 5. Reconhecer tela de login e desconexão | Implementado e verificado ao vivo contra as duas janelas | 2026-08-24 |
 | 6. A agenda como fonte de eventos | Implementada, 55 testes novos | 2026-08-24 |
-| 7. Silenciamento por janela de evento | Não iniciada | — |
+| 7. Silenciamento por janela de evento | Implementada, 25 testes novos | 2026-08-24 |
 
 **255 testes passando.** A entrega no celular está confirmada e uma morte real já
 foi detectada em campo (13:39-13:42). Falta as duas coisas na MESMA sessão.

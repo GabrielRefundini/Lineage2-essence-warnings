@@ -141,7 +141,9 @@ def montar_despachante(args: argparse.Namespace) -> Despachante | None:
     )
 
 
-def desenhar_status(rastreador: Rastreador, cal: Calibracao, obs) -> str:
+def desenhar_status(
+    rastreador: Rastreador, cal: Calibracao, obs, silencio=None
+) -> str:
     """Bloco de status para o usuario conferir antes de sair AFK."""
     simbolos = {
         EstadoDoMembro.VIVO: "ok  ",
@@ -168,6 +170,18 @@ def desenhar_status(rastreador: Rastreador, cal: Calibracao, obs) -> str:
         portao = "JOGO CAIU - DESCONECTADO DO SERVIDOR"
 
     linhas = [f"[{portao}]"]
+
+    # MUTE-08. Um scanner calado precisa PARECER calado de proposito. Sem esta
+    # linha, "nao chegou nada no WhatsApp" e ambiguo entre "esta tudo bem",
+    # "estou em silencio de TvT" e "o scanner quebrou" — e depois de um dia
+    # inteiro corrigindo alarme falso, a ambiguidade custa a confianca inteira.
+    janela = getattr(silencio, "janela", None)
+    if janela is not None:
+        linhas.append(
+            f"  SILENCIO DE {janela.evento.upper()} ate "
+            f"{janela.fim.strftime('%H:%M')} — nada vai para o WhatsApp"
+        )
+
     for leitura in obs.linhas:
         if leitura.estado is EstadoDaLinha.VAZIA:
             continue
@@ -318,6 +332,13 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
             # De hora em hora, repetir qual e o proximo. Um scanner que nao diz
             # quando vai falar de novo e indistinguivel de um scanner travado.
             if (agora - ultimo_anuncio).total_seconds() >= 3600:
+                janela = silencio.janela
+                if janela is not None:
+                    log.info(
+                        "Em silencio de %s ate %s — nada vai para o WhatsApp",
+                        janela.evento,
+                        janela.fim.strftime("%H:%M"),
+                    )
                 _anunciar_proximo(eventos)
                 ultimo_anuncio = agora
 
@@ -584,7 +605,10 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
 
             agora = time.monotonic()
             if agora - ultimo_status >= args.status_a_cada:
-                log.info("\n%s", desenhar_status(rastreador, cal, observacao))
+                log.info(
+                    "\n%s",
+                    desenhar_status(rastreador, cal, observacao, silencio),
+                )
                 ultimo_status = agora
 
             dormir = args.intervalo - (time.monotonic() - inicio)
@@ -599,7 +623,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         # rapido o intervalo de relogio nunca fecha, e o usuario ficaria sem
         # saber como a sessao terminou.
         if ultima_observacao is not None:
-            log.info("Estado final:\n%s", desenhar_status(rastreador, cal, ultima_observacao))
+            log.info("Estado final:\n%s", desenhar_status(rastreador, cal, ultima_observacao, silencio))
 
         fonte.fechar()
         if gravador:
