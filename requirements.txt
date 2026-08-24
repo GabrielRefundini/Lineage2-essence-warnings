@@ -1,0 +1,18 @@
+# Captura de tela. Escolhido em vez de dxcam porque dxcam.grab() devolve None
+# quando o frame nao mudou — e uma party window parada em AFK e exatamente esse
+# caso, que um laco ingenuo leria como "perdi a visao".
+mss>=10.2.0
+
+# Analise das barras (HSV, medicao de preenchimento) e as ferramentas visuais de
+# calibracao. Precisa ser o pacote completo, NAO o -headless: selectROI,
+# createTrackbar e imshow sao o coracao da calibragem.
+# Preso abaixo da 5 porque a 5.0 trouxe quebras deliberadas de API.
+opencv-python>=4.10,<5
+
+numpy>=2.0
+
+# NAO ADICIONE AQUI, POR DECISAO DE PROJETO:
+#   pyautogui, pydirectinput, keyboard, pynput ou qualquer lib de input.
+# O scanner e somente leitura. Manter essas libs fora da arvore de dependencias
+# torna a violacao do invariante estruturalmente impossivel, em vez de apenas
+# proibida por escrito. Ver l2scanner/__init__.py.
