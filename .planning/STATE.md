@@ -16,13 +16,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-24)
 
 **Core value:** Quando alguém da party morre ou sai da PT, a galera fica sabendo no WhatsApp em segundos — mesmo quem está AFK.
-**Current focus:** Milestone v2 "Agenda e Silenciamento" — Fase 6 pronta para planejar
+**Current focus:** Milestone v2 — Fase 6 planejada, pronta para executar
 
 ## Current Position
 
 Phase: 4 de 4 — todas implementadas
 Status: Código completo. Detecção e entrega validadas em campo SEPARADAMENTE; falta a última milha (morte real -> mensagem no WhatsApp) e resolver a cegueira recorrente.
-Last activity: 2026-08-24 — milestone v2 "Agenda e Silenciamento" definido: 22 requisitos, fases 6 e 7
+Last activity: 2026-08-24 — Fase 6 planejada: pesquisa + 4 tarefas tracer-first
 
 Progress: [███████░░░] 71% (5 de 7 fases)
 
