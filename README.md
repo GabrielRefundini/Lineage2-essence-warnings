@@ -85,7 +85,40 @@ Envia uma mensagem de teste.
 > que esteja calado há mais de um dia — e confirme no celular. Resposta `200`
 > do Chatwoot não prova entrega.
 
+## Gravar uma sessão de farm
+
+O evento que o scanner existe para pegar — alguém da PT morrer — é raro e não se
+reproduz sob demanda. Por isso o gravador vem antes da detecção: você farma com
+ele ligado, banca uma morte de verdade, e aquela sessão vira ao mesmo tempo a
+base de calibração e um teste de regressão permanente.
+
+Abra `gravar-sessao.bat`, troque os números da linha `--regiao` pelas
+coordenadas da sua party window (`esquerda,topo,largura,altura`) e dê dois
+cliques. Deixe rodando enquanto farma; `Ctrl+C` encerra e fecha a gravação
+direito.
+
+Ou pela linha de comando:
+
+```bash
+python -m l2scanner --record --rotulo farm --regiao 1713,330,450,300
+```
+
+A sessão fica em `recordings/`, com um PNG por frame e um `observacoes.jsonl`.
+PNG porque é sem perda — compressão com perda destruiria justamente as bordas de
+barra que precisamos medir.
+
 ## Requisitos
 
-Python 3.12 ou superior. O gate de entrega usa apenas a biblioteca padrão —
-nenhuma instalação necessária para rodar `tools/check_whatsapp.py`.
+Python 3.12 ou superior.
+
+O gate de entrega (`tools/check_whatsapp.py`) usa apenas a biblioteca padrão —
+roda sem instalar nada.
+
+O scanner precisa das dependências de `requirements.txt` (`mss`, `opencv-python`,
+`numpy`). O `gravar-sessao.bat` monta o ambiente sozinho na primeira execução.
+
+Para rodar os testes:
+
+```bash
+python -m pytest tests/ -q
+```
