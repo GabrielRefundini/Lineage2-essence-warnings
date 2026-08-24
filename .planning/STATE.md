@@ -6,7 +6,7 @@ progress:
   completed_phases: 4
   total_plans: 6
   completed_plans: 6
-  percent: 95
+  percent: 97
 ---
 
 # Project State
@@ -16,26 +16,26 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-24)
 
 **Core value:** Quando alguém da party morre ou sai da PT, a galera fica sabendo no WhatsApp em segundos — mesmo quem está AFK.
-**Current focus:** Aguardando validação em farm real
+**Current focus:** Confiabilidade em campo — a cegueira recorrente é a última pendência real
 
 ## Current Position
 
 Phase: 4 de 4 — todas implementadas
-Status: Código completo e verificado ao vivo. Falta apenas validação humana.
-Last activity: 2026-08-24 — Fases 1 a 4 construídas e testadas contra a tela real
+Status: Código completo. Detecção e entrega validadas em campo SEPARADAMENTE; falta a última milha (morte real -> mensagem no WhatsApp) e resolver a cegueira recorrente.
+Last activity: 2026-08-24 — três alarmes falsos de arranque/cegueira corrigidos (589ac84, 7bb43f0)
 
-Progress: [█████████░] 95%
+Progress: [█████████▓] 97%
 
 ## O que foi construído
 
 | Fase | Entrega | Estado |
 |------|---------|--------|
-| 1 | Gate de entrega + captura com DPI + gravador | ✓ código pronto, falta confirmar envio no celular |
+| 1 | Gate de entrega + captura com DPI + gravador | ✓ **entrega confirmada no celular 2026-08-24** |
 | 2 | Calibrador automático + leitura das barras | ✓ verificado contra a tela real |
-| 3 | Rastreador de estado, debounce, histerese, portão de cegueira | ✓ 29 testes |
+| 3 | Rastreador de estado, debounce, histerese, portão de cegueira | ✓ 226 testes; morte real detectada em campo |
 | 4 | Notificador Chatwoot, console ao vivo, replay | ✓ verificado ao vivo |
 
-**102 testes passando**, todos sem precisar do jogo aberto ou de rede.
+**226 testes passando**, todos sem precisar do jogo aberto ou de rede.
 
 ## Calibração real medida (2026-08-24)
 
@@ -65,12 +65,23 @@ O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado.
 
 ### Blockers/Concerns
 
-- ~~**[Fase 1 — portão duro] Provedor de WhatsApp**~~ **RESOLVIDO**: o usuário roda o fork `fazer-ai/chatwoot` com **Baileys** na VPS do projeto Atenda. Bridge não-oficial → sem a janela de 24h da Meta, mensagem livre a qualquer hora, envio para grupo funciona. **Falta a confirmação empírica** (rodar `check_whatsapp.py` e ver a mensagem chegar no celular).
+- ~~**[Fase 1 — portão duro] Provedor de WhatsApp**~~ **RESOLVIDO E CONFIRMADO EMPIRICAMENTE 2026-08-24**: fork `fazer-ai/chatwoot` com **Baileys**. As mensagens do scanner chegaram no grupo do WhatsApp (print do usuário: "Scanner ativo — monitorando Korzis, J4guar, TioMad, Kaus, Yazalaque (voce)"). Sem janela de 24h, envio para grupo funciona. `outbox.jsonl` tem 69 mensagens gravadas.
 - ~~**[Falso negativo silencioso] HP de membro distante congela?**~~ **RESOLVIDO 2026-08-24 (teste do usuário): atualiza ao vivo.**
 - ~~**[Falso positivo] Fora de alcance parece morte?**~~ **RESOLVIDO 2026-08-24 (teste do usuário): distância não altera a barra.**
-- **[Aberto — nomeação de eventos]** A party window compacta as linhas quando sai alguém do MEIO? O teste do usuário foi inconclusivo: quem saiu (J4guar) era o último da lista, caso em que compactar e preservar posição produzem a mesma imagem. **Impacto limitado**: se compactar, um evento pode ser atribuído ao nome errado depois de alguém sair. **Teste**: sair o Kaus (com Korzis abaixo) e ver se o Korzis sobe.
-- **[Aberto — não testável agora]** Morte de membro: o usuário não conseguiu testar. Toda a lógica de morte foi verificada com frames sintéticos, mas **nunca contra uma morte real**. É o que a gravação de sessão existe para resolver.
-- **[Aberto — limiar de cor]** O matiz da barra de HP muda com o nível? Na captura real todos estavam em 100%. Uma sessão gravada com HP variando resolve.
+- ~~**[Aberto — nomeação de eventos]** compactação da party window~~ **MITIGADO POR CONSTRUÇÃO**: a identidade passou a vir da IMAGEM do nome, não da posição da linha (quick task `identidade-por-imagem-do-nome`). Compactar deixou de importar para a nomeação — o nome segue a assinatura visual. Coberto por `tests/test_party_estavel.py:141` (Kaus sai, as de baixo compactam) e verificado ao vivo: saída real detectada com o nome certo.
+- ~~**[Aberto] Morte de membro nunca testada contra uma morte real**~~ **RESOLVIDO EM CAMPO 2026-08-24, sessão 13:21-13:42**: 12 eventos de morte/ressurreição num combate real, com HP em gradiente (J4guar 0%, Kaus caindo a 0%, TioMad 72%, Korzis 100% no mesmo frame — assinatura de luta ao vivo, não de tela parada). Nomes corretos e durações plausíveis (`KAUS MORREU 13:39:56` -> `KAUS FOI RESSUSCITADO (ficou 16s morto) 13:40:12`). Os 4 membros morreram e ressuscitaram ao menos uma vez. **Rodou em modo console** — o `outbox.jsonl` só começa às 16:44.
+- ~~**[Aberto — limiar de cor]** O matiz muda com o nível de HP?~~ **RESOLVIDO POR OBSERVAÇÃO**: `logs/scanner.log` tem leituras em toda a faixa (0%, 2%, 22%, 32%, 42-56%, 63%, 68%, 72-82%, 88%, 99%, 100%). A calibração lê o gradiente inteiro, não só os extremos.
+
+- **[ABERTO — o mais grave] Cegueira recorrente e longa.** O scanner passa períodos longos sem conseguir ler a party window, e está piorando dentro da mesma sessão:
+
+      18:19:50-18:21:19   90 s sem visão (a barra própria também lendo 0%)
+      18:35               "Scanner sem visao da party ha 5min" (registrado no outbox)
+
+  O aviso de cegueira longa FUNCIONA — o produto avisa em vez de calar. Mas cego é cego: nesse período uma morte real não é detectada, que é exatamente o pior modo de falha declarado no roadmap ("morrer calado enquanto a party acha que está coberta"). As correções de hoje impedem que a cegueira vire alarme falso; elas não impedem a cegueira.
+
+  **Hipóteses não testadas**: janela do jogo arrastada ou redimensionada desde a calibração; algo cobrindo a tela; a região calibrada pegando uma posição que não se sustenta. O próprio scanner já emite o aviso apontando para isso.
+
+  **Teste**: comparar `calibration.json` com a posição atual da janela e gravar frames durante uma cegueira.
 
 ## Quick Tasks Completed
 
@@ -80,13 +91,15 @@ O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado.
 
 ## Próximos passos
 
-1. **Confirmar o gate de entrega** — `.env` + `check_whatsapp.py inboxes/conversas/enviar`, confirmando no celular
-2. **Farmar com `--record` ligado** até bancar uma morte real
-3. **Rodar o replay** dessa sessão e conferir se o alerta de morte dispara na hora certa
-4. **Testar a compactação** — alguém do meio sair da PT
+1. **Resolver a cegueira recorrente** — é a única pendência que impede o produto de cumprir o que promete. Diagnosticar por que a party window deixa de ser legível por minutos.
+2. **Fechar a última milha** — uma morte real com a entrega LIGADA. Detecção (13:39) e entrega (18:17) já foram validadas em campo, mas nunca na mesma sessão. É o único critério do milestone que nenhuma evidência cobre.
+3. **Confirmar em farm que os alarmes falsos acabaram** — reiniciar com as correções de hoje e farmar uma sessão inteira sem evento espúrio.
 
 ## Session Continuity
 
 Last session: 2026-08-24
-Stopped at: Fases 1-4 implementadas, 102 testes passando, verificado ao vivo contra o cliente aberto
+Stopped at: Três alarmes falsos corrigidos (arranque inventando entrada, cegueira
+lida como saída de party, arranque cego lido como entrada em party). 226 testes.
+Commits 589ac84 e 7bb43f0. Sessão em `.planning/debug/alarme-falso-no-arranque.md`.
+**O bot precisa ser reiniciado para carregar as correções.**
 Resume file: None
