@@ -21,7 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Milestone v2 — Agenda e Silenciamento** (definido 2026-08-24)
 
-- [ ] **Phase 6: A agenda como fonte de eventos** - Lembrete de TvT e Prime nos horários certos, com o jogo fechado
+- [x] **Phase 6: A agenda como fonte de eventos** - Lembrete de TvT e Prime nos horários certos, com o jogo fechado
 - [ ] **Phase 7: Silenciamento por janela de evento** - Durante o evento o scanner cala, porque toda morte é verdadeira e nenhuma é notícia
 
 ## Phase Details
@@ -127,7 +127,7 @@ Um **template** decide "desconectado", e esse precisa de pixels porque com o di�
   3. O scanner roda a agenda com o jogo FECHADO, numa máquina que não está farmando
   4. Reiniciar o scanner às 14:59 não reenvia o aviso das 14:50 que já saiu, e subir o scanner às 16h não dispara o aviso das 15h atrasado
   5. Com as duas instâncias do usuário rodando lado a lado, o grupo recebe cada aviso uma vez só
-**Plans**: [PLAN.md](phases/06-a-agenda-como-fonte-de-eventos/PLAN.md) — 4 tarefas, tracer-first
+**Plans**: [PLAN.md](phases/06-a-agenda-como-fonte-de-eventos/PLAN.md) · [SUMMARY.md](phases/06-a-agenda-como-fonte-de-eventos/SUMMARY.md) — 4 tarefas, concluída
 
 **O relógio é uma fonte de eventos, igual à tela.** A agenda entra pelo `Despachante` que já existe, exatamente como o rastreador entra — nunca chamando `enviar()` direto. Essa é a regra 6 do roadmap v1 ("o seam detecção→transporte nasce com o rastreador, nunca é retrofit"), e ela vale para a segunda fonte tanto quanto valeu para a primeira. Se a agenda furar o seam, o silenciamento da Fase 7 fica impossível de acrescentar depois.
 
@@ -166,7 +166,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Rastreador, console ao vivo e replay | Implementado, 29 testes | 2026-08-24 |
 | 4. Entrega no WhatsApp e vigilância do vigia | Implementado e verificado ao vivo | 2026-08-24 |
 | 5. Reconhecer tela de login e desconexão | Implementado e verificado ao vivo contra as duas janelas | 2026-08-24 |
-| 6. A agenda como fonte de eventos | Planejada (4 tarefas) | — |
+| 6. A agenda como fonte de eventos | Implementada, 55 testes novos | 2026-08-24 |
 | 7. Silenciamento por janela de evento | Não iniciada | — |
 
 **255 testes passando.** A entrega no celular está confirmada e uma morte real já

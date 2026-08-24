@@ -6,7 +6,7 @@ progress:
   completed_phases: 5
   total_plans: 6
   completed_plans: 6
-  percent: 71
+  percent: 86
 ---
 
 # Project State
@@ -16,15 +16,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-24)
 
 **Core value:** Quando alguém da party morre ou sai da PT, a galera fica sabendo no WhatsApp em segundos — mesmo quem está AFK.
-**Current focus:** Milestone v2 — Fase 6 planejada, pronta para executar
+**Current focus:** Milestone v2 — Fase 7 (silenciamento), a última
 
 ## Current Position
 
 Phase: 4 de 4 — todas implementadas
 Status: Código completo. Detecção e entrega validadas em campo SEPARADAMENTE; falta a última milha (morte real -> mensagem no WhatsApp) e resolver a cegueira recorrente.
-Last activity: 2026-08-24 — Fase 6 planejada: pesquisa + 4 tarefas tracer-first
+Last activity: 2026-08-24 — Fase 6 executada: agenda de TvT/Prime rodando sem o jogo
 
-Progress: [███████░░░] 71% (5 de 7 fases)
+Progress: [████████▓░] 86% (6 de 7 fases)
 
 ## O que foi construído
 
@@ -35,8 +35,9 @@ Progress: [███████░░░] 71% (5 de 7 fases)
 | 3 | Rastreador de estado, debounce, histerese, portão de cegueira | ✓ 226 testes; morte real detectada em campo |
 | 4 | Notificador Chatwoot, console ao vivo, replay | ✓ verificado ao vivo |
 | 5 | Tela de login e desconexão do servidor viram evento | ✓ verificado ao vivo contra as duas janelas |
+| 6 | Agenda de TvT e Prime, rodando sem o jogo aberto | ✓ verificado ao vivo com o cliente fechado |
 
-**255 testes passando**, todos sem precisar do jogo aberto ou de rede.
+**310 testes passando**, todos sem precisar do jogo aberto ou de rede.
 
 ## Calibração real medida (2026-08-24)
 
