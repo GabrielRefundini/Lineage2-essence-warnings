@@ -78,7 +78,8 @@ não prova entrega.
 
 ### 2. Calibre
 
-Com o jogo aberto e a party window visível na tela:
+Com o jogo aberto e a party window visível na tela, **dois cliques em
+`calibrar.bat`** (ele pergunta os nomes da party). Ou:
 
 ```bash
 python -m l2scanner.calibrar --auto --nomes "J4guar,Kaus,TioMad,Korzis"
@@ -103,12 +104,21 @@ desde a calibração — é melhor falhar alto do que medir a região errada cal
 
 ### 3. Vigie
 
+**Dois cliques em `vigiar-party.bat`.** Ele monta o ambiente sozinho na primeira
+execução, acha o Python mesmo que ele não esteja no PATH da sua janela de
+terminal, e não depende de você estar na pasta certa.
+
+Pela linha de comando funciona também, mas aí você precisa estar na pasta do
+projeto e ter o Python no PATH:
+
 ```bash
+cd C:\Users\refun\Desktop\Lineage2-warnings
 python -m l2scanner
 ```
 
-Ou dê dois cliques em `vigiar-party.bat`, que monta o ambiente sozinho na
-primeira execução.
+> Se o cmd disser que `python` não é reconhecido mesmo estando instalado, é
+> porque aquela janela foi aberta antes da instalação e carregou um PATH antigo.
+> Fechar e abrir o cmd resolve — ou simplesmente use o `.bat`.
 
 Deixe a janela aberta enquanto farma. `Ctrl+C` encerra.
 
@@ -176,6 +186,11 @@ código é sobre *não* alertar:
   partes e as barras leem zero por um ou dois frames.
 - **Cada evento gera exatamente um alerta.** Um morto por cinco minutos não vira
   cinco minutos de mensagens.
+- **Outra janela do jogo por cima da party window cega o scanner.** Com o
+  inventário aberto, as barras ficam cortadas em ~2% — e como o limiar de morte
+  é 2%, os quatro membros seriam anunciados mortos de uma vez. O desempate é a
+  moldura da barra: ela é desenhada pela UI e existe igual com a barra cheia ou
+  vazia, mas some quando algo cobre.
 - **O texto é fraseado para sobreviver a um erro:** "HP zerado — possível morte",
   nunca "MORREU".
 
