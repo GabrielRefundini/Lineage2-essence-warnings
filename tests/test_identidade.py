@@ -24,10 +24,11 @@ from l2scanner.identidade import (
     LIMIAR_DE_CASAMENTO,
     Assinatura,
     criar_assinatura,
+    _pontuar,
     identificar,
     mascara_de_texto,
 )
-from l2scanner.visao import EstadoDaLinha, extrair
+from l2scanner.visao import EstadoDaLinha, _recorte_do_nome, extrair
 
 FIXTURES = Path(__file__).parent / "fixtures" / "identidade"
 
@@ -155,6 +156,64 @@ class TestIdentificacao:
 
         casamento = identificar(estranho, calibracao.assinaturas)
         assert casamento.nome is None
+
+
+class TestPontuacaoNoAlinhamentoCalibrado:
+    """Correcao B.
+
+    Houve uma tentativa de tolerar a coroa do lider deslizando o casamento:
+    `matchTemplate(...).max()` sobre uma regiao de busca alargada. Cada
+    deslocamento e uma chance INDEPENDENTE de um nome errado achar um
+    alinhamento sortudo e passar do limiar — e eram 25 deles.
+
+    Medido nesta mesma fixture, alinhado -> maximo deslizante:
+
+        casamentos CORRETOS   +0.000 em 8 de 8 (vencem sempre no alinhamento)
+        casamentos ERRADOS    ate +0.373, levando o pior errado a 0.586
+
+    Com o limiar em 0.75, o deslize reduzia a folga de 0.379 para 0.164. Junte
+    um recorte contaminado (que derruba o casamento certo para ~0.43) e a
+    ultrapassagem acontece — foi o que produziu o "entra e sai" em looping.
+    """
+
+    LIMITE_DO_ERRADO = 0.50
+
+    def test_nome_errado_fica_longe_do_limiar(self, pixels, calibracao):
+        """A regressao mede a FOLGA, nao so o veredito.
+
+        Um teste que so olhasse o nome reconhecido continuaria verde com o
+        deslize ligado — ele passava, so que por pouco. O que quebrou em
+        producao foi a margem, entao e a margem que precisa ser vigiada.
+        """
+        piores = []
+        for indice in range(4):
+            recorte = _recorte_do_nome(pixels, calibracao, indice)
+            assert recorte is not None
+            pontos = _pontuar(recorte, calibracao.assinaturas)
+            assert pontos is not None
+            certo = calibracao.nomes[indice]
+            piores += [
+                (v, indice, a.nome)
+                for a, v in zip(calibracao.assinaturas, pontos)
+                if a.nome != certo
+            ]
+
+        pior, indice, nome = max(piores)
+        assert pior <= self.LIMITE_DO_ERRADO, (
+            f"linha {indice} pontuou {pior:.3f} contra a assinatura do {nome}. "
+            f"Com o casamento deslizante isto chegava a 0.586, a 0.164 do "
+            f"limiar de {LIMIAR_DE_CASAMENTO}"
+        )
+
+    def test_o_casamento_certo_nao_perde_nada_sem_o_deslize(
+        self, pixels, calibracao
+    ):
+        """O deslize custava caro e nao comprava nada: +0.000 em 8 de 8."""
+        for indice in range(4):
+            recorte = _recorte_do_nome(pixels, calibracao, indice)
+            pontos = _pontuar(recorte, calibracao.assinaturas)
+            certo = dict(zip([a.nome for a in calibracao.assinaturas], pontos))
+            assert certo[calibracao.nomes[indice]] > 0.90
 
 
 class TestOrdemDaParty:

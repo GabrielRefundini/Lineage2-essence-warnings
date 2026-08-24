@@ -208,17 +208,15 @@ def _recorte_do_nome(
     Devolve None quando o recorte cai fora do frame — a calibracao aponta para
     fora, e um recorte cortado produziria um casamento sem sentido.
     """
-    from .identidade import MARGEM_DE_BUSCA
-
-    # A regiao de BUSCA e mais larga que a do molde, para o casamento poder
-    # deslizar e absorver a coroa do lider.
+    # Exatamente a regiao calibrada — nem um pixel a mais. O recorte era
+    # alargado 24 px a esquerda para o casamento poder deslizar; ver a nota
+    # sobre a coroa do lider em identidade.py para por que isso saiu.
     regiao = cal.regiao_do_nome(indice)
-    esquerda = max(0, regiao.esquerda - MARGEM_DE_BUSCA)
     recorte = pixels[
         regiao.topo : regiao.topo + regiao.altura,
-        esquerda : regiao.esquerda + regiao.largura,
+        regiao.esquerda : regiao.esquerda + regiao.largura,
     ]
-    if recorte.shape[0] != regiao.altura or recorte.shape[1] < regiao.largura:
+    if recorte.shape[0] != regiao.altura or recorte.shape[1] != regiao.largura:
         return None
     return recorte
 

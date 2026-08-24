@@ -55,10 +55,24 @@ import numpy as np
 # separa o amarelo do terreno. Entao o brilho e o unico criterio.
 VALOR_MINIMO_DO_TEXTO = 180
 
-# Quanto o casamento pode deslizar horizontalmente. O lider ganha uma COROA
-# antes do nome, que empurra o texto para a direita — sem tolerancia, virar
-# lider fazia o membro deixar de ser reconhecido.
-MARGEM_DE_BUSCA = 24
+# PENDENCIA CONHECIDA — a coroa do lider.
+#
+# O jogo desenha uma coroa antes do nome do lider, o que desloca o texto. Houve
+# uma tentativa de tolerar isso deslizando o casamento (`matchTemplate(...).max()`
+# sobre uma regiao de busca alargada). Ela foi removida por duas razoes medidas:
+#
+#   1. Nao funcionava. A busca alargava para a ESQUERDA e a coroa empurra o
+#      texto para a DIREITA. O alinhamento necessario estava fora do recorte.
+#   2. Custava caro. Em 8 casamentos CORRETOS medidos (duas calibracoes, dois
+#      conjuntos de frames) o deslize rendeu +0.000 — eles sempre vencem no
+#      alinhamento calibrado. Nos casamentos ERRADOS rendeu ate +0.373,
+#      levando o pior errado a 0.586 contra um limiar de 0.75.
+#
+# O caso que continua sem cobertura e o membro calibrado SEM coroa que depois
+# VIRA lider. Quando houver um frame real dessa transicao, a resposta e gravar
+# DUAS assinaturas por membro (com e sem coroa) e continuar pontuando no
+# alinhamento fixo. Voltar ao `.max()` irrestrito nao e opcao: ele devolve as
+# 24 chances extras de falso positivo que produziram o bug do "entra e sai".
 
 # Abaixo disto, nao afirmamos quem e. Fica bem acima do melhor caso de nomes
 # diferentes (0.454) e bem abaixo do pior caso do mesmo nome (1.000).
@@ -126,11 +140,19 @@ def criar_assinatura(nome: str, recorte_do_nome: np.ndarray) -> Assinatura:
 
 
 def _correlacionar(alvo: np.ndarray, molde: np.ndarray) -> float:
-    """Procura o molde dentro do alvo, aceitando deslocamento.
+    """Compara o recorte com o molde NO ALINHAMENTO CALIBRADO.
 
-    Deslizar em vez de comparar posicao a posicao e o que faz o reconhecimento
-    sobreviver a coroa do lider, que empurra o nome alguns pixels para a
-    direita. Sem isso, quem virasse lider deixava de ser reconhecido.
+    Uma posicao so, de proposito. A versao anterior tomava o MAXIMO sobre 25
+    deslocamentos horizontais, e cada deslocamento e uma chance independente de
+    um nome errado encontrar um alinhamento sortudo e passar do limiar.
+
+    Medido em 60 frames reais e na fixture, alinhado -> maximo deslizante:
+
+        casamentos CORRETOS   0.877 -> 0.877   0.907 -> 0.907   (+0.000, 8 de 8)
+        casamentos ERRADOS    0.213 -> 0.586   0.199 -> 0.530   (ate +0.373)
+
+    O deslize nao dava nada a quem estava certo e dava quase quatro decimos a
+    quem estava errado. Ele comia metade da margem ate o limiar de 0.75.
     """
     if alvo.size == 0 or molde.size == 0:
         return 0.0
@@ -141,7 +163,8 @@ def _correlacionar(alvo: np.ndarray, molde: np.ndarray) -> float:
     # mascara uniforme (tudo 0 ou tudo 1) tem desvio zero e quebra a correlacao
     if fa.std() < 1e-6 or fm.std() < 1e-6:
         return 0.0
-    return float(cv2.matchTemplate(fa, fm, cv2.TM_CCOEFF_NORMED).max())
+    # [0, 0] e o molde na origem do recorte — a posicao que a calibracao gravou.
+    return float(cv2.matchTemplate(fa, fm, cv2.TM_CCOEFF_NORMED)[0, 0])
 
 
 @dataclass(frozen=True)
