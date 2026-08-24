@@ -64,6 +64,7 @@ Quando alguém da party morre ou sai da PT, a galera fica sabendo no WhatsApp em
 | OCR de nomes só na inicialização e em mudança de composição | Nome não muda a cada frame; evita custo de OCR contínuo | — Pending |
 | Limiar de cor em HSV | Imune ao Gamma=1.16 do cliente | — Pending |
 | Chatwoot como único canal de saída | WhatsApp já funcionando no servidor do usuário; scanner só faz POST | — Pending |
+| Canal confirmado: fork `fazer-ai/chatwoot` com Baileys, na VPS do projeto Atenda | Bridge **não-oficial** → sem a janela de 24h da Meta, mensagem livre a qualquer hora, e o fork tem conversas de grupo nativas. Elimina o maior risco do projeto | ✓ Good |
 | v1 manual (usuário inicia o script) | Simplicidade; autostart fica para v2 | — Pending |
 
 ## Evolution
