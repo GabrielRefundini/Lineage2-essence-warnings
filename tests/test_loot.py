@@ -808,3 +808,286 @@ class TestAtribuicaoEnderecada:
         assert registro.registros() == [], "gravou um registro orfao"
         assert "19:00" in resposta
         assert "18:00" in resposta and "20:00" in resposta
+
+    def test_as_02h_o_horario_de_18h_e_de_ONTEM(self, tmp_path):
+        """A regra que o usuario pediu nominalmente: sem data, o horario
+        resolve para a ocorrencia mais recente que JA PASSOU.
+
+        As 02h30, o boss de hoje as 18:00 ainda nao aconteceu — registrar
+        loot de um boss que nao nasceu nao e coisa que alguem queira dizer.
+        E a resposta diz "ontem" porque, num comando que alcanca horario
+        arbitrario, o DIA e exatamente a informacao que falta para conferir.
+        """
+        registro = RegistroDeLoot(tmp_path)
+
+        resposta = responder_atribuicao(
+            registro, [self.SOLO], em(2, 30), "18:00 Korzis"
+        )
+
+        assert registro.resumo("Korzis") == (1, em(18, 0, dia=24))
+        assert "ontem" in resposta
+
+    def test_a_virada_da_meia_noite_no_sentido_CONTRARIO(self, tmp_path):
+        """As 00:10, "23:50" encaixa no boss das 00:00 de HOJE.
+
+        O desejado e 23:50 de ontem, mas a ocorrencia mais proxima que ja
+        passou e a de hoje as 00:00 — dez minutos DEPOIS do desejado, contra
+        cento e dez minutos do boss das 22:00 de ontem.
+
+        E o teste que prova que a varredura do encaixe e centrada no DESEJADO
+        e nao em `agora`. Ele falha de forma silenciosa e permanente se
+        alguem "simplificar" os tres dias para um so.
+        """
+        registro = RegistroDeLoot(tmp_path)
+
+        responder_atribuicao(registro, [self.SOLO], em(0, 10), "23:50 Korzis")
+
+        assert [alvo for _, alvo in registro.registros()] == [em(0, 0, dia=25)]
+
+    def test_nunca_resolve_para_o_FUTURO(self, tmp_path):
+        """As 17:00, "18:00" e o boss de ontem — nao o de daqui a uma hora.
+
+        Sem esta regra, `.pegou 18:00` as 17:00 registraria o loot de um boss
+        que ainda nao aconteceu, e o `consumir()` do horario real depois
+        criaria um segundo dono para o mesmo alvo.
+        """
+        registro = RegistroDeLoot(tmp_path)
+
+        resposta = responder_atribuicao(
+            registro, [self.SOLO], em(17, 0), "18:00 Korzis"
+        )
+
+        assert [alvo for _, alvo in registro.registros()] == [em(18, 0, dia=24)]
+        assert "ontem" in resposta
+
+    def test_o_boss_que_AINDA_NAO_NASCEU_nao_pode_ser_encaixado(self, tmp_path):
+        """As 17:55, "17:50" nao pode virar o boss das 18:00 — ele nao nasceu.
+
+        Este e o teste que prende a linha que DESCARTA ocorrencia futura no
+        encaixe, e nenhum outro o faz. Nos demais casos o passado ja e a
+        candidata mais proxima, entao a linha nunca e exercida: aqui, e so
+        aqui, a ocorrencia FUTURA (18:00, a 10 minutos do desejado) esta mais
+        perto que a passada (16:00, a 110 minutos). Sem o descarte, o scanner
+        registraria o loot de um boss que ainda vai acontecer — e quando ele
+        acontecesse, o `consumir()` criaria um segundo dono para o mesmo alvo.
+
+        O desfecho certo e a RECUSA: 17:50 esta a mais de 30 minutos de
+        qualquer boss que ja passou.
+        """
+        registro = RegistroDeLoot(tmp_path)
+
+        resposta = responder_atribuicao(
+            registro, [self.SOLO], em(17, 55), "17:50 Korzis"
+        )
+
+        assert registro.registros() == [], "registrou um boss que nao aconteceu"
+        assert "17:50" in resposta
+
+    def test_o_encaixe_aceita_o_atraso_de_quem_lembrou_depois(self, tmp_path):
+        """A tolerancia existe para o caso real: a pessoa lembra depois.
+
+        E ela vale nos DOIS sentidos — a ocorrencia mais proxima pode estar
+        depois do horario digitado, contanto que ja tenha passado.
+        """
+        depois = RegistroDeLoot(tmp_path / "depois")
+        responder_atribuicao(depois, [self.SOLO], em(18, 40), "18:20 Korzis")
+        assert [alvo for _, alvo in depois.registros()] == [em(18, 0)]
+
+        antes = RegistroDeLoot(tmp_path / "antes")
+        responder_atribuicao(antes, [self.SOLO], em(19, 0), "17:45 Korzis")
+        assert [alvo for _, alvo in antes.registros()] == [em(18, 0)]
+
+    def test_a_recusa_LISTA_os_horarios_que_existem(self, tmp_path):
+        """Recusar sem dizer quais horarios valem obrigaria a pessoa a abrir
+        o config.toml no meio do farm — e a essa altura ela ja desistiu."""
+        registro = RegistroDeLoot(tmp_path)
+        resposta = responder_atribuicao(
+            registro, [self.SOLO], em(19, 30), "19:00 Korzis"
+        )
+        assert "18:00" in resposta and "20:00" in resposta
+        assert registro.registros() == []
+
+        # Com uma agenda curta, a lista e exatamente aquela — nao um texto
+        # generico que finge conhecer horarios que o usuario nao configurou.
+        curta = EventoAgendado(
+            nome="Solo Boss", horarios=((8, 0), (20, 0)), avisar_no_horario=False
+        )
+        outro = RegistroDeLoot(tmp_path / "curta")
+        resposta = responder_atribuicao(outro, [curta], em(19, 0), "14:00 Korzis")
+
+        assert "08:00" in resposta and "20:00" in resposta
+        assert "18:00" not in resposta
+        assert outro.registros() == []
+
+    def test_agenda_sem_solo_boss_NAO_levanta(self, tmp_path):
+        """Config quebrado, ou o Solo Boss renomeado por engano, vira resposta
+        honesta — nunca excecao no meio do farm."""
+        tvt = EventoAgendado(nome="TvT", horarios=((21, 50),))
+
+        for eventos in ([], [tvt]):
+            registro = RegistroDeLoot(tmp_path / f"a{len(eventos)}")
+            resposta = responder_atribuicao(
+                registro, eventos, em(18, 30), "18:00 Korzis"
+            )
+            assert "Solo Boss" in resposta
+            assert registro.registros() == []
+
+    def test_a_troca_enderecada_alcanca_um_boss_que_NAO_e_o_mais_recente(
+        self, tmp_path
+    ):
+        """O que o `.pegou` faz e o `.corrigir` nao consegue fazer.
+
+        O `.corrigir` mira o registro MAIS RECENTE e nao tem sintaxe para
+        outro; aqui o boss das 08:00 e trocado com o das 18:00 intacto. E
+        exatamente por isso que os dois comandos coexistem: um alcanca o
+        passado enderecado, o outro nao pode alcancar por desenho.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("TioMad", em(8, 0))
+        registro.registrar("Kaus", em(18, 0))
+
+        responder_atribuicao(registro, [self.SOLO], em(19, 0), "08:00 Korzis")
+
+        assert registro.resumo("Korzis") == (1, em(8, 0))
+        assert registro.resumo("Kaus") == (1, em(18, 0)), "tocou no boss errado"
+        assert registro.resumo("TioMad") == (0, None)
+
+    def test_atribuir_ao_dono_que_JA_e_o_dono_nao_apaga_nada(self, tmp_path):
+        """A guarda critica, e ela falha de forma DESTRUTIVA quando falta.
+
+        `apelido("KORZIS") == apelido("Korzis")`, entao os dois geram o MESMO
+        nome de arquivo: o `_criar` devolveria "ja_existia" e o passo de
+        apagar destruiria o unico registro que existia — respondendo sucesso.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("Korzis", em(18, 0))
+
+        correcao = registro.atribuir("KORZIS", em(18, 0))
+
+        assert correcao.estado == "mesmo_dono"
+        assert registro.resumo("Korzis") == (1, em(18, 0)), "a guarda apagou o loot"
+        assert len(registro.registros()) == 1
+
+    def test_sobra_sempre_um_pegou_para_o_alvo_em_TODOS_os_desfechos(
+        self, tmp_path, monkeypatch
+    ):
+        """A forma sempre-verdadeira da invariante: o dono pode mudar, o loot
+        nunca some.
+
+        Os quatro desfechos de uma vez, porque a propriedade nao e sobre o
+        caminho feliz — ela existe justamente para os caminhos em que alguma
+        coisa deu errado no meio da troca.
+        """
+
+        def tem_registro_no_alvo(registro, alvo):
+            return any(a == alvo for _, a in registro.registros())
+
+        alvo = em(18, 0)
+
+        # 1. criado — nao havia nada, e agora ha exatamente um
+        criado = RegistroDeLoot(tmp_path / "criado")
+        assert criado.atribuir("Korzis", alvo).estado == "criado"
+        assert tem_registro_no_alvo(criado, alvo)
+
+        # 2. corrigido
+        corrigido = RegistroDeLoot(tmp_path / "corrigido")
+        corrigido.registrar("TioMad", alvo)
+        assert corrigido.atribuir("Korzis", alvo).estado == "corrigido"
+        assert tem_registro_no_alvo(corrigido, alvo)
+
+        # 3. mesmo_dono
+        mesmo = RegistroDeLoot(tmp_path / "mesmo")
+        mesmo.registrar("Korzis", alvo)
+        assert mesmo.atribuir("KORZIS", alvo).estado == "mesmo_dono"
+        assert tem_registro_no_alvo(mesmo, alvo)
+
+        # 4. falhou — o disco nao aceitou o registro novo
+        falho = RegistroDeLoot(tmp_path / "falho")
+        falho.registrar("TioMad", alvo)
+        monkeypatch.setattr(falho, "_criar", lambda nome: "falhou")
+        assert falho.atribuir("Korzis", alvo).estado == "falhou"
+        assert tem_registro_no_alvo(falho, alvo)
+
+    def test_falha_de_disco_NAO_apaga_o_velho(self, tmp_path, monkeypatch):
+        """Criar antes de apagar, provado pelo lado que importa.
+
+        Se o criar falhou, nada mudou: o registro velho continua la. A ordem
+        inversa teria apagado o loot do TioMad sem nunca ter gravado o do
+        Kaus — e o WhatsApp diria que deu certo.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("TioMad", em(18, 0))
+        monkeypatch.setattr(registro, "_criar", lambda nome: "falhou")
+
+        assert registro.atribuir("Kaus", em(18, 0)).estado == "falhou"
+        assert registro.resumo("TioMad") == (1, em(18, 0)), "perdeu o loot do antigo"
+        assert registro.resumo("Kaus") == (0, None)
+
+        resposta = responder_atribuicao(
+            registro, [self.SOLO], em(18, 30), "18:00 Kaus"
+        )
+        assert "continua do Tiomad" in resposta
+
+    def test_a_falha_de_disco_SEM_registro_previo_nao_inventa_dono_antigo(
+        self, tmp_path, monkeypatch
+    ):
+        """"Continua do <ninguem>" seria uma frase sobre um dono que nunca
+        existiu. Falhar criando do zero diz outra coisa: nada foi registrado.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        monkeypatch.setattr(registro, "_criar", lambda nome: "falhou")
+
+        resposta = responder_atribuicao(
+            registro, [self.SOLO], em(18, 30), "18:00 Korzis"
+        )
+
+        assert "nao foi registrado nada" in resposta
+        assert "continua do" not in resposta
+        assert registro.registros() == []
+
+    def test_o_duplicado_COLAPSA(self, tmp_path):
+        """Dois donos no mesmo boss e o estado que sobra quando um apagar
+        falhou. Atribuir ao dono certo apaga o excedente.
+
+        E aqui que a guarda tem que comparar a LISTA INTEIRA: sair cedo por
+        `donos[0] == slug_novo` deixaria o duplicado de pe para sempre.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("tiomad", em(18, 0))
+        registro.registrar("korzis", em(18, 0))
+
+        registro.atribuir("Korzis", em(18, 0))
+
+        no_alvo = [slug for slug, alvo in registro.registros() if alvo == em(18, 0)]
+        assert no_alvo == ["korzis"]
+
+    def test_a_designacao_pendente_do_MESMO_alvo_e_solta(self, tmp_path):
+        """Se o scanner estava fora do ar as 18:00, a designacao das 18:00
+        continua pendente. Sem solta-la, o proximo `consumir()` criaria um
+        SEGUNDO dono para o mesmo boss — um duplicado que ninguem pediu.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.designar("TioMad", em(18, 0), em(17, 50))
+
+        responder_atribuicao(registro, [self.SOLO], em(18, 30), "18:00 Korzis")
+
+        assert registro.designacao() is None
+        assert registro.consumir(em(19, 0)) is None
+        assert len(registro.registros()) == 1
+
+    def test_a_designacao_de_OUTRO_alvo_fica_INTACTA(self, tmp_path):
+        """A regra e estreita de proposito e nao mistura conceito.
+
+        Uma designacao cujo boss ja passou E ja tem dono escrito a mao nao
+        tem mais alvo; a do boss das 20:00 ainda tem para onde ir, e apaga-la
+        aqui seria o `.pegou` cancelando a VEZ de alguem sem ninguem pedir.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.designar("TioMad", em(20, 0), em(18, 0))
+
+        responder_atribuicao(registro, [self.SOLO], em(18, 30), "18:00 Korzis")
+
+        designacao = registro.designacao()
+        assert designacao is not None, "apagou a designacao de outro boss"
+        assert designacao.alvo == em(20, 0)
+        assert designacao.nick == "TioMad"
