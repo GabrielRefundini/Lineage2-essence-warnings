@@ -609,3 +609,125 @@ class TestCorrecao:
         assert correcao.estado == "mesmo_dono"
         assert registro.resumo("TioMad") == (1, em(10, 0)), "a guarda apagou o loot"
         assert len(registro.registros()) == 1
+
+    def test_so_o_registro_MAIS_RECENTE_e_tocado(self, tmp_path):
+        """O boss das 08:00 fica intacto quando o das 10:00 e corrigido.
+
+        O raio de estrago e limitado por DESENHO: nao existe sintaxe que
+        alcance historico arbitrario, entao nenhuma sequencia de `.corrigir`
+        pode desfazer meses de estatistica.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("TioMad", em(8, 0))
+        registro.registrar("TioMad", em(10, 0))
+
+        registro.corrigir("Kaus")
+
+        assert registro.resumo("TioMad") == (1, em(8, 0)), "o mais antigo foi tocado"
+        assert registro.resumo("Kaus") == (1, em(10, 0))
+
+    def test_o_total_nunca_DIMINUI_numa_correcao_bem_sucedida(self, tmp_path):
+        """Corrigir move um loot de dono; nao subtrai um loot do mundo."""
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("TioMad", em(10, 0))
+        antes = len(registro.registros())
+
+        registro.corrigir("Kaus")
+
+        assert len(registro.registros()) == antes
+
+    def test_sobra_sempre_um_pegou_para_aquele_alvo_em_TODOS_os_desfechos(
+        self, tmp_path, monkeypatch
+    ):
+        """A forma sempre-verdadeira da invariante: o dono pode mudar, o loot
+        nunca some.
+
+        Os quatro desfechos de uma vez, porque a propriedade nao e sobre o
+        caminho feliz — ela existe justamente para os caminhos em que alguma
+        coisa deu errado no meio da troca.
+        """
+
+        def tem_registro_no_alvo(registro, alvo):
+            return any(a == alvo for _, a in registro.registros())
+
+        alvo = em(10, 0)
+
+        # 1. corrigido
+        corrigido = RegistroDeLoot(tmp_path / "corrigido")
+        corrigido.registrar("TioMad", alvo)
+        assert corrigido.corrigir("Kaus").estado == "corrigido"
+        assert tem_registro_no_alvo(corrigido, alvo)
+
+        # 2. mesmo_dono
+        mesmo = RegistroDeLoot(tmp_path / "mesmo")
+        mesmo.registrar("TioMad", alvo)
+        assert mesmo.corrigir("TIOMAD").estado == "mesmo_dono"
+        assert tem_registro_no_alvo(mesmo, alvo)
+
+        # 3. sem_registro — nao ha alvo nenhum, e nao pode levantar
+        vazio = RegistroDeLoot(tmp_path / "vazio")
+        assert vazio.corrigir("Kaus").estado == "sem_registro"
+        assert vazio.registros() == []
+
+        # 4. falhou — o disco nao aceitou o registro novo
+        falho = RegistroDeLoot(tmp_path / "falho")
+        falho.registrar("TioMad", alvo)
+        monkeypatch.setattr(falho, "_criar", lambda nome: "falhou")
+        assert falho.corrigir("Kaus").estado == "falhou"
+        assert tem_registro_no_alvo(falho, alvo)
+
+    def test_falha_de_disco_NAO_apaga_o_velho(self, tmp_path, monkeypatch):
+        """Criar antes de apagar, provado pelo lado que importa.
+
+        Se o criar falhou, nada mudou: o registro velho continua la e a
+        proxima tentativa acha o mesmo estado. A ordem inversa teria apagado o
+        loot do TioMad sem nunca ter gravado o do Kaus.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("TioMad", em(10, 0))
+        monkeypatch.setattr(registro, "_criar", lambda nome: "falhou")
+
+        assert registro.corrigir("Kaus").estado == "falhou"
+        assert registro.resumo("TioMad") == (1, em(10, 0)), "perdeu o loot do antigo"
+        assert registro.resumo("Kaus") == (0, None)
+
+    def test_sem_nenhum_registro_nao_levanta_e_responde_honesto(self, tmp_path):
+        """Pasta vazia e um estado normal, nao um erro — o primeiro
+        `.corrigir` de uma instalacao nova cai exatamente aqui."""
+        registro = RegistroDeLoot(tmp_path)
+
+        resposta = responder_correcao(registro, [self.SOLO], em(10, 30), "Kaus")
+
+        assert "registrado" in resposta and "corrigir" in resposta
+        assert registro.registros() == []
+
+    def test_o_duplicado_COLAPSA(self, tmp_path):
+        """O outro lado da ordem criar-antes-de-apagar.
+
+        Dois donos no mesmo boss e o estado que sobra quando um apagar falhou.
+        Corrigir para o dono certo apaga o excedente: isto e o CONSERTO do
+        duplicado, nao perda de loot — o alvo continua com exatamente um dono.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("tiomad", em(10, 0))
+        registro.registrar("kaus", em(10, 0))
+
+        registro.corrigir("Kaus")
+
+        no_alvo = [slug for slug, alvo in registro.registros() if alvo == em(10, 0)]
+        assert no_alvo == ["kaus"]
+
+    def test_a_resposta_do_no_op_nao_mente(self, tmp_path):
+        """"Ja era dele" nunca pode sair como "passou de X para Y".
+
+        Um bot que anuncia uma troca que nao houve treina o usuario a nao
+        conferir — e conferir e a unica defesa contra corrigir o boss errado.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("TioMad", em(10, 0))
+
+        resposta = responder_correcao(registro, [self.SOLO], em(10, 30), "TIOMAD")
+
+        assert "passou do" not in resposta
+        assert "nada mudou" in resposta
+        assert registro.resumo("TioMad") == (1, em(10, 0))
