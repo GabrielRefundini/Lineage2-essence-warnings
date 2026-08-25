@@ -21,6 +21,20 @@ from .identidade import Assinatura
 
 VERSAO_DO_ESQUEMA = 2
 
+# Faixa padrao onde procurar o banner de manutencao, derivada da party window.
+#
+# O banner do jogo aparece POR CIMA da party window, na faixa superior
+# esquerda, e e MUITO mais largo que as barras (o texto tem umas 60 colunas
+# contra os 120 px das barras). Estes numeros sao um palpite educado, nao uma
+# medicao — a medicao real so existe numa manutencao de verdade, e e para isso
+# que serve o `--testar-manutencao` e o campo `banner_manutencao`.
+#
+# Generoso e melhor que justo aqui: veja `Calibracao.regiao_do_banner`.
+MARGEM_ESQUERDA_DO_BANNER = 40
+MARGEM_ACIMA_DO_BANNER = 60
+LARGURA_EXTRA_DO_BANNER = 560
+ALTURA_DA_FAIXA_DO_BANNER = 140
+
 
 class CalibracaoInvalida(Exception):
     """A calibracao nao existe, esta corrompida ou nao vale para esta tela."""
@@ -150,6 +164,25 @@ class Calibracao:
     # para outro lugar da tela, porque acompanha a janela.
     party_window_na_janela: Regiao | None = None
 
+    # Onde o banner de manutencao aparece, se o usuario quiser dizer.
+    #
+    # OPCIONAL de proposito, e por isso a VERSAO_DO_ESQUEMA SEGUE EM 2: o
+    # `carregar` recusa qualquer versao diferente da constante, entao subir para
+    # 3 invalidaria o `calibration.json` que o usuario mediu a mao e o obrigaria
+    # a recalibrar tudo por causa de um campo opcional.
+    #
+    # A regiao padrao (`regiao_do_banner`) e um palpite educado sobre onde o
+    # banner cai, e `python -m l2scanner --testar-manutencao` e como o usuario
+    # descobre se o palpite acertou. Errando, ele corrige AQUI — sem tocar em
+    # codigo.
+    #
+    # REFERENCIAL: como `hp_proprio`, esta regiao vale para o caminho
+    # `--janela` (coordenadas relativas ao canto da janela do jogo). Quem
+    # configurar a mao para o caminho `mss` precisa escrever coordenadas de
+    # DESKTOP. O `--testar-manutencao` imprime a regiao justamente para essa
+    # conferencia.
+    banner_manutencao: Regiao | None = None
+
     versao: int = VERSAO_DO_ESQUEMA
 
     def regiao_do_nome(self, indice: int) -> Regiao:
@@ -190,6 +223,40 @@ class Calibracao:
                 return nome
         return f"Membro {indice + 1}"
 
+    def regiao_do_banner(self, na_janela: bool) -> Regiao | None:
+        """Onde procurar o banner de manutencao. None = o recurso nao liga.
+
+        Tres respostas, nesta ordem:
+
+        1. A regiao CALIBRADA, quando o usuario configurou uma. Ela vence
+           sempre — foi ele que olhou o PNG do `--testar-manutencao` e viu onde
+           o banner cai de verdade.
+        2. Uma faixa derivada da party window, no caminho `--janela`. O banner
+           aparece POR CIMA da party window e e mais largo que as barras.
+        3. None, no caminho `mss` sem configuracao (D-07). Ali nao existe
+           janela de referencia, entao qualquer padrao seria um palpite sobre
+           coordenadas de desktop — e inventar deteccao onde nao ha pixels e
+           pior do que nao ligar o recurso.
+
+        A faixa derivada e GENEROSA de proposito, e nao justa. Texto vizinho
+        que caia dentro dela e so ruido: `eh_banner_de_manutencao` exige a raiz
+        `mainten`, que nada mais na tela produz. Uma faixa apertada, ao
+        contrario, erra por pouco e nao le NADA — e o modo de falha caro e
+        esse.
+        """
+        if self.banner_manutencao is not None:
+            return self.banner_manutencao
+        if not na_janela or self.party_window_na_janela is None:
+            return None
+
+        party = self.party_window_na_janela
+        return Regiao(
+            esquerda=max(0, party.esquerda - MARGEM_ESQUERDA_DO_BANNER),
+            topo=max(0, party.topo - MARGEM_ACIMA_DO_BANNER),
+            largura=party.largura + LARGURA_EXTRA_DO_BANNER,
+            altura=ALTURA_DA_FAIXA_DO_BANNER,
+        )
+
     def salvar(self, caminho: Path) -> None:
         dados = {
             "versao": self.versao,
@@ -208,6 +275,9 @@ class Calibracao:
                 self.party_window_na_janela.como_dict()
                 if self.party_window_na_janela
                 else None
+            ),
+            "banner_manutencao": (
+                self.banner_manutencao.como_dict() if self.banner_manutencao else None
             ),
         }
         caminho.write_text(
@@ -253,6 +323,14 @@ class Calibracao:
             party_window_na_janela=(
                 Regiao.de_dict(dados["party_window_na_janela"])
                 if dados.get("party_window_na_janela")
+                else None
+            ),
+            # `.get`, exatamente como `hp_proprio`: e o que faz um
+            # calibration.json v2 gravado antes desta funcionalidade carregar
+            # sem uma linha de migracao.
+            banner_manutencao=(
+                Regiao.de_dict(dados["banner_manutencao"])
+                if dados.get("banner_manutencao")
                 else None
             ),
             versao=versao,

@@ -16,6 +16,7 @@ que precisa de texto INJETA um `ler_texto` falso — que e exatamente por que
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -409,3 +410,138 @@ class TestExpiracao:
         saiu += vigia.avaliar(obter, depois + timedelta(seconds=15))
 
         assert [a.tipo for a in saiu] == [TipoDeAvisoDeManutencao.ANUNCIADA]
+
+
+class TestModuloPuro:
+    def test_manutencao_nao_importa_winrt_cv2_nem_ocr(self):
+        """Assercao ESTRUTURAL de proposito (D-03).
+
+        Uma regra de arquitetura que so vive num comentario e uma regra que ja
+        quebrou. O dia em que alguem escrever `from .ocr import ler_texto`
+        aqui, o modulo puro deixa de ser testavel no Python da suite — e o
+        recurso inteiro fica sem rede.
+        """
+        import ast
+        from pathlib import Path
+
+        import l2scanner.manutencao as modulo
+
+        arvore = ast.parse(Path(modulo.__file__).read_text(encoding="utf-8"))
+
+        importados = []
+        for no in ast.walk(arvore):
+            if isinstance(no, ast.Import):
+                importados += [a.name for a in no.names]
+            elif isinstance(no, ast.ImportFrom):
+                importados.append(no.module or "")
+
+        for nome in importados:
+            assert not nome.startswith("winrt"), nome
+            assert nome != "cv2", nome
+            assert not nome.endswith("ocr"), nome
+
+
+class TestRegiaoDoBanner:
+    """D-07: de onde saem os pixels do banner, e o que acontece sem calibracao."""
+
+    FIXTURE = (
+        Path(__file__).parent
+        / "fixtures"
+        / "party_estavel_com_vazamento"
+        / "calibracao.json"
+    )
+
+    def _calibracao(self, **extra):
+        """Parte da calibracao REAL de fixture, e nao de uma montada a mao.
+
+        Uma calibracao inventada aqui divergiria do formato do usuario sem
+        ninguem perceber — e o formato e justamente o que este teste guarda.
+        """
+        from dataclasses import replace
+
+        from l2scanner.calibracao import Calibracao
+        from l2scanner.frames import Regiao
+
+        cal = Calibracao.carregar(self.FIXTURE)
+        base = dict(
+            party_window_na_janela=Regiao(
+                esquerda=62, topo=328, largura=120, altura=400
+            )
+        )
+        base.update(extra)
+        return replace(cal, **base)
+
+    def test_a_regiao_calibrada_vence_o_padrao(self):
+        from l2scanner.frames import Regiao
+
+        minha = Regiao(esquerda=10, topo=20, largura=300, altura=40)
+        cal = self._calibracao(banner_manutencao=minha)
+
+        assert cal.regiao_do_banner(na_janela=True) is minha
+        assert cal.regiao_do_banner(na_janela=False) is minha
+
+    def test_sem_calibracao_no_caminho_janela_o_padrao_cobre_o_canto(self):
+        """O banner aparece POR CIMA da party window, e e mais largo que ela."""
+        cal = self._calibracao()
+        party = cal.party_window_na_janela
+
+        r = cal.regiao_do_banner(na_janela=True)
+
+        assert r is not None
+        assert r.esquerda <= party.esquerda
+        assert r.topo <= party.topo
+        assert r.esquerda + r.largura >= party.esquerda
+        assert r.topo + r.altura >= party.topo
+        assert r.largura > party.largura, "o banner e mais largo que as barras"
+
+    def test_sem_calibracao_no_caminho_mss_devolve_none(self):
+        """O "simplesmente nao liga" de D-07.
+
+        No modo `mss` nao existe janela de referencia, entao um padrao seria um
+        palpite sobre coordenadas de desktop — inventar deteccao onde nao ha
+        pixels e pior do que nao ligar.
+        """
+        cal = self._calibracao()
+        assert cal.regiao_do_banner(na_janela=False) is None
+
+    def test_o_padrao_nunca_sai_com_coordenada_negativa(self):
+        """Party window colada no canto: as margens nao podem virar negativo.
+
+        `Regiao` aceita negativo de proposito (monitor a esquerda do
+        principal), entao um clamp errado aqui passaria calado e o recorte
+        sairia do lugar.
+        """
+        from l2scanner.frames import Regiao
+
+        cal = self._calibracao(
+            party_window_na_janela=Regiao(
+                esquerda=0, topo=0, largura=120, altura=400
+            )
+        )
+
+        r = cal.regiao_do_banner(na_janela=True)
+
+        assert r.esquerda >= 0 and r.topo >= 0
+
+    def test_a_calibracao_v2_antiga_carrega_sem_a_chave_nova(self, tmp_path):
+        from l2scanner.calibracao import Calibracao
+        from l2scanner.frames import Regiao
+
+        caminho = tmp_path / "calibration.json"
+        self._calibracao().salvar(caminho)
+        assert Calibracao.carregar(caminho).banner_manutencao is None
+
+        minha = Regiao(esquerda=5, topo=6, largura=700, altura=60)
+        self._calibracao(banner_manutencao=minha).salvar(caminho)
+        assert Calibracao.carregar(caminho).banner_manutencao == minha
+
+    def test_a_versao_do_esquema_nao_mudou(self):
+        """Um bump forcaria o usuario a recalibrar por causa de um campo opcional.
+
+        O `carregar` recusa qualquer versao diferente da constante, entao subir
+        para 3 invalidaria o `calibration.json` REAL que ele mediu a mao — pelo
+        preco de nada.
+        """
+        from l2scanner import calibracao as modulo
+
+        assert modulo.VERSAO_DO_ESQUEMA == 2
