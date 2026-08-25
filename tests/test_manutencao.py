@@ -740,6 +740,42 @@ class TestRegiaoDoBanner:
         assert r.topo + r.altura >= party.topo
         assert r.largura > party.largura, "o banner e mais largo que as barras"
 
+    def test_a_faixa_cobre_o_banner_da_calibracao_REAL_com_folga(self):
+        """D-f, medido contra a calibracao que o usuario tirou da tela dele.
+
+        Os numeros estao INLINE porque `calibration.json` e ignorado pelo git:
+        um teste que dependesse do arquivo dele nao rodaria em clone nenhum.
+        Sao os valores de 2026-08-24 — esquerda 20, topo 222, 172x522.
+
+        A FOLGA ENTRA NA ASSERCAO DE PROPOSITO. Cobrir por 1 px passaria neste
+        teste e falharia na tela: a estimativa do banner (y 168..253) TEM
+        incerteza, e cortar o titulo `Server Maintence` cala o recurso inteiro
+        sem sintoma nenhum. Com os numeros antigos (60/140) a folga era de ~6 px
+        no topo — e este teste teria falhado.
+        """
+        from l2scanner.frames import Regiao
+
+        cal = self._calibracao(
+            party_window_na_janela=Regiao(
+                esquerda=20, topo=222, largura=172, altura=522
+            )
+        )
+
+        r = cal.regiao_do_banner(na_janela=True)
+
+        TOPO_DO_BANNER, BASE_DO_BANNER = 168, 253
+        FOLGA_MINIMA = 40
+
+        assert r is not None
+        assert TOPO_DO_BANNER - r.topo >= FOLGA_MINIMA, (
+            f"faixa comeca em y={r.topo}; o banner estimado comeca em "
+            f"y={TOPO_DO_BANNER} — folga insuficiente no topo"
+        )
+        assert (r.topo + r.altura) - BASE_DO_BANNER >= FOLGA_MINIMA, (
+            f"faixa termina em y={r.topo + r.altura}; o banner estimado termina "
+            f"em y={BASE_DO_BANNER} — folga insuficiente embaixo"
+        )
+
     def test_sem_calibracao_no_caminho_mss_devolve_none(self):
         """O "simplesmente nao liga" de D-07.
 

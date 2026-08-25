@@ -25,15 +25,44 @@ VERSAO_DO_ESQUEMA = 2
 #
 # O banner do jogo aparece POR CIMA da party window, na faixa superior
 # esquerda, e e MUITO mais largo que as barras (o texto tem umas 60 colunas
-# contra os 120 px das barras). Estes numeros sao um palpite educado, nao uma
-# medicao — a medicao real so existe numa manutencao de verdade, e e para isso
-# que serve o `--testar-manutencao` e o campo `banner_manutencao`.
+# contra os 120 px das barras).
+#
+# ESTES NUMEROS DEIXARAM DE SER PALPITE (D-f). Agora existe a conta, feita
+# contra a calibracao REAL do usuario (`party_window_na_janela` topo=222,
+# medida em 2026-08-24) e contra a estimativa do banner no screenshot dele:
+#
+#     numeros antigos (60/140) -> faixa em y 162..302 na janela
+#     banner estimado          -> y ~168..253
+#     folga no topo            -> ~6 px
+#
+# SEIS PIXELS DE FOLGA CONTRA UMA ESTIMATIVA QUE TEM INCERTEZA. Errar por 6 px
+# corta o titulo `Server Maintence`, que e literalmente o que
+# `eh_banner_de_manutencao` procura — e o recurso inteiro cala, sem sintoma
+# nenhum alem do silencio.
+#
+#     numeros novos (130/240)  -> faixa em y 92..332
+#     folga                    -> ~76 px em cima, ~79 px embaixo
+#
+# A MEDICAO QUE AUTORIZA A FOLGA: area extra NAO piora a precisao. Na fixture
+# real, a imagem INTEIRA em cinza tambem leu 0:40:26 — o motor nao se perde por
+# receber vizinhanca.
+#
+# O CUSTO, E ELE E EXTRAPOLACAO, NAO MEDICAO: a faixa sai de 732x140 para
+# 732x240, 1,71x pixels, o que sobre os 44 ms medidos da passada barata PROJETA
+# ~75 ms. Segue dentro do orcamento (a cada 5 s, pouco mais de 1% de um
+# nucleo). Projecao — o numero medido e o de 732x140.
+#
+# O PRECO NOVO QUE A FOLGA CRIA, real e aceito: mais area significa mais texto
+# vizinho dentro da faixa, e a guarda estrutural de `interpretar_banner` (D-b)
+# prefere calar a arriscar. Se um texto vizinho trouxer uma forma que pareca
+# unidade de minutos sem numero, a leitura se perde. Perder uma leitura custa 5
+# segundos; cortar o titulo custa o recurso inteiro.
 #
 # Generoso e melhor que justo aqui: veja `Calibracao.regiao_do_banner`.
 MARGEM_ESQUERDA_DO_BANNER = 40
-MARGEM_ACIMA_DO_BANNER = 60
+MARGEM_ACIMA_DO_BANNER = 130
 LARGURA_EXTRA_DO_BANNER = 560
-ALTURA_DA_FAIXA_DO_BANNER = 140
+ALTURA_DA_FAIXA_DO_BANNER = 240
 
 
 class CalibracaoInvalida(Exception):
