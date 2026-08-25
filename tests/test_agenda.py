@@ -282,7 +282,7 @@ class TestAgendaRealDoUsuario:
 
     def test_tvt_tem_os_horarios_do_config_todo_dia(self, agenda):
         tvt = next(e for e in agenda if e.nome == "TvT")
-        assert tvt.horarios == ((15, 0), (17, 0), (21, 50), (23, 0))
+        assert tvt.horarios == ((15, 0), (17, 0), (19, 30), (21, 50), (23, 0))
         assert tvt.dias == TODOS_OS_DIAS
 
     def test_prime_as_20h_de_segunda_a_quinta(self, agenda):
@@ -331,6 +331,8 @@ class TestAgendaRealDoUsuario:
             ("TvT", TipoDeAviso.AGORA, "15:00"),
             ("TvT", TipoDeAviso.ANTES, "16:50"),
             ("TvT", TipoDeAviso.AGORA, "17:00"),
+            ("TvT", TipoDeAviso.ANTES, "19:20"),
+            ("TvT", TipoDeAviso.AGORA, "19:30"),
             ("Prime", TipoDeAviso.ANTES, "19:50"),
             ("Prime", TipoDeAviso.AGORA, "20:00"),
             ("TvT", TipoDeAviso.ANTES, "21:40"),
@@ -357,12 +359,12 @@ class TestAgendaRealDoUsuario:
         ]
 
     def test_o_volume_diario_total_e_o_esperado(self, agenda):
-        """20 mensagens por dia. Se subir, alguem mexeu no config sem pensar.
+        """24 mensagens por dia. Se subir, alguem mexeu no config sem pensar.
 
         O grupo do WhatsApp e de pessoas, nao um feed. Este teste existe para
         um evento novo nao dobrar o volume sem ninguem perceber.
         """
-        assert len(self._varrer_um_dia(agenda, SEGUNDA)) == 22
+        assert len(self._varrer_um_dia(agenda, SEGUNDA)) == 24
 
     def test_no_sabado_o_prime_nao_aparece(self, agenda):
         from datetime import timedelta
@@ -378,7 +380,7 @@ class TestAgendaRealDoUsuario:
             instante += timedelta(minutes=1)
 
         assert "Prime" not in nomes
-        assert nomes.count("TvT") == 8, "4 horarios de TvT x 2 avisos"
+        assert nomes.count("TvT") == 10, "5 horarios de TvT x 2 avisos"
 
     def test_mudar_a_antecedencia_nao_exige_tocar_em_codigo(self, tmp_path):
         """AGEN-04: uma atualizacao do jogo nao pode custar um commit."""
@@ -491,8 +493,8 @@ class TestRegistroEmDisco:
 
         todos = enviados_por["A"] + enviados_por["B"]
         assert len(todos) == len(set(todos)), "houve aviso duplicado"
-        # 22 avisos por dia (TvT 8 + Prime 2 + Solo Boss 12), dois dias.
-        assert len(todos) == 44
+        # 24 avisos por dia (TvT 10 + Prime 2 + Solo Boss 12), dois dias.
+        assert len(todos) == 48
 
     def test_poda_apaga_o_velho_e_preserva_o_de_hoje(self, tmp_path):
         from datetime import date as _date
@@ -679,6 +681,7 @@ class TestJanelaDeSilencio:
         for hora, minuto, duracao in (
             (15, 0, 15),
             (17, 0, 15),
+            (19, 30, 15),
             (20, 0, 125),
             (23, 0, 15),
         ):

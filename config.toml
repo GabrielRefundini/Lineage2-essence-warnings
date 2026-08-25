@@ -20,7 +20,7 @@
 
 [[evento]]
 nome = "TvT"
-horarios = ["15:00", "17:00", "21:50", "23:00"]
+horarios = ["15:00", "17:00", "19:30", "21:50", "23:00"]
 dias = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 avisar_minutos_antes = 10
 silenciar_minutos = 15
