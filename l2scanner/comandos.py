@@ -256,8 +256,17 @@ def interpretar_dinamico(
             return (Comando.LOOT_DESIGNAR, nick)
         return None
     if crua.lower() == "loot":
+        # Mesma ordem do ramo com hifen, pela mesma razao: sem isto,
+        # `.loot cancelar` DESIGNARIA um personagem chamado "cancelar".
+        if len(palavras) > 1 and palavras[1].lower() in _PALAVRAS_DE_CANCELAMENTO:
+            return (Comando.LOOT_CANCELAR, "")
         if len(palavras) > 1 and _NICK_VALIDO.fullmatch(palavras[1]):
             return (Comando.LOOT_DESIGNAR, palavras[1])
+        # D-02, E ISTO NAO E ESQUECIMENTO: `.loot` SOZINHO nao faz nada.
+        # Comando sem argumento nao pode ser destrutivo — quem digita `.loot`
+        # no meio de um farm quase sempre esta PERGUNTANDO de quem e a vez,
+        # nao mandando apagar. Um dia alguem vai querer "consertar" esta
+        # linha fazendo-a cancelar; nao consertem.
         return None
 
     # `.{nick}` sozinho: o portao por nick conhecido e decisao do usuario —
