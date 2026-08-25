@@ -855,3 +855,335 @@ class TestArranqueNaoInventaEntrada:
         assert entradas == ["Kaus"], (
             "a party cresceu de 3 para 4 linhas — isso e uma entrada de verdade"
         )
+
+
+class TestUmaSaidaRealNaoViraVariosAlertas:
+    """A lei de conservacao da party window.
+
+    O falso positivo de 2026-08-25, entregue no WhatsApp:
+
+        10:17:32  Membro 1  Membro 2  Membro 3  Korzis     (4 linhas)
+        10:17:44  J4GUAR SAIU DA PARTY
+        10:17:44  KAUS   SAIU DA PARTY
+        10:17:44  KORZIS SAIU DA PARTY
+        10:18:02  Membro 1  Membro 2  Membro 3            (3 linhas)
+
+    A janela caiu de 4 para 3 — UMA pessoa saiu. Saiu tres nomes, no mesmo
+    segundo, dois deles errados.
+
+    O mecanismo: `linhas_quando_visto` guardava quantas linhas a janela tinha da
+    ultima vez que aquele membro foi RECONHECIDO, e a guarda de saida comparava
+    contra esse retrato a CADA frame. Com o reconhecimento piscando desde as
+    10:03, J4guar e Kaus passaram minutos fora de `presentes` com o retrato
+    preso em 4. A pergunta deixou de ser
+
+        "a janela encolheu quando ele sumiu?"
+
+    e virou
+
+        "a janela encolheu em ALGUM momento desde a ultima vez que eu consegui
+         reconhece-lo?"
+
+    A segunda vira verdadeira para TODOS os obsoletos de uma vez, no instante da
+    primeira saida real de qualquer pessoa.
+
+    E a mesma familia de [[alarme-falso-no-arranque]] e
+    [[resolved-party-entra-sai-em-loop]]: tratar mudanca de RECONHECIMENTO como
+    mudanca de REALIDADE. Aqui com um agravante — o retrato envelhecido guarda a
+    mentira ate o dia em que ela pode ser contada.
+
+    O oraculo destes testes e DERIVADO do dominio, nao de um numero observado: a
+    party window perde exatamente uma linha por pessoa que sai, entao o numero
+    de alertas de saida nunca pode passar de quanto a janela encolheu.
+    """
+
+    NOMES = ["Korzis", "J4guar", "Kaus", "TioMad"]
+
+    def _obs(self, nomes_por_linha, ui_visivel=True, hp_proprio=None):
+        """`""` = linha ocupada mas nao reconhecida. `None` = linha vazia."""
+        from l2scanner.visao import LeituraDeLinha, Observacao
+
+        linhas = []
+        for i, nome in enumerate(nomes_por_linha):
+            if nome is None:
+                linhas.append(LeituraDeLinha(i, EstadoDaLinha.VAZIA, None, None))
+            else:
+                reconhecido = nome or None
+                linhas.append(
+                    LeituraDeLinha(
+                        i,
+                        EstadoDaLinha.COM_MEMBRO,
+                        1.0,
+                        1.0,
+                        nome=reconhecido,
+                        confianca_do_nome=0.98 if reconhecido else 0.0,
+                    )
+                )
+        return Observacao(0, ui_visivel, tuple(linhas), hp_proprio=hp_proprio)
+
+    def _aquecido(self, nomes=None, **ajustes):
+        from l2scanner.rastreador import Ajustes, Rastreador
+
+        r = Rastreador(
+            nomes=list(self.NOMES),
+            assinaturas_configuradas=True,
+            nomes_reservados=set(self.NOMES),
+            ajustes=Ajustes(**ajustes),
+        )
+        for i in range(15):
+            r.observar(self._obs(nomes or self.NOMES), float(i))
+        return r
+
+    def _rodar(self, r, quadros, inicio):
+        eventos = []
+        for n, nomes in enumerate(quadros):
+            eventos.extend(r.observar(self._obs(nomes), inicio + n))
+        return eventos
+
+    def _saidas(self, eventos):
+        from l2scanner.rastreador import TipoDeEvento
+
+        return [e.membro for e in eventos if e.tipo is TipoDeEvento.SAIU]
+
+    # --- o caso reportado -------------------------------------------------
+
+    def test_o_caso_das_10h17_uma_saida_vira_um_alerta(self):
+        """Tres membros fora do reconhecimento; o quarto sai de verdade."""
+        r = self._aquecido()
+
+        # 12 frames com so o Korzis reconhecido. A janela fica em 4 linhas o
+        # tempo todo — ninguem saiu, so o reconhecimento degradou.
+        degradacao = self._rodar(r, [["", "", "", "Korzis"]] * 12, 100.0)
+        assert self._saidas(degradacao) == [], (
+            "reconhecimento ruim com a janela parada nao e saida de ninguem"
+        )
+
+        # agora o Korzis sai DE VERDADE: 4 -> 3 linhas
+        saida = self._rodar(r, [["", "", "", None]] * 8, 200.0)
+
+        assert self._saidas(saida) == ["Korzis"], (
+            "a janela perdeu UMA linha, entao UMA pessoa saiu. Antes da "
+            "correcao saiam quatro alertas no mesmo frame, tres com o nome "
+            "errado — exatamente o que chegou no WhatsApp as 10:17:44"
+        )
+
+    @pytest.mark.parametrize("obsoletos", [1, 2, 3])
+    def test_encolher_uma_linha_nunca_anuncia_mais_de_um(self, obsoletos):
+        """Varre o numero de identidades obsoletas: 1, 2 e 3 de 4.
+
+        Antes da correcao o numero de alertas falsos crescia junto com
+        `obsoletos` — era literalmente "um evento real vira N alertas".
+        """
+        r = self._aquecido()
+
+        # os `obsoletos` primeiros somem do reconhecimento; os demais ficam
+        linhas = ["" if i < obsoletos else n for i, n in enumerate(self.NOMES)]
+        self._rodar(r, [linhas] * 12, 100.0)
+
+        # o ULTIMO da lista sai de verdade: 4 -> 3 linhas
+        saida = self._rodar(r, [linhas[:-1] + [None]] * 8, 200.0)
+
+        assert self._saidas(saida) == [self.NOMES[-1]], (
+            f"com {obsoletos} identidade(s) obsoleta(s), um encolhimento de "
+            f"uma linha ainda e uma saida so. Saiu: {self._saidas(saida)}"
+        )
+
+    # --- a deteccao real nao pode ser desligada ---------------------------
+
+    def test_saida_do_meio_da_lista_nomeia_quem_saiu(self):
+        """Quem esta ABAIXO sobe uma linha, e isso nao e evento nenhum.
+
+        A reproducao pedida no relato: quem sai NAO e o da ultima linha, entao
+        a party inteira compacta para cima.
+        """
+        r = self._aquecido()
+
+        # J4guar (linha 1) sai; Kaus e TioMad sobem para as linhas 1 e 2
+        saida = self._rodar(r, [["Korzis", "Kaus", "TioMad", None]] * 8, 100.0)
+
+        assert self._saidas(saida) == ["J4guar"], (
+            "subir de linha nao e sair da party; quem saiu foi o J4guar"
+        )
+
+    def test_duas_saidas_reais_no_mesmo_frame_geram_dois_alertas(self):
+        """A conservacao e um TETO, nao um limite de um.
+
+        Se a janela perde duas linhas, duas pessoas sairam — e as duas tem que
+        ser anunciadas. Uma guarda que so deixasse passar um alerta por frame
+        estaria trocando um erro por outro.
+        """
+        r = self._aquecido()
+
+        saida = self._rodar(r, [["Korzis", "J4guar", None, None]] * 8, 100.0)
+
+        assert sorted(self._saidas(saida)) == ["Kaus", "TioMad"]
+
+    @pytest.mark.parametrize("tamanho", [2, 3, 4])
+    def test_qualquer_tamanho_de_party_perde_um_por_vez(self, tamanho):
+        """Vizinhos de fronteira: party minima (2->1) ate a calibrada (4->3)."""
+        nomes = self.NOMES[:tamanho]
+        r = self._aquecido(nomes=nomes)
+
+        saida = self._rodar(r, [nomes[:-1] + [None]] * 8, 100.0)
+
+        assert self._saidas(saida) == [nomes[-1]]
+
+    def test_saida_durante_a_cegueira_ainda_e_detectada_na_volta(self):
+        """Cegueira CONGELA, nao zera — a propriedade 3 do modulo.
+
+        Se alguem sai enquanto o scanner esta cego, o alerta tem que sair
+        quando a visao voltar. Zerar o retrato do ultimo frame na reaquisicao
+        perderia justamente esse evento.
+        """
+        r = self._aquecido(confirmacoes_para_saida=3)
+
+        for n in range(20):
+            r.observar(self._obs(self.NOMES, ui_visivel=False), 100.0 + n)
+
+        # a visao volta com uma linha a menos. Os primeiros frames caem na
+        # tolerancia da reaquisicao e nao concluem nada.
+        saida = self._rodar(r, [["Korzis", "J4guar", "Kaus", None]] * 12, 200.0)
+
+        assert self._saidas(saida) == ["TioMad"]
+
+    # --- o que a correcao deliberadamente CALA -----------------------------
+
+    def test_saida_real_com_piscada_junto_congela_em_vez_de_chutar(self):
+        """Dois sumiram, a janela perdeu uma linha. Nao da para saber qual.
+
+        Um dos dois esta atras de uma linha nao reconhecida e o outro saiu —
+        mas os pixels nao dizem quem e quem. Anunciar um dos dois seria acertar
+        na moeda; anunciar os dois seria o bug original de volta.
+        """
+        r = self._aquecido()
+
+        # TioMad sai (4 -> 3 linhas) e o Kaus para de ser reconhecido no MESMO
+        # frame. O Kaus continua na tela, na linha 2.
+        saida = self._rodar(r, [["Korzis", "J4guar", "", None]] * 10, 100.0)
+
+        assert self._saidas(saida) == [], (
+            "com dois candidatos para um encolhimento de uma linha, calar e a "
+            "resposta honesta — um alerta que nao veio e recuperavel, um com o "
+            "nome errado destroi a confianca na ferramenta"
+        )
+
+    def test_saida_de_quem_ja_estava_fora_do_reconhecimento_passa_calada(self):
+        """O preco aceito, gravado aqui para nao ser 'consertado' sem querer.
+
+        Quem ja estava sem reconhecimento ha varios frames deixa de ser
+        candidato a saida. Se essa pessoa sai de verdade, ninguem e anunciado.
+
+        A alternativa e a que produziu o bug: deixar identidades obsoletas
+        elegiveis e anunciar N nomes, quase todos errados, no primeiro
+        encolhimento. Silencio e estritamente melhor que mentira plausivel.
+        """
+        r = self._aquecido()
+
+        # o Kaus (linha 2) some do reconhecimento, mas continua na tela
+        self._rodar(r, [["Korzis", "J4guar", "", "TioMad"]] * 10, 100.0)
+
+        # e agora sai de verdade: 4 -> 3 linhas, os de baixo sobem
+        saida = self._rodar(r, [["Korzis", "J4guar", "TioMad", None]] * 10, 200.0)
+
+        assert self._saidas(saida) == [], (
+            "nao ha como saber que foi o Kaus quem saiu — ele ja estava "
+            "invisivel para o reconhecimento antes do encolhimento"
+        )
+
+    # --- a invariante, sobre uma sessao inteira ---------------------------
+
+    def test_nunca_mais_alertas_do_que_linhas_perdidas(self):
+        """A invariante do dominio, medida sobre uma sessao roteirizada.
+
+        Vale independente do que o reconhecimento faca: alertas de saida <=
+        soma de tudo que a janela encolheu.
+        """
+        r = self._aquecido()
+
+        roteiro = (
+            [["", "", "", "Korzis"]] * 6            # reconhecimento pisca
+            + [["Korzis", "", "Kaus", ""]] * 6      # pisca diferente
+            + [["", "", "", None]] * 8              # 4 -> 3: UMA saida real
+            + [["Korzis", "", None, None]] * 6      # 3 -> 2: outra saida real
+        )
+
+        eventos = []
+        contagens = [4]
+        for n, nomes in enumerate(roteiro):
+            obs = self._obs(nomes)
+            eventos.extend(r.observar(obs, 100.0 + n))
+            contagens.append(obs.membros_presentes)
+
+        encolhimento_total = sum(
+            max(0, antes - depois)
+            for antes, depois in zip(contagens, contagens[1:])
+        )
+        saidas = self._saidas(eventos)
+
+        assert len(saidas) <= encolhimento_total, (
+            f"a party window perdeu {encolhimento_total} linha(s) na sessao "
+            f"inteira, entao no maximo {encolhimento_total} pessoa(s) sairam. "
+            f"Anunciados: {saidas}"
+        )
+
+    def _com_voce(self, linhas_iniciais):
+        from l2scanner.rastreador import Ajustes, Rastreador
+
+        r = Rastreador(
+            nomes=list(self.NOMES),
+            nome_proprio="Yazalaque",
+            assinaturas_configuradas=True,
+            nomes_reservados=set(self.NOMES),
+            ajustes=Ajustes(),
+        )
+        for i in range(15):
+            r.observar(self._obs(linhas_iniciais, hp_proprio=1.0), float(i))
+        return r
+
+    def test_voce_nunca_sai_pela_lista_de_linhas(self):
+        """Voce nao aparece na propria party window.
+
+        Entao nenhuma leitura das LINHAS pode concluir que voce saiu — quem
+        responde essa pergunta e `_avaliar_se_voce_esta_em_party`, com a sua
+        propria barra e um debounce proprio. Sem esta guarda, a sua chave
+        (`@Yazalaque`) some de `presentes` assim que o recorte da sua barra
+        fica ilegivel, e um encolhimento da janela no mesmo frame poe o SEU
+        nome na fila de saidas de membro.
+        """
+        r = self._com_voce(self.NOMES)
+
+        eventos = []
+        for n in range(10):
+            eventos.extend(
+                r.observar(
+                    self._obs(["Korzis", "J4guar", "Kaus", None], hp_proprio=None),
+                    100.0 + n,
+                )
+            )
+
+        assert "Yazalaque" not in self._saidas(eventos)
+
+    def test_voce_nao_sai_nem_quando_e_o_unico_candidato(self):
+        """O caso que a lei de conservacao NAO cobre.
+
+        Aqui quem sai e uma linha nao reconhecida — que nunca pode ser
+        anunciada — entao a sua chave fica sozinha como candidata e o teto por
+        encolhimento (1 candidato <= 1 linha perdida) deixa passar. So a guarda
+        do `@` impede "YAZALAQUE SAIU DA PARTY" a partir de um recorte de barra
+        ilegivel.
+        """
+        r = self._com_voce(["Korzis", "J4guar", "", ""])
+
+        eventos = []
+        for n in range(10):
+            eventos.extend(
+                r.observar(
+                    self._obs(["Korzis", "J4guar", ""], hp_proprio=None),
+                    100.0 + n,
+                )
+            )
+
+        assert self._saidas(eventos) == [], (
+            "a janela perdeu uma linha NAO RECONHECIDA; a unica identidade "
+            f"que sumiu junto foi a sua. Anunciados: {self._saidas(eventos)}"
+        )

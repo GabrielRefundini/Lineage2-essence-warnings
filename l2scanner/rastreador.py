@@ -26,6 +26,16 @@ QUATRO PROPRIEDADES QUE SAO DE CORRETUDE, NAO DE GOSTO:
    assimetria, um piscar de um frame no HP produz "ressuscitou" seguido
    imediatamente de "morreu" — o efeito de bate-estaca que sistemas de alerta
    maduros combatem com histerese.
+
+5. **A contagem de linhas e uma LEI DE CONSERVACAO.** A party window perde
+   exatamente uma linha por pessoa que sai, entao o numero de saidas que um
+   frame pode afirmar nunca passa de quanto a janela encolheu naquele frame. E
+   so pode ser candidato a saida quem estava na tela no frame ANTERIOR — uma
+   identidade que sumiu ha dez frames nao tem nada a ver com o encolhimento de
+   agora. Sem as duas regras, um unico membro saindo de verdade anunciava a
+   saida de todo mundo cujo reconhecimento estivesse falhando: aconteceu as
+   10:17:44 de 2026-08-25, tres alertas no mesmo segundo, dois com o nome
+   errado, para uma janela que caiu de 4 para 3 linhas.
 """
 
 from __future__ import annotations
@@ -141,15 +151,33 @@ class _EstadoInterno:
     contador_entrada: int = 0
     hp_visto: float | None = None
 
-    # Quantas linhas a party window tinha da ultima vez que vimos este membro.
-    # E o que distingue "ele saiu" de "o reconhecimento falhou": quando alguem
-    # sai de verdade a party window ENCOLHE, porque as linhas compactam. Uma
-    # falha de reconhecimento nao muda a contagem de linhas nenhuma.
+    # Este membro estava na tela no ultimo frame PROCESSADO. E o que distingue
+    # "acabou de sumir" de "sumiu ha muito tempo" — e so a primeira ausencia
+    # tem valor de prova, porque so nela a contagem de linhas ainda descreve o
+    # mundo em que ele estava.
+    visto_no_ultimo_frame: bool = False
+
+    # Se a party window ENCOLHEU no frame em que este membro sumiu. Guardado em
+    # vez de reavaliado, pelo mesmo motivo do crescimento logo abaixo: a saida
+    # so confirma apos N leituras, e no enesimo frame a janela ja parou de
+    # encolher.
     #
-    # O mesmo sinal, ao contrario, separa "entrou" de "passei a reconhecer":
-    # quem entra faz a janela CRESCER; um nome que so agora foi reconhecido nao
-    # muda contagem nenhuma.
-    linhas_quando_visto: int = 0
+    # A versao anterior guardava `linhas_quando_visto` — quantas linhas a
+    # janela tinha da ultima vez que este membro foi RECONHECIDO — e comparava
+    # `linhas_agora < linhas_quando_visto` a cada frame. Enquanto o
+    # reconhecimento falhava, esse retrato nao envelhecia junto com o mundo, e
+    # a guarda passava a responder outra pergunta:
+    #
+    #   pretendida: "a janela encolheu quando ele sumiu?"
+    #   real:       "a janela encolheu em ALGUM momento desde a ultima vez que
+    #                eu consegui reconhece-lo?"
+    #
+    # A segunda vira verdadeira, de uma vez, para TODOS os membros com
+    # reconhecimento degradado, no instante da primeira saida real de qualquer
+    # pessoa. Foi o que produziu tres "saiu da party" no mesmo segundo as
+    # 10:17:44 de 2026-08-25, com a janela caindo de 4 para 3 linhas — ou seja,
+    # com UMA pessoa saindo.
+    sumiu_com_encolhimento: bool = False
 
     # Se a party window CRESCEU no frame em que este membro apareceu. Guardado
     # em vez de reavaliado: a entrada so confirma apos N leituras, e no
@@ -738,7 +766,15 @@ class Rastreador:
         return []
 
     def _registrar_leituras(self, obs: Observacao) -> None:
-        """Atualiza HP e o mapa de exibicao, sem concluir nada."""
+        """Atualiza HP e o mapa de exibicao, sem concluir nada.
+
+        NAO mexe em `visto_no_ultimo_frame` nem em `_ultima_contagem_estavel`
+        de proposito. Esses dois formam o retrato do ultimo frame em que o
+        scanner CONCLUIU alguma coisa, e a reaquisicao existe justamente para
+        nao concluir. Congelar os dois e o que permite que uma saida ocorrida
+        durante a cegueira ainda seja detectada quando a visao volta — a
+        propriedade 3 do modulo, aplicada tambem a saida.
+        """
         self._identidade_por_linha = {}
         for linha in obs.linhas:
             if linha.estado is not EstadoDaLinha.COM_MEMBRO:
@@ -748,7 +784,6 @@ class Rastreador:
             self._rotulo[identidade] = self._rotular(linha, identidade)
             interno = self._membros.setdefault(identidade, _EstadoInterno())
             interno.hp_visto = linha.hp
-            interno.linhas_quando_visto = obs.membros_presentes
 
     def _processar(self, obs: Observacao, agora: float) -> list[Evento]:
         eventos: list[Evento] = []
@@ -784,46 +819,95 @@ class Rastreador:
         # Comparar CONJUNTOS de identidade, e nao posicoes, e o que faz "TioMad
         # saiu" ser atribuido ao TioMad mesmo quando a party inteira reordena.
         #
-        # MAS: se alguma linha esta OCUPADA e nao foi reconhecida, nao da para
-        # afirmar que ninguem saiu — o membro "sumido" pode ser exatamente quem
-        # esta naquela linha, so que a imagem falhou naquele frame. Congelar os
-        # contadores aqui e o que impede um piscar de reconhecimento de virar
-        # "Korzis saiu da party" com o Korzis na tela. Aconteceu de verdade.
-        # A regra so vale quando ha identidade em jogo. Sem nenhum membro
-        # rastreado por nome, estamos no modo antigo (chave por posicao) e
-        # congelar travaria a deteccao de saida para sempre.
+        # MAS uma identidade some do conjunto por dois motivos muito
+        # diferentes: a pessoa saiu, ou a imagem do nome dela falhou naquele
+        # frame. Os dois leem igual aqui. O desempate NAO pode ser "alguma
+        # linha esta ocupada sem identidade?" — essa versao existiu, e com dois
+        # membros sem assinatura gravada a condicao valia em 100% dos frames e
+        # desligava a deteccao de saida inteira (medido: o Kaus saia de verdade
+        # e `contador_saida` nem incrementava uma vez).
+        #
+        # O desempate que vale e a CONTAGEM DE LINHAS, com duas regras
+        # montadas logo abaixo:
+        #   1. so e candidato quem estava na tela no frame ANTERIOR, e o
+        #      veredito e travado ali (`sumiu_com_encolhimento`);
+        #   2. o numero de saidas afirmadas num frame nunca passa de quantas
+        #      linhas a janela perdeu naquele frame.
+        #
+        # Nada disso vale quando nao ha identidade em jogo: sem nenhum membro
+        # rastreado por nome estamos no modo antigo (chave por posicao), e ali
+        # a chave `#linhaN` e a unica identidade que existe.
         ha_membro_nomeado = any(not k.startswith("#linha") for k in self._membros)
 
-        # Quantas linhas a party window tem AGORA. A comparacao com quantas ela
-        # tinha da ultima vez que vimos cada membro e o que separa os dois
-        # motivos de alguem sumir do conjunto de identidades.
+        # Quantas linhas a party window tem AGORA.
         linhas_agora = obs.membros_presentes
 
-        for identidade, interno in self._membros.items():
-            if identidade in presentes:
-                continue
+        # QUANTO a janela encolheu desde o ultimo frame processado. Global e
+        # fresco, ao contrario do retrato por membro que este campo substituiu.
+        # `None` (nenhuma linha de base ainda) nao e encolhimento: o primeiro
+        # frame so estabelece a referencia.
+        queda = (
+            self._ultima_contagem_estavel - linhas_agora
+            if self._ultima_contagem_estavel is not None
+            else 0
+        )
 
-            # A PARTY WINDOW ENCOLHEU? Se nao encolheu, ninguem saiu.
-            #
-            # Quando alguem sai de verdade, as linhas compactam e a janela fica
-            # com uma linha a menos. Quando o RECONHECIMENTO falha, a linha
-            # continua la — so nao sabemos de quem ela e. Nos dois casos a
-            # identidade some de `presentes`, e sem esta checagem os dois viram
-            # "saiu da party".
-            #
-            # A versao anterior congelava a saida sempre que QUALQUER linha
-            # ocupada estivesse sem identidade. Parecia conservador e era: com
-            # dois membros da party sem assinatura gravada, a condicao valia em
-            # 100% dos frames e a deteccao de saida ficava COMPLETAMENTE
-            # DESLIGADA. Medido: Kaus saia de verdade e `contador_saida` nem
-            # chegava a incrementar uma vez.
-            if linhas_agora >= interno.linhas_quando_visto:
-                continue
+        def _pode_ter_saido(identidade: str) -> bool:
+            """Esta identidade e candidata a "saiu da party"?
+
+            Voce nunca aparece na propria party window, entao as linhas nunca
+            podem dizer que voce saiu — quem responde isso e
+            `_avaliar_se_voce_esta_em_party`, com a sua propria barra.
+            """
+            if identidade.startswith("@"):
+                return False
             # Uma chave de POSICAO (`#linhaN`) so existe porque o
             # reconhecimento falhou naquele frame. Quando ele volta, ela some —
             # e anunciar isso como saida inventaria um membro que nunca
             # existiu, com o rotulo de quem ainda esta na tela.
-            if ha_membro_nomeado and identidade.startswith("#linha"):
+            return not (ha_membro_nomeado and identidade.startswith("#linha"))
+
+        # Quem estava na tela no frame anterior e NAO esta mais. So estes sao
+        # candidatos: uma identidade que sumiu ha dez frames nao tem nada a ver
+        # com o encolhimento de agora.
+        sumiram_agora = [
+            ident
+            for ident, st in self._membros.items()
+            if st.visto_no_ultimo_frame
+            and ident not in presentes
+            and _pode_ter_saido(ident)
+        ]
+
+        # LEI DE CONSERVACAO DO DOMINIO: a party window perde exatamente uma
+        # linha por pessoa que sai. Entao o numero de saidas que um frame pode
+        # afirmar nunca passa de quanto a janela encolheu naquele frame.
+        #
+        # Se sumiram MAIS identidades do que a janela perdeu linhas, parte
+        # delas sumiu por falha de reconhecimento e nao da para dizer quais.
+        # Congelar todas e a resposta honesta — e e o que torna "um evento real
+        # vira N alertas" estruturalmente impossivel, em vez de so improvavel.
+        encolhimento_explica_as_ausencias = 0 < len(sumiram_agora) <= queda
+
+        for identidade, interno in self._membros.items():
+            if identidade in presentes:
+                continue
+            if not _pode_ter_saido(identidade):
+                continue
+
+            # A PARTY WINDOW ENCOLHEU QUANDO ELE SUMIU? Se nao encolheu,
+            # ninguem saiu — a linha dele continua la, so nao sabemos de quem
+            # ela e.
+            #
+            # O veredito e TRAVADO na primeira ausencia, espelhando o
+            # `apareceu_com_crescimento` do lado da entrada. E na primeira
+            # ausencia, e so nela, que a contagem de linhas ainda descreve o
+            # mundo em que este membro estava; a partir do frame seguinte a
+            # pergunta seria feita contra um retrato velho, que foi exatamente
+            # o defeito das 10:17:44.
+            if interno.visto_no_ultimo_frame:
+                interno.sumiu_com_encolhimento = encolhimento_explica_as_ausencias
+
+            if not interno.sumiu_com_encolhimento:
                 continue
 
             interno.contador_morte = 0
@@ -840,6 +924,7 @@ class Rastreador:
             )
             interno.estado = EstadoDoMembro.AUSENTE
             interno.desde = agora
+            interno.sumiu_com_encolhimento = False
             if se_estava_na_party:
                 eventos.append(
                     Evento(
@@ -854,7 +939,13 @@ class Rastreador:
             interno = self._membros.setdefault(identidade, _EstadoInterno())
             interno.hp_visto = linha.hp
             interno.contador_saida = 0
-            interno.linhas_quando_visto = linhas_agora
+            # `sumiu_com_encolhimento` NAO e zerado aqui de proposito. Quem o
+            # governa e `visto_no_ultimo_frame`: estar em `presentes` agora o
+            # deixa True, e a proxima ausencia sera portanto uma PRIMEIRA
+            # ausencia, que reescreve o veredito. Zerar aqui tambem seria
+            # inofensivo — e foi assim que nasceu — mas e codigo morto que
+            # sugere um segundo dono para o campo, e campo com dois donos foi
+            # exatamente o que produziu este bug.
 
             morto_agora = (
                 linha.hp is not None
@@ -959,6 +1050,13 @@ class Rastreador:
                     interno.contador_ressurreicao = 0
 
         self._ultima_contagem_estavel = linhas_agora
+
+        # O retrato de quem estava na tela NESTE frame. E o que faz a proxima
+        # volta saber distinguir "acabou de sumir" de "sumiu ha muito tempo".
+        # Escrito no fim, depois de todas as decisoes, porque durante o laco
+        # ele ainda precisa descrever o frame ANTERIOR.
+        for ident, interno in self._membros.items():
+            interno.visto_no_ultimo_frame = ident in presentes
 
         # O aquecimento termina quando o primeiro membro assume um estado real.
         # Marcar DEPOIS do laco evita que os membros processados mais tarde na
