@@ -153,7 +153,29 @@ def ler_texto(pixels) -> str | None:
 
 
 def _reconhecer(pixels: np.ndarray) -> str | None:
-    """O caminho do WinRT que o spike provou. Nao redescobrir — reproduzir."""
+    """O caminho do WinRT que o spike provou. Nao redescobrir — reproduzir.
+
+    CINZA ANTES DE TUDO (D-a), e e a correcao mais barata deste recurso.
+
+    Medido contra `tests/fixtures/manutencao/banner_40min26s.png` (fonte real
+    do jogo, verdade = 40 min 26 s): em COR o motor leu `__40nin? es` e o
+    parser devolveu 0:00:26; a MESMA imagem em CINZA leu `40 minutes` e devolveu
+    0:40:26. Nao e ajuste fino — e a diferenca entre acertar e errar por 40
+    minutos.
+
+    O PORQUE: a fonte do banner e clara sobre fundo escuro, entao toda a
+    informacao de FORMA — que e o que o motor procura — ja esta na
+    luminancia. Os tres canais BGR carregam variacao de COR que nao carrega
+    forma nenhuma, e o motor gasta contraste com ela.
+
+    E custa zero: um `cvtColor` sobre 732x140 e ruido perto dos 44 ms que a
+    propria passada de reconhecimento leva.
+
+    Um recorte que ja chega com um canal so passa direto — quem grava frame
+    em escala de cinza nao paga uma conversao que nao precisa.
+    """
+    if pixels.ndim == 3:
+        pixels = cv2.cvtColor(pixels, cv2.COLOR_BGR2GRAY)
     ampliado = cv2.resize(
         pixels, None, fx=ESCALA, fy=ESCALA, interpolation=cv2.INTER_CUBIC
     )

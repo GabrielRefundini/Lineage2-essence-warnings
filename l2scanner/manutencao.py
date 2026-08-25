@@ -60,9 +60,45 @@ FOLGA_APOS_A_MANUTENCAO = timedelta(minutes=10)
 # A raiz que cobre `maintence` (o typo do jogo) e `maintenance` de uma vez.
 _RAIZ = "mainten"
 
-_HORAS = re.compile(r"(\d+)\s*hour")
-_MINUTOS = re.compile(r"(\d+)\s*minut")
-_SEGUNDOS = re.compile(r"(\d+)\s*second")
+# DOIS JOGOS DE PADROES, E A SEPARACAO E A CORRECAO INTEIRA.
+#
+# Antes havia um jogo so, que respondia "numero + unidade" e "a unidade
+# apareceu?" ao mesmo tempo. Por isso "unidade sem numero" sumia em silencio: o
+# padrao nao casava, o parser somava o que sobrou e devolvia uma resposta com
+# cara de boa. Medido: `__40nin? es 26 seconds` virava 26 segundos.
+#
+# CAPTURA — numero + unidade. Roda sobre o texto NORMALIZADO.
+#
+# `[mn]` recupera o `ninutes` que o motor produz de verdade (medido em cinza
+# 2x). O `\s*` (zero ou mais, nunca um ou mais) recupera o `40ninutes` grudado.
+# As classes `[o0]` e `[5s]` existem porque `_normalizar_digitos` traduz DENTRO
+# de um token que ja tem digito: `26seconds` grudado vira `265ec0nd5`, e o
+# retrocesso do regex ainda captura o 26 ali.
+_HORAS = re.compile(r"(\d+)\s*h[o0]ur")
+_MINUTOS = re.compile(r"(\d+)\s*[mn]inut")
+_SEGUNDOS = re.compile(r"(\d+)\s*[5s]ec[o0]nd")
+
+# PRESENCA — a unidade apareceu, com ou sem numero acoplado.
+#
+# `[mn]in` e deliberadamente frouxo E comprovadamente seguro no contexto. Nem
+# `maintence` (m-a-i-n-t-e-n-c-e) nem `maintenance` (m-a-i-n-t-e-n-a-n-c-e)
+# contem `min` ou `nin` — confira letra a letra —, e o unico texto que chega
+# aqui ja passou por `eh_banner_de_manutencao`.
+#
+# A ASSIMETRIA DE CUSTO E O QUE AUTORIZA A FROUXIDAO: um falso positivo da
+# presenca custa UMA leitura, ou seja 5 segundos ate a proxima cadencia. Um
+# falso negativo faz 40 minutos virarem 26 segundos e a party inteira largar o
+# farm por nada.
+#
+# O PRECO ACEITO, escrito para nao virar surpresa: se um nome de personagem ou
+# um texto vizinho dentro da faixa contiver `min`/`nin`, a guarda dispara e a
+# leitura se perde. De proposito — sempre para o lado seguro.
+#
+# A presenca de HORAS espelha a forma da de minutos sem inventar evidencia: o
+# jogo anuncia com dezenas de MINUTOS, e nunca foi observado embaralhando
+# `hour`. Simetria por consistencia, nao por medicao.
+_PALAVRA_DE_HORAS = re.compile(r"h[o0]ur")
+_PALAVRA_DE_MINUTOS = re.compile(r"[mn]in")
 
 # Leitura acima disto e lixo do OCR, nao manutencao. O jogo anuncia com dezenas
 # de minutos, nunca com dias.
@@ -108,8 +144,31 @@ def _normalizar_digitos(texto: str) -> str:
 def interpretar_banner(texto: str | None) -> timedelta | None:
     """Quanto falta, segundo o texto do banner. None quando nao da para dizer.
 
-    Procura PREFIXOS (`minut`, `second`, `hour`) e nao palavras inteiras, para
-    tolerar plural e o truncamento que o OCR faz no fim da palavra.
+    A GUARDA ESTRUTURAL (D-b) e o coracao desta funcao, e ela nasceu de uma
+    medicao. Contra `tests/fixtures/manutencao/banner_40min26s.png`, com a
+    imagem em COR, o motor leu:
+
+        12 Server Maintence __40nin? es 26 seconds Please avoid entering ...
+
+    A versao antiga procurava numero-colado-em-unidade, nao achava minuto
+    nenhum, achava `26 seconds` e devolvia 26 SEGUNDOS — quando faltavam 40
+    minutos e 26 segundos. E o pior tipo de erro: plausivel.
+
+    A regra que corrige isso: se a UNIDADE aparece e o NUMERO dela nao pode ser
+    extraido, a leitura e inconfiavel e a funcao CALA. Jamais cair para "entao e
+    so os segundos" — foi exatamente assim que 40min26s virou 26s.
+
+    A conta que justifica calar: perder uma leitura custa 5 segundos, uma
+    cadencia, numa contagem que dura 40 minutos. Anunciar manutencao iminente
+    sem motivo custa a farm da party inteira.
+
+    A ORDEM DOS PASSOS E DELIBERADA e esta escrita abaixo passo a passo. A
+    guarda vem ANTES de somar qualquer componente — depois da soma, a queda para
+    "so os segundos" ja aconteceu.
+
+    Procura PREFIXOS (`minut`, `[5s]ec[o0]nd`, `h[o0]ur`) e nao palavras
+    inteiras, para tolerar plural e o truncamento que o OCR faz no fim da
+    palavra.
 
     `timedelta(0)` e resultado LEGITIMO e nao pode virar None: os prints do
     usuario tem `00 minutes 00 seconds`, que significa "agora".
@@ -117,17 +176,34 @@ def interpretar_banner(texto: str | None) -> timedelta | None:
     if not texto:
         return None
 
+    # O texto CRU (so em minusculas) e o texto NORMALIZADO servem a papeis
+    # diferentes, e por isso os dois existem aqui.
+    cru = texto.lower()
     normalizado = _normalizar_digitos(texto).lower()
 
-    componentes = (
-        (_HORAS, 3600),
-        (_MINUTOS, 60),
-        (_SEGUNDOS, 1),
-    )
+    # CAPTURA sempre no normalizado: e nele que `4O` ja virou `40`.
+    horas = _HORAS.search(normalizado)
+    minutos = _MINUTOS.search(normalizado)
+    segundos = _SEGUNDOS.search(normalizado)
+
+    # PRESENCA nos DOIS textos, bastando casar num deles. E o detalhe que faz a
+    # correcao inteira funcionar: `_normalizar_digitos` so transforma tokens que
+    # ja tem digito, entao um `40MINUTES` grudado viraria `40m1nute5` e a
+    # unidade DESAPARECERIA do texto normalizado — a guarda nao dispararia e o
+    # bug voltaria por uma porta lateral. Checar tambem no cru garante o
+    # invariante que queremos: a normalizacao so pode nos custar uma leitura,
+    # nunca nos dar uma leitura ERRADA.
+    def _presente(padrao) -> bool:
+        return padrao.search(cru) is not None or padrao.search(normalizado) is not None
+
+    if _presente(_PALAVRA_DE_HORAS) and horas is None:
+        return None
+    if _presente(_PALAVRA_DE_MINUTOS) and minutos is None:
+        return None
+
     total = 0
     achou = False
-    for padrao, fator in componentes:
-        casou = padrao.search(normalizado)
+    for casou, fator in ((horas, 3600), (minutos, 60), (segundos, 1)):
         if casou:
             achou = True
             total += int(casou.group(1)) * fator
