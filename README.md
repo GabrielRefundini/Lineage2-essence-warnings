@@ -302,6 +302,21 @@ costuma vir com a ingestão de grupo desligada. Se for o seu caso, mande o
 comando no **privado** do número do bot — a resposta continua indo para o
 grupo normalmente.
 
+**Só o seu número manda.** Ponha o seu telefone em
+`CHATWOOT_TELEFONES_COMANDO` e o scanner ignora comando de qualquer outra
+pessoa — inclusive dentro de um grupo, onde liberar a *conversa* liberaria os
+doze membros. A comparação usa os últimos 8 dígitos, então o formato não
+importa e o nono dígito não atrapalha: `+5544997077000` e `554497077000` são a
+mesma pessoa para o scanner.
+
+Com a lista vazia, qualquer um da conversa manda — e o scanner avisa isso no
+arranque, em vez de deixar você descobrir por acidente.
+
+**Etiqueta como interruptor.** Se preferir ligar e desligar pelo painel do
+Chatwoot em vez do arquivo, ponha um nome em `CHATWOOT_ETIQUETA_COMANDO` e
+marque a conversa com essa etiqueta. Vale na hora, sem reiniciar. A etiqueta
+diz *onde* ele escuta; o telefone diz *quem* pode mandar.
+
 **Por que o ponto é obrigatório:** sem ele, alguém dizendo "vamos cancelar o
 silêncio?" faria o scanner agir no meio de uma conversa. E se o seu Chatwoot
 atende clientes, uma mensagem qualquer com a palavra "cancelar" viraria um

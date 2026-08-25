@@ -96,6 +96,12 @@ def config_do_chatwoot(caminho: Path | None = None) -> ConfigChatwoot:
         token=env["CHATWOOT_TOKEN"],
         conversas=conversas,
         conversas_de_comando=conversas_de_comando,
+        telefones_de_comando=[
+            p.strip()
+            for p in env.get("CHATWOOT_TELEFONES_COMANDO", "").split(",")
+            if p.strip()
+        ],
+        etiqueta_de_comando=env.get("CHATWOOT_ETIQUETA_COMANDO", "").strip(),
     )
 
 

@@ -226,6 +226,13 @@ class ConfigChatwoot:
     # superficie de ataque, e isso nao pode acontecer por acidente de config.
     conversas_de_comando: list[str] = field(default_factory=list)
 
+    # Quem pode mandar comando. Vazia = qualquer um da conversa permitida.
+    telefones_de_comando: list[str] = field(default_factory=list)
+
+    # Etiqueta do Chatwoot que transforma uma conversa em canal de comando.
+    # Interruptor de administracao: marcar e desmarcar no painel vale na hora.
+    etiqueta_de_comando: str = ""
+
 
 class ErroDeEntrega(Exception):
     """Falhou o envio. Distingue transitorio de definitivo."""

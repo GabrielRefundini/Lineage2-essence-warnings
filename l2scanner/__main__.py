@@ -303,20 +303,43 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
         config = config_do_chatwoot()
     except ConfigAusente:
         return None
-    if not config.conversas_de_comando:
+    if not (config.conversas_de_comando or config.etiqueta_de_comando):
         return None
 
-    log.info(
-        "Ouvindo comandos em %d conversa(s). Mande .cancelar para tirar o silencio.",
-        len(config.conversas_de_comando),
-    )
-    return LeitorDeComandos(
+    leitor = LeitorDeComandos(
         url=config.url,
         conta=config.conta,
         token=config.token,
         conversas=config.conversas_de_comando,
+        telefones=config.telefones_de_comando,
+        etiqueta=config.etiqueta_de_comando,
         user_agent=USER_AGENT,
     )
+
+    onde = []
+    if config.conversas_de_comando:
+        onde.append(f"{len(config.conversas_de_comando)} conversa(s) fixa(s)")
+    if config.etiqueta_de_comando:
+        onde.append(f"conversas com a etiqueta '{config.etiqueta_de_comando}'")
+    log.info("Ouvindo comandos em: %s. Mande .status para conferir.", " e ".join(onde))
+
+    if leitor.aberto_a_qualquer_um:
+        # Nao e erro, e compatibilidade. Mas um scanner que obedece qualquer um
+        # nao pode ser um estado que se descobre por acidente.
+        log.warning(
+            "COMANDOS ABERTOS: qualquer pessoa que escreva nessas conversas pode "
+            "mandar no scanner."
+        )
+        log.warning(
+            "Para restringir, ponha o seu numero em CHATWOOT_TELEFONES_COMANDO "
+            "no .env."
+        )
+    else:
+        log.info(
+            "Comandos aceitos so de %d numero(s) autorizado(s).",
+            len(config.telefones_de_comando),
+        )
+    return leitor
 
 
 def atender_comandos(leitor, registro, eventos_agendados, despachante, agora) -> None:
@@ -328,7 +351,9 @@ def atender_comandos(leitor, registro, eventos_agendados, despachante, agora) ->
     if leitor is None or not leitor.ativo:
         return
 
-    for pedido in comandos_novos(leitor.ler(agora), registro.enviados()):
+    for pedido in comandos_novos(
+        leitor.ler(agora), registro.enviados(), leitor.telefones
+    ):
         # Marca ANTES de agir. Se o processo morrer no meio, o pior caso e um
         # comando perdido — nao um comando obedecido em laco a cada tick.
         if not registro.marcar(chave_da_mensagem(pedido.id)):

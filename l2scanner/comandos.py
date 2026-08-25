@@ -45,6 +45,23 @@ PREFIXO = "."
 # Descoberto lendo a API de verdade — a documentacao fala em strings.
 MESSAGE_TYPE_INCOMING = 0
 
+# Quantos digitos FINAIS do telefone comparar.
+#
+# Nao e preguica — e o unico jeito que funciona no Brasil. Celulares ganharam um
+# NONO DIGITO e a base do WhatsApp carrega as duas formas da mesma pessoa.
+# Medido nesta conta: o usuario se identifica como +5544997077000 e o Chatwoot
+# registra o dono do grupo dele como 554497077000, sem o 9.
+#
+#   +5544997077000 -> 97077000
+#    554497077000  -> 97077000
+#
+# Comparacao exata falharia em SILENCIO: o comando seria ignorado sem erro
+# nenhum, que e o pior modo de falha possivel para uma trava de seguranca.
+#
+# O preco: dois numeros diferentes com os mesmos 8 digitos finais colidem. Numa
+# allowlist de duas a cinco pessoas isso e aceitavel, e esta documentado.
+DIGITOS_FINAIS_DO_TELEFONE = 8
+
 
 class Comando(Enum):
     """O que o scanner aceita obedecer. Fechado de proposito.
@@ -80,6 +97,42 @@ class MensagemDeComando:
     texto: str
 
 
+def so_digitos(telefone: str | None) -> str:
+    """Descarta tudo que nao e digito: +, espaco, parentese, traco."""
+    return "".join(c for c in str(telefone or "") if c.isdigit())
+
+
+def telefone_equivalente(a: str | None, b: str | None) -> bool:
+    """Os dois textos sao o mesmo telefone?
+
+    Compara pelos digitos FINAIS, para atravessar codigo de pais, DDD,
+    formatacao e o nono digito brasileiro. Ver DIGITOS_FINAIS_DO_TELEFONE.
+    """
+    da, db = so_digitos(a), so_digitos(b)
+    if not da or not db:
+        return False
+    corte = DIGITOS_FINAIS_DO_TELEFONE
+    if len(da) < corte or len(db) < corte:
+        # Numero curto demais para o sufixo valer: exige igualdade completa,
+        # em vez de comparar um pedaco pequeno e casar com meio mundo.
+        return da == db
+    return da[-corte:] == db[-corte:]
+
+
+def autor_autorizado(remetente: dict, telefones: list[str]) -> bool:
+    """Quem mandou pode mandar?
+
+    Lista VAZIA aceita qualquer um — e a compatibilidade com quem ja tinha
+    configurado comandos so por conversa. O aviso de arranque cuida de deixar
+    isso visivel, porque "qualquer um pode mandar no scanner" nao pode ser um
+    estado que se descobre por acidente.
+    """
+    if not telefones:
+        return True
+    numero = remetente.get("phone_number")
+    return any(telefone_equivalente(numero, permitido) for permitido in telefones)
+
+
 def interpretar(texto: str | None) -> Comando | None:
     """Que comando este texto pede? None quando nao pede nenhum.
 
@@ -112,6 +165,7 @@ def interpretar(texto: str | None) -> Comando | None:
 def comandos_novos(
     mensagens: list[dict],
     ja_obedecidos: set[str],
+    telefones: list[str] | None = None,
 ) -> list[MensagemDeComando]:
     """Filtra o que veio da API e devolve so o que deve ser obedecido.
 
@@ -137,7 +191,11 @@ def comandos_novos(
         if comando is None:
             continue
 
+        # TRAVA 5: quem mandou pode mandar? Vale ate dentro de um grupo, onde a
+        # allowlist de conversa sozinha liberaria todo mundo.
         remetente = bruta.get("sender") or {}
+        if not autor_autorizado(remetente, telefones or []):
+            continue
         achados.append(
             MensagemDeComando(
                 id=int(identificador),
@@ -176,6 +234,8 @@ class LeitorDeComandos:
         conversas: list[str],
         segundos_entre_leituras: float = 20.0,
         user_agent: str = "",
+        telefones: list[str] | None = None,
+        etiqueta: str = "",
     ) -> None:
         self._url = url.rstrip("/")
         self._conta = conta
@@ -183,13 +243,28 @@ class LeitorDeComandos:
         self._conversas = list(conversas)
         self._intervalo = segundos_entre_leituras
         self._user_agent = user_agent
+        self.telefones = list(telefones or [])
+        # Etiqueta que transforma uma conversa em canal de comando. Redescoberta
+        # a cada leitura de proposito: e o que faz marcar/desmarcar no painel do
+        # Chatwoot valer NA HORA, sem editar arquivo e sem reiniciar o scanner.
+        self._etiqueta = etiqueta.strip().lower()
         self._ultima_leitura: float | None = None
         self.falhas = 0
 
     @property
     def ativo(self) -> bool:
-        """Ha conversa configurada para ouvir?"""
-        return bool(self._conversas)
+        """Ha de onde ouvir? Por id fixo, ou por etiqueta."""
+        return bool(self._conversas or self._etiqueta)
+
+    @property
+    def aberto_a_qualquer_um(self) -> bool:
+        """Esta ouvindo sem restringir quem pode mandar?
+
+        Nao e erro — e compatibilidade. Mas precisa aparecer no arranque: um
+        scanner que obedece qualquer um nao pode ser um estado que se descobre
+        por acidente.
+        """
+        return self.ativo and not self.telefones
 
     def vencido(self, agora: float) -> bool:
         return (
@@ -204,29 +279,58 @@ class LeitorDeComandos:
         derrubar o scanner — o trabalho dele e vigiar a party, e ouvir comando
         e um extra. As falhas sao contadas para o resumo de sessao.
         """
-        if not self._conversas or not self.vencido(agora):
+        # `ativo`, e nao `_conversas`: uma configuracao so por ETIQUETA nao tem
+        # conversa fixa nenhuma, e olhar a lista errada aqui fazia o leitor
+        # nunca ler nada — silenciosamente.
+        if not self.ativo or not self.vencido(agora):
             return []
         self._ultima_leitura = agora
 
+        alvos = list(self._conversas)
+        if self._etiqueta:
+            alvos.extend(c for c in self._por_etiqueta() if c not in alvos)
+
         tudo: list[dict] = []
-        for conversa in self._conversas:
+        for conversa in alvos:
             try:
                 tudo.extend(self._puxar(conversa))
             except Exception:  # noqa: BLE001 — ver docstring
                 self.falhas += 1
         return tudo
 
-    def _puxar(self, conversa: str) -> list[dict]:
-        alvo = (
-            f"{self._url}/api/v1/accounts/{self._conta}"
-            f"/conversations/{conversa}/messages"
+    def _por_etiqueta(self) -> list[str]:
+        """Conversas marcadas com a etiqueta configurada.
+
+        Falha em silencio devolvendo vazio: se a listagem cair, o certo e ouvir
+        MENOS, nunca mais. Uma falha de rede nao pode abrir canal nenhum.
+        """
+        try:
+            dados = self._get("/conversations")
+        except Exception:  # noqa: BLE001 — ver docstring
+            self.falhas += 1
+            return []
+
+        bruto = dados.get("data", dados) if isinstance(dados, dict) else dados
+        conversas = (
+            bruto.get("payload", bruto) if isinstance(bruto, dict) else bruto or []
         )
+        marcadas = []
+        for conversa in conversas:
+            etiquetas = conversa.get("labels") or []
+            if any(str(e).strip().lower() == self._etiqueta for e in etiquetas):
+                marcadas.append(str(conversa.get("id")))
+        return marcadas
+
+    def _get(self, caminho: str):
+        alvo = f"{self._url}/api/v1/accounts/{self._conta}{caminho}"
         req = urllib.request.Request(alvo, method="GET")
         req.add_header("api_access_token", self._token)
         req.add_header("Accept", "application/json")
         if self._user_agent:
             req.add_header("User-Agent", self._user_agent)
-
         with urllib.request.urlopen(req, timeout=10) as resposta:
-            dados = json.loads(resposta.read())
+            return json.loads(resposta.read())
+
+    def _puxar(self, conversa: str) -> list[dict]:
+        dados = self._get(f"/conversations/{conversa}/messages")
         return dados.get("payload", []) if isinstance(dados, dict) else []

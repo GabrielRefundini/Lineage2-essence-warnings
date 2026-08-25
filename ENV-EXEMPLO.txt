@@ -40,3 +40,23 @@ CHATWOOT_CONVERSAS=
 # mande o comando no PRIVADO do numero do bot; a resposta continua indo para
 # o grupo normalmente.
 CHATWOOT_CONVERSAS_COMANDO=
+
+# QUEM pode mandar comando. Numeros separados por virgula.
+#
+# Vazio = QUALQUER PESSOA que escreva nas conversas acima manda no scanner.
+# Num privado seu isso da na mesma; num GRUPO, libera todo mundo.
+#
+# A comparacao usa os ULTIMOS 8 DIGITOS, entao qualquer formato serve e o
+# nono digito nao atrapalha: +5544997077000 e 554497077000 sao a mesma pessoa
+# para o scanner. Escreva do jeito que preferir.
+CHATWOOT_TELEFONES_COMANDO=
+
+# OPCIONAL: etiqueta do Chatwoot que liga o canal de comando.
+#
+# Toda conversa marcada com esta etiqueta no painel do Chatwoot vira canal de
+# comando, alem das listadas em CHATWOOT_CONVERSAS_COMANDO. Serve de
+# interruptor: marcar e desmarcar no painel vale NA HORA, sem editar arquivo e
+# sem reiniciar o scanner.
+#
+# A etiqueta sozinha nao restringe QUEM manda — para isso e o telefone acima.
+CHATWOOT_ETIQUETA_COMANDO=

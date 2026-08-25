@@ -157,3 +157,134 @@ class TestLeitorDeComandos:
         for t in range(3):
             leitor.ler(float(t))
         assert leitor.falhas == 3
+
+
+class TestTelefoneEquivalente:
+    """O nono digito brasileiro, e por que comparacao exata falharia.
+
+    O usuario se identifica como +5544997077000. O Chatwoot registra o dono do
+    grupo dele como 554497077000 — SEM o 9. Mesma pessoa, duas formas, as duas
+    circulando na base do WhatsApp.
+
+    Comparacao exata falharia em SILENCIO: o comando seria ignorado sem erro
+    nenhum. Para uma trava de seguranca, esse e o pior modo de falha — parece
+    que nao funciona, e ninguem sabe por que.
+    """
+
+    def test_o_caso_real_do_usuario(self):
+        from l2scanner.comandos import telefone_equivalente
+
+        assert telefone_equivalente("+5544997077000", "554497077000")
+
+    def test_atravessa_formatacao(self):
+        from l2scanner.comandos import telefone_equivalente
+
+        for outro in (
+            "+55 44 99707-7000",
+            "(44) 99707-7000",
+            "5544997077000",
+            "44997077000",
+        ):
+            assert telefone_equivalente("+5544997077000", outro), outro
+
+    def test_numero_de_outra_pessoa_nao_casa(self):
+        from l2scanner.comandos import telefone_equivalente
+
+        assert not telefone_equivalente("+5544997077000", "+48608297919")
+
+    def test_vazio_nunca_casa(self):
+        from l2scanner.comandos import telefone_equivalente
+
+        assert not telefone_equivalente("+5544997077000", "")
+        assert not telefone_equivalente(None, "+5544997077000")
+        assert not telefone_equivalente(None, None)
+
+    def test_numero_curto_exige_igualdade_completa(self):
+        """Sem isso, um sufixo pequeno casaria com meio mundo."""
+        from l2scanner.comandos import telefone_equivalente
+
+        assert telefone_equivalente("123", "123")
+        assert not telefone_equivalente("123", "456")
+
+
+class TestSoOMeuNumeroMandaNoScanner:
+    def test_com_allowlist_so_o_dono_passa(self):
+        meus = ["+5544997077000"]
+        do_dono = [msg(1, ".cancelar", autor="Yazalaque")]
+        do_dono[0]["sender"]["phone_number"] = "554497077000"  # sem o 9
+        assert len(comandos_novos(do_dono, set(), meus)) == 1
+
+    def test_com_allowlist_um_estranho_e_ignorado(self):
+        meus = ["+5544997077000"]
+        de_outro = [msg(2, ".cancelar", autor="Hiago")]
+        de_outro[0]["sender"]["phone_number"] = "+48608297919"
+        assert comandos_novos(de_outro, set(), meus) == []
+
+    def test_remetente_sem_telefone_e_ignorado_quando_ha_allowlist(self):
+        """Sem numero nao da para afirmar que e voce."""
+        assert comandos_novos([msg(3, ".cancelar")], set(), ["+5544997077000"]) == []
+
+    def test_sem_allowlist_qualquer_um_passa(self):
+        """Compatibilidade. O aviso de arranque torna isso visivel."""
+        assert len(comandos_novos([msg(4, ".cancelar")], set(), [])) == 1
+
+    def test_num_grupo_a_allowlist_de_conversa_nao_bastaria(self):
+        """O cenario que motivou a trava.
+
+        Num grupo, permitir a CONVERSA libera todo mundo que escreve nela. Só
+        o telefone separa o dono dos outros doze membros.
+        """
+        meus = ["+5544997077000"]
+        grupo = [
+            dict(msg(10, ".cancelar", autor="Kaus"), sender={"name": "Kaus", "phone_number": "+5511999998888"}),
+            dict(msg(11, ".cancelar", autor="Yazalaque"), sender={"name": "Yazalaque", "phone_number": "+5544997077000"}),
+        ]
+        achados = comandos_novos(grupo, set(), meus)
+        assert [m.id for m in achados] == [11]
+
+
+class TestEtiquetaComoInterruptor:
+    def test_etiqueta_sozinha_ja_deixa_o_leitor_ativo(self):
+        from l2scanner.comandos import LeitorDeComandos
+
+        leitor = LeitorDeComandos(
+            url="https://x.invalido", conta="1", token="t",
+            conversas=[], etiqueta="scanner",
+        )
+        assert leitor.ativo
+
+    def test_sem_conversa_e_sem_etiqueta_fica_inativo(self):
+        from l2scanner.comandos import LeitorDeComandos
+
+        leitor = LeitorDeComandos(
+            url="https://x.invalido", conta="1", token="t", conversas=[],
+        )
+        assert not leitor.ativo
+
+    def test_aberto_a_qualquer_um_quando_nao_ha_telefone(self):
+        from l2scanner.comandos import LeitorDeComandos
+
+        leitor = LeitorDeComandos(
+            url="https://x.invalido", conta="1", token="t", conversas=["13"],
+        )
+        assert leitor.aberto_a_qualquer_um
+
+    def test_com_telefone_deixa_de_estar_aberto(self):
+        from l2scanner.comandos import LeitorDeComandos
+
+        leitor = LeitorDeComandos(
+            url="https://x.invalido", conta="1", token="t",
+            conversas=["13"], telefones=["+5544997077000"],
+        )
+        assert not leitor.aberto_a_qualquer_um
+
+    def test_falha_ao_listar_etiquetas_ouve_MENOS_nunca_mais(self):
+        """Uma falha de rede nao pode abrir canal nenhum."""
+        from l2scanner.comandos import LeitorDeComandos
+
+        leitor = LeitorDeComandos(
+            url="https://host.que.nao.existe.invalido", conta="1", token="t",
+            conversas=[], etiqueta="scanner", segundos_entre_leituras=0.0,
+        )
+        assert leitor.ler(0.0) == []
+        assert leitor.falhas >= 1
