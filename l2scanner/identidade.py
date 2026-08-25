@@ -55,7 +55,7 @@ import numpy as np
 # separa o amarelo do terreno. Entao o brilho e o unico criterio.
 VALOR_MINIMO_DO_TEXTO = 180
 
-# PENDENCIA CONHECIDA — a coroa do lider.
+# A COROA DO LIDER — resolvida pelo segundo passe, ver `_reancorar_apos_ornamento`.
 #
 # O jogo desenha uma coroa antes do nome do lider, o que desloca o texto. Houve
 # uma tentativa de tolerar isso deslizando o casamento (`matchTemplate(...).max()`
@@ -68,11 +68,41 @@ VALOR_MINIMO_DO_TEXTO = 180
 #      alinhamento calibrado. Nos casamentos ERRADOS rendeu ate +0.373,
 #      levando o pior errado a 0.586 contra um limiar de 0.75.
 #
-# O caso que continua sem cobertura e o membro calibrado SEM coroa que depois
-# VIRA lider. Quando houver um frame real dessa transicao, a resposta e gravar
-# DUAS assinaturas por membro (com e sem coroa) e continuar pontuando no
-# alinhamento fixo. Voltar ao `.max()` irrestrito nao e opcao: ele devolve as
-# 24 chances extras de falso positivo que produziram o bug do "entra e sai".
+# O caso que ficou sem cobertura foi o membro calibrado SEM coroa que depois
+# VIRA lider — e ele aconteceu, em 2026-08-25. O usuario era lider quando
+# calibrou (o lider nao aparece na propria party window, entao NENHUMA das
+# assinaturas gravadas tem coroa), entrou numa party alheia as 10:03, e o membro
+# que ficou na linha do lider passou DUAS HORAS como "Membro 1" — atravessando
+# ate um reinicio do scanner, porque a assinatura gravada nao muda.
+#
+# Medido com os pixels reais da coroa: o membro casa 0.266 contra a PROPRIA
+# assinatura, enquanto os outros tres da mesma party casam 0.960 / 0.957 / 0.992.
+# Nao e "perto do limiar": esta a 0.484 dele.
+#
+# A resposta NAO e voltar ao `.max()` irrestrito — ele devolve as 24 chances
+# extras de falso positivo que produziram o bug do "entra e sai". E um SEGUNDO
+# PASSE que testa UM alinhamento a mais, escolhido pelo conteudo do proprio
+# recorte, so nas linhas que o primeiro passe deixou sem nome.
+
+
+# Quantas colunas em branco separam a coroa do nome que ela empurrou.
+#
+# A coroa e um bloco de pixels claros ANTES do nome, com uma faixa vazia entre
+# os dois. Medido em 10 assinaturas reais, de 3 calibracoes independentes:
+#
+#     sem coroa (9 de 10)  um bloco unico, nenhuma lacuna acima de 3 colunas
+#     com coroa (1 de 10)  dois blocos: coroa em 0..5, LACUNA DE 4, nome em 10..37
+#
+# Nao ha zona cinzenta — a mesma qualidade de evidencia que sustenta
+# FATOR_MAXIMO_DE_CONTAMINACAO. Ler a lacuna e reconhecer uma estrutura que so a
+# coroa produz, nao chutar um deslocamento.
+COLUNAS_DE_LACUNA_DO_ORNAMENTO = 4
+
+# O segundo passe afirma mais do que o primeiro — ele diz "isto aqui e um nome
+# empurrado por um ornamento" — entao paga mais caro para ser aceito. Os
+# casamentos certos sobram: medidos em 0.946 a 0.992 no alinhamento correto.
+LIMIAR_DO_ORNAMENTO = 0.85
+MARGEM_DO_ORNAMENTO = 0.25
 
 # Abaixo disto, nao afirmamos quem e. Fica bem acima do melhor caso de nomes
 # diferentes (0.454) e bem abaixo do pior caso do mesmo nome (1.000).
@@ -195,6 +225,79 @@ class Casamento:
         return self.nome is not None
 
 
+def _primeira_coluna_com_texto(mascara: np.ndarray) -> int | None:
+    colunas = np.flatnonzero(mascara.any(axis=0))
+    return int(colunas[0]) if colunas.size else None
+
+
+def _inicio_do_nome_apos_ornamento(mascara: np.ndarray) -> int | None:
+    """Onde o nome comeca, quando ha um ornamento (a coroa) na frente dele.
+
+    Devolve None quando a mascara e um bloco unico — ou seja, quando NAO ha
+    ornamento nenhum, que e o caso de todo membro que nao e lider. Assim o
+    segundo passe simplesmente nao acontece para eles.
+    """
+    colunas = np.flatnonzero(mascara.any(axis=0))
+    if colunas.size == 0:
+        return None
+    lacunas = np.flatnonzero(np.diff(colunas) > COLUNAS_DE_LACUNA_DO_ORNAMENTO)
+    if lacunas.size == 0:
+        return None
+    # A PRIMEIRA lacuna: a coroa vem antes do nome, e o nome pode ter lacunas
+    # internas maiores em fontes largas.
+    return int(colunas[lacunas[0] + 1])
+
+
+def _reancorar_apos_ornamento(
+    mascara: np.ndarray, inicio_do_nome: int, assinatura: Assinatura
+) -> np.ndarray | None:
+    """Puxa o nome para o lugar onde ESTA assinatura o gravou.
+
+    Alinhar na coluna 0 nao serve: assinaturas reais comecam na coluna 0 OU na
+    1, conforme o nome, e 1 px de erro derruba a correlacao de 1.000 para 0.24.
+    Entao o deslocamento e sempre medido contra a primeira coluna da assinatura.
+
+    Devolve None quando o deslocamento nao seria para a DIREITA. Um ornamento so
+    empurra o texto para a direita; exigir isso descarta de graca uma familia
+    inteira de alinhamentos acidentais.
+    """
+    coluna_da_assinatura = _primeira_coluna_com_texto(assinatura.mascara)
+    if coluna_da_assinatura is None:
+        return None
+    deslocamento = inicio_do_nome - coluna_da_assinatura
+    if deslocamento <= 0:
+        return None
+
+    reancorada = np.zeros_like(mascara)
+    largura = mascara.shape[1] - deslocamento
+    if largura <= 0:
+        return None
+    reancorada[:, :largura] = mascara[:, deslocamento:]
+    return reancorada
+
+
+def _pontuar_com_ornamento(
+    mascara: np.ndarray, assinaturas: list[Assinatura]
+) -> list[float] | None:
+    """Pontuacao supondo que um ornamento empurrou o nome para a direita.
+
+    Devolve None quando a mascara nao tem a estrutura "bloco, lacuna, bloco" —
+    isto e, quando nao ha ornamento para descontar.
+    """
+    inicio = _inicio_do_nome_apos_ornamento(mascara)
+    if inicio is None:
+        return None
+
+    pontos: list[float] = []
+    for assinatura in assinaturas:
+        reancorada = _reancorar_apos_ornamento(mascara, inicio, assinatura)
+        if reancorada is None or int(reancorada.sum()) < PIXELS_MINIMOS_DE_TEXTO:
+            pontos.append(0.0)
+            continue
+        pontos.append(_correlacionar(reancorada, assinatura.mascara))
+    return pontos
+
+
 def _pontuar(
     recorte: np.ndarray, assinaturas: list[Assinatura]
 ) -> list[float] | None:
@@ -203,7 +306,12 @@ def _pontuar(
     Devolve None quando o recorte nao tem texto suficiente para ser um nome —
     linha vazia, nao um nome que falhamos em ler.
     """
-    mascara = mascara_de_texto(recorte)
+    return _pontuar_mascara(mascara_de_texto(recorte), assinaturas)
+
+
+def _pontuar_mascara(
+    mascara: np.ndarray, assinaturas: list[Assinatura]
+) -> list[float] | None:
     pixels = int(mascara.sum())
     if pixels < PIXELS_MINIMOS_DE_TEXTO:
         return None
@@ -267,9 +375,13 @@ def identificar_linhas(
     if not assinaturas:
         return resultado
 
+    mascaras: dict[int, np.ndarray] = {
+        indice: mascara_de_texto(recorte) for indice, recorte in recortes.items()
+    }
+
     pontos: dict[int, list[float]] = {}
-    for indice, recorte in recortes.items():
-        p = _pontuar(recorte, assinaturas)
+    for indice, mascara in mascaras.items():
+        p = _pontuar_mascara(mascara, assinaturas)
         if p is not None:
             pontos[indice] = p
 
@@ -306,6 +418,10 @@ def identificar_linhas(
         linhas_livres.discard(i)
         assinaturas_livres.discard(j)
 
+    _segundo_passe_do_ornamento(
+        mascaras, assinaturas, resultado, linhas_livres, assinaturas_livres
+    )
+
     # Sobrou linha sem nome: guardamos a melhor pontuacao mesmo assim, porque e
     # ela que aparece no diagnostico quando alguem pergunta "por que nao
     # reconheceu?".
@@ -316,6 +432,80 @@ def identificar_linhas(
         )
 
     return resultado
+
+
+def _segundo_passe_do_ornamento(
+    mascaras: dict[int, np.ndarray],
+    assinaturas: list[Assinatura],
+    resultado: dict[int, Casamento],
+    linhas_livres: set[int],
+    assinaturas_livres: set[int],
+) -> None:
+    """A repescagem da coroa do lider. Modifica `resultado` no lugar.
+
+    POR QUE ELE EXISTE
+
+    O lider da party ganha uma coroa antes do nome, e a coroa empurra o texto
+    para a direita. Quem foi calibrado SEM coroa e depois virou lider casa 0.266
+    contra a propria assinatura (medido com os pixels reais) — some do
+    reconhecimento e nao volta nem apos reiniciar o scanner. Aconteceu, e custou
+    duas horas de operacao cega em 2026-08-25.
+
+    POR QUE ELE E SEGURO
+
+    Tres travas, e cada uma sozinha ja limita o estrago:
+
+      1. So olha linhas que o primeiro passe deixou SEM NOME, e so usa
+         assinaturas que ele NAO consumiu. E estritamente aditivo: nao existe
+         caminho por onde ele tire ou troque um nome que o primeiro passe deu.
+      2. Testa UM alinhamento a mais, e nao um leque. O alinhamento nao e
+         varrido: sai da estrutura do proprio recorte (a lacuna entre a coroa e o
+         nome) e e ancorado na primeira coluna DA ASSINATURA. Deslizar 0..14 px
+         levaria o pior casamento errado de 0.371 para 0.579 — foi o que produziu
+         o bug do "entra e sai". Aqui nao ha deslize.
+      3. Cobra mais caro: LIMIAR_DO_ORNAMENTO e MARGEM_DO_ORNAMENTO sao bem
+         acima dos do primeiro passe. Uma afirmacao mais forte precisa de
+         evidencia mais forte.
+
+    E, antes das tres, a trava que faz quase todo o trabalho: um nome sem coroa e
+    um bloco unico de texto, entao `_inicio_do_nome_apos_ornamento` devolve None
+    e o passe nem comeca para ele. Medido em 10 assinaturas reais de 3
+    calibracoes: 9 sao bloco unico, e a unica que se parte em dois e a do lider.
+    """
+    # Sem guarda de saida antecipada aqui de proposito: o `while` abaixo ja nao
+    # roda com qualquer um dos dois conjuntos vazio. Um `if not ... : return`
+    # seria um ramo que nenhum teste consegue distinguir do codigo sem ele —
+    # teste de mutacao confirmou que era equivalente.
+    candidatos: dict[int, list[float]] = {}
+    for i in linhas_livres:
+        p = _pontuar_com_ornamento(mascaras[i], assinaturas)
+        if p is not None:
+            candidatos[i] = p
+
+    # Mesmo criterio guloso do primeiro passe, e pelo mesmo motivo: com um
+    # recorte contaminado, mais de uma linha pode parecer ter ornamento, e a
+    # unicidade continua valendo — duas linhas sao duas pessoas diferentes.
+    while candidatos and assinaturas_livres:
+        valor, i, j = max(
+            (candidatos[i][j], -i, -j)
+            for i in candidatos
+            for j in assinaturas_livres
+        )
+        i, j = -i, -j
+
+        if valor < LIMIAR_DO_ORNAMENTO:
+            break
+
+        outras = [candidatos[i][k] for k in assinaturas_livres if k != j]
+        segundo = max(outras) if outras else 0.0
+        if valor - segundo < MARGEM_DO_ORNAMENTO:
+            del candidatos[i]
+            continue
+
+        resultado[i] = Casamento(assinaturas[j].nome, valor, segundo)
+        linhas_livres.discard(i)
+        assinaturas_livres.discard(j)
+        del candidatos[i]
 
 
 def identificar(

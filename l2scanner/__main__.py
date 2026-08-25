@@ -99,6 +99,16 @@ INTERVALO_PADRAO = 1.0
 # ainda lembrar do que mexeu.
 TICKS_CEGO_PARA_SUGERIR_RECALIBRAR = 30
 
+# Quantas leituras seguidas uma linha pode ficar OCUPADA e SEM NOME antes de o
+# scanner reclamar. A 1 Hz sao ~2 minutos.
+#
+# Bem mais folgado que o de cegueira, e de proposito: o reconhecimento PISCA por
+# natureza. Medido nas fixtures, ~20 a 40 pixels claros de cenario invadindo o
+# recorte do nome, ou ~40% de perda do texto, ja cruzam o limiar de casamento —
+# entao uma linha cair por alguns segundos e normal e nao merece aviso. Dois
+# minutos parados nao sao piscada: sao um retrato que parou de casar.
+TICKS_SEM_RECONHECER_PARA_AVISAR = 120
+
 # Abaixo disto o desvio nao muda nada que o usuario perceba: a agenda
 # trabalha em minutos. Acima, o aviso vira ruido util — e o numero que
 # explica por que o TvT saiu na hora errada.
@@ -1065,6 +1075,29 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                     "rode calibrar.bat de novo.",
                     sessao.ticks_cego,
                 )
+
+            # Enxergar a linha e nao saber quem esta nela e uma falha DIFERENTE
+            # de nao enxergar, e ela era invisivel: em 2026-08-25 uma linha
+            # passou duas horas como "Membro 1" sem o scanner dizer uma palavra,
+            # inclusive atravessando um reinicio. O usuario so descobriu por
+            # causa dos alertas errados que vieram depois.
+            #
+            # O aviso NAO afirma nada sobre a party — ele relata o que o scanner
+            # esta vendo e lista as causas possiveis. Afirmar "fulano perdeu o
+            # reconhecimento" seria justamente o tipo de mentira plausivel que o
+            # projeto inteiro evita.
+            for indice, ticks in sorted(sessao.ticks_sem_reconhecer.items()):
+                if ticks == TICKS_SEM_RECONHECER_PARA_AVISAR:
+                    log.warning(
+                        "A linha %d da party window esta ocupada ha %d leituras "
+                        "seguidas e eu nao reconheci quem esta nela. Pode ser "
+                        "alguem que nao estava na party quando voce calibrou, ou "
+                        "alguem que virou LIDER depois (a coroa antes do nome "
+                        "muda o desenho). Se for um membro da sua lista, rode "
+                        "calibrar.bat de novo para regravar as assinaturas.",
+                        indice + 1,
+                        ticks,
+                    )
 
             agora = time.monotonic()
             if agora - ultimo_status >= args.status_a_cada:

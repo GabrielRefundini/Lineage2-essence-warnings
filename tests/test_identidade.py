@@ -22,10 +22,19 @@ from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.identidade import (
     LIMIAR_DE_CASAMENTO,
+    LIMIAR_DO_ORNAMENTO,
+    MARGEM_DO_ORNAMENTO,
     Assinatura,
     criar_assinatura,
+    Casamento,
+    _inicio_do_nome_apos_ornamento,
     _pontuar,
+    _primeira_coluna_com_texto,
+    _reancorar_apos_ornamento,
+    _pontuar_com_ornamento,
+    _segundo_passe_do_ornamento,
     identificar,
+    identificar_linhas,
     mascara_de_texto,
 )
 from l2scanner.visao import EstadoDaLinha, _recorte_do_nome, extrair
@@ -520,6 +529,330 @@ class TestLiderDaParty:
         # verde de grama medido na tela real: V~83
         grama = np.full((10, 10, 3), (70, 110, 75), dtype=np.uint8)
         assert not mascara_de_texto(grama).any()
+
+
+class TestMembroQueViraLider:
+    """O caso que identidade.py declarava sem cobertura — e que aconteceu.
+
+    Em 2026-08-25 o usuario era LIDER quando calibrou. O lider nao aparece na
+    propria party window, entao NENHUMA das quatro assinaturas gravadas tem
+    coroa. As 10:03 ele entrou numa party alheia, e o membro que passou a ocupar
+    a linha do lider virou "Membro 1" — e ficou assim por DUAS HORAS, incluindo
+    um reinicio do scanner (logs/scanner.log 10:03:24 a 11:59, com o reinicio as
+    10:46:57). A assinatura gravada nao muda, entao esperar nao resolve.
+
+    Medido com os pixels reais da coroa: o membro casa 0.266 contra a PROPRIA
+    assinatura enquanto os outros tres da mesma party casam 0.960 / 0.957 /
+    0.992. `_correlacionar` pontua no alinhamento calibrado, e a coroa empurra o
+    texto 10 px para a direita — 1 px ja bastaria (medido: 1.000 -> 0.24).
+
+    A fixture ajuda: nela o Korzis E o lider, entao os pixels da coroa sao
+    REAIS. O que estes testes fabricam e o outro lado — a assinatura dele como
+    teria sido gravada ANTES de ele virar lider.
+    """
+
+    PASTA = FIXTURES
+    DESVIO_DA_COROA = 10  # medido: coroa em 0..5, lacuna de 4, nome a partir de 10
+
+    @pytest.fixture
+    def calibracao(self):
+        return Calibracao.carregar(self.PASTA / "calibracao.json")
+
+    @pytest.fixture
+    def recortes(self, pixels, calibracao):
+        return {i: _recorte_do_nome(pixels, calibracao, i) for i in range(4)}
+
+    def assinatura_sem_coroa(self, recortes, margem: int = 0) -> Assinatura:
+        """O Korzis como teria sido calibrado ANTES de virar lider.
+
+        Tira a coroa do recorte real e traz o nome para `margem`, que e onde uma
+        assinatura de verdade comeca — medido, entre a coluna 0 e a 1 conforme o
+        nome.
+        """
+        com_coroa = mascara_de_texto(recortes[0])
+        corpo = com_coroa[:, self.DESVIO_DA_COROA :]
+        sem_coroa = np.zeros_like(com_coroa)
+        largura = min(corpo.shape[1], sem_coroa.shape[1] - margem)
+        sem_coroa[:, margem : margem + largura] = corpo[:, :largura]
+        return Assinatura(nome="Korzis", mascara=sem_coroa.astype(np.uint8))
+
+    def test_o_membro_que_virou_lider_volta_a_ser_reconhecido(
+        self, recortes, calibracao
+    ):
+        """A reproducao. Antes da correcao: None, com confianca 0.266."""
+        assinaturas = [self.assinatura_sem_coroa(recortes)] + list(
+            calibracao.assinaturas[1:]
+        )
+
+        res = identificar_linhas(recortes, assinaturas)
+
+        assert [res[i].nome for i in range(4)] == calibracao.nomes, (
+            "o membro calibrado sem coroa que virou lider tem que voltar. "
+            "Sem isso ele fica 'Membro N' para sempre, e — pela limitacao "
+            "travada em TestUmaSaidaRealNaoViraVariosAlertas — a saida real "
+            "dele passa calada."
+        )
+
+    @pytest.mark.parametrize("margem", [0, 1, 2])
+    def test_o_alinhamento_respeita_a_margem_da_propria_assinatura(
+        self, recortes, calibracao, margem
+    ):
+        """Vizinhos de fronteira: assinaturas reais comecam na coluna 0 OU 1.
+
+        Reancorar na coluna 0 "e o que parece obvio" e esta errado: 1 px de erro
+        derruba a correlacao de 1.000 para 0.24. O deslocamento tem que ser
+        medido contra a primeira coluna DA ASSINATURA, nao contra a origem.
+        """
+        assinaturas = [self.assinatura_sem_coroa(recortes, margem)] + list(
+            calibracao.assinaturas[1:]
+        )
+
+        res = identificar_linhas(recortes, assinaturas)
+
+        assert res[0].nome == "Korzis", f"quebrou com a assinatura na coluna {margem}"
+
+    def test_lider_de_fora_da_lista_nao_ganha_nome_emprestado(
+        self, recortes, calibracao
+    ):
+        """A trava que importa: um estranho de coroa continua sem nome.
+
+        Parties de verdade tem gente que nao esta na calibracao. Se o segundo
+        passe emprestasse um nome para eles, teriamos trocado um silencio por
+        uma mentira plausivel — o pior defeito possivel neste projeto.
+        """
+        sem_o_korzis = list(calibracao.assinaturas[1:])
+
+        res = identificar_linhas(recortes, sem_o_korzis)
+
+        assert res[0].nome is None
+        assert [res[i].nome for i in range(1, 4)] == calibracao.nomes[1:]
+
+    def test_linha_sem_ornamento_nem_entra_no_segundo_passe(
+        self, recortes, calibracao
+    ):
+        """A trava que faz quase todo o trabalho, e de graca.
+
+        Um nome sem coroa e UM bloco de texto — medido em 9 de 10 assinaturas
+        reais de 3 calibracoes. Sem lacuna, sem segundo passe.
+        """
+        for i in (1, 2, 3):
+            mascara = mascara_de_texto(recortes[i])
+            assert _pontuar_com_ornamento(mascara, calibracao.assinaturas) is None, (
+                f"a linha {i} nao tem coroa e nao podia ser reancorada"
+            )
+
+    def test_a_linha_do_lider_tem_a_lacuna_que_delata_a_coroa(self, recortes):
+        """O discriminador, medido no pixel real: coroa 0..5, lacuna 4, nome 10."""
+        mascara = mascara_de_texto(recortes[0])
+
+        assert _inicio_do_nome_apos_ornamento(mascara) == self.DESVIO_DA_COROA
+
+    def test_o_segundo_passe_nao_mexe_no_que_o_primeiro_resolveu(
+        self, recortes, calibracao
+    ):
+        """Controle: com a calibracao normal, nada pode mudar.
+
+        O segundo passe e estritamente aditivo. Se ele conseguisse alterar uma
+        linha ja resolvida, teria virado exatamente o casamento deslizante que
+        foi removido por produzir o bug do "entra e sai".
+        """
+        res = identificar_linhas(recortes, calibracao.assinaturas)
+
+        assert [res[i].nome for i in range(4)] == calibracao.nomes
+        assert all(res[i].confianca > 0.90 for i in range(4))
+
+    def test_o_segundo_passe_nunca_RENOMEIA_uma_linha_ja_resolvida(
+        self, recortes, calibracao
+    ):
+        """"Estritamente aditivo" e a trava principal, entao ela tem teste.
+
+        Aqui a linha 0 ja e resolvida pelo primeiro passe (0.946), e existe uma
+        assinatura de OUTRO nome que casaria quase perfeito se a mesma linha
+        fosse reavaliada com o desconto da coroa. O segundo passe nao pode nem
+        olhar para ela.
+
+        Se pudesse, ele teria virado o casamento deslizante com outro nome: uma
+        segunda chance de trocar um nome CERTO por um errado, que e o defeito
+        que este projeto trata como o pior de todos.
+        """
+        intruso = Assinatura(
+            nome="Intruso", mascara=self.assinatura_sem_coroa(recortes).mascara
+        )
+        assinaturas = list(calibracao.assinaturas) + [intruso]
+
+        res = identificar_linhas(recortes, assinaturas)
+
+        assert res[0].nome == "Korzis", (
+            f"a linha 0 ja estava resolvida e virou {res[0].nome!r} — o segundo "
+            f"passe so pode preencher vazio, nunca reescrever"
+        )
+        assert [res[i].nome for i in range(4)] == calibracao.nomes
+
+    def test_assinatura_ja_consumida_nao_volta_para_a_mesa(
+        self, recortes, calibracao
+    ):
+        """Unicidade tambem no segundo passe: duas linhas sao duas pessoas.
+
+        Foi o mesmo nome em duas linhas que rendeu 52 eventos falsos em 25
+        minutos (ver o docstring de `identificar_linhas`). O segundo passe so
+        pode pescar no que sobrou — se ele pudesse reusar uma assinatura ja
+        consumida, teria reaberto exatamente aquele buraco.
+
+        Testado direto na funcao porque e ai que a invariante mora: mesma linha,
+        mesma assinatura, e a UNICA diferenca e ela estar ou nao disponivel.
+        """
+        assinaturas = [self.assinatura_sem_coroa(recortes)] + list(
+            calibracao.assinaturas[1:]
+        )
+        mascaras = {i: mascara_de_texto(recortes[i]) for i in range(4)}
+
+        def repescar(assinaturas_livres):
+            resultado = {i: Casamento(None, 0.0) for i in range(4)}
+            _segundo_passe_do_ornamento(
+                mascaras, assinaturas, resultado, {0}, assinaturas_livres
+            )
+            return resultado[0].nome
+
+        assert repescar({0, 1, 2, 3}) == "Korzis", "com a assinatura livre, pesca"
+        assert repescar({1, 2, 3}) is None, (
+            "a assinatura do Korzis ja foi consumida por outra linha — a linha "
+            "do lider tem que ficar sem nome, e nao pegar o nome de outro"
+        )
+        assert repescar(set()) is None, "sem assinatura sobrando, nao ha o que pescar"
+
+    def test_so_reancora_para_a_DIREITA(self, recortes, calibracao):
+        """Um ornamento empurra o texto para a direita. Nunca para a esquerda.
+
+        Sem esta trava, uma assinatura que comeca depois do inicio do nome no
+        recorte seria testada tambem num alinhamento invertido — um alinhamento
+        que a coroa nao produz, e portanto pura chance extra de erro. E o mesmo
+        raciocinio que tirou o casamento deslizante: cada alinhamento a mais e
+        uma chance a mais de um nome errado dar sorte.
+        """
+        mascara = mascara_de_texto(recortes[0])
+        assinatura = calibracao.assinaturas[1]
+        coluna = _primeira_coluna_com_texto(assinatura.mascara)
+
+        para_a_direita = _reancorar_apos_ornamento(
+            mascara, coluna + 5, assinatura
+        )
+        na_mesma_coluna = _reancorar_apos_ornamento(mascara, coluna, assinatura)
+        para_a_esquerda = _reancorar_apos_ornamento(
+            mascara, max(coluna - 3, 0), assinatura
+        )
+
+        assert para_a_direita is not None
+        assert na_mesma_coluna is None, "deslocamento zero nao e ornamento"
+        assert para_a_esquerda is None, "a coroa nunca puxa o nome para tras"
+
+    def test_a_coroa_e_a_PRIMEIRA_lacuna_e_nao_qualquer_uma(self):
+        """Um nome largo pode ter lacunas internas. A coroa vem antes de todas.
+
+        Pegar a ultima lacuna reancoraria no meio do nome — um alinhamento que
+        casa com pedaco nenhum, e que so serve para dar chances extras.
+        """
+        mascara = np.zeros((20, 100), dtype=np.uint8)
+        mascara[5:15, 0:4] = 1  # o ornamento
+        mascara[5:15, 12:18] = 1  # comeco do nome, apos a lacuna
+        mascara[5:15, 26:32] = 1  # lacuna INTERNA do nome, maior ainda
+
+        assert _inicio_do_nome_apos_ornamento(mascara) == 12
+
+    def test_pontuacao_fraca_nao_passa_so_por_estar_sozinha(
+        self, recortes, calibracao
+    ):
+        """O limiar tem que barrar sozinho, sem depender da margem.
+
+        Um candidato unico tem margem enorme por construcao — nao ha segundo
+        para disputar. Se o limiar nao barrasse, "e o unico parecido" viraria
+        prova suficiente, e o segundo passe passaria a chutar sempre que
+        houvesse exatamente uma assinatura sobrando.
+        """
+        gerador = np.random.default_rng(5)
+        mascara_boa = self.assinatura_sem_coroa(recortes).mascara
+        # meio nome apagado: casa por volta de 0.70, longe do limiar de 0.85 e
+        # ainda assim muito acima de qualquer concorrente
+        meio_apagado = mascara_boa.copy()
+        acesos = np.argwhere(meio_apagado > 0)
+        escolhidos = gerador.choice(len(acesos), len(acesos) // 2, replace=False)
+        for y, x in acesos[escolhidos]:
+            meio_apagado[y, x] = 0
+
+        assinaturas = [Assinatura(nome="Korzis", mascara=meio_apagado)]
+        (pontuou,) = _pontuar_com_ornamento(
+            mascara_de_texto(recortes[0]), assinaturas
+        )
+
+        # o cenario so vale se a margem estiver satisfeita: candidato unico, sem
+        # segundo para disputar. Quem precisa barrar aqui e o LIMIAR.
+        assert pontuou - 0.0 >= MARGEM_DO_ORNAMENTO, "margem folgada, como o teste exige"
+        assert pontuou < LIMIAR_DO_ORNAMENTO, f"pontuou {pontuou:.3f}, refaca o cenario"
+
+        res = identificar_linhas({0: recortes[0]}, assinaturas)
+
+        assert res[0].nome is None, (
+            f"casou {pontuou:.3f} sendo o unico candidato — o limiar de "
+            f"{LIMIAR_DO_ORNAMENTO} tem que barrar por conta propria"
+        )
+
+    def test_dois_candidatos_empatados_nao_viram_cara_ou_coroa(
+        self, recortes, calibracao
+    ):
+        """A margem tem que barrar sozinha, sem depender do limiar.
+
+        Duas assinaturas praticamente identicas pontuam altissimo as duas. Sem a
+        margem, o segundo passe escolheria no desempate por indice — ou seja,
+        daria um nome com confianca 1.000 numa disputa que era um cara ou coroa.
+        E o pior defeito possivel aqui: uma mentira que parece certeza.
+        """
+        boa = self.assinatura_sem_coroa(recortes).mascara
+        gemea = boa.copy()
+        assinaturas = [
+            Assinatura(nome="Korzis", mascara=boa),
+            Assinatura(nome="Kaus", mascara=gemea),
+        ]
+
+        pontos = _pontuar_com_ornamento(mascara_de_texto(recortes[0]), assinaturas)
+
+        # o cenario so vale se o LIMIAR tiver sido cumprido pelos dois: quem
+        # precisa barrar aqui e a MARGEM.
+        assert min(pontos) >= LIMIAR_DO_ORNAMENTO, f"pontos {pontos}"
+        assert max(pontos) - min(pontos) < MARGEM_DO_ORNAMENTO
+
+        res = identificar_linhas({0: recortes[0]}, assinaturas)
+
+        assert res[0].nome is None, (
+            f"escolheu {res[0].nome!r} entre duas assinaturas identicas — a "
+            f"margem de {MARGEM_DO_ORNAMENTO} tem que recusar o empate"
+        )
+
+    def test_com_o_recorte_sujo_o_lider_some_mas_nunca_vira_outro(
+        self, recortes, calibracao
+    ):
+        """O modo de falha certo e o silencio, nao o nome errado.
+
+        Cenario claro invadindo o recorte degrada o casamento do lider ate ele
+        cair. O que NAO pode acontecer, em nenhum nivel de ruido, e a linha
+        receber o nome de outra pessoa.
+        """
+        assinaturas = [self.assinatura_sem_coroa(recortes)] + list(
+            calibracao.assinaturas[1:]
+        )
+        gerador = np.random.default_rng(11)
+
+        for ruido in (5, 10, 20, 30, 60):
+            for _ in range(20):
+                sujo = recortes[0].copy()
+                ys = gerador.integers(0, sujo.shape[0], ruido)
+                xs = gerador.integers(0, sujo.shape[1], ruido)
+                sujo[ys, xs] = 255
+
+                res = identificar_linhas({**recortes, 0: sujo}, assinaturas)
+
+                assert res[0].nome in (None, "Korzis"), (
+                    f"com {ruido}px de ruido a linha do lider virou "
+                    f"{res[0].nome!r} — trocamos silencio por mentira"
+                )
 
 
 class TestPiscarDeReconhecimento:

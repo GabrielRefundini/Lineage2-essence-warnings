@@ -46,7 +46,7 @@ from .frames import Frame, SaudeDoFrame
 from .loot import Designacao, nick_para_o_aviso
 from .notificador import Categoria
 from .rastreador import Evento
-from .visao import Observacao, extrair
+from .visao import EstadoDaLinha, Observacao, extrair
 
 
 @dataclass
@@ -120,6 +120,18 @@ class Sessao:
         self.saude_anterior = None
         self.total_eventos = 0
         self.ticks_cego = 0
+        # Ha quantas leituras seguidas cada linha esta OCUPADA e SEM NOME.
+        #
+        # Existe porque a falha de identidade era estruturalmente invisivel. O
+        # scanner sempre soube contar cegueira de CAPTURA (`ticks_cego`) e
+        # reclamar dela, mas nunca soube contar "estou vendo a linha e nao faco
+        # ideia de quem esta nela". Em 2026-08-25 isso durou DUAS HORAS, e o
+        # usuario so descobriu por causa de alertas errados que vieram depois.
+        #
+        # Chaveado por linha, e nao um contador global, para que o aviso possa
+        # dizer QUAL linha — e para que a piscada de uma linha nao zere a conta
+        # de outra que esta parada de verdade.
+        self.ticks_sem_reconhecer: dict[int, int] = {}
         self.ultima_observacao: Observacao | None = None
 
     # -- despacho -----------------------------------------------------------
@@ -186,6 +198,7 @@ class Sessao:
             self.ticks_cego += 1
         else:
             self.ticks_cego = 0
+            self._contar_linhas_sem_nome(observacao)
 
         for evento in eventos:
             self.total_eventos += 1
@@ -194,6 +207,24 @@ class Sessao:
             self._despachar(texto_do_evento(evento), resultado=resultado)
 
         return resultado
+
+    def _contar_linhas_sem_nome(self, observacao: Observacao) -> None:
+        """Quanto tempo cada linha ocupada esta sem ser reconhecida.
+
+        So e chamado com a UI visivel. Cegueira CONGELA a conta, pela mesma
+        razao que congela todos os outros contadores do rastreador: nao dava
+        para ver, entao nao da para afirmar nada — nem que reconheceu, nem que
+        deixou de reconhecer.
+        """
+        for linha in observacao.linhas:
+            ocupada = linha.estado is EstadoDaLinha.COM_MEMBRO
+            if ocupada and linha.nome is None:
+                self.ticks_sem_reconhecer[linha.indice] = (
+                    self.ticks_sem_reconhecer.get(linha.indice, 0) + 1
+                )
+            else:
+                # Reconheceu, ou a linha esvaziou: a conta recomeca do zero.
+                self.ticks_sem_reconhecer.pop(linha.indice, None)
 
     def _processar_agenda(self, agora: datetime, resultado: ResultadoDoTick) -> None:
         """Fim de silêncio e avisos que venceram. Sempre categoria SEMPRE.
