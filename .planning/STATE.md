@@ -22,7 +22,7 @@ See: .planning/PROJECT.md (updated 2026-08-24)
 
 Phase: 4 de 4 — todas implementadas
 Status: Código completo, 338 testes. Nenhum bug conhecido em aberto. O que falta é VALIDAÇÃO EM CAMPO, não implementação: a última milha (morte real -> mensagem no WhatsApp na mesma sessão) e ver a agenda/silêncio funcionando num TvT de verdade. A cegueira recorrente teve a causa encontrada e tratada na Fase 5 (era manutenção do servidor).
-Last activity: 2026-08-25 — Quick 260825-bmw: calibrador para de anunciar imagem de conferência que não foi gravada
+Last activity: 2026-08-25 — Quick 260825-cou: controle de loot do Solo Boss pelo WhatsApp (`.loot-<nick>` e `.<nick>`)
 
 Progress: [██████████] 100% (7 de 7 fases)
 
@@ -133,6 +133,7 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 
 | Data | Tarefa | Resultado |
 |------|--------|-----------|
+| 2026-08-25 | [controle-de-loot-do-solo-boss](quick/260825-cou-controle-de-loot-do-solo-boss-via-comand/260825-cou-SUMMARY.md) | Controle de loot do Solo Boss pelo WhatsApp: `.loot-<nick>` designa quem pega o próximo loot (o aviso de antecedência sai com "Loot: X"), `.<nick>` responde quantos loots o char já pegou e o último horário, e o registro em `.loot/` é durável e à prova de duas instâncias. Consumo automático no horário do boss. |
 | 2026-08-25 | [calibrar-a-imagem-de-conferencia-nao-era](quick/260825-bmw-calibrar-a-imagem-de-conferencia-nao-era/260825-bmw-SUMMARY.md) | A imagem de conferência não era substituída quando o arquivo estava travado (visualizador de fotos aberto): `cv2.imwrite` retornava `False` em silêncio e o calibrador anunciava a imagem VELHA. Agora grava com outro nome, diz o caminho completo e o horário, e cala a legenda quando não gravou nada. |
 | 2026-08-24 | [modo-solo-explicito](quick/20260824-modo-solo-explicito/SUMMARY.md) | Modo solo: vigia só o próprio personagem e para de reclamar de party ausente. `--solo`, ou `.solo`/`.party` pelo WhatsApp. A agenda continua igual. |
 | 2026-08-24 | [comandos-so-do-meu-numero](quick/20260824-comandos-so-do-meu-numero/SUMMARY.md) | Comandos do WhatsApp travados por telefone (últimos 8 dígitos, por causa do nono dígito brasileiro) e por etiqueta do Chatwoot. Antes qualquer um da conversa mandava no scanner. |
