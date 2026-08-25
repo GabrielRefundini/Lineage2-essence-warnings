@@ -1,0 +1,435 @@
+"""O controle de loot do Solo Boss: registro duravel, consulta e designacao.
+
+A party reveza quem fica com o loot do Solo Boss, e hoje o revezamento e
+combinado de boca — ninguem lembra de quem e a vez nem quantos cada um ja
+pegou. Estes testes provam as tres propriedades que transformam isso em
+registro:
+
+1. **Atomicidade entre duas instancias.** O usuario roda Yazalaque e Faerlina
+   lado a lado, sobre a MESMA pasta. Quando o horario do boss passa, exatamente
+   uma instancia registra o loot — a outra cala. Sem isso, cada boss viraria
+   dois registros e a estatistica mentiria em dobro.
+
+2. **Durabilidade.** O registro e arquivo em disco, um por loot, e NUNCA e
+   podado — diferente dos marcadores do `.agenda/`, que somem em 3 dias.
+   Estatistica de loot e para sempre.
+
+3. **Leitura defensiva.** Um `proximo.json` meio-escrito (a outra instancia
+   morreu no meio do replace) nao pode derrubar o laco — vira None, nunca
+   excecao.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime
+
+from l2scanner.agenda import Aviso, EventoAgendado, TipoDeAviso
+from l2scanner.loot import (
+    Designacao,
+    RegistroDeLoot,
+    apelido,
+    descrever_momento,
+    eh_solo_boss,
+    exibir,
+    nick_para_o_aviso,
+    responder_consulta,
+    responder_designacao,
+)
+
+SEGUNDA = datetime(2026, 8, 25)
+
+
+def em(hora, minuto, dia=25):
+    return datetime(2026, 8, dia, hora, minuto)
+
+
+class TestRegistroAtomico:
+    def test_o_mesmo_loot_so_registra_uma_vez(self, tmp_path):
+        """Duas tentativas sobre o mesmo boss: a primeira vence, a segunda cala.
+
+        E o O_CREAT|O_EXCL fazendo o papel de lock — sem lock. Se as duas
+        devolvessem True, as duas instancias do usuario logariam o mesmo loot
+        e a contagem do `.j4guar` sairia dobrada.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        alvo = em(10, 0)
+
+        assert registro.registrar("J4guar", alvo) is True
+        assert registro.registrar("J4guar", alvo) is False
+
+        arquivos = [p.name for p in tmp_path.iterdir() if p.name.startswith("pegou_")]
+        assert len(arquivos) == 1
+
+    def test_bosses_diferentes_sao_registros_diferentes(self, tmp_path):
+        registro = RegistroDeLoot(tmp_path)
+        assert registro.registrar("J4guar", em(10, 0))
+        assert registro.registrar("J4guar", em(12, 0))
+        assert registro.resumo("J4guar")[0] == 2
+
+    def test_nome_malformado_na_pasta_e_pulado_sem_levantar(self, tmp_path):
+        """Um arquivo estranho na pasta nao pode derrubar a leitura.
+
+        A pasta e compartilhada e duravel; qualquer lixo que caia nela tem que
+        ser ignorado, nunca virar excecao no meio do farm.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        (tmp_path / "pegou_lixo").touch()
+        (tmp_path / "pegou_2026-99-99-9999_x").touch()
+        registro.registrar("Kaus", em(10, 0))
+
+        assert len(registro.registros()) == 1
+
+
+class TestCorridaDeDuasInstancias:
+    def test_exatamente_uma_instancia_consome(self, tmp_path):
+        """As duas instancias do usuario, mesma pasta, mesma designacao vencida.
+
+        Uma devolve a Designacao (e ela que loga); a outra devolve None. Um
+        unico `pegou_*` existe, e `proximo.json` sumiu nas duas visoes — o
+        aviso do boss seguinte nao pode herdar a designacao consumida.
+        """
+        a = RegistroDeLoot(tmp_path)
+        b = RegistroDeLoot(tmp_path)
+        alvo = em(10, 0)
+        a.designar("J4guar", alvo, em(9, 5))
+
+        resultados = [a.consumir(em(10, 0)), b.consumir(em(10, 0))]
+
+        vencedores = [r for r in resultados if r is not None]
+        assert len(vencedores) == 1
+        assert vencedores[0].alvo == alvo
+        pegou = [p for p in tmp_path.iterdir() if p.name.startswith("pegou_")]
+        assert len(pegou) == 1
+        assert a.designacao() is None
+        assert b.designacao() is None
+
+    def test_a_outra_instancia_ja_tinha_registrado(self, tmp_path):
+        """O pegou_* ja existe mas o proximo.json ficou para tras.
+
+        Acontece quando a outra instancia registrou e morreu antes de apagar o
+        json. O certo e limpar a designacao e calar — devolver a Designacao
+        aqui faria o loot ser logado duas vezes.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        alvo = em(10, 0)
+        registro.designar("J4guar", alvo, em(9, 5))
+        registro.registrar("J4guar", alvo)  # a outra instancia venceu
+
+        assert registro.consumir(em(10, 0)) is None
+        assert registro.designacao() is None
+
+    def test_falha_de_disco_MANTEM_a_designacao(self, tmp_path, monkeypatch):
+        """Disco falhou: nao registrou, entao nao pode apagar a designacao.
+
+        O `marcar` do RegistroEmDisco colapsa falha em True porque aviso
+        perdido e pior que duplicado. Aqui e o contrario — registro perdido em
+        silencio e estatistica errada para sempre. A designacao fica, e o
+        proximo tick tenta de novo.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        alvo = em(10, 0)
+        registro.designar("J4guar", alvo, em(9, 5))
+        monkeypatch.setattr(registro, "_criar", lambda nome: "falhou")
+
+        assert registro.consumir(em(10, 0)) is None
+        assert registro.designacao() is not None
+
+
+class TestConsumo:
+    def test_antes_do_alvo_nao_registra_nada(self, tmp_path):
+        registro = RegistroDeLoot(tmp_path)
+        registro.designar("J4guar", em(10, 0), em(9, 5))
+
+        assert registro.consumir(em(9, 59)) is None
+        assert registro.designacao() is not None
+        assert registro.registros() == []
+
+    def test_no_alvo_em_diante_registra_e_apaga(self, tmp_path):
+        registro = RegistroDeLoot(tmp_path)
+        registro.designar("J4guar", em(10, 0), em(9, 5))
+
+        consumida = registro.consumir(em(10, 0))
+
+        assert consumida is not None
+        assert consumida.nick == "J4guar"
+        assert registro.designacao() is None
+        assert registro.resumo("j4guar") == (1, em(10, 0))
+
+    def test_consumo_atrasado_registra_com_o_horario_do_boss(self, tmp_path):
+        """As duas instancias ficaram desligadas e so voltaram as 13:07.
+
+        O registro tem que dizer QUAL boss foi — o das 10:00 — e nao a hora em
+        que o scanner acordou. Senao o `.j4guar` responderia um horario em que
+        boss nenhum nasceu.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.designar("J4guar", em(10, 0), em(9, 5))
+
+        consumida = registro.consumir(em(13, 7))
+
+        assert consumida is not None
+        assert registro.resumo("J4guar") == (1, em(10, 0))
+
+    def test_sem_designacao_nao_faz_nada(self, tmp_path):
+        assert RegistroDeLoot(tmp_path).consumir(em(10, 0)) is None
+
+
+class TestResumo:
+    def test_conta_e_acha_o_ultimo_sem_ligar_para_maiuscula(self, tmp_path):
+        """`.J4GUAR` e `.j4guar` sao a mesma pessoa — o slug decide."""
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("j4guar", em(10, 0, dia=23))
+        registro.registrar("J4guar", em(14, 0, dia=24))
+        registro.registrar("j4guar", em(10, 0, dia=25))
+        registro.registrar("Kaus", em(12, 0, dia=25))
+
+        assert registro.resumo("J4GUAR") == (3, em(10, 0, dia=25))
+
+    def test_nick_sem_registro_e_zero(self, tmp_path):
+        assert RegistroDeLoot(tmp_path).resumo("TioMad") == (0, None)
+
+
+class TestNicksConhecidos:
+    def test_comeca_vazio(self, tmp_path):
+        assert RegistroDeLoot(tmp_path).nicks_conhecidos() == frozenset()
+
+    def test_designar_torna_o_nick_conhecido_para_sempre(self, tmp_path):
+        """E o portao do `.<nick>`: sem ele o scanner responderia a qualquer
+        `.palavra` do grupo. Designar uma vez basta — mesmo depois do consumo,
+        o marcador nick_* fica."""
+        registro = RegistroDeLoot(tmp_path)
+        registro.designar("J4guar", em(10, 0), em(9, 5))
+        assert "j4guar" in registro.nicks_conhecidos()
+
+        registro.consumir(em(10, 0))
+        assert "j4guar" in registro.nicks_conhecidos()
+
+    def test_registrar_direto_tambem_torna_conhecido(self, tmp_path):
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("Kaus", em(10, 0))
+        assert "kaus" in registro.nicks_conhecidos()
+
+
+class TestDesignacao:
+    def test_json_corrompido_vira_None_sem_levantar(self, tmp_path):
+        """Um arquivo meio-escrito nao pode derrubar o laco.
+
+        A outra instancia pode morrer no meio da escrita; o pior aceitavel e
+        perder a designacao, nunca perder o scanner.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        for lixo in ("nao e json", '{"nick": "J4g', '{"nick": 42}', "{}"):
+            (tmp_path / "proximo.json").write_text(lixo, encoding="utf-8")
+            assert registro.designacao() is None, lixo
+
+    def test_json_com_data_invalida_vira_None(self, tmp_path):
+        registro = RegistroDeLoot(tmp_path)
+        (tmp_path / "proximo.json").write_text(
+            json.dumps({"nick": "J4guar", "alvo": "ontem", "designado_em": "x"}),
+            encoding="utf-8",
+        )
+        assert registro.designacao() is None
+
+    def test_a_ultima_designacao_vence(self, tmp_path):
+        """Designar j4guar e depois kaus para o mesmo boss: vale o kaus.
+
+        A ultima palavra vence de proposito — e como a party corrige um
+        `.loot-` mandado errado, sem precisar de comando de desfazer.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        alvo = em(10, 0)
+        registro.designar("j4guar", alvo, em(9, 0))
+        registro.designar("kaus", alvo, em(9, 5))
+
+        atual = registro.designacao()
+        assert atual is not None
+        assert atual.nick == "kaus"
+        assert atual.alvo == alvo
+
+
+class TestNickParaOAviso:
+    def _aviso(self, evento="Solo Boss", tipo=TipoDeAviso.ANTES, alvo=None):
+        alvo = alvo or em(10, 0)
+        return Aviso(evento=evento, tipo=tipo, alvo=alvo, devido_em=em(9, 50))
+
+    def _designacao(self, alvo=None):
+        return Designacao(
+            nick="j4guar", alvo=alvo or em(10, 0), designado_em=em(9, 5)
+        )
+
+    def test_antecedencia_do_boss_designado_ganha_o_nome(self):
+        assert nick_para_o_aviso(self._aviso(), self._designacao()) == "J4guar"
+
+    def test_aviso_AGORA_nunca_ganha(self):
+        """So a antecedencia carrega o loot, por decisao do usuario."""
+        aviso = self._aviso(tipo=TipoDeAviso.AGORA)
+        assert nick_para_o_aviso(aviso, self._designacao()) is None
+
+    def test_TvT_nunca_ganha(self):
+        aviso = self._aviso(evento="TvT")
+        assert nick_para_o_aviso(aviso, self._designacao()) is None
+
+    def test_alvo_de_outra_ocorrencia_nao_vaza(self):
+        """A designacao das 10:00 nao pode aparecer no aviso do boss das 12:00.
+
+        E o que acontece quando ninguem consome a tempo: a comparacao de alvo
+        segura o nome no boss certo em vez de deixa-lo migrar.
+        """
+        aviso = self._aviso(alvo=em(12, 0))
+        assert nick_para_o_aviso(aviso, self._designacao(alvo=em(10, 0))) is None
+
+    def test_sem_designacao_nao_ha_nome(self):
+        assert nick_para_o_aviso(self._aviso(), None) is None
+
+
+class TestEhSoloBoss:
+    def test_as_grafias_que_o_usuario_pode_ter_no_config(self):
+        for nome in ("Solo Boss", "solo boss", "SoloBoss", "SOLO-BOSS", "solo_boss"):
+            assert eh_solo_boss(nome), nome
+
+    def test_outros_eventos_nao_sao(self):
+        for nome in ("TvT", "Prime", "Solo"):
+            assert not eh_solo_boss(nome), nome
+
+
+class TestNormalizacao:
+    def test_apelido_e_o_mesmo_idioma_de_slug_da_agenda(self):
+        assert apelido("J4guar") == "j4guar"
+        assert apelido("  Tio Mad  ") == "tio-mad"
+
+    def test_exibir_levanta_a_primeira_letra(self):
+        """O `.loot-j4guar` chega minusculo e a resposta nao pode parecer
+        descuidada."""
+        assert exibir("j4guar") == "J4guar"
+        assert exibir("kaus") == "Kaus"
+        assert exibir("") == ""
+
+
+class TestDescreverMomento:
+    def test_mesmo_dia(self):
+        assert descrever_momento(em(10, 0), em(13, 7)) == "hoje as 10:00"
+
+    def test_vespera(self):
+        assert descrever_momento(em(22, 0, dia=24), em(9, 0, dia=25)) == (
+            "ontem as 22:00"
+        )
+
+    def test_mais_antigo(self):
+        assert descrever_momento(em(14, 0, dia=23), em(9, 0, dia=25)) == (
+            "em 23/08 as 14:00"
+        )
+
+
+class TestResponderConsulta:
+    def test_com_varios_loots(self, tmp_path):
+        registro = RegistroDeLoot(tmp_path)
+        for dia, hora in ((23, 10), (23, 12), (23, 14), (24, 10), (24, 12), (24, 14)):
+            registro.registrar("J4guar", em(hora, 0, dia=dia))
+        registro.registrar("J4guar", em(10, 0, dia=25))
+
+        assert responder_consulta(registro, "j4guar", em(13, 7)) == (
+            "J4guar pegou 7 loots de Solo Boss. Ultimo: hoje as 10:00."
+        )
+
+    def test_um_loot_e_singular(self, tmp_path):
+        """"1 loots" na resposta pareceria bot quebrado."""
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("Kaus", em(10, 0))
+        resposta = responder_consulta(registro, "kaus", em(13, 7))
+        assert "pegou 1 loot de Solo Boss" in resposta
+        assert "loots" not in resposta
+
+    def test_sem_nenhum_loot(self, tmp_path):
+        assert responder_consulta(RegistroDeLoot(tmp_path), "j4guar", em(13, 7)) == (
+            "J4guar ainda nao pegou nenhum loot de Solo Boss."
+        )
+
+    def test_designado_corrente_ganha_o_lembrete(self, tmp_path):
+        """Quem consulta o proprio designado merece saber que a vez e dele."""
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("J4guar", em(10, 0))
+        registro.designar("J4guar", em(12, 0), em(10, 30))
+
+        resposta = responder_consulta(registro, "j4guar", em(10, 45))
+        assert resposta.endswith("O proximo e dele.")
+
+    def test_designado_de_outro_nick_nao_contamina(self, tmp_path):
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("J4guar", em(10, 0))
+        registro.designar("Kaus", em(12, 0), em(10, 30))
+
+        assert "proximo" not in responder_consulta(registro, "j4guar", em(10, 45))
+
+
+class TestResponderDesignacao:
+    SOLO = EventoAgendado(
+        nome="Solo Boss",
+        horarios=tuple((h, 0) for h in range(0, 24, 2)),
+        avisar_no_horario=False,
+    )
+
+    def test_designa_para_a_proxima_ocorrencia(self, tmp_path):
+        registro = RegistroDeLoot(tmp_path)
+
+        resposta = responder_designacao(
+            registro, [self.SOLO], em(9, 5), "j4guar"
+        )
+
+        assert resposta == "J4guar pega o loot do proximo Solo Boss, as 10:00."
+        atual = registro.designacao()
+        assert atual is not None
+        assert atual.alvo == em(10, 0)
+
+    def test_substituir_menciona_o_substituido(self, tmp_path):
+        """A troca de vez tem que ser visivel para quem perdeu a vez."""
+        registro = RegistroDeLoot(tmp_path)
+        responder_designacao(registro, [self.SOLO], em(9, 0), "kaus")
+
+        resposta = responder_designacao(registro, [self.SOLO], em(9, 5), "j4guar")
+
+        assert "(Era do Kaus.)" in resposta
+        assert registro.designacao().nick == "j4guar"
+
+    def test_designacao_velha_de_outro_boss_nao_e_mencionada(self, tmp_path):
+        """A designacao das 10:00 que ninguem consumiu nao 'era' de ninguem
+        para o boss das 12:00 — mencionar confundiria a party."""
+        registro = RegistroDeLoot(tmp_path)
+        registro.designar("kaus", em(10, 0), em(9, 0))
+
+        resposta = responder_designacao(registro, [self.SOLO], em(10, 30), "j4guar")
+
+        assert "Era do" not in resposta
+        assert registro.designacao().alvo == em(12, 0)
+
+    def test_o_mesmo_nick_de_novo_nao_menciona_nada(self, tmp_path):
+        registro = RegistroDeLoot(tmp_path)
+        responder_designacao(registro, [self.SOLO], em(9, 0), "j4guar")
+        resposta = responder_designacao(registro, [self.SOLO], em(9, 5), "j4guar")
+        assert "Era do" not in resposta
+
+    def test_agenda_sem_solo_boss_nao_grava_nada(self, tmp_path):
+        registro = RegistroDeLoot(tmp_path)
+        tvt = EventoAgendado(nome="TvT", horarios=((21, 50),))
+
+        resposta = responder_designacao(registro, [tvt], em(9, 5), "j4guar")
+
+        assert resposta == (
+            "Nao achei o Solo Boss na agenda do config.toml — "
+            "nao da para marcar o loot."
+        )
+        assert registro.designacao() is None
+        assert registro.nicks_conhecidos() == frozenset()
+
+    def test_solo_boss_sem_ocorrencia_futura_tambem_avisa(self, tmp_path):
+        """Evento existe mas nunca acontece (dias vazios): mesma mensagem de
+        erro, nada gravado — melhor que gravar uma designacao sem alvo."""
+        registro = RegistroDeLoot(tmp_path)
+        nunca = EventoAgendado(
+            nome="Solo Boss", horarios=((10, 0),), dias=frozenset()
+        )
+
+        resposta = responder_designacao(registro, [nunca], em(9, 5), "j4guar")
+
+        assert "Nao achei o Solo Boss" in resposta
+        assert registro.designacao() is None
