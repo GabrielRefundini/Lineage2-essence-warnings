@@ -445,6 +445,128 @@ def conferir_visualmente(cal: Calibracao, pixels: np.ndarray, ox: int, oy: int) 
     print("Se nao baterem, rode de novo com --selecionar.")
 
 
+def _conferencia_do_solo(cal: Calibracao, pixels: np.ndarray) -> None:
+    """Desenha a barra encontrada, para o usuario conferir antes de confiar.
+
+    O calibrador normal desenha a party window inteira; aqui so ha uma coisa
+    para mostrar. E ela precisa ser mostrada: a busca escolhe a barra MAIS A
+    ESQUERDA, e se o usuario tiver um alvo selecionado a barra dele tambem
+    qualifica. Um retangulo no lugar errado e obvio na imagem e invisivel no
+    JSON.
+    """
+    r = cal.hp_proprio
+    tela = pixels.copy()
+    cv2.rectangle(
+        tela,
+        (r.esquerda, r.topo),
+        (r.esquerda + r.largura, r.topo + r.altura),
+        (0, 255, 0),
+        2,
+    )
+    cv2.putText(
+        tela,
+        "SUA BARRA DE HP",
+        (r.esquerda, max(14, r.topo - 8)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.5,
+        (0, 255, 0),
+        1,
+    )
+    destino = RAIZ / "calibracao-conferencia.png"
+    cv2.imwrite(str(destino), tela)
+    print(f"  Imagem de conferencia: {destino.name}")
+
+
+def calibrar_so_a_propria_barra(titulo: str | None = None):
+    """Calibra SO a sua barra, para quem esta jogando sozinho.
+
+    O caminho normal deduz tudo a partir da party window: ela da a posicao, o
+    passo entre membros, o icone de classe. Sem party nao ha nada disso, e a
+    calibracao inteira desistia — inclusive a parte que so depende de VOCE.
+
+    Isso tornava o modo solo inutilizavel para quem precisasse recalibrar, que
+    e exatamente quem mais precisa dele: o usuario moveu a barra na UI, a
+    regiao gravada virou grama, e o unico jeito de consertar era arrumar uma
+    party emprestada.
+
+    O que sai daqui e uma calibracao PARCIAL e honesta sobre isso: barra
+    propria e nome, sem party window. O scanner roda com ela em `--solo`, e
+    quando o usuario voltar a jogar em grupo basta rodar o calibrar normal.
+    """
+    janelas = listar_janelas_do_jogo()
+    if titulo:
+        janelas = [j for j in janelas if j == titulo]
+    if not janelas:
+        print("  Nenhuma janela do jogo aberta.")
+        return None, None
+    if len(janelas) > 1:
+        print("  Ha mais de uma janela do jogo aberta:")
+        for j in janelas:
+            print(f'    --janela "{j}"')
+        print("  Diga qual e a sua com --janela.")
+        return None, None
+
+    alvo = janelas[0]
+    print(f"  Lendo a janela {alvo!r}...")
+    try:
+        hwnd = achar_janela(alvo)
+        ox, oy = origem_da_janela(hwnd)
+        fonte = JanelaSource(alvo, Regiao(ox, oy, 1, 1))
+    except Exception as erro:  # noqa: BLE001
+        print(f"  Nao consegui ler a janela: {erro}")
+        return None, None
+
+    try:
+        import time
+
+        time.sleep(0.3)  # a WGC empurra frames; dar tempo do primeiro chegar
+        pixels = fonte.capturar_completo()
+    finally:
+        fonte.fechar()
+
+    if pixels is None:
+        print("  Nenhum frame chegou da janela.")
+        return None, None
+
+    barra = achar_barra_do_proprio(pixels, (0, 0))
+    if barra is None:
+        print("  Nao achei a sua barra de HP nesta janela.")
+        print("  Ela esta visivel? A UI do jogo pode estar escondida (Alt+Z).")
+        return None, None
+
+    print(f"  Barra encontrada em ({barra.esquerda},{barra.topo}), "
+          f"{barra.largura}x{barra.altura}")
+
+    # PARTIMOS DA CALIBRACAO QUE JA EXISTE, e nao de valores inventados.
+    #
+    # Os limiares de cor foram medidos na tela DESTE usuario, sob o Gamma dele.
+    # Recriar do zero significaria chutar HSV, e o proprio projeto proibe isso:
+    # sob Gamma=1.16 os valores certos sao desconheciveis a priori. Aqui so
+    # trocamos o que o modo solo sabe: a janela, a barra e o nome.
+    if not ARQUIVO_CALIBRACAO.exists():
+        print()
+        print("  Nao existe calibracao anterior neste projeto.")
+        print("  O modo solo AJUSTA uma calibracao que ja existe — ele nao")
+        print("  consegue deduzir os limiares de cor sozinho, porque eles")
+        print("  dependem do Gamma da sua tela e saem da party window.")
+        print()
+        print("  Rode o calibrar.bat normal UMA vez, com party na tela.")
+        print("  Depois disso o --solo resolve sozinho para sempre.")
+        return None, None
+
+    cal = Calibracao.carregar(ARQUIVO_CALIBRACAO)
+    anterior = cal.hp_proprio
+    cal.janela = alvo
+    cal.hp_proprio = barra
+    if " - " in alvo:
+        cal.nome_proprio = alvo.split(" - ")[0].strip()
+
+    if anterior and (anterior.esquerda, anterior.topo) != (barra.esquerda, barra.topo):
+        print(f"  (antes estava em ({anterior.esquerda},{anterior.topo}) — "
+              f"voce moveu a barra)")
+    return cal, pixels
+
+
 def _tentar_pelas_janelas_do_jogo() -> Calibracao | None:
     """Procura a party window lendo cada janela do jogo por dentro.
 
@@ -511,6 +633,18 @@ def main() -> int:
         help="voce marca a party window com o mouse",
     )
     parser.add_argument(
+        "--solo",
+        action="store_true",
+        help=(
+            "calibra SO a sua barra, para quem joga sozinho. "
+            "Nao precisa de party na tela."
+        ),
+    )
+    parser.add_argument(
+        "--janela",
+        help="titulo da janela do jogo (quando ha mais de uma aberta)",
+    )
+    parser.add_argument(
         "--eu",
         help="nome do SEU personagem (se omitido, sai do titulo da janela)",
     )
@@ -524,6 +658,36 @@ def main() -> int:
     if _MODO_DPI.startswith("FALHOU"):
         print("AVISO: nao consegui declarar consciencia de DPI.")
         print("Se a escala da sua tela nao for 100%, as coordenadas sairao erradas.\n")
+
+    if args.solo:
+        print("Modo solo: procurando so a SUA barra de HP.")
+        print()
+        cal, pixels_da_janela = calibrar_so_a_propria_barra(args.janela)
+        if cal is None:
+            print()
+            print("Calibracao solo nao concluida.")
+            return 1
+        if args.eu:
+            cal.nome_proprio = args.eu.strip()
+        cal.salvar(ARQUIVO_CALIBRACAO)
+        print()
+        print(f"Gravado em {ARQUIVO_CALIBRACAO}")
+        print(f"  personagem : {cal.nome_proprio}")
+        print(f"  barra de HP: {cal.hp_proprio}")
+        print()
+        try:
+            _conferencia_do_solo(cal, pixels_da_janela)
+        except Exception as erro:  # noqa: BLE001
+            print(f"  (nao consegui gerar a imagem de conferencia: {erro})")
+        print()
+        print("CONFIRA a imagem calibracao-conferencia.png antes de confiar.")
+        print("Se o retangulo nao estiver na SUA barra, a busca pegou a barra")
+        print("do alvo selecionado — deixe o alvo em branco e rode de novo.")
+        print()
+        print("A party window da calibracao anterior foi mantida.")
+        print("Rode o scanner com --solo. Quando voltar a jogar em grupo,")
+        print("rode calibrar.bat normal com a party na tela.")
+        return 0
 
     print("Capturando a tela...")
     pixels, ox, oy = capturar_tela()
