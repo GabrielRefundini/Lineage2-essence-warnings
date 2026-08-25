@@ -38,7 +38,7 @@ Progress: [██████████] 100% (7 de 7 fases)
 | 6 | Agenda de TvT e Prime, rodando sem o jogo aberto | ✓ verificado ao vivo com o cliente fechado |
 | 7 | Silêncio durante o evento, com união de janelas | ✓ simulado minuto a minuto de 19:45 a 22:10 |
 
-**335 testes passando**, todos sem precisar do jogo aberto ou de rede.
+**379 testes passando**, todos sem precisar do jogo aberto ou de rede.
 
 ## Calibração real medida (2026-08-24)
 
@@ -75,6 +75,11 @@ Entrada de membro, você-em-party, cliente caído e silêncio — todos exigiram
 terceiro estado registrando ter observado o mundo no estado oposto.
 
 ### Decisões
+
+- [solo]: **O portão de cegueira fala da PARTY WINDOW, não de você.** Deixá-lo bloquear a avaliação da própria barra confundia "não vejo a party" com "não vejo você" — e upando solo o scanner ficava cego permanentemente. Medido: 30 frames com HP próprio em ZERO produziam ZERO eventos.
+- [solo]: **O discriminador de barra legível é CONTRASTE, nunca saturação.** A parte vazia da barra é transparente e mostra o terreno, então uma barra quase vazia tem saturação baixa. Usar saturação faria o scanner declarar "não consigo ler" exatamente no frame em que o usuário morre. Medido: desvio 38,6 na barra real contra 0,00 num recorte preto.
+- [agenda]: **`avisar_no_horario` existe por causa do volume.** Solo Boss são 12 ocorrências/dia; com dois avisos cada seriam 24 mensagens, três vezes o volume de TvT e Prime somados. Um teste trava o total diário em 20.
+- [whatsapp]: **A ponte Baileys→Chatwoot não ingere mensagens de grupo.** Medido duas vezes: 0 incoming em 20 mensagens, com o usuário confirmando ter mandado. É configuração de servidor. `check_whatsapp.py entrada` diagnostica e diz onde mexer.
 
 - [v2]: **O relógio é uma segunda fonte de eventos, e entra pelo mesmo seam da tela.** A agenda despacha pelo `Despachante`, nunca chamando `enviar()` direto. É a regra 6 do roadmap v1 aplicada à segunda fonte — se a agenda furar o seam, o silenciamento fica impossível de acrescentar depois.
 - [v2]: **O silenciamento vive no TRANSPORTE, não na detecção.** Silenciar na detecção corromperia o estado (quem morre e ressuscita durante o silêncio precisa sair do outro lado com o estado certo) e apagaria o log, que é a única ferramenta de depuração pós-farm do projeto.
