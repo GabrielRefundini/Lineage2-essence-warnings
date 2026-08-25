@@ -217,6 +217,63 @@ class TestInterpretarDinamico:
             conhecidos = frozenset({palavra})
             assert interpretar_dinamico(f".{palavra}", conhecidos) is None, palavra
 
+    def test_corrigir_com_hifen_corrige(self):
+        assert interpretar_dinamico(".corrigir-kaus", frozenset()) == (
+            Comando.LOOT_CORRIGIR,
+            "kaus",
+        )
+
+    def test_corrigir_em_duas_palavras_faz_a_MESMA_coisa(self):
+        """A porta dos fundos que o `.loot cancelar` ja abriu uma vez.
+
+        Tratar so o ramo do hifen deixaria `.corrigir kaus` morrer em silencio
+        — e quem digitou acharia que corrigiu. Foi exatamente esse o bug da
+        tarefa anterior, onde `.loot cancelar` DESIGNAVA um personagem
+        chamado "cancelar".
+        """
+        assert interpretar_dinamico(".corrigir kaus", frozenset()) == (
+            Comando.LOOT_CORRIGIR,
+            "kaus",
+        )
+
+    def test_corrigir_e_case_insensitive_mas_o_nick_e_preservado(self):
+        assert interpretar_dinamico(".CORRIGIR-Kaus", frozenset()) == (
+            Comando.LOOT_CORRIGIR,
+            "Kaus",
+        )
+
+    def test_corrigir_SOZINHO_nao_faz_nada(self):
+        """Comando sem argumento nao pode reescrever historico.
+
+        E o `return None` explicito do ramo tambem e o que impede `.corrigir`
+        de escorregar para o ramo de consulta logo abaixo, onde
+        `_NICK_VALIDO` casa a palavra "corrigir" como se fosse um nick.
+        """
+        assert interpretar_dinamico(".corrigir", frozenset()) is None
+
+    def test_corrigir_nao_vira_consulta_nem_com_nick_homonimo(self):
+        """A prova direta de que a porta fica fechada: mesmo existindo um
+        personagem chamado "Corrigir", o comando nao vira consulta dele."""
+        assert interpretar_dinamico(".corrigir", frozenset({"corrigir"})) is None
+
+    def test_nick_invalido_nao_corrige(self):
+        """O mesmo `_NICK_VALIDO` dos outros comandos, sem excecao."""
+        for texto in (".corrigir-a", ".corrigir-j4;rm", ".corrigir a", ".corrigir-"):
+            assert interpretar_dinamico(texto, frozenset()) is None, texto
+
+    def test_o_comando_novo_nao_deslocou_os_ramos_de_loot(self):
+        """Regressao: `.corrigir` entrou entre o ramo do `.loot` e o da
+        consulta, e nenhum dos dois pode ter mudado de comportamento."""
+        assert interpretar_dinamico(".loot-j4guar", frozenset()) == (
+            Comando.LOOT_DESIGNAR,
+            "j4guar",
+        )
+        assert interpretar_dinamico(".loot-", frozenset()) == (
+            Comando.LOOT_CANCELAR,
+            "",
+        )
+        assert interpretar_dinamico(".loot", frozenset()) is None
+
     def test_sem_prefixo_nao_e_nada(self):
         assert interpretar_dinamico("j4guar", frozenset({"j4guar"})) is None
         assert interpretar_dinamico("loot j4guar", frozenset()) is None

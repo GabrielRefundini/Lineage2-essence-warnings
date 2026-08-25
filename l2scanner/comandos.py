@@ -285,6 +285,18 @@ def interpretar_dinamico(
         if _NICK_VALIDO.fullmatch(nick):
             return (Comando.LOOT_CORRIGIR, nick)
         return None
+    if crua.lower() == "corrigir":
+        if len(palavras) > 1 and _NICK_VALIDO.fullmatch(palavras[1]):
+            return (Comando.LOOT_CORRIGIR, palavras[1])
+        # O `return None` NAO e redundancia: sem ele o fluxo cai no ramo de
+        # consulta logo abaixo, onde `_NICK_VALIDO` casa a palavra "corrigir"
+        # e um nick homonimo transformaria o comando numa consulta.
+        #
+        # E este ramo inteiro existe porque tratar SO o hifen foi exatamente o
+        # erro que fez `.loot cancelar` DESIGNAR um personagem chamado
+        # "cancelar" na tarefa anterior. A forma de duas palavras nunca e
+        # opcional num comando que mexe em estado duravel.
+        return None
 
     # `.{nick}` sozinho: o portao por nick conhecido e decisao do usuario —
     # sem ele o scanner responderia a qualquer `.palavra` do grupo.
