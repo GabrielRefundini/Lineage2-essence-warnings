@@ -390,8 +390,23 @@ class Rastreador:
                     )
                 )
 
-            # Cego: NAO mexe nos contadores. Congelar, nao zerar — uma morte
-            # iniciada logo antes do alt-tab sobrevive a pausa.
+            # SOLO, OU PARTY WINDOW COBERTA: a SUA barra pode continuar
+            # perfeitamente legivel mesmo sem party window nenhuma.
+            #
+            # O portao de cegueira fala da PARTY WINDOW. Deixa-lo bloquear a
+            # avaliacao da sua propria barra confunde "nao vejo a party" com
+            # "nao vejo voce" — e o resultado media era o pior possivel: upando
+            # solo, o scanner ficava CEGO permanentemente e a sua morte nunca
+            # era detectada. Medido: 30 frames com o HP proprio em ZERO
+            # produziam ZERO eventos.
+            #
+            # Isso vale tambem com o inventario aberto por cima da party
+            # window: se a sua barra continua visivel, morrer continua sendo
+            # detectavel.
+            eventos.extend(self._avaliar_so_o_proprio(obs, agora))
+
+            # Cego para o RESTO: nao mexe nos contadores dos outros. Congelar,
+            # nao zerar — uma morte iniciada logo antes do alt-tab sobrevive.
             return eventos
 
         # --- Visao presente ---
@@ -594,6 +609,87 @@ class Rastreador:
                             membro=self.nome_proprio,
                         )
                     ]
+
+        return []
+
+    def _avaliar_so_o_proprio(self, obs: Observacao, agora: float) -> list[Evento]:
+        """Morte e ressurreicao SUAS, sem depender da party window.
+
+        E o caminho de quem esta upando SOLO — e exatamente quem mais precisa,
+        porque em party alguem nota que voce caiu, e sozinho ninguem nota.
+
+        `hp_proprio` so chega aqui como numero quando a barra e LEGIVEL: a
+        `visao` devolve None para recorte degenerado. Sem essa garantia isto
+        seria uma maquina de anunciar a morte de quem esta vivo toda vez que a
+        captura falhasse — o mesmo defeito que produziu o falso "Yazalaque nao
+        esta mais na party" as 18:19.
+
+        Mesmo debounce e mesma histerese assimetrica dos outros membros: nao ha
+        motivo para a sua morte ser julgada com criterio diferente.
+        """
+        if obs.hp_proprio is None or not self.nome_proprio:
+            return []
+
+        chave = f"@{self.nome_proprio}"
+        interno = self._membros.setdefault(chave, _EstadoInterno())
+        self._rotulo[chave] = self.nome_proprio
+        interno.hp_visto = obs.hp_proprio
+
+        morto_agora = obs.hp_proprio <= self.ajustes.fracao_hp_considerada_zero
+
+        if interno.estado is EstadoDoMembro.DESCONHECIDO:
+            # Aquecimento: so passa a valer depois de algumas leituras seguidas,
+            # para o primeiro frame do arranque nao virar veredito.
+            interno.contador_entrada += 1
+            if interno.contador_entrada < self.ajustes.confirmacoes_para_entrada:
+                return []
+            interno.estado = (
+                EstadoDoMembro.MORTO if morto_agora else EstadoDoMembro.VIVO
+            )
+            interno.desde = agora
+            interno.contador_entrada = 0
+            return []
+
+        if interno.estado is EstadoDoMembro.VIVO:
+            interno.contador_ressurreicao = 0
+            if not morto_agora:
+                interno.contador_morte = 0
+                return []
+            interno.contador_morte += 1
+            if interno.contador_morte < self.ajustes.confirmacoes_para_morte:
+                return []
+            interno.estado = EstadoDoMembro.MORTO
+            interno.desde = agora
+            interno.contador_morte = 0
+            return [
+                Evento(
+                    tipo=TipoDeEvento.MORREU, momento=agora, membro=self.nome_proprio
+                )
+            ]
+
+        if interno.estado is EstadoDoMembro.MORTO:
+            interno.contador_morte = 0
+            if morto_agora:
+                interno.contador_ressurreicao = 0
+                return []
+            interno.contador_ressurreicao += 1
+            if (
+                interno.contador_ressurreicao
+                < self.ajustes.confirmacoes_para_ressurreicao
+            ):
+                return []
+            tempo_morto = agora - interno.desde
+            interno.estado = EstadoDoMembro.VIVO
+            interno.desde = agora
+            interno.contador_ressurreicao = 0
+            return [
+                Evento(
+                    tipo=TipoDeEvento.RESSUSCITOU,
+                    momento=agora,
+                    membro=self.nome_proprio,
+                    segundos_no_estado=tempo_morto,
+                )
+            ]
 
         return []
 

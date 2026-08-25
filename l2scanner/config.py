@@ -184,6 +184,12 @@ def _evento_de_dict(bruto: dict, indice: int) -> EventoAgendado:
             f"{onde}: 'avisar_minutos_antes' precisa ser um numero inteiro >= 0."
         )
 
+    no_horario = bruto.get("avisar_no_horario", True)
+    if not isinstance(no_horario, bool):
+        raise AgendaInvalida(
+            f"{onde}: 'avisar_no_horario' precisa ser true ou false."
+        )
+
     silenciar = bruto.get("silenciar_minutos", 0)
     if not isinstance(silenciar, int) or silenciar < 0:
         raise AgendaInvalida(
@@ -195,5 +201,6 @@ def _evento_de_dict(bruto: dict, indice: int) -> EventoAgendado:
         horarios=tuple(horarios),
         dias=frozenset(dias),
         avisar_minutos_antes=antes,
+        avisar_no_horario=no_horario,
         silenciar_minutos=silenciar,
     )

@@ -277,8 +277,8 @@ class TestAgendaRealDoUsuario:
         return ler_agenda(raiz / "config.toml")
 
     def test_o_arquivo_do_repositorio_e_valido(self, agenda):
-        assert len(agenda) == 2
-        assert {e.nome for e in agenda} == {"TvT", "Prime"}
+        assert len(agenda) == 3
+        assert {e.nome for e in agenda} == {"TvT", "Prime", "Solo Boss"}
 
     def test_tvt_tem_os_tres_horarios_todo_dia(self, agenda):
         tvt = next(e for e in agenda if e.nome == "TvT")
@@ -300,22 +300,32 @@ class TestAgendaRealDoUsuario:
         assert por_nome["TvT"].silenciar_minutos == 15
         assert por_nome["Prime"].silenciar_minutos == 120
 
-    def test_um_dia_inteiro_produz_exatamente_os_avisos_esperados(self, agenda):
-        """Varre uma segunda-feira minuto a minuto.
-
-        Segunda tem TvT (3 horarios) e Prime (1), dois avisos cada = 8.
-        """
+    def _varrer_um_dia(self, agenda, dia):
+        """Todos os avisos de um dia, minuto a minuto."""
         from datetime import timedelta
 
         enviados: set[str] = set()
         saidas = []
-        instante = SEGUNDA
+        instante = dia
         for _ in range(24 * 60):
             for aviso in avisos_devidos(instante, agenda, enviados):
                 enviados.add(aviso.chave)
-                saidas.append((aviso.evento, aviso.tipo, aviso.devido_em.strftime("%H:%M")))
+                saidas.append(
+                    (aviso.evento, aviso.tipo, aviso.devido_em.strftime("%H:%M"))
+                )
             instante += timedelta(minutes=1)
+        return saidas
 
+    def test_tvt_e_prime_numa_segunda_saem_na_ordem_e_hora_certas(self, agenda):
+        """Varre a segunda inteira e confere a sequencia de TvT e Prime.
+
+        Filtrado por evento de proposito: um evento NOVO no config.toml nao
+        deve quebrar a asserção sobre os que ja existiam.
+        """
+        saidas = [
+            s for s in self._varrer_um_dia(agenda, SEGUNDA)
+            if s[0] in ("TvT", "Prime")
+        ]
         assert saidas == [
             ("TvT", TipoDeAviso.ANTES, "14:50"),
             ("TvT", TipoDeAviso.AGORA, "15:00"),
@@ -326,6 +336,31 @@ class TestAgendaRealDoUsuario:
             ("TvT", TipoDeAviso.ANTES, "21:40"),
             ("TvT", TipoDeAviso.AGORA, "21:50"),
         ]
+
+    def test_solo_boss_avisa_de_duas_em_duas_horas_so_com_antecedencia(self, agenda):
+        """12 ocorrencias em horario par, UM aviso cada.
+
+        Com dois avisos cada seriam 24 mensagens por dia — tres vezes o volume
+        de TvT e Prime somados. Por isso `avisar_no_horario = false`.
+        """
+        saidas = [
+            s for s in self._varrer_um_dia(agenda, SEGUNDA) if s[0] == "Solo Boss"
+        ]
+        assert len(saidas) == 12
+        assert all(tipo is TipoDeAviso.ANTES for _, tipo, _ in saidas), (
+            "algum aviso saiu no horario; avisar_no_horario deveria estar false"
+        )
+        assert [hora for _, _, hora in saidas] == [
+            f"{h:02d}:50" for h in list(range(1, 24, 2))
+        ]
+
+    def test_o_volume_diario_total_e_o_esperado(self, agenda):
+        """20 mensagens por dia. Se subir, alguem mexeu no config sem pensar.
+
+        O grupo do WhatsApp e de pessoas, nao um feed. Este teste existe para
+        um evento novo nao dobrar o volume sem ninguem perceber.
+        """
+        assert len(self._varrer_um_dia(agenda, SEGUNDA)) == 20
 
     def test_no_sabado_o_prime_nao_aparece(self, agenda):
         from datetime import timedelta
@@ -340,8 +375,8 @@ class TestAgendaRealDoUsuario:
                 nomes.append(aviso.evento)
             instante += timedelta(minutes=1)
 
-        assert set(nomes) == {"TvT"}
-        assert len(nomes) == 6, "3 horarios de TvT x 2 avisos"
+        assert "Prime" not in nomes
+        assert nomes.count("TvT") == 6, "3 horarios de TvT x 2 avisos"
 
     def test_mudar_a_antecedencia_nao_exige_tocar_em_codigo(self, tmp_path):
         """AGEN-04: uma atualizacao do jogo nao pode custar um commit."""
@@ -454,8 +489,8 @@ class TestRegistroEmDisco:
 
         todos = enviados_por["A"] + enviados_por["B"]
         assert len(todos) == len(set(todos)), "houve aviso duplicado"
-        # Segunda: 8 avisos. Terca: 8. Nenhum a mais, nenhum a menos.
-        assert len(todos) == 16
+        # 20 avisos por dia (TvT 6 + Prime 2 + Solo Boss 12), dois dias.
+        assert len(todos) == 40
 
     def test_poda_apaga_o_velho_e_preserva_o_de_hoje(self, tmp_path):
         from datetime import date as _date
@@ -519,7 +554,7 @@ class TestModoAgendaSemJogo:
 
     def test_o_aviso_de_teste_nomeia_um_evento_da_agenda_real(self):
         r = self._rodar("--testar-agenda", "--dry-run")
-        assert "TvT" in r.stdout or "Prime" in r.stdout
+        assert any(n in r.stdout for n in ("TvT", "Prime", "Solo Boss"))
 
     def test_as_flags_novas_existem(self):
         r = self._rodar("--help")

@@ -172,6 +172,37 @@ def _tem_contraste_de_icone(
     )
 
 
+# Desvio minimo de cinza para um recorte da barra propria valer como LEGIVEL.
+#
+# Medido nas fixtures reais da barra do usuario: desvio 38,6. Um recorte preto
+# ou uniforme (captura falhando, janela minimizada, jogo entre telas) da 0,00.
+# A margem e enorme, entao o piso fica bem baixo de proposito — ele so precisa
+# rejeitar o degenerado, nunca uma barra de verdade.
+#
+# CONTRASTE, e nao saturacao. Saturacao seria tentador (barra cheia da S~200),
+# mas a parte VAZIA da barra e transparente e mostra o terreno — uma barra
+# quase vazia tem saturacao baixa. Usar saturacao faria o scanner declarar
+# "nao consigo ler" exatamente no frame em que voce esta morrendo.
+DESVIO_MINIMO_DA_BARRA_PROPRIA = 3.0
+
+
+def barra_propria_legivel(recorte: np.ndarray | None) -> bool:
+    """O recorte da sua barra e uma barra, ou e lixo?
+
+    `medir_barra` devolve 0.0 tanto para "HP zerado" quanto para um recorte
+    preto, e essa confusao ja produziu um alarme falso de verdade: as 18:19 de
+    2026-08-24 o scanner anunciou "Yazalaque nao esta mais na party" porque
+    noventa segundos de captura ilegivel leram como "minha barra esta la a 0%".
+
+    Uma barra de verdade tem ESTRUTURA — moldura, borda, terreno atras da parte
+    vazia — cheia ou vazia. Lixo nao tem.
+    """
+    if recorte is None or recorte.size == 0:
+        return False
+    cinza = cv2.cvtColor(recorte, cv2.COLOR_BGR2GRAY)
+    return float(cinza.std()) >= DESVIO_MINIMO_DA_BARRA_PROPRIA
+
+
 def _bordas_da_barra_intactas(
     pixels: np.ndarray, layout, barra_x: int, barra_y: int, brilho_max: float
 ) -> bool:
@@ -376,7 +407,10 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
     # justamente quem esta AFK sem ninguem olhando — nunca seria detectada.
     hp_proprio = None
     recorte_proprio = frame.extras.get("hp_proprio")
-    if recorte_proprio is not None and recorte_proprio.size:
+    # `None` quando o recorte nao e uma barra legivel — nunca 0.0. Confundir os
+    # dois faz o scanner anunciar morte de quem esta vivo, ou "voce saiu da
+    # party" a partir de uma tela preta.
+    if barra_propria_legivel(recorte_proprio):
         regiao_inteira = Regiao(
             esquerda=0,
             topo=0,

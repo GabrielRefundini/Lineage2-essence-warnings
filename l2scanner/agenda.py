@@ -81,6 +81,14 @@ class EventoAgendado:
     dias: frozenset[int] = TODOS_OS_DIAS
     avisar_minutos_antes: int = 10
 
+    # Mandar tambem o aviso NO horario, alem do de antecedencia.
+    #
+    # Existe porque nem todo evento merece dois avisos. Um Solo Boss de duas em
+    # duas horas sao 12 ocorrencias por dia; com dois avisos cada, viram 24
+    # mensagens no grupo — mais do que TvT e Prime somados, tres vezes. Para
+    # esses, o lembrete de antecedencia basta: quem ia, ja se preparou.
+    avisar_no_horario: bool = True
+
     # Quanto tempo o scanner deve calar depois que o evento comeca. Lido aqui e
     # IGNORADO nesta fase — quem usa e a Fase 7. Mora no esquema desde ja para
     # o usuario nao ter que editar a mao um arquivo que ja editou.
@@ -155,6 +163,8 @@ def avisos_devidos(
                     (TipoDeAviso.AGORA, alvo),
                 ]
                 for tipo, devido_em in candidatos:
+                    if tipo is TipoDeAviso.AGORA and not evento.avisar_no_horario:
+                        continue
                     if evento.avisar_minutos_antes <= 0 and tipo is TipoDeAviso.ANTES:
                         # Antecedencia zero: o aviso "antes" coincidiria com o
                         # "agora" e a party receberia a mesma coisa duas vezes.

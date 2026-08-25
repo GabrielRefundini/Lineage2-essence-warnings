@@ -33,3 +33,23 @@ avisar_minutos_antes = 10
 # Duas horas. De segunda a quinta esta janela engole o TvT das 21:50, cuja
 # propria janela vai ate 22:05 — o silencio termina as 22:05, nao as 22:00.
 silenciar_minutos = 120
+
+# Solo Boss nasce de duas em duas horas, sempre em horario par.
+#
+# So o aviso de ANTECEDENCIA (avisar_no_horario = false). Sao 12 ocorrencias
+# por dia; com dois avisos cada seriam 24 mensagens no grupo, tres vezes o
+# volume de TvT e Prime somados. Se quiser os dois avisos, troque para true.
+#
+# Nao silencia nada: boss solo nao enche a party de mortes como um TvT.
+#
+# Se os avisos de madrugada incomodarem, e so apagar os horarios da lista —
+# nada mais precisa mudar.
+[[evento]]
+nome = "Solo Boss"
+horarios = [
+  "00:00", "02:00", "04:00", "06:00", "08:00", "10:00",
+  "12:00", "14:00", "16:00", "18:00", "20:00", "22:00",
+]
+avisar_minutos_antes = 10
+avisar_no_horario = false
+silenciar_minutos = 0
