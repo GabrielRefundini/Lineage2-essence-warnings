@@ -384,13 +384,31 @@ def atender_comandos(
 
         if pedido.comando is Comando.CANCELAR_SILENCIO:
             resposta = _obedecer_cancelar(registro, eventos_agendados, agora, quem)
+            # CANCELAR muda o que o GRUPO recebe: todo mundo tinha parado de
+            # ser avisado por causa daquele silencio. Quem pediu merece a
+            # confirmacao, e o grupo precisa saber que voltou.
+            avisar_o_grupo = True
         elif pedido.comando is Comando.STATUS:
             resposta = _obedecer_status(registro, eventos_agendados, agora)
+            # STATUS e pergunta pessoal. Ecoar no grupo seria ruido para quem
+            # nao perguntou nada.
+            avisar_o_grupo = False
         else:
             continue
 
         log.info(destacar(resposta))
-        if despachante:
+        if not despachante:
+            continue
+
+        # RESPONDE ONDE PERGUNTARAM. Sem isto, um `.status` mandado no privado
+        # era respondido no grupo — medido ao vivo: pergunta as 23:04:42 na
+        # conversa 1, resposta as 23:04:52 na 13, e o usuario achou que nao
+        # tinha funcionado.
+        if pedido.conversa:
+            despachante.despachar(resposta, Categoria.SEMPRE, pedido.conversa)
+            if avisar_o_grupo:
+                despachante.despachar(resposta, Categoria.SEMPRE)
+        else:
             despachante.despachar(resposta, Categoria.SEMPRE)
 
 

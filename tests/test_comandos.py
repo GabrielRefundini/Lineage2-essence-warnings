@@ -388,3 +388,75 @@ class TestAtenderComandosNaCostura:
             assert "time.monotonic()" in chamada.group(1), (
                 f"{nome} nao passa o relogio monotonico para a cadencia"
             )
+
+
+class TestRespondeOndePerguntaram:
+    """Medido ao vivo: pergunta as 23:04:42 na conversa 1 (privado), resposta
+    as 23:04:52 na conversa 13 (grupo). Funcionou — no lugar errado, e o
+    usuario concluiu que nao tinha funcionado.
+
+    O `Despachante` so sabia mandar para os destinos de AVISO. Ninguem
+    respondia onde a pergunta chegou.
+    """
+
+    def _atender(self, tmp_path, texto, conversa="1"):
+        import time
+        from datetime import datetime
+
+        from l2scanner.__main__ import atender_comandos
+        from l2scanner.agenda import EventoAgendado, RegistroEmDisco
+        from l2scanner.notificador import Despachante, NotificadorEmMemoria
+
+        class LeitorFalso:
+            ativo = True
+            telefones: list[str] = []
+
+            def ler(self, _):
+                return [
+                    {
+                        "id": 4242,
+                        "content": texto,
+                        "message_type": 0,
+                        "private": False,
+                        "sender": {"name": "Yazalaque"},
+                        "conversation_id": conversa,
+                    }
+                ]
+
+        notificador = NotificadorEmMemoria()
+        despachante = Despachante(notificador)
+        eventos = [
+            EventoAgendado(nome="Prime", horarios=((20, 0),), silenciar_minutos=120)
+        ]
+        atender_comandos(
+            LeitorFalso(),
+            RegistroEmDisco(tmp_path),
+            eventos,
+            despachante,
+            datetime(2026, 8, 24, 20, 30),
+            time.monotonic(),
+        )
+        despachante.iniciar()
+        despachante.encerrar()
+        return notificador.destinos
+
+    def test_status_responde_no_privado_e_NAO_no_grupo(self, tmp_path):
+        destinos = self._atender(tmp_path, ".status", conversa="1")
+        assert destinos, "nao respondeu nada"
+        alvos = [alvo for _, alvo in destinos]
+        assert alvos == ["1"], (
+            f"status deveria responder so na conversa 1; foi para {alvos}"
+        )
+
+    def test_cancelar_responde_no_privado_E_avisa_o_grupo(self, tmp_path):
+        """Cancelar muda o que o GRUPO recebe — todo mundo tinha parado de ser
+        avisado por causa daquele silencio."""
+        destinos = self._atender(tmp_path, ".cancelar", conversa="1")
+        alvos = [alvo for _, alvo in destinos]
+        assert "1" in alvos, "quem pediu nao recebeu confirmacao"
+        assert None in alvos, "o grupo nao foi avisado de que o silencio caiu"
+
+    def test_sem_origem_conhecida_cai_no_grupo(self, tmp_path):
+        """Compatibilidade: melhor responder em algum lugar do que em nenhum."""
+        destinos = self._atender(tmp_path, ".status", conversa=None)
+        assert [alvo for _, alvo in destinos] == [None]

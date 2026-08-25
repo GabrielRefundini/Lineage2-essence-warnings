@@ -192,7 +192,7 @@ def _duracao_legivel(segundos: float) -> str:
 class Notificador(Protocol):
     """Para onde os alertas vao. Trocar o adaptador e o modo simulacao."""
 
-    def enviar(self, texto: str) -> None: ...
+    def enviar(self, texto: str, conversa_alvo: str | None = None) -> None: ...
 
 
 class NotificadorDeConsole:
@@ -201,8 +201,9 @@ class NotificadorDeConsole:
     def __init__(self, escrever=print) -> None:
         self._escrever = escrever
 
-    def enviar(self, texto: str) -> None:
-        self._escrever(f"  [simulacao] {texto}")
+    def enviar(self, texto: str, conversa_alvo: str | None = None) -> None:
+        destino = f" -> conversa {conversa_alvo}" if conversa_alvo else ""
+        self._escrever(f"  [simulacao{destino}] {texto}")
 
 
 class NotificadorEmMemoria:
@@ -210,9 +211,12 @@ class NotificadorEmMemoria:
 
     def __init__(self) -> None:
         self.enviados: list[str] = []
+        # (texto, conversa_alvo), para os testes que verificam ONDE saiu.
+        self.destinos: list[tuple[str, str | None]] = []
 
-    def enviar(self, texto: str) -> None:
+    def enviar(self, texto: str, conversa_alvo: str | None = None) -> None:
         self.enviados.append(texto)
+        self.destinos.append((texto, conversa_alvo))
 
 
 @dataclass
@@ -248,9 +252,15 @@ class NotificadorChatwoot:
     def __init__(self, config: ConfigChatwoot) -> None:
         self._config = config
 
-    def enviar(self, texto: str) -> None:
+    def enviar(self, texto: str, conversa_alvo: str | None = None) -> None:
+        """Sem alvo, vai para as conversas de AVISO. Com alvo, so para ela.
+
+        O alvo existe para RESPONDER onde perguntaram. Sem ele, um `.status`
+        mandado no privado era respondido no grupo — mediu-se isso ao vivo:
+        pergunta as 23:04:42 na conversa 1, resposta as 23:04:52 na 13.
+        """
         erros = []
-        for conversa in self._config.conversas:
+        for conversa in [conversa_alvo] if conversa_alvo else self._config.conversas:
             try:
                 self._postar(conversa, texto)
             except ErroDeEntrega as erro:
@@ -331,7 +341,10 @@ class Despachante:
         # precisar conhecer a agenda para entregar uma mensagem.
         self.em_silencio = lambda: False
         self.silenciados = 0
-        self._fila: Queue[str | None] = Queue(maxsize=200)
+        # (texto, conversa_alvo). O alvo atravessa a fila porque a resposta
+        # tem de sair na conversa onde a pergunta chegou, e a fila e
+        # assincrona — a informacao se perderia se ficasse so na chamada.
+        self._fila: Queue[tuple[str, str | None] | None] = Queue(maxsize=200)
         self._thread: threading.Thread | None = None
         self._rodando = False
         self.entregues = 0
@@ -345,7 +358,10 @@ class Despachante:
         self._thread.start()
 
     def despachar(
-        self, texto: str, categoria: Categoria = Categoria.NORMAL
+        self,
+        texto: str,
+        categoria: Categoria = Categoria.NORMAL,
+        conversa_alvo: str | None = None,
     ) -> None:
         """Enfileira. Grava no outbox ANTES de qualquer tentativa de rede.
 
@@ -369,7 +385,7 @@ class Despachante:
                 arquivo.write(json.dumps(registro, ensure_ascii=False) + "\n")
 
         try:
-            self._fila.put_nowait(texto)
+            self._fila.put_nowait((texto, conversa_alvo))
         except Exception:
             # Fila cheia: o evento ja esta no outbox, entao nada se perdeu de
             # verdade — mas o usuario precisa saber.
@@ -378,20 +394,21 @@ class Despachante:
     def _laco(self) -> None:
         while self._rodando:
             try:
-                texto = self._fila.get(timeout=0.5)
+                item = self._fila.get(timeout=0.5)
             except Empty:
                 continue
 
-            if texto is None:
+            if item is None:
                 break
 
-            self._tentar_entregar(texto)
+            texto, conversa_alvo = item
+            self._tentar_entregar(texto, conversa_alvo)
             self._fila.task_done()
 
-    def _tentar_entregar(self, texto: str) -> None:
+    def _tentar_entregar(self, texto: str, conversa_alvo: str | None = None) -> None:
         for tentativa in range(1, MAX_TENTATIVAS + 1):
             try:
-                self._notificador.enviar(texto)
+                self._notificador.enviar(texto, conversa_alvo)
                 self.entregues += 1
                 return
             except ErroDeEntrega as erro:

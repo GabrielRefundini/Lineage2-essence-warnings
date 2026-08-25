@@ -96,6 +96,10 @@ class MensagemDeComando:
     autor: str | None
     texto: str
 
+    # De qual conversa o pedido veio. E o que permite RESPONDER onde
+    # perguntaram, em vez de responder sempre no grupo de avisos.
+    conversa: str | None = None
+
 
 def so_digitos(telefone: str | None) -> str:
     """Descarta tudo que nao e digito: +, espaco, parentese, traco."""
@@ -202,6 +206,7 @@ def comandos_novos(
                 comando=comando,
                 autor=remetente.get("name"),
                 texto=str(bruta.get("content", "")),
+                conversa=bruta.get("conversation_id"),
             )
         )
 
@@ -293,7 +298,12 @@ class LeitorDeComandos:
         tudo: list[dict] = []
         for conversa in alvos:
             try:
-                tudo.extend(self._puxar(conversa))
+                # Carimba a origem: a resposta tem de sair onde a pergunta
+                # chegou. A API devolve a mensagem sem dizer de qual conversa
+                # ela veio quando pedimos conversa a conversa.
+                for bruta in self._puxar(conversa):
+                    bruta["conversation_id"] = str(conversa)
+                    tudo.append(bruta)
             except Exception:  # noqa: BLE001 — ver docstring
                 self.falhas += 1
         return tudo

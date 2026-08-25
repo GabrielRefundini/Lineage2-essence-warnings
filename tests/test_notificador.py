@@ -104,7 +104,7 @@ class _NotificadorQueFalha:
         self.tentativas = 0
         self.entregues: list[str] = []
 
-    def enviar(self, texto: str) -> None:
+    def enviar(self, texto: str, conversa_alvo: str | None = None) -> None:
         self.tentativas += 1
         if self.restantes > 0:
             self.restantes -= 1
@@ -201,7 +201,7 @@ class TestDespachante:
 
     def test_notificador_que_explode_nao_derruba_o_despachante(self):
         class Explosivo:
-            def enviar(self, texto):
+            def enviar(self, texto, conversa_alvo=None):
                 raise RuntimeError("boom")
 
         falhas = []
