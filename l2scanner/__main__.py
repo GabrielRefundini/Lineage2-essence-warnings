@@ -841,6 +841,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 despachante,
                 datetime.fromtimestamp(momento),
                 time.monotonic(),
+                rastreador,
             )
 
             resultado = sessao.tick(frame, momento)

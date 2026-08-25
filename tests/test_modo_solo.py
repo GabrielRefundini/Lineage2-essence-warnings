@@ -158,3 +158,48 @@ class TestOCasoQueMotivouTudo:
         alimentar(r, solo(1.0), 20)
         eventos = alimentar(r, solo(0.0), 30, 100)
         assert eventos, "solo, com HP zerado, o scanner voltou a ficar mudo"
+
+
+class TestCalibracaoVelhaNaoViraAlarmeDeMorte:
+    """O alarme falso de 2026-08-24 23:27.
+
+    O usuario mudou a barra de HP de lugar na UI do jogo. A regiao calibrada
+    passou a apontar para GRAMA, `medir_barra` leu 0%, e o scanner anunciou
+    "Yazalaque MORTO" com ele vivo e com 3537/3537 de HP na tela.
+
+    NENHUMA HEURISTICA DE PIXEL RESOLVE ISSO. A parte vazia da barra e
+    transparente e mostra o terreno, entao "barra vazia" e "grama" sao
+    literalmente a mesma imagem. Medido: a razao entre variacao vertical e
+    horizontal deu 1.10 na barra real e 0.71 na grama — perto demais para
+    separar.
+
+    O que separa nao e o pixel, e a HISTORIA: uma calibracao boa mostra a barra
+    com vida em algum momento; uma velha nunca mostra.
+    """
+
+    def test_regiao_que_NUNCA_teve_vida_nao_gera_morte(self):
+        r = novo()
+        eventos = alimentar(r, solo(0.0), 200)
+        assert eventos == [], "inventou uma morte a partir de calibracao velha"
+
+    def test_depois_de_ver_vida_a_morte_volta_a_ser_detectada(self):
+        r = novo()
+        alimentar(r, solo(1.0), 20)
+        eventos = alimentar(r, solo(0.0), 10, inicio=100)
+        assert [e.tipo for e in eventos] == [TipoDeEvento.MORREU]
+
+    def test_um_unico_frame_com_vida_ja_valida_a_calibracao(self):
+        """Nao precisa de muito: se a regiao mostrou a barra uma vez, ela e a
+        barra."""
+        r = novo()
+        alimentar(r, solo(0.5), 1)
+        alimentar(r, solo(1.0), 20, inicio=10)
+        eventos = alimentar(r, solo(0.0), 10, inicio=100)
+        assert any(e.tipo is TipoDeEvento.MORREU for e in eventos)
+
+    def test_ligar_o_scanner_ja_morto_tambem_cala(self):
+        """Aceito de proposito: se ele ja esta morto quando o scanner sobe, ele
+        sabe. Melhor perder esse aviso do que anunciar a morte de quem esta
+        vivo."""
+        r = novo()
+        assert alimentar(r, solo(0.0), 50) == []

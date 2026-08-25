@@ -266,6 +266,23 @@ class Rastreador:
     # inventar uma que nao houve, calar e a escolha certa.
     _ja_viu_party_window: bool = field(default=False, init=False)
 
+    # Ja vimos a SUA barra com HP acima de zero alguma vez nesta sessao.
+    #
+    # Sem isto, uma calibracao velha vira alarme de morte. Aconteceu de
+    # verdade: o usuario mudou a barra de lugar na UI do jogo, a regiao
+    # calibrada passou a apontar para GRAMA, `medir_barra` leu 0% e o scanner
+    # anunciou "Yazalaque MORTO" com ele vivo e com 3537/3537 de HP na tela.
+    #
+    # Nenhuma heuristica de pixel resolve isso: uma barra VAZIA e transparente
+    # e mostra o terreno, entao "barra vazia" e "grama" sao literalmente a
+    # mesma imagem. O que separa os dois nao e o pixel — e a HISTORIA. Uma
+    # calibracao boa mostra a barra cheia em algum momento; uma calibracao
+    # velha nunca mostra.
+    #
+    # E o mesmo padrao que ja aparece quatro vezes neste projeto: distinguir
+    # "mudou" de "foi assim que eu encontrei".
+    _ja_viu_a_propria_barra_viva: bool = field(default=False, init=False)
+
     # O cliente esta caido (tela de login ou dialogo de desconexao) AGORA.
     _cliente_caido: bool = field(default=False, init=False)
     _contador_cliente_caido: int = field(default=0, init=False)
@@ -654,6 +671,15 @@ class Rastreador:
         interno.hp_visto = obs.hp_proprio
 
         morto_agora = obs.hp_proprio <= self.ajustes.fracao_hp_considerada_zero
+
+        if not morto_agora:
+            self._ja_viu_a_propria_barra_viva = True
+        elif not self._ja_viu_a_propria_barra_viva:
+            # Nunca vimos essa barra com vida. Ou o usuario ligou o scanner ja
+            # morto — e nesse caso ele sabe — ou a calibracao esta apontando
+            # para o lugar errado. Nos dois casos, calar e o certo: anunciar a
+            # morte de quem esta vivo e o pior modo de falha deste produto.
+            return []
 
         if interno.estado is EstadoDoMembro.DESCONHECIDO:
             # Aquecimento: so passa a valer depois de algumas leituras seguidas,
