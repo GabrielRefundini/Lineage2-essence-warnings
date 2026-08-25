@@ -261,6 +261,29 @@ class TestInterpretarDinamico:
         for texto in (".corrigir-a", ".corrigir-j4;rm", ".corrigir a", ".corrigir-"):
             assert interpretar_dinamico(texto, frozenset()) is None, texto
 
+    def test_pegou_em_duas_palavras_registra(self):
+        """`.pegou <hora> <nick>`: a forma enderecada, que alcanca um boss
+        que ja passou mesmo sem nunca ter havido designacao."""
+        assert interpretar_dinamico(".pegou 18:00 Korzis", frozenset()) == (
+            Comando.LOOT_ATRIBUIR,
+            "18:00 Korzis",
+        )
+
+    def test_pegou_SOZINHO_nao_faz_nada(self):
+        """Comando sem argumento nao reescreve historico — a mesma trava do
+        `.loot` e do `.corrigir`."""
+        assert interpretar_dinamico(".pegou", frozenset()) is None
+
+    def test_pegou_nao_vira_consulta_nem_com_nick_homonimo(self):
+        """A prova direta de que o `return None` do ramo fecha a porta.
+
+        Sem ele o fluxo cairia no ramo de consulta logo abaixo, onde
+        `_NICK_VALIDO` casa a palavra "pegou": um personagem chamado "Pegou"
+        transformaria o comando numa consulta dele. Foi exatamente esse erro
+        que fez `.loot cancelar` DESIGNAR um personagem chamado "cancelar".
+        """
+        assert interpretar_dinamico(".pegou", frozenset({"pegou"})) is None
+
     def test_o_comando_novo_nao_deslocou_os_ramos_de_loot(self):
         """Regressao: `.corrigir` entrou entre o ramo do `.loot` e o da
         consulta, e nenhum dos dois pode ter mudado de comportamento."""
@@ -855,6 +878,34 @@ class TestLootNaCostura:
         )
         assert "Kaus" in destinos[0][0]
         assert loot.resumo("kaus")[0] == 1, "a correcao nao chegou no disco"
+
+    def test_pegou_atravessa_parser_dispatch_e_disco(self, tmp_path):
+        """A costura inteira do `.pegou <hora> <nick>`: o registro NASCE.
+
+        O helper roda com `agora = 2026-08-25 09:05`, entao o boss das 08:00
+        ja passou e a pasta de loot esta vazia — nenhuma designacao, nenhum
+        `pegou_*`. E o caso que o usuario relatou: o scanner estava fora do
+        ar quando o boss passou, e agora alguem precisa dizer quem pegou.
+
+        Sem eco no grupo, mesmo racional do `.corrigir`: registrar loot de
+        boss passado e conserto de contabilidade entre quem ja sabe o que
+        aconteceu.
+        """
+        from datetime import datetime
+
+        from l2scanner.loot import RegistroDeLoot
+
+        loot = RegistroDeLoot(tmp_path / "loot")
+
+        destinos = self._atender(tmp_path, ".pegou 08:00 Korzis", loot)
+
+        assert [alvo for _, alvo in destinos] == ["1"], (
+            "a confirmacao tinha que sair SO na conversa de origem"
+        )
+        assert "Korzis" in destinos[0][0]
+        assert loot.resumo("Korzis") == (1, datetime(2026, 8, 25, 8, 0)), (
+            "o registro nao nasceu no horario do boss"
+        )
 
     def test_cancelar_sem_nada_marcado_nao_levanta_e_responde(self, tmp_path):
         """O comando nao pode morrer calado: quem mandou merece saber que nao

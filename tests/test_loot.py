@@ -33,6 +33,7 @@ from l2scanner.loot import (
     eh_solo_boss,
     exibir,
     nick_para_o_aviso,
+    responder_atribuicao,
     responder_cancelamento,
     responder_consulta,
     responder_correcao,
@@ -731,3 +732,79 @@ class TestCorrecao:
         assert "passou do" not in resposta
         assert "nada mudou" in resposta
         assert registro.resumo("TioMad") == (1, em(10, 0))
+
+
+class TestAtribuicaoEnderecada:
+    """Registrar quem pegou o loot de um boss que JA PASSOU: o `.pegou`.
+
+    O caso real, nas palavras do usuario: *"nao consegui atribuir o loot do
+    boss das 18h e a Korzis pegou"*. Ate aqui isso era impossivel por
+    construcao — um `pegou_*` so vinha ao mundo quando havia designacao
+    previa e o `consumir()` a transformava em registro. Sem designacao previa
+    NAO EXISTIA registro nenhum, e o `.corrigir` so troca o dono do registro
+    mais recente: ele nao alcanca um horario especifico nem o caso "nao ha
+    registro algum".
+
+    O `.pegou` cria a sintaxe que alcanca historico arbitrario, e paga por
+    ela com duas protecoes que o `.corrigir` nao tem: o horario e ENCAIXADO
+    numa ocorrencia real do Solo Boss (nunca nasce registro orfao) e a
+    resposta sempre diz o DIA de volta (o `.corrigir` nunca precisa disso,
+    porque o alvo dele e sempre o mais recente).
+    """
+
+    SOLO = EventoAgendado(
+        nome="Solo Boss",
+        horarios=tuple((h, 0) for h in range(0, 24, 2)),
+        avisar_no_horario=False,
+    )
+
+    def test_registra_um_boss_que_nao_tinha_registro_NENHUM(self, tmp_path):
+        """O problema que o usuario relatou, na forma mais crua.
+
+        Pasta vazia, nenhuma designacao, nenhum `pegou_*`. Este teste falha
+        hoje porque nao existe caminho nenhum — nao porque o caminho esta
+        errado.
+        """
+        registro = RegistroDeLoot(tmp_path)
+
+        resposta = responder_atribuicao(
+            registro, [self.SOLO], em(18, 30), "18:00 Korzis"
+        )
+
+        assert registro.resumo("Korzis") == (1, em(18, 0))
+        assert len(registro.registros()) == 1
+        assert "Korzis" in resposta
+        assert "18:00" in resposta
+        assert "hoje" in resposta, "a resposta precisa dizer o DIA de volta"
+
+    def test_o_horario_gravado_e_o_do_BOSS_nao_o_digitado(self, tmp_path):
+        """Quem lembra 20 minutos depois digita 18:20; o boss e o das 18:00.
+
+        Deixar o horario digitado passar direto criaria
+        `pegou_2026-08-25-1820_korzis`, um registro que nenhuma consulta
+        futura por horario de boss encontraria.
+        """
+        registro = RegistroDeLoot(tmp_path)
+
+        responder_atribuicao(registro, [self.SOLO], em(18, 30), "18:20 Korzis")
+
+        assert [alvo for _, alvo in registro.registros()] == [em(18, 0)]
+
+    def test_sem_boss_por_perto_RECUSA_e_NAO_grava(self, tmp_path):
+        """19:00 esta a 60 minutos de 18:00 e de 20:00 — ambiguo, entao recusa.
+
+        Registro de loot NUNCA e podado e nao tem backup: um registro orfao
+        num horario inventado fica na estatistica para sempre, e nao ha
+        comando nenhum que o alcance. A recusa e mais barata que a limpeza,
+        e por isso a resposta diz quais horarios existem em vez de mandar a
+        pessoa abrir o config.toml no meio do farm.
+        """
+        registro = RegistroDeLoot(tmp_path)
+
+        resposta = responder_atribuicao(
+            registro, [self.SOLO], em(19, 30), "19:00 Korzis"
+        )
+
+        assert registro.registros() == [], "gravou um registro orfao"
+        assert "19:00" in resposta
+        assert "18:00" in resposta and "20:00" in resposta
