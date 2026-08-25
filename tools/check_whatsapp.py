@@ -304,6 +304,10 @@ def main() -> int:
     sub = parser.add_subparsers(dest="comando", required=True)
     sub.add_parser("inboxes", help="descobre o provedor de WhatsApp de cada inbox")
     sub.add_parser("conversas", help="lista conversas e seus IDs")
+    sub.add_parser(
+        "entrada",
+        help="mensagens de PESSOAS chegam ate o Chatwoot? (gate do gatilho por WhatsApp)",
+    )
 
     p_enviar = sub.add_parser("enviar", help="envia uma mensagem de teste")
     p_enviar.add_argument(
@@ -326,6 +330,8 @@ def main() -> int:
     try:
         if args.comando == "inboxes":
             return cmd_inboxes(env)
+        if args.comando == "entrada":
+            return cmd_entrada(env)
         if args.comando == "conversas":
             return cmd_conversas(env)
         if args.comando == "enviar":
@@ -335,6 +341,75 @@ def main() -> int:
         return 1
 
     return 0
+
+
+def cmd_entrada(env: dict[str, str]) -> int:
+    """Diagnostico: mensagens de PESSOAS chegam ate o Chatwoot?
+
+    Existe porque o gatilho de comandos por WhatsApp depende inteiramente disso,
+    e a resposta nao e obvia: com Baileys, a ingestao de mensagens de GRUPO
+    costuma vir desligada por padrao para nao inundar a caixa do agente.
+
+    Verificado em 2026-08-24 no grupo do usuario: 0 mensagens `incoming` em 20,
+    duas vezes seguidas, com ele confirmando ter mandado mensagem no grupo.
+    """
+    conversas = [
+        c.strip() for c in env.get("CHATWOOT_CONVERSAS", "").split(",") if c.strip()
+    ]
+    if not conversas:
+        print("CHATWOOT_CONVERSAS esta vazio no .env.")
+        return 2
+
+    algum_entrando = False
+    for conversa in conversas:
+        dados = chamar_api(
+            env, f"/conversations/{conversa}/messages", metodo="GET"
+        )
+        if dados is None:
+            print(f"conversa {conversa}: falha ao ler")
+            continue
+
+        mensagens = dados.get("payload", []) if isinstance(dados, dict) else []
+        # message_type e INT no Chatwoot: 0 = incoming, 1 = outgoing.
+        entrando = [m for m in mensagens if m.get("message_type") == 0]
+        saindo = [m for m in mensagens if m.get("message_type") == 1]
+
+        contato = (dados.get("meta") or {}).get("contact") or {}
+        rotulo = contato.get("name") or f"conversa {conversa}"
+        tipo = contato.get("group_type") or "contato"
+
+        print(f"\n{rotulo}  ({tipo}, conversa {conversa})")
+        print(f"  no lote: {len(mensagens)} mensagens")
+        print(f"  de pessoas (incoming): {len(entrando)}")
+        print(f"  do bot     (outgoing): {len(saindo)}")
+
+        if entrando:
+            algum_entrando = True
+            ultima = entrando[-1]
+            remetente = (ultima.get("sender") or {}).get("name")
+            print(f"  ultima de pessoa: {str(ultima.get('content'))[:60]!r}")
+            print(f"  remetente: {remetente!r}")
+
+    print()
+    if algum_entrando:
+        print("FUNCIONA. O scanner consegue receber comandos por WhatsApp.")
+        return 0
+
+    print("NAO chegam mensagens de pessoas nesta(s) conversa(s).")
+    print()
+    print("Isso NAO e problema do scanner — e configuracao da ponte")
+    print("Baileys -> Chatwoot no servidor. Pontes de WhatsApp costumam vir")
+    print("com a ingestao de mensagens de GRUPO desligada por padrao, para")
+    print("nao inundar a caixa do agente.")
+    print()
+    print("O que procurar no servidor do Chatwoot / Evolution / Baileys:")
+    print("  - uma opcao do tipo 'ignorar grupos' / GROUPS_IGNORE / 'ignore groups'")
+    print("  - as configuracoes do inbox de WhatsApp, secao de sincronizacao")
+    print("  - se o bot precisa ser mencionado (@) para a mensagem ser ingerida")
+    print()
+    print("Depois de mexer, rode este comando de novo. Enquanto ele disser NAO,")
+    print("um gatilho por WhatsApp nao tem como funcionar.")
+    return 1
 
 
 if __name__ == "__main__":
