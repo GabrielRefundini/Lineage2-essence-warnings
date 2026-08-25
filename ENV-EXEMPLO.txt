@@ -17,3 +17,26 @@ CHATWOOT_TOKEN=cole_seu_token_aqui
 # que lista as conversas com seus IDs.
 # Aceita vários IDs separados por vírgula (ex.: 12,34,56).
 CHATWOOT_CONVERSAS=
+
+# ---------------------------------------------------------------------------
+# OPCIONAL: de onde o scanner aceita COMANDO pelo WhatsApp.
+#
+# Vazio = o scanner so FALA, nunca ouve. Deixe assim se voce nao precisa
+# mandar comando — e uma superficie a menos.
+#
+# Com uma conversa aqui, qualquer pessoa que escreva nela pode mandar no
+# scanner. Use so uma conversa SUA ou da party.
+#
+# Comandos aceitos (sempre com ponto na frente):
+#   .cancelar   tira o silencio de TvT/Prime que estiver rolando
+#   .status     diz se esta vigiando ou em silencio, e qual o proximo evento
+#
+# Para descobrir qual id usar:
+#   .venv\Scripts\python tools\check_whatsapp.py entrada
+#
+# ATENCAO: mensagens de GRUPO podem nao chegar ao Chatwoot. A ponte Baileys
+# costuma vir com a ingestao de grupo desligada — medido nesta conta: os 11
+# grupos nao recebem, e so as conversas privadas recebem. Se for o seu caso,
+# mande o comando no PRIVADO do numero do bot; a resposta continua indo para
+# o grupo normalmente.
+CHATWOOT_CONVERSAS_COMANDO=

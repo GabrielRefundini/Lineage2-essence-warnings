@@ -24,7 +24,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -221,6 +221,10 @@ class ConfigChatwoot:
     conta: str
     token: str
     conversas: list[str]
+
+    # De onde o scanner aceita COMANDO. Vazia por padrao: abrir a volta e abrir
+    # superficie de ataque, e isso nao pode acontecer por acidente de config.
+    conversas_de_comando: list[str] = field(default_factory=list)
 
 
 class ErroDeEntrega(Exception):

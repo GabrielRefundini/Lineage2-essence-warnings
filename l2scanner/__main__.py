@@ -49,10 +49,17 @@ from .captura_janela import (  # noqa: E402
     JanelaSource,
     listar_janelas_do_jogo,
 )
+from .comandos import (  # noqa: E402
+    Comando,
+    LeitorDeComandos,
+    chave_da_mensagem,
+    comandos_novos,
+)
 from .console import destacar  # noqa: E402
 from .frames import MssSource, ReplaySource, SaudeDoFrame  # noqa: E402
 from .gravador import Gravador  # noqa: E402
 from .notificador import (  # noqa: E402
+    USER_AGENT,
     Categoria,
     Despachante,
     NotificadorChatwoot,
@@ -283,6 +290,91 @@ class ControleDoSilencio:
         return None
 
 
+def montar_leitor_de_comandos(args: argparse.Namespace):
+    """Monta o caminho de ENTRADA, ou None quando ninguem configurou um.
+
+    Vazio por padrao de proposito. Ouvir comando abre superficie de ataque, e
+    isso nao pode acontecer por acidente de configuracao — precisa de alguem
+    escrevendo CHATWOOT_CONVERSAS_COMANDO no .env.
+    """
+    if args.dry_run:
+        return None
+    try:
+        config = config_do_chatwoot()
+    except ConfigAusente:
+        return None
+    if not config.conversas_de_comando:
+        return None
+
+    log.info(
+        "Ouvindo comandos em %d conversa(s). Mande .cancelar para tirar o silencio.",
+        len(config.conversas_de_comando),
+    )
+    return LeitorDeComandos(
+        url=config.url,
+        conta=config.conta,
+        token=config.token,
+        conversas=config.conversas_de_comando,
+        user_agent=USER_AGENT,
+    )
+
+
+def atender_comandos(leitor, registro, eventos_agendados, despachante, agora) -> None:
+    """Le, obedece e confirma. Nunca levanta.
+
+    Uma falha no caminho de entrada nao pode derrubar o scanner: o trabalho
+    dele e vigiar a party, e ouvir comando e um extra.
+    """
+    if leitor is None or not leitor.ativo:
+        return
+
+    for pedido in comandos_novos(leitor.ler(agora), registro.enviados()):
+        # Marca ANTES de agir. Se o processo morrer no meio, o pior caso e um
+        # comando perdido — nao um comando obedecido em laco a cada tick.
+        if not registro.marcar(chave_da_mensagem(pedido.id)):
+            continue
+
+        quem = pedido.autor or "alguem"
+        log.info("Comando de %s: %s", quem, pedido.texto.strip())
+
+        if pedido.comando is Comando.CANCELAR_SILENCIO:
+            resposta = _obedecer_cancelar(registro, eventos_agendados, agora, quem)
+        elif pedido.comando is Comando.STATUS:
+            resposta = _obedecer_status(registro, eventos_agendados, agora)
+        else:
+            continue
+
+        log.info(destacar(resposta))
+        if despachante:
+            despachante.despachar(resposta, Categoria.SEMPRE)
+
+
+def _obedecer_cancelar(registro, eventos, agora, quem: str) -> str:
+    candidatos = ocorrencias_cancelaveis(agora, eventos, registro.cancelados())
+    if not candidatos:
+        return f"{quem} pediu para cancelar, mas nao ha silencio ativo nem proximo."
+
+    nome, inicio, rolando = candidatos[0]
+    if not registro.cancelar(chave_da_ocorrencia(nome, inicio)):
+        return f"O silencio do {nome} ja estava cancelado."
+    return f"{quem} cancelou: " + texto_de_cancelamento(nome, inicio, rolando)
+
+
+def _obedecer_status(registro, eventos, agora) -> str:
+    janela = silencio_ativo(agora, eventos, registro.cancelados())
+    proximo = proxima_ocorrencia(agora, eventos)
+    partes = []
+    if janela:
+        partes.append(
+            f"Em silencio de {janela.evento} ate {janela.fim.strftime('%H:%M')}"
+        )
+    else:
+        partes.append("Vigiando normalmente")
+    if proximo:
+        partes.append(f"proximo: {proximo[0]} as {proximo[1].strftime('%H:%M')}")
+    return "Scanner: " + ", ".join(partes) + "."
+
+
 def comando_cancelar_silencio(args: argparse.Namespace) -> int:
     """Cancela o silencio de UMA ocorrencia — a que estiver rolando, ou a proxima.
 
@@ -373,6 +465,7 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
 
     registro = RegistroEmDisco(PASTA_AGENDA)
     silencio = ControleDoSilencio(eventos, registro)
+    leitor = montar_leitor_de_comandos(args)
 
     nomes = ", ".join(e.nome for e in eventos)
     log.info("Modo agenda: vigiando o relogio, nao a tela. Eventos: %s", nomes)
@@ -383,6 +476,9 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
     try:
         while True:
             agora = datetime.now()
+            atender_comandos(
+                leitor, registro, eventos, despachante, agora
+            )
             encerrou = silencio.atualizar(agora)
             if encerrou:
                 # Loga SEMPRE, despacha se houver para onde. Sem essa
@@ -543,6 +639,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     eventos_agendados = ler_agenda()
     registro_da_agenda = RegistroEmDisco(PASTA_AGENDA)
     silencio = ControleDoSilencio(eventos_agendados, registro_da_agenda)
+    leitor_de_comandos = montar_leitor_de_comandos(args)
     if despachante:
         # O corte mora no transporte, nao na deteccao: o rastreador segue
         # decidindo e registrando tudo normalmente, e o que muda e so o
@@ -622,6 +719,13 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
             momento = frame.momento if frame.momento is not None else time.time()
             agora_do_frame = datetime.fromtimestamp(momento)
 
+            atender_comandos(
+                leitor_de_comandos,
+                registro_da_agenda,
+                eventos_agendados,
+                despachante,
+                agora_do_frame,
+            )
             encerrou = silencio.atualizar(agora_do_frame)
             if encerrou:
                 log.info(destacar(encerrou))

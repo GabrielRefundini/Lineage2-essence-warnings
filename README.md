@@ -279,6 +279,34 @@ Para testar sem esperar o horário, numa janela de comando **nesta pasta**:
 > próprio, montado pelo `vigiar-party.bat` na primeira execução, e o `python`
 > do sistema pode nem estar no PATH.
 
+### Mandar comando pelo WhatsApp
+
+O scanner pode **ouvir**, além de falar. Está desligado por padrão — com o
+`CHATWOOT_CONVERSAS_COMANDO` vazio no `.env`, ele nunca lê nada.
+
+Comandos, sempre com ponto na frente:
+
+| Comando | O que faz |
+|---|---|
+| `.cancelar` | Tira o silêncio de TvT/Prime que estiver rolando |
+| `.status` | Diz se está vigiando ou calado, e qual o próximo evento |
+
+Para descobrir em qual conversa configurar:
+
+```
+.venv\Scripts\python tools\check_whatsapp.py entrada
+```
+
+**Mensagens de grupo podem não chegar ao Chatwoot.** A ponte do WhatsApp
+costuma vir com a ingestão de grupo desligada. Se for o seu caso, mande o
+comando no **privado** do número do bot — a resposta continua indo para o
+grupo normalmente.
+
+**Por que o ponto é obrigatório:** sem ele, alguém dizendo "vamos cancelar o
+silêncio?" faria o scanner agir no meio de uma conversa. E se o seu Chatwoot
+atende clientes, uma mensagem qualquer com a palavra "cancelar" viraria um
+comando. O ponto separa falar sobre a ação de pedir a ação.
+
 ### Um limite honesto
 
 **"Independente do jogo" não é "independente do PC".** Se a máquina estiver

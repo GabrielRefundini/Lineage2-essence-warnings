@@ -75,11 +75,27 @@ def config_do_chatwoot(caminho: Path | None = None) -> ConfigChatwoot:
             "Rode:  python tools/check_whatsapp.py conversas"
         )
 
+    # Conversas de onde o scanner ACEITA COMANDO. Separada das de aviso de
+    # proposito, e vazia por padrao — abrir a volta e abrir superficie, e isso
+    # nao pode acontecer por acidente de configuracao.
+    #
+    # Medido no Chatwoot do usuario: a conta tem 22 conversas e 11 com
+    # mensagens de entrada, de CLIENTES REAIS. Ler todas seria obedecer a
+    # clientes. Tambem e por isso que sao separadas: o grupo do WhatsApp nao
+    # entrega mensagens de entrada (ingestao de grupo desligada na ponte
+    # Baileys), entao da para receber comando no privado e responder no grupo.
+    conversas_de_comando = [
+        pedaco.strip()
+        for pedaco in env.get("CHATWOOT_CONVERSAS_COMANDO", "").split(",")
+        if pedaco.strip()
+    ]
+
     return ConfigChatwoot(
         url=env["CHATWOOT_URL"].rstrip("/"),
         conta=env["CHATWOOT_ACCOUNT"],
         token=env["CHATWOOT_TOKEN"],
         conversas=conversas,
+        conversas_de_comando=conversas_de_comando,
     )
 
 

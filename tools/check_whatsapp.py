@@ -343,73 +343,110 @@ def main() -> int:
     return 0
 
 
+def _sem_acento(texto: str) -> str:
+    """Console do Windows abre em cp1252 e engasga em acento."""
+    return "".join(c if ord(c) < 128 else "?" for c in str(texto))
+
+
 def cmd_entrada(env: dict[str, str]) -> int:
-    """Diagnostico: mensagens de PESSOAS chegam ate o Chatwoot?
+    """Onde o scanner PODE receber comandos?
 
-    Existe porque o gatilho de comandos por WhatsApp depende inteiramente disso,
-    e a resposta nao e obvia: com Baileys, a ingestao de mensagens de GRUPO
-    costuma vir desligada por padrao para nao inundar a caixa do agente.
+    Varre a conta inteira e diz quais conversas entregam mensagens de pessoas.
+    Existe porque a resposta nao e obvia nem uniforme: medido no Chatwoot do
+    usuario, 11 de 22 conversas recebem — mas o GRUPO nao. Pontes Baileys
+    costumam vir com a ingestao de mensagens de grupo desligada.
 
-    Verificado em 2026-08-24 no grupo do usuario: 0 mensagens `incoming` em 20,
-    duas vezes seguidas, com ele confirmando ter mandado mensagem no grupo.
+    Tambem serve de aviso. Se a conta tem conversas de CLIENTES, elas aparecem
+    aqui — e e por isso que a allowlist de comando e explicita e vazia por
+    padrao: uma das conversas reais desta conta diz "Quero cancelar".
     """
-    conversas = [
-        c.strip() for c in env.get("CHATWOOT_CONVERSAS", "").split(",") if c.strip()
-    ]
-    if not conversas:
-        print("CHATWOOT_CONVERSAS esta vazio no .env.")
+    dados = chamar_api(env, "/conversations", metodo="GET")
+    if dados is None:
+        print("Nao consegui listar as conversas.")
         return 2
 
-    algum_entrando = False
-    for conversa in conversas:
-        dados = chamar_api(
-            env, f"/conversations/{conversa}/messages", metodo="GET"
-        )
-        if dados is None:
-            print(f"conversa {conversa}: falha ao ler")
-            continue
+    bruto = dados.get("data", dados)
+    conversas = bruto.get("payload", bruto) if isinstance(bruto, dict) else bruto
 
-        mensagens = dados.get("payload", []) if isinstance(dados, dict) else []
+    avisos = {
+        c.strip() for c in env.get("CHATWOOT_CONVERSAS", "").split(",") if c.strip()
+    }
+    comandos = {
+        c.strip()
+        for c in env.get("CHATWOOT_CONVERSAS_COMANDO", "").split(",")
+        if c.strip()
+    }
+
+    recebem, mudas = [], []
+    for conversa in conversas:
+        cid = str(conversa.get("id"))
+        resposta = chamar_api(env, f"/conversations/{cid}/messages", metodo="GET")
+        if resposta is None:
+            continue
+        mensagens = resposta.get("payload", []) if isinstance(resposta, dict) else []
         # message_type e INT no Chatwoot: 0 = incoming, 1 = outgoing.
         entrando = [m for m in mensagens if m.get("message_type") == 0]
-        saindo = [m for m in mensagens if m.get("message_type") == 1]
 
-        contato = (dados.get("meta") or {}).get("contact") or {}
-        rotulo = contato.get("name") or f"conversa {conversa}"
-        tipo = contato.get("group_type") or "contato"
-
-        print(f"\n{rotulo}  ({tipo}, conversa {conversa})")
-        print(f"  no lote: {len(mensagens)} mensagens")
-        print(f"  de pessoas (incoming): {len(entrando)}")
-        print(f"  do bot     (outgoing): {len(saindo)}")
-
-        if entrando:
-            algum_entrando = True
-            ultima = entrando[-1]
-            remetente = (ultima.get("sender") or {}).get("name")
-            print(f"  ultima de pessoa: {str(ultima.get('content'))[:60]!r}")
-            print(f"  remetente: {remetente!r}")
+        meta = conversa.get("meta") or {}
+        contato = meta.get("sender") or meta.get("contact") or {}
+        nome = _sem_acento(contato.get("name") or f"conversa {cid}")
+        grupo = (contato.get("group_type") or "") == "group"
+        destino = recebem if entrando else mudas
+        destino.append((cid, nome, grupo, len(entrando)))
 
     print()
-    if algum_entrando:
-        print("FUNCIONA. O scanner consegue receber comandos por WhatsApp.")
+    print(f"{len(conversas)} conversas na conta")
+    print()
+    print("RECEBEM mensagens de pessoas (servem de canal de comando):")
+    if not recebem:
+        print("  nenhuma")
+    for cid, nome, grupo, n in recebem:
+        marcas = []
+        if cid in avisos:
+            marcas.append("recebe os avisos")
+        if cid in comandos:
+            marcas.append("JA CONFIGURADA para comandos")
+        etiqueta = "  [" + ", ".join(marcas) + "]" if marcas else ""
+        onde = "grupo" if grupo else "privado"
+        print(f"  id={cid:<5} {nome[:32]:<32} {onde:<8} {n} msgs{etiqueta}")
+
+    print()
+    print("NAO recebem (so o bot fala):")
+    for cid, nome, grupo, _ in mudas:
+        marcas = "  [recebe os avisos]" if cid in avisos else ""
+        onde = "grupo" if grupo else "privado"
+        print(f"  id={cid:<5} {nome[:32]:<32} {onde:<8}{marcas}")
+
+    print()
+    if comandos:
+        print("Canal de comando configurado: " + ", ".join(sorted(comandos)))
+        prontas = {c for c, _, _, _ in recebem}
+        ruins = comandos - prontas
+        if ruins:
+            print("  ATENCAO: " + ", ".join(sorted(ruins)) + " nao recebe mensagem")
+            print("  de pessoa nenhuma. Comando mandado ali nunca vai chegar.")
+            return 1
+        print("  Tudo certo. Mande .cancelar por ali para tirar o silencio.")
         return 0
 
-    print("NAO chegam mensagens de pessoas nesta(s) conversa(s).")
+    print("Nenhum canal de comando configurado — o scanner so FALA.")
     print()
-    print("Isso NAO e problema do scanner — e configuracao da ponte")
-    print("Baileys -> Chatwoot no servidor. Pontes de WhatsApp costumam vir")
-    print("com a ingestao de mensagens de GRUPO desligada por padrao, para")
-    print("nao inundar a caixa do agente.")
+    print("Para ligar, escolha uma conversa que RECEBE (lista acima) e ponha")
+    print("no .env:")
     print()
-    print("O que procurar no servidor do Chatwoot / Evolution / Baileys:")
-    print("  - uma opcao do tipo 'ignorar grupos' / GROUPS_IGNORE / 'ignore groups'")
-    print("  - as configuracoes do inbox de WhatsApp, secao de sincronizacao")
-    print("  - se o bot precisa ser mencionado (@) para a mensagem ser ingerida")
+    print("  CHATWOOT_CONVERSAS_COMANDO=<id>")
     print()
-    print("Depois de mexer, rode este comando de novo. Enquanto ele disser NAO,")
-    print("um gatilho por WhatsApp nao tem como funcionar.")
-    return 1
+    print("CUIDADO ao escolher: esta conta tem conversas de clientes. So use")
+    print("uma conversa sua ou da party — quem mandar comando por ela manda")
+    print("no scanner.")
+
+    if any(grupo for _, _, grupo, _ in mudas):
+        print()
+        print("Se voce queria usar o GRUPO e ele aparece em 'NAO recebem', o")
+        print("problema e a ponte Baileys, nao o scanner. Procure uma opcao do")
+        print("tipo 'ignorar grupos' / GROUPS_IGNORE nas configuracoes do inbox")
+        print("de WhatsApp do Chatwoot.")
+    return 0
 
 
 if __name__ == "__main__":
