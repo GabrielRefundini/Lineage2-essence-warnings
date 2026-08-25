@@ -22,7 +22,7 @@ See: .planning/PROJECT.md (updated 2026-08-24)
 
 Phase: 4 de 4 — todas implementadas
 Status: Código completo, 338 testes. Nenhum bug conhecido em aberto. O que falta é VALIDAÇÃO EM CAMPO, não implementação: a última milha (morte real -> mensagem no WhatsApp na mesma sessão) e ver a agenda/silêncio funcionando num TvT de verdade. A cegueira recorrente teve a causa encontrada e tratada na Fase 5 (era manutenção do servidor).
-Last activity: 2026-08-25 — Quick 260825-dwp: `.loot-` cancela a designação de loot do Solo Boss
+Last activity: 2026-08-25 — Quick 260825-ehc: `.corrigir-<nick>` reatribui um loot já consumado
 
 Progress: [██████████] 100% (7 de 7 fases)
 
@@ -133,6 +133,7 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 
 | Data | Tarefa | Resultado |
 |------|--------|-----------|
+| 2026-08-25 | [corrigir-um-loot-ja-consumado](quick/260825-ehc-corrigir-um-loot-ja-consumado-com-corrig/260825-ehc-SUMMARY.md) | `.corrigir-<nick>` reatribui o loot JÁ consumado — o boss passou no nome do designado, mas quem pegou foi outro. Toca só o registro MAIS RECENTE, e a resposta nomeia o que mudou ("de hoje as 10:00, do Tiomad para o Kaus") porque esse texto é a única rede contra corrigir o registro errado. Duas linhas podiam destruir dado e foram conferidas por MUTAÇÃO: criar-antes-de-apagar (o inverso perde o loot em silêncio) e a guarda do mesmo apelido (sem ela, corrigir para o próprio dono apagava o único registro e ainda respondia sucesso). 581 → 598 testes. Limitação aceita: o dono antigo sai com caixa do slug ("Tiomad"), porque o nome digitado não sobrevive ao consumo. |
 | 2026-08-25 | moldura do aviso no WhatsApp | O aviso de agenda passou a sair no celular como BLOCO — borda de asteriscos, recuo de dois espaços e carimbo `[HH:MM]` do envio à direita —, o mesmo que já aparecia no console. A geometria virou `console.moldurar()`, pura e sem ANSI, usada pelos dois destinos: uma conta só, então as bordas não divergem. Moldurado no despacho e cru em `resultado.avisos`, senão o console poria bloco dentro de bloco (`876a8e1`). |
 | 2026-08-25 | [cancelar-a-designacao-de-loot](quick/260825-dwp-cancelar-a-designacao-de-loot-do-solo-bo/260825-dwp-SUMMARY.md) | O `.loot-` passou a APAGAR a designação do próximo Solo Boss — o registro volta a "sem dono" pelo WhatsApp e o aviso de antecedência sai sem a linha "Loot:". Valem também `.loot-cancelar/ninguem/nenhum/limpar`; `.loot` sozinho continua sendo nada, porque comando sem argumento não pode ser destrutivo. Cancelar toca só a VEZ: os `pegou_*` e `nick_*` ficam intactos. Pegou um bug real de caminho: `.loot cancelar` **designava** um personagem chamado "cancelar". 566 → 581 testes. |
 | 2026-08-25 | [controle-de-loot-do-solo-boss](quick/260825-cou-controle-de-loot-do-solo-boss-via-comand/260825-cou-SUMMARY.md) | Controle de loot do Solo Boss pelo WhatsApp: `.loot-<nick>` designa quem pega o próximo loot (o aviso de antecedência sai com "Loot: X"), `.<nick>` responde quantos loots o char já pegou e o último horário, e o registro em `.loot/` é durável e à prova de duas instâncias. Consumo automático no horário do boss. |
