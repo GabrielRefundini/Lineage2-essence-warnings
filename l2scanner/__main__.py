@@ -342,17 +342,37 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
     return leitor
 
 
-def atender_comandos(leitor, registro, eventos_agendados, despachante, agora) -> None:
+def atender_comandos(
+    leitor,
+    registro,
+    eventos_agendados,
+    despachante,
+    agora: datetime,
+    monotonico: float,
+) -> None:
     """Le, obedece e confirma. Nunca levanta.
 
-    Uma falha no caminho de entrada nao pode derrubar o scanner: o trabalho
-    dele e vigiar a party, e ouvir comando e um extra.
+    DOIS RELOGIOS, E ELES NAO SAO INTERCAMBIAVEIS:
+
+    - `agora` e um `datetime` de parede. E o que a agenda entende — "que horas
+      sao" — e num replay ele vem do arquivo, nao do relogio.
+    - `monotonico` e segundos corridos. E o que o limitador de taxa entende, e
+      ele NAO pode vir do frame: num replay, uma sessao de uma hora reproduzida
+      em trinta segundos marteleria a API do Chatwoot, ou nunca a consultaria.
+
+    Passar um so parametro para os dois derrubou o scanner em producao com
+    `TypeError: '>=' not supported between 'timedelta' and 'float'`. Os testes
+    nao pegaram porque chamavam o leitor direto, com float — o erro so existia
+    na COSTURA, que e onde os erros deste projeto moram.
+
+    Uma falha no caminho de entrada nunca levanta: o trabalho do scanner e
+    vigiar a party, e ouvir comando e um extra.
     """
     if leitor is None or not leitor.ativo:
         return
 
     for pedido in comandos_novos(
-        leitor.ler(agora), registro.enviados(), leitor.telefones
+        leitor.ler(monotonico), registro.enviados(), leitor.telefones
     ):
         # Marca ANTES de agir. Se o processo morrer no meio, o pior caso e um
         # comando perdido — nao um comando obedecido em laco a cada tick.
@@ -502,7 +522,7 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
         while True:
             agora = datetime.now()
             atender_comandos(
-                leitor, registro, eventos, despachante, agora
+                leitor, registro, eventos, despachante, agora, time.monotonic()
             )
             encerrou = silencio.atualizar(agora)
             if encerrou:
@@ -750,6 +770,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 eventos_agendados,
                 despachante,
                 agora_do_frame,
+                time.monotonic(),
             )
             encerrou = silencio.atualizar(agora_do_frame)
             if encerrou:

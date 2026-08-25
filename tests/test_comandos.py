@@ -288,3 +288,103 @@ class TestEtiquetaComoInterruptor:
         )
         assert leitor.ler(0.0) == []
         assert leitor.falhas >= 1
+
+
+class TestAtenderComandosNaCostura:
+    """O crash real de 2026-08-24 22:59, em producao.
+
+        TypeError: '>=' not supported between 'timedelta' and 'float'
+
+    `atender_comandos` recebia UM parametro `agora` e o usava para DOIS
+    relogios incompativeis: o `datetime` de parede que a agenda entende, e os
+    segundos corridos que o limitador de taxa do leitor entende.
+
+    Os testes existentes nao pegaram porque chamavam `LeitorDeComandos.ler()`
+    direto, sempre com float. O erro so existia na COSTURA — e a costura
+    (`__main__.py`, 20% de cobertura) e onde TODOS os erros de integracao deste
+    projeto moraram: os tres do code review, o `destacar` com um argumento, e
+    este.
+
+    Por isso estes testes chamam a funcao do jeito que o LACO chama, com os
+    tipos de verdade.
+    """
+
+    def _pecas(self, tmp_path):
+        from datetime import datetime
+
+        from l2scanner.agenda import EventoAgendado, RegistroEmDisco
+        from l2scanner.comandos import LeitorDeComandos
+
+        leitor = LeitorDeComandos(
+            url="https://host.que.nao.existe.invalido",
+            conta="1",
+            token="t",
+            conversas=["1"],
+            segundos_entre_leituras=0.0,
+        )
+        registro = RegistroEmDisco(tmp_path)
+        eventos = [
+            EventoAgendado(
+                nome="Prime",
+                horarios=((20, 0),),
+                silenciar_minutos=120,
+            )
+        ]
+        return leitor, registro, eventos, datetime(2026, 8, 24, 20, 30)
+
+    def test_chamada_como_o_laco_chama_nao_levanta(self, tmp_path):
+        """A reproducao exata do crash."""
+        import time
+
+        from l2scanner.__main__ import atender_comandos
+
+        leitor, registro, eventos, agora = self._pecas(tmp_path)
+        atender_comandos(leitor, registro, eventos, None, agora, time.monotonic())
+
+    def test_o_relogio_de_parede_e_datetime_e_o_da_cadencia_e_float(self, tmp_path):
+        """Trocar os dois de lugar tem que quebrar, e quebrar visivelmente.
+
+        Se um dia alguem 'simplificar' juntando os parametros, este teste diz
+        por que eles sao dois.
+        """
+        import pytest as _pytest
+
+        from l2scanner.__main__ import atender_comandos
+
+        leitor, registro, eventos, agora = self._pecas(tmp_path)
+        # A PRIMEIRA chamada passa: `_ultima_leitura` e None e a comparacao nem
+        # acontece. O crash de producao so apareceu no SEGUNDO tick — mais um
+        # motivo de ter escapado, porque um teste de uma chamada so nao pega.
+        atender_comandos(leitor, registro, eventos, None, agora, agora)
+        with _pytest.raises(TypeError):
+            atender_comandos(leitor, registro, eventos, None, agora, agora)
+
+    def test_leitor_ausente_nao_faz_nada(self, tmp_path):
+        import time
+
+        from l2scanner.__main__ import atender_comandos
+
+        _, registro, eventos, agora = self._pecas(tmp_path)
+        atender_comandos(None, registro, eventos, None, agora, time.monotonic())
+
+    def test_os_dois_lacos_passam_time_monotonic(self):
+        """A trava contra a regressao voltar por um refactor.
+
+        Le a fonte dos dois lacos e exige que a chamada carregue o segundo
+        relogio. Foi assim que travamos o `destacar` e a ordem da agenda.
+        """
+        import inspect
+        import re
+
+        from l2scanner import __main__ as principal
+
+        for nome in ("laco_principal", "laco_da_agenda"):
+            fonte = inspect.getsource(getattr(principal, nome))
+            # Casa ate o fecha-parenteses da PROPRIA chamada. Um `.*?` simples
+            # para dentro de `time.monotonic()` e mede o argumento pela metade.
+            corpo = fonte[fonte.index("atender_comandos(") :]
+            chamada = re.match(r"atender_comandos\((.*?)\n\s*\)", corpo, re.S)
+            assert chamada, f"{nome} nao chama atender_comandos"
+            assert "time.monotonic()" in chamada.group(1), (
+                f"{nome} nao passa o relogio monotonico para a cadencia"
+            )
