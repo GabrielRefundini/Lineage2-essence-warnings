@@ -275,12 +275,12 @@ class TestConsoleDoSilencio:
         from l2scanner import __main__ as principal
 
         fonte = inspect.getsource(principal.laco_principal)
-        chamadas = [
-            linha for linha in fonte.splitlines() if "desenhar_status(" in linha
-        ]
-        assert chamadas, "nenhuma chamada encontrada"
-        for chamada in chamadas:
-            assert "silencio" in chamada, f"sem silencio: {chamada.strip()}"
+        # A chamada agora ocupa varias linhas; olhar o bloco inteiro.
+        assert "desenhar_status(" in fonte
+        for trecho in fonte.split("desenhar_status(")[1:]:
+            assert "silencio" in trecho[:200], (
+                f"chamada sem silencio: {trecho[:120]!r}"
+            )
 
 
 class TestAgendaUsaOTempoDoFrame:
@@ -300,28 +300,32 @@ class TestAgendaUsaOTempoDoFrame:
       grupo, no meio de uma depuracao.
     """
 
-    def test_o_laco_nao_usa_o_relogio_de_parede_para_a_agenda(self):
+    def test_o_nucleo_nao_usa_o_relogio_de_parede_para_a_agenda(self):
+        """A regra mudou de casa com o refactor, mas continua valendo.
+
+        O tick recebe `momento` do FRAME e deriva tudo dele. Se alguem chamar
+        `datetime.now()` ali dentro, o replay para de reproduzir o silencio
+        gravado — que e a razao de o replay existir.
+        """
         import inspect
 
-        from l2scanner import __main__ as principal
+        from l2scanner import sessao as nucleo
 
-        fonte = inspect.getsource(principal.laco_principal)
-        for chamada in ("silencio.atualizar(", "avisos_devidos("):
-            i = fonte.index(chamada)
-            trecho = fonte[i : i + 120]
-            assert "datetime.now()" not in trecho, (
-                f"{chamada} usa o relogio de parede em vez do tempo do frame"
-            )
+        fonte = inspect.getsource(nucleo.Sessao)
+        assert "datetime.now()" not in fonte, (
+            "a Sessao passou a usar o relogio de parede"
+        )
+        assert "datetime.fromtimestamp(momento)" in fonte
 
-    def test_o_tempo_da_agenda_vem_do_frame(self):
+    def test_o_tempo_da_agenda_e_o_MESMO_que_o_rastreador_recebe(self):
+        """Um instante so, derivado do frame, para os dois."""
         import inspect
 
-        from l2scanner import __main__ as principal
+        from l2scanner import sessao as nucleo
 
-        fonte = inspect.getsource(principal.laco_principal)
-        assert "agora_do_frame = datetime.fromtimestamp(momento)" in fonte
-        # `momento` e exatamente o que o rastreador recebe
-        assert "rastreador.observar(observacao, momento)" in fonte
+        fonte = inspect.getsource(nucleo.Sessao.tick)
+        assert "agora = datetime.fromtimestamp(momento)" in fonte
+        assert "self.rastreador.observar(observacao, momento)" in fonte
 
     def test_o_modo_so_agenda_usa_o_relogio_mesmo(self):
         """La nao existe frame, entao o relogio e a unica fonte de tempo."""
@@ -356,9 +360,13 @@ class TestCorrecoesDaRevisao:
         `continue` engolir o lembrete de TvT junto — o que contradiz a razao
         inteira de a agenda existir.
         """
-        fonte = self._fonte("laco_principal")
-        pos_agenda = fonte.index("avisos_devidos(")
-        pos_extracao = fonte.index("observacao = extrair(frame, cal)")
+        import inspect
+
+        from l2scanner import sessao as nucleo
+
+        fonte = inspect.getsource(nucleo.Sessao.tick)
+        pos_agenda = fonte.index("self._processar_agenda(")
+        pos_extracao = fonte.index("extrair(frame, self.cal)")
         assert pos_agenda < pos_extracao, (
             "a agenda voltou para depois da extracao; um erro de pixel passa a "
             "calar o lembrete de TvT"

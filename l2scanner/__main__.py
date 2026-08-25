@@ -18,7 +18,6 @@ import argparse  # noqa: E402
 import logging  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
-from dataclasses import replace  # noqa: E402
 from datetime import datetime, timedelta  # noqa: E402
 from logging.handlers import RotatingFileHandler  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -64,11 +63,11 @@ from .notificador import (  # noqa: E402
     Despachante,
     NotificadorChatwoot,
     NotificadorDeConsole,
-    formatar,
     formatar_console,
 )
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
-from .visao import EstadoDaLinha, extrair  # noqa: E402
+from .sessao import Sessao  # noqa: E402
+from .visao import EstadoDaLinha  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
 ARQUIVO_CALIBRACAO = RAIZ / "calibration.json"
@@ -636,6 +635,16 @@ def comando_teste_de_agenda(args: argparse.Namespace) -> int:
     return 0
 
 
+def _registrar_evento_no_console(evento) -> None:
+    """No console, direto e em destaque.
+
+    Deliberadamente diferente do texto do WhatsApp: aqui o usuario esta na
+    frente da tela e pode conferir no jogo agora mesmo.
+    """
+    hora = datetime.fromtimestamp(evento.momento).strftime("%H:%M:%S")
+    log.info("%s", destacar(formatar_console(evento), evento.tipo, hora))
+
+
 def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     """Captura, le, decide e entrega — nesta ordem, a 1 Hz.
 
@@ -730,13 +739,23 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     if despachante and not args.sem_aviso_de_inicio:
         despachante.despachar(f"Scanner ativo — monitorando {nomes}.")
 
-    contagem = {estado: 0 for estado in SaudeDoFrame}
-    saude_anterior = None
+    # A SESSAO carrega o que antes eram variaveis locais deste laco. Movidas
+    # para um objeto, elas viram construiveis num teste — e e por isso que
+    # `tick()` pode ser exercitado com frames fabricados, sem jogo nenhum.
+    sessao = Sessao(
+        cal=cal,
+        rastreador=rastreador,
+        eventos_agendados=eventos_agendados,
+        registro=registro_da_agenda,
+        silencio=silencio,
+        despachante=despachante,
+        gravador=gravador,
+        fonte=fonte,
+        ao_registrar=_registrar_evento_no_console,
+    )
+
     ultimo_status = 0.0
     erros_seguidos = 0
-    total_eventos = 0
-    ultima_observacao = None
-    ticks_cego = 0
 
     try:
         while True:
@@ -757,114 +776,52 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 continue
 
             erros_seguidos = 0
-            contagem[frame.saude] += 1
 
-            if frame.saude is not saude_anterior:
+            if frame.saude is not sessao.saude_anterior:
                 if frame.saude is SaudeDoFrame.FALHA_DE_CAPTURA:
                     log.warning("Falha de captura — sem visao, nada sera alertado")
                 elif frame.saude is SaudeDoFrame.CONGELADO:
                     log.warning("Imagem congelada — jogo travado ou captura presa")
-                saude_anterior = frame.saude
 
-            if gravador:
-                gravador.gravar(frame, time.time())
-
-            # A AGENDA VEM ANTES DA EXTRACAO, e isso e de proposito.
-            #
-            # Ela nao depende de um unico pixel — o aviso vem do relogio. Se
-            # ficasse depois do `try` da extracao, um erro de leitura faria o
-            # `continue` engolir o lembrete de TvT junto, o que contradiz a
-            # razao inteira de a agenda existir.
-            #
-            # O tempo vem do FRAME, nao do relogio de parede: num replay isso e
-            # o que faz uma sessao gravada durante um TvT reproduzir o silencio
-            # daquele TvT.
             momento = frame.momento if frame.momento is not None else time.time()
-            agora_do_frame = datetime.fromtimestamp(momento)
 
             atender_comandos(
                 leitor_de_comandos,
                 registro_da_agenda,
                 eventos_agendados,
                 despachante,
-                agora_do_frame,
+                datetime.fromtimestamp(momento),
                 time.monotonic(),
             )
-            encerrou = silencio.atualizar(agora_do_frame)
-            if encerrou:
-                log.info(destacar(encerrou))
-                if despachante:
-                    despachante.despachar(encerrou, Categoria.SEMPRE)
 
-            for aviso in avisos_devidos(
-                agora_do_frame, eventos_agendados, registro_da_agenda.enviados()
-            ):
-                if not registro_da_agenda.marcar(aviso.chave):
-                    continue
-                texto = texto_do_aviso(aviso)
+            resultado = sessao.tick(frame, momento)
+
+            for texto in resultado.avisos:
                 log.info(destacar(texto))
-                if despachante:
-                    # SEMPRE: o lembrete atravessa o silencio. De segunda a
-                    # quinta o aviso do TvT das 21h40 cai dentro do silencio do
-                    # Prime — sem isto, a funcionalidade se anula sozinha.
-                    despachante.despachar(texto, Categoria.SEMPRE)
 
-            try:
-                observacao = extrair(frame, cal)
-                # O estado do CLIENTE vem da fonte, nao da analise de pixels da
-                # party window: o titulo da janela e sinal do Windows, e o
-                # dialogo de desconexao aparece longe da regiao calibrada. So a
-                # captura por janela tem as duas coisas.
-                if hasattr(fonte, "estado_do_cliente"):
-                    observacao = replace(
-                        observacao, estado_do_cliente=fonte.estado_do_cliente()
-                    )
-                # `momento` ja foi calculado acima, do FRAME e nao do relogio:
-                # e o que faz uma sessao de uma hora produzir os mesmos eventos
-                # ao ser reproduzida em trinta segundos.
-                eventos = rastreador.observar(observacao, momento)
-                ultima_observacao = observacao
-            except Exception:
-                log.exception("Erro ao analisar o frame — seguindo")
+            if resultado.falhou_ao_analisar:
+                log.warning("Erro ao analisar o frame — seguindo")
                 time.sleep(args.intervalo)
                 continue
 
             # Cego por muito tempo com o jogo bem ali na frente quase sempre
-            # significa calibracao errada, nao alt-tab. Vale dizer isso em vez
-            # de deixar o usuario olhando "SEM VISAO" sem saber o porque.
-            if not observacao.ui_visivel:
-                ticks_cego += 1
-                if ticks_cego == TICKS_CEGO_PARA_SUGERIR_RECALIBRAR:
-                    log.warning(
-                        "Sem visao da party ha %d leituras seguidas. Se o jogo "
-                        "esta aberto e a party window visivel, ela pode ter "
-                        "sido ARRASTADA ou o jogo REDIMENSIONADO — nesse caso "
-                        "rode calibrar.bat de novo.",
-                        ticks_cego,
-                    )
-            else:
-                ticks_cego = 0
-
-            for evento in eventos:
-                total_eventos += 1
-
-                # No console, direto e em destaque: o usuario esta na frente da
-                # tela e pode conferir no jogo agora mesmo.
-                hora = datetime.fromtimestamp(evento.momento).strftime("%H:%M:%S")
-                log.info(
-                    "%s", destacar(formatar_console(evento), evento.tipo, hora)
+            # significa calibracao errada, nao alt-tab.
+            if sessao.ticks_cego == TICKS_CEGO_PARA_SUGERIR_RECALIBRAR:
+                log.warning(
+                    "Sem visao da party ha %d leituras seguidas. Se o jogo "
+                    "esta aberto e a party window visivel, ela pode ter "
+                    "sido ARRASTADA ou o jogo REDIMENSIONADO — nesse caso "
+                    "rode calibrar.bat de novo.",
+                    sessao.ticks_cego,
                 )
-
-                # No WhatsApp, cauteloso: quem le esta longe e nao tem como
-                # conferir, entao a redacao precisa sobreviver a um erro.
-                if despachante:
-                    despachante.despachar(formatar(evento))
 
             agora = time.monotonic()
             if agora - ultimo_status >= args.status_a_cada:
                 log.info(
                     "\n%s",
-                    desenhar_status(rastreador, cal, observacao, silencio),
+                    desenhar_status(
+                        rastreador, cal, resultado.observacao, silencio
+                    ),
                 )
                 ultimo_status = agora
 
@@ -879,8 +836,13 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         # Estado final sempre, independente do intervalo de status: num replay
         # rapido o intervalo de relogio nunca fecha, e o usuario ficaria sem
         # saber como a sessao terminou.
-        if ultima_observacao is not None:
-            log.info("Estado final:\n%s", desenhar_status(rastreador, cal, ultima_observacao, silencio))
+        if sessao.ultima_observacao is not None:
+            log.info(
+                "Estado final:\n%s",
+                desenhar_status(
+                    rastreador, cal, sessao.ultima_observacao, silencio
+                ),
+            )
 
         fonte.fechar()
         if gravador:
@@ -902,16 +864,16 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 despachante.silenciados,
             )
 
-        total = sum(contagem.values())
+        total = sum(sessao.contagem.values())
         if total:
             log.info(
                 "Resumo: %d frames (%d ok, %d falha de captura, %d congelados), "
                 "%d eventos",
                 total,
-                contagem[SaudeDoFrame.OK],
-                contagem[SaudeDoFrame.FALHA_DE_CAPTURA],
-                contagem[SaudeDoFrame.CONGELADO],
-                total_eventos,
+                sessao.contagem[SaudeDoFrame.OK],
+                sessao.contagem[SaudeDoFrame.FALHA_DE_CAPTURA],
+                sessao.contagem[SaudeDoFrame.CONGELADO],
+                sessao.total_eventos,
             )
 
     return 0
