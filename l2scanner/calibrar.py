@@ -26,6 +26,7 @@ _MODO_DPI = tornar_consciente_de_dpi()
 
 import argparse  # noqa: E402
 import sys  # noqa: E402
+import time  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 from pathlib import Path  # noqa: E402
 
@@ -384,6 +385,67 @@ def calibrar_selecionando(pixels: np.ndarray, ox: int, oy: int) -> Calibracao | 
     return calibrar_automatico(recorte, ox + x, oy + y)
 
 
+def _gravar_conferencia(imagem: np.ndarray) -> Path | None:
+    """Grava a imagem de conferencia, ou diz alto que nao conseguiu.
+
+    Este e o UNICO lugar do modulo que escreve imagem, e a duplicacao e
+    justamente o que precisava acabar: a gravacao acontecia em DOIS pontos e os
+    dois jogavam o retorno de `cv2.imwrite` fora. Com o erro calado nos dois
+    lugares, o calibrador anunciava uma imagem que nao existia e o usuario
+    conferia A IMAGEM VELHA — validando uma calibracao errada.
+
+    O gatilho real e o proprio conselho da ferramenta: ela manda ABRIR a
+    imagem, e com ela aberta no visualizador de fotos a gravacao seguinte
+    falha. Medido nesta maquina: destino somente-leitura, destino ocupado por
+    um diretorio e pasta inexistente devolvem `False`, e nenhum dos tres
+    levanta excecao — por isso ninguem percebia.
+
+    `RAIZ` e lido como global de proposito. Capturado em argumento com valor
+    padrao, o teste nao conseguiria redirecionar a escrita para um tmp_path.
+    """
+
+    def tentar(caminho: Path) -> bool:
+        # O try/except existe ALEM do retorno booleano para que o `False`
+        # documentado e uma excecao inesperada caiam no MESMO caminho de
+        # falha. Tratar so um dos dois deixaria a outra metade calada, que e
+        # exatamente o defeito que esta funcao veio consertar.
+        try:
+            return bool(cv2.imwrite(str(caminho), imagem))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def anunciar(caminho: Path) -> Path:
+        # O horario sai do mtime do ARQUIVO, nunca do relogio no momento da
+        # chamada. A pergunta que o usuario faz olhando a tela e "essa imagem
+        # e nova?", e so o mtime responde isso — o relogio responderia "sim"
+        # com a mesma confianca para um arquivo de ontem.
+        horario = time.strftime("%H:%M:%S", time.localtime(caminho.stat().st_mtime))
+        print(f"\nImagem de conferencia: {caminho}")
+        print(f"  gravada agora, as {horario}")
+        return caminho
+
+    padrao = RAIZ / "calibracao-conferencia.png"
+    if tentar(padrao):
+        return anunciar(padrao)
+
+    # Este aviso nao cita nome de arquivo nenhum de proposito: se a tentativa
+    # alternativa logo abaixo tambem falhar, um nome citado aqui seria mais uma
+    # promessa vazia na tela — o bug de novo, so que uma linha acima.
+    print("\nO arquivo de conferencia de sempre esta travado.")
+    print("O motivo mais comum e ele estar aberto no visualizador de fotos;")
+    print("feche a imagem antes da proxima calibracao.")
+    print("Gravando a conferencia desta rodada com outro nome...")
+
+    alternativo = RAIZ / f"calibracao-conferencia-{time.strftime('%H%M%S')}.png"
+    if tentar(alternativo):
+        return anunciar(alternativo)
+
+    print("\nNAO consegui gravar imagem de conferencia nenhuma.")
+    print("Nao existe imagem para voce conferir nesta rodada — se houver alguma")
+    print("na pasta, ela e de outra calibracao e nao serve para conferir esta.")
+    return None
+
+
 def conferir_visualmente(cal: Calibracao, pixels: np.ndarray, ox: int, oy: int) -> None:
     """Desenha as regioes por cima da captura, para o humano OLHAR.
 
@@ -432,16 +494,24 @@ def conferir_visualmente(cal: Calibracao, pixels: np.ndarray, ox: int, oy: int) 
             1,
         )
 
-    destino = RAIZ / "calibracao-conferencia.png"
     ampliado = cv2.resize(recorte, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)
-    cv2.imwrite(str(destino), ampliado)
+    caminho = _gravar_conferencia(ampliado)
 
-    print(f"\nImagem de conferencia: {destino.name}")
+    # Todo o texto abaixo so faz sentido se houver imagem. Ele saia
+    # incondicionalmente, e era assim que a falha de gravacao virava mentira:
+    # a legenda das cores dava ar de que algo tinha sido desenhado em algum
+    # lugar.
+    if caminho is None:
+        print("A conferencia visual NAO aconteceu.")
+        print("Os numeros impressos acima sao tudo o que ha para conferir agora.")
+        return
+
     print("  amarelo = ancora da janela")
     print("  verde   = icone de classe (indicador de presenca)")
     print("  vermelho= barra de HP")
     print("  azul    = barra de MP")
-    print("\nABRA essa imagem e confira se os retangulos batem com a party window.")
+    print(f"\nABRA {caminho}")
+    print("e confira se os retangulos batem com a party window.")
     print("Se nao baterem, rode de novo com --selecionar.")
 
 
