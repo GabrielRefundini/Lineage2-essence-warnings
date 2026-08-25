@@ -14,6 +14,7 @@ nova ou diz alto que nao entregou.
 
 from __future__ import annotations
 
+import inspect
 import os
 import re
 import stat
@@ -25,7 +26,13 @@ import pytest
 
 import l2scanner.calibrar
 from l2scanner.calibracao import Calibracao
-from l2scanner.calibrar import _gravar_conferencia, conferir_visualmente
+from l2scanner.calibrar import (
+    _conferencia_do_solo,
+    _gravar_conferencia,
+    _texto_final_do_solo,
+    conferir_visualmente,
+)
+from l2scanner.frames import Regiao
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -82,6 +89,14 @@ def raiz_impossivel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture
 def calibracao_da_party() -> Calibracao:
     return Calibracao.carregar(FIXTURES / "calibracao_de_referencia.json")
+
+
+@pytest.fixture
+def calibracao_solo(calibracao_da_party: Calibracao) -> Calibracao:
+    # O fixture grava `hp_proprio: null` — o modo solo precisa desse campo,
+    # entao ele e atribuido a mao (Calibracao e dataclass mutavel).
+    calibracao_da_party.hp_proprio = Regiao(10, 10, 60, 20)
+    return calibracao_da_party
 
 
 @pytest.fixture
@@ -197,3 +212,65 @@ def test_conferir_visualmente_com_destino_cita_o_arquivo_escrito(
     saida = capsys.readouterr().out
     assert _pngs_citados(saida), "com imagem gravada, o caminho precisa aparecer"
     _afirmar_que_todo_png_citado_existe(saida)
+
+
+def test_existe_um_unico_ponto_de_escrita_no_modulo() -> None:
+    """Duplicar a gravacao foi o que permitiu os dois pontos calarem o erro.
+
+    Se alguem voltar a chamar a gravacao direto, este teste cai antes de o
+    calibrador voltar a mentir.
+    """
+    total = inspect.getsource(l2scanner.calibrar).count("imwrite")
+    no_auxiliar = inspect.getsource(_gravar_conferencia).count("imwrite")
+
+    assert no_auxiliar >= 1
+    assert total == no_auxiliar, "ha gravacao de imagem fora de _gravar_conferencia"
+
+
+def test_conferencia_do_solo_com_destino_travado_cai_no_alternativo(
+    raiz: Path,
+    calibracao_solo: Calibracao,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (raiz / "calibracao-conferencia.png").mkdir()
+    pixels = np.full((120, 200, 3), 40, dtype=np.uint8)
+
+    caminho = _conferencia_do_solo(calibracao_solo, pixels)
+
+    assert caminho is not None
+    assert re.fullmatch(r"calibracao-conferencia-\d{6}\.png", caminho.name)
+    _afirmar_que_todo_png_citado_existe(capsys.readouterr().out)
+
+
+def test_conferencia_do_solo_sem_destino_devolve_none(
+    raiz_impossivel: Path,
+    calibracao_solo: Calibracao,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pixels = np.full((120, 200, 3), 40, dtype=np.uint8)
+
+    assert _conferencia_do_solo(calibracao_solo, pixels) is None
+
+    saida = capsys.readouterr().out
+    assert _pngs_citados(saida) == []
+    assert "conferencia" in saida.lower()
+
+
+def test_texto_final_do_solo_so_manda_conferir_quando_ha_imagem(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    caminho = tmp_path / "calibracao-conferencia-123456.png"
+    caminho.write_bytes(b"qualquer coisa")
+
+    _texto_final_do_solo(caminho)
+    com_imagem = capsys.readouterr().out
+    assert "CONFIRA" in com_imagem
+    assert str(caminho) in com_imagem
+
+    _texto_final_do_solo(None)
+    sem_imagem = capsys.readouterr().out
+    assert "CONFIRA" not in sem_imagem
+    assert _pngs_citados(sem_imagem) == []
+    # O alerta sobre a barra do alvo selecionado vale ainda MAIS sem imagem:
+    # ninguem conferiu o retangulo.
+    assert "alvo" in sem_imagem.lower()

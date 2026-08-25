@@ -515,7 +515,7 @@ def conferir_visualmente(cal: Calibracao, pixels: np.ndarray, ox: int, oy: int) 
     print("Se nao baterem, rode de novo com --selecionar.")
 
 
-def _conferencia_do_solo(cal: Calibracao, pixels: np.ndarray) -> None:
+def _conferencia_do_solo(cal: Calibracao, pixels: np.ndarray) -> Path | None:
     """Desenha a barra encontrada, para o usuario conferir antes de confiar.
 
     O calibrador normal desenha a party window inteira; aqui so ha uma coisa
@@ -542,9 +542,36 @@ def _conferencia_do_solo(cal: Calibracao, pixels: np.ndarray) -> None:
         (0, 255, 0),
         1,
     )
-    destino = RAIZ / "calibracao-conferencia.png"
-    cv2.imwrite(str(destino), tela)
-    print(f"  Imagem de conferencia: {destino.name}")
+    # A gravacao vai toda pelo auxiliar. Era aqui que morava o SEGUNDO ponto de
+    # escrita do modulo, e ter dois foi o que permitiu os dois ignorarem o erro
+    # em silencio. O nome da funcao de escrita nao e citado aqui de proposito:
+    # o teste estrutural conta as ocorrencias no texto do modulo, e uma mencao
+    # solta em comentario o derrubaria sem que houvesse gravacao nenhuma.
+    return _gravar_conferencia(tela)
+
+
+def _texto_final_do_solo(caminho: Path | None) -> None:
+    """Fecha o modo solo dizendo a verdade sobre a conferencia.
+
+    Vive fora do `main()` para poder ser testada: a frase "CONFIRA a imagem"
+    saia incondicionalmente e com o nome do arquivo escrito a mao no codigo,
+    entao ela aparecia igualzinha mesmo quando nada tinha sido gravado.
+    """
+    if caminho is not None:
+        print()
+        print(f"CONFIRA {caminho}")
+        print("antes de confiar nesta calibracao.")
+        print("Se o retangulo nao estiver na SUA barra, a busca pegou a barra")
+        print("do alvo selecionado — deixe o alvo em branco e rode de novo.")
+        return
+
+    print()
+    print("A conferencia visual NAO aconteceu: ninguem olhou o retangulo.")
+    # O alerta abaixo ja valia antes; sem imagem ele vale MAIS, porque virou o
+    # unico aviso restante sobre o modo de erro mais provavel desta busca.
+    print("Isso deixa em aberto o risco de sempre: a busca pega a barra MAIS A")
+    print("ESQUERDA, e a barra do alvo selecionado tambem qualifica. Se voce")
+    print("estava com alvo na tela, deixe o alvo em branco e rode de novo.")
 
 
 def calibrar_so_a_propria_barra(titulo: str | None = None):
@@ -745,14 +772,16 @@ def main() -> int:
         print(f"  personagem : {cal.nome_proprio}")
         print(f"  barra de HP: {cal.hp_proprio}")
         print()
+        # Este try/except NAO virou redundancia com o tratamento dentro de
+        # _gravar_conferencia: ele cobre falha ao DESENHAR (um recorte fora da
+        # tela, por exemplo), que acontece antes de existir imagem para gravar.
+        # Sao dois modos de falha diferentes — nao remova achando que sobrou.
         try:
-            _conferencia_do_solo(cal, pixels_da_janela)
+            conferencia = _conferencia_do_solo(cal, pixels_da_janela)
         except Exception as erro:  # noqa: BLE001
             print(f"  (nao consegui gerar a imagem de conferencia: {erro})")
-        print()
-        print("CONFIRA a imagem calibracao-conferencia.png antes de confiar.")
-        print("Se o retangulo nao estiver na SUA barra, a busca pegou a barra")
-        print("do alvo selecionado — deixe o alvo em branco e rode de novo.")
+            conferencia = None
+        _texto_final_do_solo(conferencia)
         print()
         print("A party window da calibracao anterior foi mantida.")
         print("Rode o scanner com --solo. Quando voltar a jogar em grupo,")
