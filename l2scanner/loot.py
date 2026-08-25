@@ -91,6 +91,27 @@ class Designacao:
     designado_em: datetime
 
 
+@dataclass(frozen=True)
+class Correcao:
+    """O que aconteceu numa tentativa de trocar o dono de um loot consumado.
+
+    O `estado` e uma string de quatro valores e nao um booleano pelo MESMO
+    motivo do `_criar` logo abaixo: a resposta precisa distinguir "trocou" de
+    "ja era dele" de "nao tinha nada para corrigir" de "o disco falhou".
+    Colapsar qualquer par desses faria o bot mentir sobre o que acabou de
+    acontecer com a estatistica — e um "pronto" depois de uma falha de disco e
+    indistinguivel de sucesso para quem esta do outro lado do WhatsApp.
+
+    O `anterior` e o SLUG do dono antigo, minusculo, porque e o nome do
+    arquivo que o guarda — nao ha outro registro da caixa original.
+    """
+
+    estado: str  # "corrigido" | "mesmo_dono" | "sem_registro" | "falhou"
+    anterior: str = ""  # o slug do dono antigo
+    novo: str = ""  # o nick novo, como foi digitado
+    alvo: datetime | None = None
+
+
 class RegistroDeLoot:
     """Os loots consumados e a designacao corrente, em disco compartilhado.
 
@@ -263,6 +284,68 @@ class RegistroDeLoot:
         (self._pasta / _ARQUIVO_PROXIMO).unlink(missing_ok=True)
         return anterior
 
+    def corrigir(self, nick: str) -> Correcao:
+        """Troca o dono do loot JA CONSUMADO mais recente. Nunca levanta.
+
+        TRES COISAS QUE PARECEM DETALHE E SAO O TRABALHO INTEIRO:
+
+        1. **CRIAR o registro novo ANTES de apagar o velho.** A ordem nao e
+           estilo, e o desenho da falha. Se o criar falhar: nada mudou, o
+           registro velho continua la. Se o apagar falhar: sobra um registro
+           DUPLICADO, que aparece no `.<nick>` e e consertavel com outro
+           `.corrigir`. A ordem inversa PERDE o loot em silencio, que e o pior
+           desfecho possivel numa estatistica que este projeto trata como
+           "para sempre" — nao ha backup e nao ha poda que traga de volta.
+
+        2. **A guarda do mesmo apelido, e ela e o bug mais facil de escrever
+           aqui.** `apelido("TIOMAD") == apelido("TioMad")`, entao os dois
+           geram o MESMO nome de arquivo: o `_criar` devolveria "ja_existia" e
+           o passo de apagar destruiria o unico registro que existia. O
+           retorno antecipado e a unica coisa entre um no-op inofensivo e a
+           perda do loot que o usuario estava tentando confirmar.
+
+        3. **So o registro MAIS RECENTE, nunca historico arbitrario.** O raio
+           de estrago e limitado por DESENHO, nao por cuidado de quem digita:
+           nao existe sintaxe para atingir o loot da semana passada, entao
+           nenhuma sequencia de comandos pode desfazer meses de estatistica.
+           Corrigir registro arbitrario nao e funcionalidade que alguem pediu.
+        """
+        achados = self.registros()
+        if not achados:
+            return Correcao("sem_registro", novo=nick)
+
+        # Desempate deterministico pelo slug: com um duplicado no mesmo alvo,
+        # duas chamadas seguidas precisam escolher o MESMO registro.
+        anterior, alvo = max(achados, key=lambda par: (par[1], par[0]))
+
+        if apelido(nick) == anterior:
+            return Correcao("mesmo_dono", anterior=anterior, novo=nick, alvo=alvo)
+
+        estado = self._criar(self._nome_do_pegou(nick, alvo))
+        if estado == "falhou":
+            return Correcao("falhou", anterior=anterior, novo=nick, alvo=alvo)
+
+        # "ja_existia" segue para o apagar DE PROPOSITO: ele so acontece
+        # quando o alvo tinha DOIS donos registrados — o duplicado que a regra
+        # 1 aceita deixar para tras. Apagar o velho ali e o conserto, nao a
+        # perda.
+        try:
+            # `apelido()` e idempotente sobre um slug, entao `_nome_do_pegou`
+            # reconstroi o nome do arquivo velho sem formatador novo.
+            (self._pasta / self._nome_do_pegou(anterior, alvo)).unlink(
+                missing_ok=True
+            )
+        except OSError:
+            # Sobrou duplicado: visivel no `.<nick>` e consertavel. Seguir em
+            # frente e melhor que levantar no meio do farm.
+            pass
+
+        # O nick corrigido vira conhecido, senao o `.<nick>` dele nao
+        # responderia e a correcao ficaria invisivel exatamente para quem foi
+        # corrigido. Idempotente: "ja_existia" e tao bom quanto "criado".
+        self._criar(f"{_PREFIXO_NICK}{apelido(nick)}")
+        return Correcao("corrigido", anterior=anterior, novo=nick, alvo=alvo)
+
     def nicks_conhecidos(self) -> frozenset[str]:
         """Slugs que o `.<nick>` aceita consultar.
 
@@ -426,4 +509,62 @@ def responder_cancelamento(
     return (
         f"Nao havia loot marcado para o {nome_do_evento} das "
         f"{alvo.hour:02d}:{alvo.minute:02d}."
+    )
+
+
+def responder_correcao(
+    registro: RegistroDeLoot,
+    eventos: list[EventoAgendado],
+    agora: datetime,
+    nick: str,
+) -> str:
+    """Obedece o `.corrigir-<nick>`: troca o dono do ultimo loot e NOMEIA a
+    troca.
+
+    O texto NAO E COSMETICO. Ele e a unica rede de seguranca do usuario
+    contra ter corrigido o registro ERRADO — o comando sempre mira o loot
+    mais recente, e se outro boss passou no meio tempo o alvo mudou sem
+    ninguem avisar. Por isso a resposta diz o boss, o momento, de quem era e
+    para quem foi, e nunca um "pronto" seco: quem le tem que conseguir
+    perceber, na hora, que corrigiu o boss das 12:00 quando queria o das
+    10:00.
+
+    O momento sai por `descrever_momento`, o mesmo do `.<nick>` — o DIA e
+    justamente a informacao que falta quando o registro errado e o de ontem.
+
+    LIMITACAO ACEITA: o dono antigo sai slug-cased ("Tiomad", nao "TioMad")
+    porque o nome do arquivo e o unico registro que existe dele — restaurar a
+    caixa original exigiria adivinhar, e um nome adivinhado numa rede de
+    seguranca vale menos que um nome feio e honesto.
+    """
+    correcao = registro.corrigir(nick)
+
+    # A grafia sai do config.toml do usuario, com recurso ao nome canonico —
+    # mesmo padrao do `responder_cancelamento`.
+    evento = next((e for e in eventos if eh_solo_boss(e.nome)), None)
+    nome_do_evento = evento.nome if evento is not None else "Solo Boss"
+
+    if correcao.estado == "sem_registro":
+        return (
+            f"Nao ha nenhum loot de {nome_do_evento} registrado para corrigir."
+        )
+
+    momento = descrever_momento(correcao.alvo, agora)
+
+    if correcao.estado == "mesmo_dono":
+        return (
+            f"O loot do {nome_do_evento} de {momento} JA era do "
+            f"{exibir(correcao.novo)} — nada mudou."
+        )
+
+    if correcao.estado == "falhou":
+        return (
+            f"Nao consegui gravar a correcao do {nome_do_evento} de {momento} — "
+            f"o loot continua do {exibir(correcao.anterior)}, nao do "
+            f"{exibir(correcao.novo)}."
+        )
+
+    return (
+        f"O loot do {nome_do_evento} de {momento} passou do "
+        f"{exibir(correcao.anterior)} para o {exibir(correcao.novo)}."
     )

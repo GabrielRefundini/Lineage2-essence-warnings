@@ -61,6 +61,7 @@ from .loot import (  # noqa: E402
     nick_para_o_aviso,
     responder_cancelamento,
     responder_consulta,
+    responder_correcao,
     responder_designacao,
 )
 from .frames import MssSource, ReplaySource, SaudeDoFrame  # noqa: E402
@@ -520,6 +521,19 @@ def atender_comandos(
             # Mesmo racional do LOOT_DESIGNAR logo acima: o grupo fica sabendo
             # pelo proprio aviso de antecedencia, que agora sai SEM a linha
             # "Loot:". Ecoar aqui seria dizer a mesma coisa duas vezes.
+            avisar_o_grupo = False
+        elif pedido.comando is Comando.LOOT_CORRIGIR:
+            if loot is None:
+                resposta = "Nao consigo mexer no loot agora."
+            else:
+                resposta = responder_correcao(
+                    loot, eventos_agendados, agora, pedido.argumento
+                )
+            # Sem eco no grupo, e o motivo aqui e PROPRIO deste ramo: corrigir
+            # historico e conserto de contabilidade entre quem ja sabe o que
+            # aconteceu no boss. Anunciar no grupo que o loot mudou de dono
+            # convidaria exatamente a discussao que o registro existe para
+            # encerrar — e quem quiser conferir tem o `.<nick>`.
             avisar_o_grupo = False
         elif pedido.comando is Comando.LOOT_CONSULTA:
             if loot is None:

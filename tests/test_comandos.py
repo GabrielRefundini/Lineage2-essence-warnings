@@ -80,6 +80,11 @@ class TestInterpretar:
             # porque sem ele o proximo boss nao tinha como voltar a ser de
             # ninguem sem editar arquivo e reiniciar o scanner.
             Comando.LOOT_CANCELAR,
+            # E corrigir um loot JA CONSUMADO. Tambem de proposito, e o de
+            # maior alcance da lista: e o unico que reescreve HISTORICO, que
+            # nunca e podado. O contrapeso e a mira fixa no registro mais
+            # recente — nao ha sintaxe para atingir a estatistica antiga.
+            Comando.LOOT_CORRIGIR,
         }
 
     def test_as_formas_do_modo_solo(self):

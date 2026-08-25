@@ -95,6 +95,13 @@ class Comando(Enum):
     # ver D-02 em `interpretar_dinamico`.
     LOOT_CANCELAR = "loot_cancelar"
 
+    # O UNICO comando que reescreve HISTORICO. Os outros tres mexem na VEZ do
+    # proximo boss — estado que expira sozinho quando o horario passa. Este
+    # mexe na estatistica, que nunca e podada e nao tem backup. E por isso que
+    # o alcance dele para no registro MAIS RECENTE: o limite do estrago
+    # possivel nao pode depender de quem digita lembrar de ter cuidado.
+    LOOT_CORRIGIR = "loot_corrigir"
+
 
 # As formas escritas que valem para cada comando. Varias por comando porque
 # ninguem lembra a sintaxe exata no meio de um farm.
@@ -267,6 +274,16 @@ def interpretar_dinamico(
         # no meio de um farm quase sempre esta PERGUNTANDO de quem e a vez,
         # nao mandando apagar. Um dia alguem vai querer "consertar" esta
         # linha fazendo-a cancelar; nao consertem.
+        return None
+
+    # `.corrigir-<nick>`: troca o dono do ultimo loot ja consumado. Sem
+    # palavras reservadas aqui — `.corrigir` nao tem forma destrutiva sem
+    # argumento, entao nao existe a colisao que obrigou o
+    # `_PALAVRAS_DE_CANCELAMENTO` a nascer.
+    if crua.lower().startswith("corrigir-"):
+        nick = crua[len("corrigir-") :]
+        if _NICK_VALIDO.fullmatch(nick):
+            return (Comando.LOOT_CORRIGIR, nick)
         return None
 
     # `.{nick}` sozinho: o portao por nick conhecido e decisao do usuario —
