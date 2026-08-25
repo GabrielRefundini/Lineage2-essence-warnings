@@ -1,11 +1,18 @@
 ---
-gsd_state_version: '1.0'
+gsd_state_version: 1.0
+current_phase: 9
+current_phase_name: todas implementadas
 status: milestone-v2-definido
+stopped_at: "Quick 260825-pik concluida: o .pegou registra loot de boss que ja passou"
+last_updated: "2026-08-25T21:59:11.765Z"
+last_activity: 2026-08-25
+last_activity_desc: "Quick 260825-pik: `.pegou <hora> <nick>`, registrar loot de boss que ja passou"
+state_head: ffbc815478eaf02c607f1264d9622cd34a68fe5b
 progress:
-  total_phases: 7
-  completed_phases: 7
-  total_plans: 6
-  completed_plans: 6
+  total_phases: 9
+  completed_phases: 9
+  total_plans: 3
+  completed_plans: 3
   percent: 100
 ---
 
@@ -20,11 +27,11 @@ See: .planning/PROJECT.md (updated 2026-08-24)
 
 ## Current Position
 
-Phase: 4 de 4 — todas implementadas
+Phase: 9 de 9 — todas implementadas
 Status: Código completo, 338 testes. Nenhum bug conhecido em aberto. O que falta é VALIDAÇÃO EM CAMPO, não implementação: a última milha (morte real -> mensagem no WhatsApp na mesma sessão) e ver a agenda/silêncio funcionando num TvT de verdade. A cegueira recorrente teve a causa encontrada e tratada na Fase 5 (era manutenção do servidor).
-Last activity: 2026-08-25 — Quick 260825-onz: aviso de manutenção do servidor, lendo o banner por OCR
+Last activity: 2026-08-25 — Quick 260825-pik: `.pegou <hora> <nick>`, registrar loot de boss que já passou
 
-Progress: [██████████] 100% (7 de 7 fases)
+Progress: [██████████] 100% (9 de 9 fases)
 
 ## O que foi construído
 
@@ -133,6 +140,7 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 
 | Data | Tarefa | Resultado |
 |------|--------|-----------|
+| 2026-08-25 | [pegou-horario-nick](quick/260825-pik-adicionar-comando-pegou-horario-nick-par/260825-pik-SUMMARY.md) | `.pegou 18:00 Korzis` registra quem pegou o loot de um Solo Boss que **já passou**, mesmo quando ninguém tinha marcado nada — o caso que era impossível por construção, porque um `pegou_*` só nascia de designação prévia e o `.corrigir` só alcança o registro mais recente. O horário digitado é **encaixado** numa ocorrência real da agenda (tolerância 30 min) e o registro usa o horário do boss: `18h20` grava o das 18:00, e `19:00` — ambíguo entre 18:00 e 20:00 — recusa e diz quais horários existem, porque registro órfão numa pasta sem poda é permanente. Sem data, resolve para a ocorrência mais recente que já passou (às 2h, "18:00" é ontem) e a resposta **sempre diz o dia** de volta. As quatro linhas que podiam destruir dado foram conferidas por MUTAÇÃO; uma delas sobreviveu e virou teste novo (o boss que ainda não nasceu não pode ser encaixado). 683 → 715 testes. |
 | 2026-08-25 | [aviso-de-manutencao-do-servidor](quick/260825-onz-aviso-de-manutencao-do-servidor-lendo-o-/260825-onz-SUMMARY.md) | O scanner passou a ler o banner "Server Maintence" do jogo por OCR do Windows (`winrt-Windows.Media.Ocr`, zero instalador) e avisar o grupo duas vezes: ao aparecer o anúncio, com o tempo como está na tela, e quando faltam 5 minutos. **Âncora no relógio**: a contagem é lida da tela uma vez e o resto sai do relógio ancorado, então o aviso de 5 min sobrevive a cegueira, alt-tab ou banner coberto. **Consenso de duas leituras** antes de anunciar, senão um dígito comido pelo OCR anunciaria "faltam 4 minutos" quando faltam 40. Sem os bindings, o recurso se desliga e o arranque avisa alto — nunca derruba o scanner. 598 → 683 testes. Risco aberto: a precisão do OCR na FONTE DO JOGO não foi provada; `--testar-manutencao` existe para o usuário validar sozinho na próxima manutenção real. |
 | 2026-08-25 | [corrigir-um-loot-ja-consumado](quick/260825-ehc-corrigir-um-loot-ja-consumado-com-corrig/260825-ehc-SUMMARY.md) | `.corrigir-<nick>` reatribui o loot JÁ consumado — o boss passou no nome do designado, mas quem pegou foi outro. Toca só o registro MAIS RECENTE, e a resposta nomeia o que mudou ("de hoje as 10:00, do Tiomad para o Kaus") porque esse texto é a única rede contra corrigir o registro errado. Duas linhas podiam destruir dado e foram conferidas por MUTAÇÃO: criar-antes-de-apagar (o inverso perde o loot em silêncio) e a guarda do mesmo apelido (sem ela, corrigir para o próprio dono apagava o único registro e ainda respondia sucesso). 581 → 598 testes. Limitação aceita: o dono antigo sai com caixa do slug ("Tiomad"), porque o nome digitado não sobrevive ao consumo. |
 | 2026-08-25 | moldura do aviso no WhatsApp | O aviso de agenda passou a sair no celular como BLOCO — borda de asteriscos, recuo de dois espaços e carimbo `[HH:MM]` do envio à direita —, o mesmo que já aparecia no console. A geometria virou `console.moldurar()`, pura e sem ANSI, usada pelos dois destinos: uma conta só, então as bordas não divergem. Moldurado no despacho e cru em `resultado.avisos`, senão o console poria bloco dentro de bloco (`876a8e1`). |
@@ -152,9 +160,14 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 
 ## Session Continuity
 
-Last session: 2026-08-24
-Stopped at: Três alarmes falsos corrigidos (arranque inventando entrada, cegueira
+Last session: 2026-08-25T21:59:00.896Z
+Stopped at: Quick 260825-pik concluida: o .pegou registra loot de boss que ja passou
 lida como saída de party, arranque cego lido como entrada em party). 226 testes.
 Commits 589ac84 e 7bb43f0. Sessão em `.planning/debug/resolved/alarme-falso-no-arranque.md`.
 **O bot precisa ser reiniciado para carregar as correções.**
 Resume file: None
+
+## Decisions
+
+- [Phase 4]: [loot]: O horario do `.pegou` e ENCAIXADO numa ocorrencia real do Solo Boss (tolerancia 30 min) e o registro usa o horario da ocorrencia, nunca o digitado. Sem boss por perto o comando recusa e lista os horarios — a pasta .loot/ nunca e podada, entao um registro orfao seria permanente e inalcancavel.
+- [Phase 4]: [loot]: Data sem ano resolve para a leitura de calendario MAIS PROXIMA de agora, e so entao precisa ter passado. Em janeiro "30/12" e dezembro passado; em agosto o mesmo "30/12" recusa em vez de gravar oito meses atras. Recuar sempre para o ano anterior gravaria estado permanente por um dedo escorregado.
