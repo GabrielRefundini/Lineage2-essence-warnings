@@ -181,6 +181,34 @@ class TestTextoDoAviso:
         assert "21:50" in antes and "21:50" in agora
         assert "10 minutos" in antes
 
+    def test_a_antecedencia_pode_carregar_o_loot(self):
+        """O aviso que ja existe ganha "Loot: X" no fim — e SO ele.
+
+        A agenda nao conhece designacao nenhuma: quem decide SE ha loot e o
+        chamador, a agenda so formata. Mesma linha do console nao ganhar
+        relogio.
+        """
+        alvo = em(10, 0)
+        aviso = Aviso("Solo Boss", TipoDeAviso.ANTES, alvo, em(9, 50))
+        assert texto_do_aviso(aviso, loot="J4guar").endswith("Loot: J4guar.")
+
+    def test_sem_loot_o_texto_e_byte_a_byte_o_de_hoje(self):
+        """Regressao: toda chamada existente continua valida e identica."""
+        alvo = em(21, 50)
+        aviso = Aviso("TvT", TipoDeAviso.ANTES, alvo, em(21, 40))
+        assert texto_do_aviso(aviso) == (
+            "TvT comeca em 10 minutos, as 21:50. "
+            "Hora de voltar para a cidade e se preparar."
+        )
+
+    def test_o_aviso_AGORA_nunca_ganha_a_linha(self):
+        """So a antecedencia carrega o loot, por decisao do usuario. O Solo
+        Boss nem tem aviso de AGORA — e nao deve ganhar a linha nem se
+        tivesse."""
+        alvo = em(10, 0)
+        aviso = Aviso("Solo Boss", TipoDeAviso.AGORA, alvo, alvo)
+        assert "Loot" not in texto_do_aviso(aviso, loot="J4guar")
+
 
 class TestLerAgenda:
     def test_arquivo_ausente_nao_e_erro(self, tmp_path):

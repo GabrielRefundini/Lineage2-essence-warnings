@@ -59,7 +59,9 @@ def frame_real():
     )
 
 
-def nova_sessao(calibracao, tmp_path, eventos=(), silencio=None, despachante=None):
+def nova_sessao(
+    calibracao, tmp_path, eventos=(), silencio=None, despachante=None, loot=None
+):
     return Sessao(
         cal=calibracao,
         rastreador=Rastreador(nomes=list(calibracao.nomes)),
@@ -67,6 +69,7 @@ def nova_sessao(calibracao, tmp_path, eventos=(), silencio=None, despachante=Non
         registro=RegistroEmDisco(tmp_path),
         silencio=silencio or SilencioFalso(),
         despachante=despachante,
+        loot=loot,
     )
 
 
@@ -261,3 +264,109 @@ class TestFimDoSilencio:
         for i in range(10):
             avisos.extend(s.tick(frame_real, momento=quando.timestamp() + i).avisos)
         assert len([a for a in avisos if "encerrado" in a]) == 1
+
+
+class TestLootNoTick:
+    """O fio inteiro do loot dentro do tick: aviso com "Loot: X" e consumo.
+
+    Como no config real: o Solo Boss tem `avisar_no_horario = False`, entao o
+    unico aviso que existe e o de antecedencia — e e nele que o nome entra.
+    """
+
+    SOLO = EventoAgendado(
+        nome="Solo Boss", horarios=((10, 0), (12, 0)), avisar_no_horario=False
+    )
+
+    def _loot(self, tmp_path):
+        from l2scanner.loot import RegistroDeLoot
+
+        return RegistroDeLoot(tmp_path / "loot")
+
+    def test_o_aviso_sai_com_o_nome_do_designado(
+        self, calibracao, frame_real, tmp_path
+    ):
+        loot = self._loot(tmp_path)
+        loot.designar("J4guar", SEGUNDA.replace(hour=10), SEGUNDA.replace(hour=9))
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO], loot=loot)
+
+        r = s.tick(frame_real, momento=em(9, 50))
+
+        assert r.avisos, "o aviso de antecedencia nao saiu"
+        assert "Solo Boss" in r.avisos[0]
+        assert "Loot: J4guar" in r.avisos[0]
+
+    def test_sem_designacao_o_aviso_sai_sem_a_linha(
+        self, calibracao, frame_real, tmp_path
+    ):
+        s = nova_sessao(
+            calibracao, tmp_path, eventos=[self.SOLO], loot=self._loot(tmp_path)
+        )
+
+        r = s.tick(frame_real, momento=em(9, 50))
+
+        assert r.avisos
+        assert "Loot" not in r.avisos[0]
+
+    def test_TvT_nunca_ganha_a_linha(self, calibracao, frame_real, tmp_path):
+        """A designacao do Solo Boss esta ativa, mas o aviso e do TvT."""
+        tvt = EventoAgendado(nome="TvT", horarios=((10, 0),))
+        loot = self._loot(tmp_path)
+        loot.designar("J4guar", SEGUNDA.replace(hour=10), SEGUNDA.replace(hour=9))
+        s = nova_sessao(calibracao, tmp_path, eventos=[tvt], loot=loot)
+
+        r = s.tick(frame_real, momento=em(9, 50))
+
+        assert r.avisos and "TvT" in r.avisos[0]
+        assert "Loot" not in r.avisos[0]
+
+    def test_o_consumo_dispara_no_horario_e_uma_vez_so(
+        self, calibracao, frame_real, tmp_path
+    ):
+        loot = self._loot(tmp_path)
+        loot.designar("J4guar", SEGUNDA.replace(hour=10), SEGUNDA.replace(hour=9))
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO], loot=loot)
+
+        r = s.tick(frame_real, momento=em(10, 0))
+
+        assert r.loot_consumado is not None
+        assert r.loot_consumado.nick == "J4guar"
+        pegou = [p for p in (tmp_path / "loot").iterdir() if p.name.startswith("pegou_")]
+        assert len(pegou) == 1
+        assert loot.designacao() is None
+
+        seguinte = s.tick(frame_real, momento=em(10, 1))
+        assert seguinte.loot_consumado is None, "registrou em dobro"
+
+    def test_duas_instancias_consomem_uma_vez_so(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """As duas Sessao do usuario, mesma pasta de loot, mesmo tick."""
+        loot_a = self._loot(tmp_path)
+        loot_b = self._loot(tmp_path)
+        loot_a.designar("J4guar", SEGUNDA.replace(hour=10), SEGUNDA.replace(hour=9))
+        a = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO], loot=loot_a)
+        b = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO], loot=loot_b)
+
+        consumos = [
+            a.tick(frame_real, momento=em(10, 0)).loot_consumado,
+            b.tick(frame_real, momento=em(10, 0)).loot_consumado,
+        ]
+
+        assert len([c for c in consumos if c is not None]) == 1
+        pegou = [p for p in (tmp_path / "loot").iterdir() if p.name.startswith("pegou_")]
+        assert len(pegou) == 1
+
+    def test_o_boss_seguinte_nao_herda_a_designacao(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """Consumida as 10:00, a designacao nao pode aparecer no aviso do
+        boss das 12:00 — a vez do loot vale para UM boss, nao para o dia."""
+        loot = self._loot(tmp_path)
+        loot.designar("J4guar", SEGUNDA.replace(hour=10), SEGUNDA.replace(hour=9))
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO], loot=loot)
+
+        assert s.tick(frame_real, momento=em(10, 0)).loot_consumado is not None
+
+        r = s.tick(frame_real, momento=em(11, 50))
+        assert r.avisos and "Solo Boss" in r.avisos[0]
+        assert "Loot" not in r.avisos[0]
