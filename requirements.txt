@@ -17,6 +17,25 @@ numpy>=2.0
 # produzir frames e nao ha API que contorne.
 windows-capture>=1.4
 
+# OCR do banner de manutencao do servidor (l2scanner/manutencao.py).
+#
+# O motor de OCR JA VEM NO WINDOWS 11 — zero instalador, zero modelo para
+# baixar, tudo offline. O que falta e so a ponte para o Python.
+#
+# SAO SEIS PACOTES porque as bindings do WinRT sao MODULARES desde set/2023:
+# cada namespace e um pacote separado, e faltar UM nao quebra no import — quebra
+# no meio da cadeia de chamada, que e muito pior de diagnosticar.
+#
+# Sem elas o scanner sobe exatamente igual e SO o aviso de manutencao se
+# desliga, com o arranque dizendo o motivo e o conserto. Ver l2scanner/ocr.py.
+# Versoes: as que o spike instalou e exercitou com sucesso.
+winrt-Windows.Media.Ocr>=3.2.1
+winrt-Windows.Graphics.Imaging>=3.2.1
+winrt-Windows.Storage.Streams>=3.2.1
+winrt-Windows.Globalization>=3.2.1
+winrt-Windows.Foundation>=3.2.1
+winrt-Windows.Foundation.Collections>=3.2.1
+
 # NAO ADICIONE AQUI, POR DECISAO DE PROJETO:
 #   pyautogui, pydirectinput, keyboard, pynput ou qualquer lib de input.
 # O scanner e somente leitura. Manter essas libs fora da arvore de dependencias

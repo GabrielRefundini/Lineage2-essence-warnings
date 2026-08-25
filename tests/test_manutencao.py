@@ -545,3 +545,57 @@ class TestRegiaoDoBanner:
         from l2scanner import calibracao as modulo
 
         assert modulo.VERSAO_DO_ESQUEMA == 2
+
+
+class TestMontagemNoArranque:
+    """Ligar ou nao o recurso e LOGICA, e logica precisa de teste.
+
+    Mesmo morando no `__main__`, que e a camada de 20% de cobertura onde todos
+    os bugs de integracao deste projeto ja moraram.
+    """
+
+    def _regiao(self):
+        from l2scanner.frames import Regiao
+
+        return Regiao(esquerda=10, topo=10, largura=600, altura=120)
+
+    def test_sem_ocr_devolve_none_e_avisa_em_warning(self, monkeypatch, caplog):
+        """Silencio aqui seria o pior desfecho (D-02).
+
+        O usuario acharia que esta coberto contra a manutencao e nao esta — e
+        so descobriria na proxima queda do servidor, que e exatamente a
+        situacao que este recurso existe para evitar.
+        """
+        import logging
+
+        from l2scanner import __main__ as principal
+        from l2scanner import ocr
+
+        monkeypatch.setattr(ocr, "disponivel", lambda: False)
+        monkeypatch.setattr(ocr, "motivo_indisponivel", lambda: "faltam as bindings")
+
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            assert principal.montar_vigia_de_manutencao(self._regiao()) is None
+
+        assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+    def test_sem_regiao_devolve_none(self, monkeypatch):
+        """D-07: sem pixels nao ha o que ler, mesmo com o OCR funcionando."""
+        from l2scanner import __main__ as principal
+        from l2scanner import ocr
+
+        monkeypatch.setattr(ocr, "disponivel", lambda: True)
+
+        assert principal.montar_vigia_de_manutencao(None) is None
+
+    def test_com_ocr_e_regiao_devolve_o_vigia_ligado_no_ocr(self, monkeypatch):
+        from l2scanner import __main__ as principal
+        from l2scanner import ocr
+        from l2scanner.manutencao import VigiaDeManutencao
+
+        monkeypatch.setattr(ocr, "disponivel", lambda: True)
+
+        vigia = principal.montar_vigia_de_manutencao(self._regiao())
+
+        assert isinstance(vigia, VigiaDeManutencao)
+        assert vigia._ler_texto is ocr.ler_texto

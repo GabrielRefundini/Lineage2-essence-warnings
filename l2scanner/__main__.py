@@ -15,6 +15,7 @@ _MODO_DPI = tornar_consciente_de_dpi()
 # ---------------------------------------------------------------------------
 
 import argparse  # noqa: E402
+import cv2  # noqa: E402
 import logging  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
@@ -64,7 +65,13 @@ from .loot import (  # noqa: E402
     responder_correcao,
     responder_designacao,
 )
-from .frames import MssSource, ReplaySource, SaudeDoFrame  # noqa: E402
+from . import ocr  # noqa: E402
+from .frames import MssSource, Regiao, ReplaySource, SaudeDoFrame  # noqa: E402
+from .manutencao import (  # noqa: E402
+    VigiaDeManutencao,
+    eh_banner_de_manutencao,
+    interpretar_banner,
+)
 from .gravador import Gravador  # noqa: E402
 from .notificador import (  # noqa: E402
     USER_AGENT,
@@ -178,6 +185,43 @@ def montar_despachante(args: argparse.Namespace) -> Despachante | None:
         arquivo_outbox=ARQUIVO_OUTBOX,
         ao_falhar=avisar_falha,
     )
+
+
+def montar_vigia_de_manutencao(regiao) -> VigiaDeManutencao | None:
+    """Liga o aviso de manutencao, ou explica por que nao ligou. Nunca levanta.
+
+    Mesmo formato de `montar_despachante`: tenta, degrada com log, devolve None
+    e deixa o scanner subir. O recurso e opcional; o scanner nao e.
+
+    A DIFERENCA ENTRE OS DOIS LOGS E DELIBERADA. Sem regiao e uma escolha de
+    modo (`mss` sem `banner_manutencao` configurado), entao `info` basta. Sem as
+    bindings de OCR e um `.venv` desatualizado que o usuario CONSEGUE
+    consertar — e se isso sair calado ele vai achar que esta coberto contra a
+    proxima manutencao e nao esta.
+    """
+    if regiao is None:
+        log.info(
+            "Aviso de manutencao desligado: nao sei onde procurar o banner. "
+            "Rode com --janela, ou configure a chave 'banner_manutencao' no "
+            "calibration.json."
+        )
+        return None
+
+    if not ocr.disponivel():
+        log.warning(
+            "Aviso de manutencao DESATIVADO — %s", ocr.motivo_indisponivel()
+        )
+        log.warning(
+            "Todo o resto do scanner continua igual: morte, saida e "
+            "ressurreicao seguem sendo detectadas e entregues."
+        )
+        return None
+
+    log.info(
+        "Aviso de manutencao ativo — lendo o banner em (%d,%d) %dx%d",
+        regiao.esquerda, regiao.topo, regiao.largura, regiao.altura,
+    )
+    return VigiaDeManutencao(ler_texto=ocr.ler_texto)
 
 
 def _duracao_legivel(segundos: float) -> str:
@@ -861,6 +905,108 @@ def comando_teste_de_agenda(args: argparse.Namespace) -> int:
     return 0
 
 
+def comando_testar_manutencao(args: argparse.Namespace, cal: Calibracao) -> int:
+    """Mostra o que o OCR le no banner AGORA (D-13).
+
+    Esta ferramenta existe por causa de um risco declarado: a precisao do OCR
+    na FONTE DO JOGO nunca foi provada. O spike leu um banner sintetico, nao um
+    banner de verdade. So uma manutencao real prova o resto — e sem esta
+    ferramenta o usuario nao teria como conferir sozinho quando ela acontecer.
+
+    Por isso ela mostra as TRES coisas separadas: qual regiao usou, que pixels
+    pegou (o PNG em disco) e o que o OCR e o parser entenderam. Quando algo
+    falhar, essas tres respostas dizem QUAL das tres etapas falhou.
+    """
+    regiao = cal.regiao_do_banner(na_janela=bool(args.janela))
+    if regiao is None:
+        log.error("O aviso de manutencao esta desligado neste modo.")
+        log.error(
+            "Rode com --janela, ou configure a chave 'banner_manutencao' no "
+            "calibration.json."
+        )
+        return 2
+
+    # DE ONDE a regiao veio importa tanto quanto qual ela e: sem esta frase o
+    # usuario nao sabe se esta conferindo o palpite do scanner ou o ajuste que
+    # ele mesmo escreveu.
+    origem = (
+        "calibrada no calibration.json"
+        if cal.banner_manutencao is not None
+        else "padrao derivado da party window"
+    )
+    log.info(
+        "Regiao do banner (%s): esquerda=%d topo=%d %dx%d",
+        origem, regiao.esquerda, regiao.topo, regiao.largura, regiao.altura,
+    )
+
+    fonte = JanelaSource(
+        args.janela,
+        cal.party_window_na_janela or cal.party_window,
+        relativa=cal.party_window_na_janela is not None,
+        extras={"banner_manutencao": regiao},
+    )
+    try:
+        frame = fonte.capturar()
+        recorte = frame.extras.get("banner_manutencao")
+        if recorte is None or getattr(recorte, "size", 0) == 0:
+            # Foi o `_extra_para_janela` que decidiu isso: a regiao caiu FORA
+            # do frame da janela. Ele devolve None em vez de inventar pixels.
+            log.error("A regiao do banner caiu FORA da janela do jogo.")
+            log.error(
+                "  regiao pedida: esquerda=%d topo=%d %dx%d",
+                regiao.esquerda, regiao.topo, regiao.largura, regiao.altura,
+            )
+            log.error(
+                "  janela capturada: %dx%d",
+                frame.pixels.shape[1], frame.pixels.shape[0],
+            )
+            return 2
+
+        agora = datetime.now()
+        PASTA_LOGS.mkdir(exist_ok=True)
+        destino = PASTA_LOGS / f"banner-manutencao-{agora.strftime('%H%M%S')}.png"
+        # CONFERIR O RETORNO NAO E ZELO EXCESSIVO: `cv2.imwrite` devolve False
+        # em silencio quando o arquivo esta travado (visualizador de fotos
+        # aberto), e o calibrador ja anunciou uma imagem VELHA por causa disso
+        # (tarefa 260825-bmw). Anunciar um caminho que nao existe e pior do que
+        # nao gravar.
+        if cv2.imwrite(str(destino), recorte):
+            log.info(
+                "Recorte gravado em %s (%s)",
+                destino.resolve(), agora.strftime("%H:%M:%S"),
+            )
+        else:
+            log.error(
+                "NAO consegui gravar %s — o arquivo esta aberto noutro "
+                "programa? Sigo sem a imagem.", destino.resolve(),
+            )
+
+        texto = ocr.ler_texto(recorte)
+        if texto is None:
+            log.error("O OCR nao devolveu nada.")
+            log.error("%s", ocr.motivo_indisponivel() or
+                      "O motor rodou e nao achou texto nenhum no recorte.")
+            return 1
+
+        # Delimitadores VISIVEIS porque espaco em branco importa aqui: o OCR
+        # comendo um espaco e o que separa `40 minutes` de `40minutes`.
+        log.info("O OCR leu: >>>%s<<<", texto)
+
+        eh_banner = eh_banner_de_manutencao(texto)
+        duracao = interpretar_banner(texto)
+        log.info("eh_banner_de_manutencao: %s", eh_banner)
+        log.info("interpretar_banner: %s", duracao)
+        if duracao is not None:
+            momento = montar_relogio(args).agora() + duracao
+            log.info(
+                "Se isto fosse valendo, o servidor cairia as %s",
+                momento.strftime("%H:%M:%S"),
+            )
+        return 0
+    finally:
+        fonte.fechar()
+
+
 def _registrar_evento_no_console(evento) -> None:
     """No console, direto e em destaque.
 
@@ -879,6 +1025,31 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     scanner, porque a party aprende a confiar num silencio que nao significa
     mais nada.
     """
+    # O VIGIA DE MANUTENCAO VEM ANTES DA FONTE porque a regiao dele entra no
+    # `extras` que a fonte recebe.
+    #
+    # Em --replay ele NAO e montado: uma sessao gravada nao tem banner nenhum,
+    # e os horarios do arquivo ancorariam um instante que nunca existiu.
+    if args.replay:
+        vigia_manutencao = None
+        log.debug("Replay: aviso de manutencao desligado (sessao gravada nao tem banner)")
+    else:
+        vigia_manutencao = montar_vigia_de_manutencao(
+            cal.regiao_do_banner(na_janela=bool(args.janela))
+        )
+
+    # UM dicionario de extras para os tres caminhos. O extra do banner so entra
+    # quando o vigia existe: no caminho `mss` cada extra custa uma captura
+    # PROPRIA por tick, entao pedir um recorte que ninguem le e desperdicio
+    # continuo.
+    extras: dict[str, Regiao] = {}
+    if cal.hp_proprio:
+        extras["hp_proprio"] = cal.hp_proprio
+    if vigia_manutencao is not None:
+        extras["banner_manutencao"] = cal.regiao_do_banner(
+            na_janela=bool(args.janela)
+        )
+
     if args.replay:
         fonte = ReplaySource(Path(args.replay))
         log.info("Reproduzindo %s (%d frames)", args.replay, len(fonte))
@@ -894,12 +1065,11 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 "janela. Vai funcionar, mas ARRASTAR o jogo quebra a leitura. "
                 "Rode calibrar.bat para corrigir."
             )
-        extras = {"hp_proprio": cal.hp_proprio} if cal.hp_proprio else None
         fonte = JanelaSource(
             args.janela,
             regiao,
             relativa=cal.party_window_na_janela is not None,
-            extras=extras,
+            extras=extras or None,
         )
         log.info("Lendo a janela '%s' — funciona com o jogo coberto", args.janela)
         log.info("Janela MINIMIZADA continua sem funcionar: o Windows para de "
@@ -907,7 +1077,9 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     else:
         # No caminho do desktop a barra propria esta em coordenadas da
         # JANELA, entao so da para captura-la pelo caminho --janela.
-        fonte = MssSource(cal.party_window)
+        # Com extras tambem aqui: D-07 permite explicitamente o caminho `mss`
+        # COM a regiao do banner configurada a mao no calibration.json.
+        fonte = MssSource(cal.party_window, extras=extras or None)
         if cal.hp_proprio:
             log.warning(
                 "A barra do seu personagem so e lida com --janela. "
@@ -990,6 +1162,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         fonte=fonte,
         ao_registrar=_registrar_evento_no_console,
         loot=registro_de_loot,
+        manutencao=vigia_manutencao,
     )
 
     ultimo_status = 0.0
@@ -1232,6 +1405,16 @@ def main() -> int:
         help="envia um aviso de agenda de exemplo e sai, sem esperar o horario",
     )
     parser.add_argument(
+        "--testar-manutencao",
+        action="store_true",
+        dest="testar_manutencao",
+        help=(
+            "captura a janela agora e mostra o que o OCR le no banner de "
+            "manutencao: a regiao usada, o recorte salvo em disco e o veredito "
+            "do parser"
+        ),
+    )
+    parser.add_argument(
         "--solo",
         action="store_true",
         help=(
@@ -1304,6 +1487,15 @@ def main() -> int:
                 log.error("Escolha uma, ou recalibre para gravar qual e.")
                 return 2
             args.janela = janelas[0]
+
+    # DEPOIS da calibracao e da resolucao do --janela AUTO, e nao junto do
+    # --testar-agenda: diferente da agenda, esta ferramenta precisa das duas.
+    if args.testar_manutencao:
+        try:
+            return comando_testar_manutencao(args, cal)
+        except JanelaNaoEncontrada as erro:
+            log.error("%s", erro)
+            return 2
 
     try:
         return laco_principal(args, cal)
