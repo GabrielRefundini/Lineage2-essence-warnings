@@ -57,6 +57,8 @@ from .comandos import (  # noqa: E402
 from .console import destacar  # noqa: E402
 from .loot import (  # noqa: E402
     RegistroDeLoot,
+    exibir,
+    nick_para_o_aviso,
     responder_consulta,
     responder_designacao,
 )
@@ -711,16 +713,33 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
                 if despachante:
                     despachante.despachar(encerrou, Categoria.SEMPRE)
 
+            # A designacao de loot entra no aviso de antecedencia do Solo
+            # Boss. Lida antes do loop, para todos os avisos deste tick
+            # enxergarem a mesma.
+            designacao = registro_de_loot.designacao()
             for aviso in avisos_devidos(agora, eventos, registro.enviados()):
                 if not registro.marcar(aviso.chave):
                     continue
-                texto = texto_do_aviso(aviso)
+                texto = texto_do_aviso(aviso, nick_para_o_aviso(aviso, designacao))
                 log.info(destacar(texto, hora=agora.strftime("%H:%M")))
                 if despachante:
                     # SEMPRE: o lembrete atravessa o silencio. De segunda a
                     # quinta o aviso do TvT das 21h40 cai dentro do silencio do
                     # Prime — sem isto, a funcionalidade se anula sozinha.
                     despachante.despachar(texto, Categoria.SEMPRE)
+
+            # O horario do boss passou com designacao ativa: registra e some.
+            # SO LOG, sem WhatsApp: o Solo Boss ja e 12 ocorrencias/dia, e a
+            # disciplina de volume da agenda vale aqui tambem.
+            consumida = registro_de_loot.consumir(agora)
+            if consumida:
+                log.info(
+                    destacar(
+                        f"Loot do Solo Boss das "
+                        f"{consumida.alvo.strftime('%H:%M')} registrado para "
+                        f"{exibir(consumida.nick)}"
+                    )
+                )
 
             # De hora em hora, repetir qual e o proximo. Um scanner que nao diz
             # quando vai falar de novo e indistinguivel de um scanner travado.
@@ -931,6 +950,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         gravador=gravador,
         fonte=fonte,
         ao_registrar=_registrar_evento_no_console,
+        loot=registro_de_loot,
     )
 
     ultimo_status = 0.0
@@ -987,6 +1007,18 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
             for texto in resultado.avisos:
                 log.info(
                     destacar(texto, hora=relogio.agora().strftime("%H:%M"))
+                )
+
+            if resultado.loot_consumado:
+                # So log, sem WhatsApp — mesma disciplina de volume do laco
+                # da agenda: o Solo Boss ja e 12 ocorrencias por dia.
+                consumida = resultado.loot_consumado
+                log.info(
+                    destacar(
+                        f"Loot do Solo Boss das "
+                        f"{consumida.alvo.strftime('%H:%M')} registrado para "
+                        f"{exibir(consumida.nick)}"
+                    )
                 )
 
             if resultado.falhou_ao_analisar:
