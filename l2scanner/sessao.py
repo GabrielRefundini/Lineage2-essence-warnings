@@ -75,6 +75,11 @@ class ResultadoDoTick:
     # redacao.
     loot_consumado: Designacao | None = None
 
+    # Tipos de aviso de manutencao que sairam neste tick. Estruturado, e nao
+    # so texto, pelo mesmo motivo de `despachos` existir: teste afirma
+    # estrutura, e a redacao muda toda vez que alguem a melhora.
+    avisos_de_manutencao: list = field(default_factory=list)
+
     # A extração falhou e o tick não concluiu nada sobre a party.
     falhou_ao_analisar: bool = False
 
@@ -99,6 +104,7 @@ class Sessao:
         fonte=None,
         ao_registrar=None,
         loot=None,
+        manutencao=None,
     ) -> None:
         self.cal = cal
         self.rastreador = rastreador
@@ -112,6 +118,10 @@ class Sessao:
         # O registro de loot do Solo Boss. Default None mantem toda chamada
         # existente intacta — sem ele o tick simplesmente nao fala de loot.
         self.loot = loot
+        # O vigia do banner de manutencao. Tambem default None, e pela mesma
+        # razao: sem as bindings de OCR ou sem regiao calibrada o recurso se
+        # desliga inteiro e nada mais no tick muda.
+        self.manutencao = manutencao
         # Chamado a cada mensagem despachada. A casca usa para logar; o teste
         # usa para nada — ele lê o `ResultadoDoTick`.
         self._ao_registrar = ao_registrar or (lambda *_: None)
@@ -179,6 +189,12 @@ class Sessao:
         # deixá-la depois faria um erro de leitura engolir o lembrete de TvT
         # junto — o que contradiz a razão inteira de a agenda existir.
         self._processar_agenda(agora, resultado)
+
+        # PELO MESMO MOTIVO QUE A AGENDA VEM ANTES: o `except` do bloco abaixo
+        # retorna cedo, entao um erro de leitura da party engoliria o aviso de
+        # manutencao junto — e manutencao e justamente o que costuma DERRUBAR a
+        # leitura da party.
+        self._processar_manutencao(agora, frame, resultado)
 
         try:
             observacao = extrair(frame, self.cal)
@@ -264,6 +280,37 @@ class Sessao:
         # alvo — mas fixa-la torna o tick deterministico para o teste.
         if self.loot:
             resultado.loot_consumado = self.loot.consumir(agora)
+
+
+    def _processar_manutencao(
+        self, agora: datetime, frame: Frame, resultado: ResultadoDoTick
+    ) -> None:
+        """O banner de manutencao vira aviso no grupo. Sempre categoria SEMPRE.
+
+        `Categoria.SEMPRE` porque manutencao durante TvT ou Prime e exatamente
+        quando o silencio esta ligado — e e quando mais importa saber (D-08).
+
+        O `marcar` E a decisao de despachar, nunca uma checagem anterior: e o
+        mesmo O_CREAT|O_EXCL que ja impede as duas instancias do usuario de
+        mandarem o aviso de TvT em dobro.
+        """
+        if self.manutencao is None:
+            return
+
+        for aviso in self.manutencao.avaliar(
+            lambda: frame.extras.get("banner_manutencao"), agora
+        ):
+            if not self.registro.marcar(aviso.chave):
+                continue
+            # CRU no resultado, MOLDURADO no despacho — o console monta a
+            # propria moldura a partir de `avisos` (D-11).
+            resultado.avisos.append(aviso.texto)
+            resultado.avisos_de_manutencao.append(aviso.tipo)
+            self._despachar(
+                moldurar(aviso.texto, agora.strftime("%H:%M")),
+                Categoria.SEMPRE,
+                resultado=resultado,
+            )
 
 
 def texto_do_evento(evento: Evento) -> str:

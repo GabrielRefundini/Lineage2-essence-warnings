@@ -10,6 +10,7 @@ Agora chama.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -60,7 +61,13 @@ def frame_real():
 
 
 def nova_sessao(
-    calibracao, tmp_path, eventos=(), silencio=None, despachante=None, loot=None
+    calibracao,
+    tmp_path,
+    eventos=(),
+    silencio=None,
+    despachante=None,
+    loot=None,
+    manutencao=None,
 ):
     return Sessao(
         cal=calibracao,
@@ -70,6 +77,7 @@ def nova_sessao(
         silencio=silencio or SilencioFalso(),
         despachante=despachante,
         loot=loot,
+        manutencao=manutencao,
     )
 
 
@@ -591,3 +599,63 @@ class TestLootNoTick:
         r = s.tick(frame_real, momento=em(11, 50))
         assert r.avisos and "Solo Boss" in r.avisos[0]
         assert "Loot" not in r.avisos[0]
+
+
+class TestManutencaoNoTick:
+    """A costura do aviso de manutencao — que e onde os erros deste projeto moram.
+
+    O parser e o vigia tem testes proprios em `test_manutencao.py`. O que se
+    prova AQUI e o fio inteiro: vigia -> marcador em disco -> resultado ->
+    despacho, com `Categoria.SEMPRE` (D-08) e moldura (D-11).
+    """
+
+    BANNER = "Server Maintence 40 minutes 26 seconds"
+
+    def _frame_com_banner(self, frame_real):
+        """O recorte do banner entra pelo mesmo `extras` que o `hp_proprio` usa.
+
+        O conteudo dos pixels e irrelevante: o `ler_texto` do vigia e injetado,
+        porque o Python da suite nao tem as bindings do WinRT.
+        """
+        return replace(
+            frame_real, extras={"banner_manutencao": np.zeros((10, 10, 3), np.uint8)}
+        )
+
+    def _vigia(self, texto=BANNER):
+        from l2scanner.manutencao import VigiaDeManutencao
+
+        return VigiaDeManutencao(ler_texto=lambda _: texto)
+
+    def test_o_anuncio_atravessa_vigia_marcador_resultado_e_despacho(
+        self, calibracao, frame_real, tmp_path
+    ):
+        from l2scanner.manutencao import TipoDeAvisoDeManutencao
+
+        s = nova_sessao(calibracao, tmp_path, manutencao=self._vigia())
+        frame = self._frame_com_banner(frame_real)
+
+        # DOIS ticks espacados de 6 s: o consenso de D-05 exige duas leituras
+        # concordantes, e a cadencia de D-06 so deixa a segunda acontecer
+        # depois de 5 s.
+        s.tick(frame, momento=em(12, 0))
+        r = s.tick(frame, momento=em(12, 0) + 6)
+
+        assert r.avisos_de_manutencao == [TipoDeAvisoDeManutencao.ANUNCIADA]
+
+        despachos = [d for d in r.despachos if "manuten" in d[0].lower()]
+        assert len(despachos) == 1
+        (texto, categoria, _) = despachos[0]
+        assert categoria is Categoria.SEMPRE
+        assert "***" in texto, "o aviso sai moldurado (D-11)"
+        assert "40 minutos" in texto and "26 segundos" in texto
+
+    def test_sai_uma_vez_so_em_muitos_ticks(self, calibracao, frame_real, tmp_path):
+        s = nova_sessao(calibracao, tmp_path, manutencao=self._vigia())
+        frame = self._frame_com_banner(frame_real)
+
+        total = 0
+        base = em(12, 0)
+        for i in range(30):
+            total += len(s.tick(frame, momento=base + i).avisos_de_manutencao)
+
+        assert total == 1
