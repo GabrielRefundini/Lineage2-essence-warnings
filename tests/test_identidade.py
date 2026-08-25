@@ -1221,7 +1221,7 @@ class TestUmaSaidaRealNaoViraVariosAlertas:
     primeira saida real de qualquer pessoa.
 
     E a mesma familia de [[alarme-falso-no-arranque]] e
-    [[resolved-party-entra-sai-em-loop]]: tratar mudanca de RECONHECIMENTO como
+    [[party-entra-sai-em-loop]]: tratar mudanca de RECONHECIMENTO como
     mudanca de REALIDADE. Aqui com um agravante — o retrato envelhecido guarda a
     mentira ate o dia em que ela pode ser contada.
 

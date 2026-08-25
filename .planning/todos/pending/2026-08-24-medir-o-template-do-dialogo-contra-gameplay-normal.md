@@ -37,8 +37,8 @@ RECORTES da party window (menores que o template de 320x62), então
 **Risco concreto se o limiar estiver errado:** um frame de gameplay que passe
 de 0.90 faz o bot anunciar "o jogo caiu" no WhatsApp no meio do farm. É
 exatamente a classe de alarme falso que o dia 2026-08-24 inteiro foi gasto
-corrigindo (ver `.planning/debug/alarme-falso-no-arranque.md` e
-`.planning/debug/resolved-party-entra-sai-em-loop.md`), e o custo dela não é
+corrigindo (ver `.planning/debug/resolved/alarme-falso-no-arranque.md` e
+`.planning/debug/resolved/party-entra-sai-em-loop.md`), e o custo dela não é
 técnico: é a party parar de acreditar no scanner.
 
 O risco é BAIXO — a margem entre 0.9997 e 0.5051 é enorme, e terreno de jogo

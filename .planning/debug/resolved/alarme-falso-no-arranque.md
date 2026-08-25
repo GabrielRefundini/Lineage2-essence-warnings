@@ -14,7 +14,7 @@ next_action: aplicar as duas correcoes + testes de regressao
 reasoning_checkpoint:
   hypothesis: >
     Sao DOIS bugs distintos, nao um. Os dois sao a mesma familia ja
-    diagnosticada em [[resolved-party-entra-sai-em-loop]]: tratar mudanca de
+    diagnosticada em [[party-entra-sai-em-loop]]: tratar mudanca de
     RECONHECIMENTO/VISAO como mudanca de REALIDADE. A correcao anterior
     instalou o sinal certo (a contagem de linhas), mas deixou dois furos.
 
@@ -46,7 +46,7 @@ reproduction: >
   (2) logs/scanner.log 18:19:57-18:20:57: "[SEM VISAO]" com
       "Yazalaque (voce) ok HP 0%" — a propria barra lendo 0% e a assinatura de
       recorte ilegivel, nao de morte.
-started: apos as sete correcoes de [[resolved-party-entra-sai-em-loop]]
+started: apos as sete correcoes de [[party-entra-sai-em-loop]]
 
 ## Evidence
 

@@ -154,6 +154,6 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 Last session: 2026-08-24
 Stopped at: Três alarmes falsos corrigidos (arranque inventando entrada, cegueira
 lida como saída de party, arranque cego lido como entrada em party). 226 testes.
-Commits 589ac84 e 7bb43f0. Sessão em `.planning/debug/alarme-falso-no-arranque.md`.
+Commits 589ac84 e 7bb43f0. Sessão em `.planning/debug/resolved/alarme-falso-no-arranque.md`.
 **O bot precisa ser reiniciado para carregar as correções.**
 Resume file: None
