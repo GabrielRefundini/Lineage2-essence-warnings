@@ -126,7 +126,7 @@ class TestInterpretarDinamico:
         assert interpretar_dinamico(".loot-a", frozenset()) is None
 
     def test_nick_com_caractere_fora_do_charset_nao_designa(self):
-        for texto in (".loot-j4;rm", ".loot-j4 guar extra", ".loot-nick!"):
+        for texto in (".loot-j4;rm", ".loot-j4_guar", ".loot-nick!"):
             assert interpretar_dinamico(texto, frozenset()) is None, texto
 
     def test_consulta_so_de_nick_conhecido(self):

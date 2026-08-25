@@ -32,10 +32,13 @@ separada da de avisos: da para receber comando no privado e responder no grupo.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from enum import Enum
+
+from .loot import apelido
 
 # Todo comando comeca com isto. Mesma convencao do `.offline` que o grupo ja
 # usa, entao nao e vocabulario novo para ninguem.
@@ -80,6 +83,12 @@ class Comando(Enum):
     SOLO = "solo"
     PARTY = "party"
 
+    # O controle de loot do Solo Boss. Sao os dois primeiros comandos com
+    # ARGUMENTO (o nick), e por isso nao moram no _VOCABULARIO — quem os
+    # reconhece e `interpretar_dinamico`.
+    LOOT_DESIGNAR = "loot_designar"
+    LOOT_CONSULTA = "loot_consulta"
+
 
 # As formas escritas que valem para cada comando. Varias por comando porque
 # ninguem lembra a sintaxe exata no meio de um farm.
@@ -110,6 +119,11 @@ class MensagemDeComando:
     # De qual conversa o pedido veio. E o que permite RESPONDER onde
     # perguntaram, em vez de responder sempre no grupo de avisos.
     conversa: str | None = None
+
+    # O argumento dos comandos dinamicos: o nick, COMO FOI DIGITADO. A
+    # resposta mostra o que a pessoa escreveu; normalizar e trabalho de quem
+    # consome.
+    argumento: str | None = None
 
 
 def so_digitos(telefone: str | None) -> str:
@@ -177,10 +191,71 @@ def interpretar(texto: str | None) -> Comando | None:
     return _VOCABULARIO.get(miolo.replace("-", "").replace("_", ""))
 
 
+# O charset de nick do L2, e um minimo de 2 para que `.loot-a` de um dedo
+# escorregado nao vire designacao.
+_NICK_VALIDO = re.compile(r"[A-Za-z0-9]{2,16}")
+
+# `.offline` e convencao humana do grupo — quem digita esta avisando GENTE,
+# nao o bot. Excluido por nome para jamais virar consulta de nick, nem que
+# um dia exista um personagem chamado Offline.
+_PALAVRA_HUMANA = "offline"
+
+
+def interpretar_dinamico(
+    texto: str | None, nicks_conhecidos: frozenset[str]
+) -> tuple[Comando, str] | None:
+    """Os comandos com argumento: `.loot-<nick>` e `.<nick>`.
+
+    Olha a PRIMEIRA PALAVRA CRUA, com hifens — de proposito. `interpretar`
+    remove hifens do miolo, e e por isso que `.loot-j4guar` passa ileso por
+    ele; reaproveitar aquele miolo aqui perderia a fronteira entre o comando
+    e o nick.
+
+    Superficie dinamica CONTIDA: nick restrito a [A-Za-z0-9]{2,16}, consulta
+    so de nick conhecido, vocabulario fixo com precedencia (garantida pelo
+    chamador, que tenta `interpretar` primeiro) e `.offline` excluido por
+    nome. Um `.palavra` arbitrario continua morrendo em silencio.
+    """
+    if not texto:
+        return None
+
+    palavras = texto.strip().split()
+    if not palavras:
+        return None
+
+    primeira = palavras[0]
+    if not primeira.startswith(PREFIXO):
+        return None
+    crua = primeira[len(PREFIXO) :]
+
+    # `.loot-<nick>` e `.loot <nick>`: o comando e case-insensitive, o nick
+    # e preservado como digitado.
+    if crua.lower().startswith("loot-"):
+        nick = crua[len("loot-") :]
+        if _NICK_VALIDO.fullmatch(nick):
+            return (Comando.LOOT_DESIGNAR, nick)
+        return None
+    if crua.lower() == "loot":
+        if len(palavras) > 1 and _NICK_VALIDO.fullmatch(palavras[1]):
+            return (Comando.LOOT_DESIGNAR, palavras[1])
+        return None
+
+    # `.{nick}` sozinho: o portao por nick conhecido e decisao do usuario —
+    # sem ele o scanner responderia a qualquer `.palavra` do grupo.
+    if len(palavras) == 1 and _NICK_VALIDO.fullmatch(crua):
+        baixo = crua.lower()
+        if baixo in _VOCABULARIO or baixo == _PALAVRA_HUMANA:
+            return None
+        if apelido(crua) in nicks_conhecidos:
+            return (Comando.LOOT_CONSULTA, crua)
+    return None
+
+
 def comandos_novos(
     mensagens: list[dict],
     ja_obedecidos: set[str],
     telefones: list[str] | None = None,
+    nicks_conhecidos: frozenset[str] = frozenset(),
 ) -> list[MensagemDeComando]:
     """Filtra o que veio da API e devolve so o que deve ser obedecido.
 
@@ -202,9 +277,15 @@ def comandos_novos(
         if chave_da_mensagem(identificador) in ja_obedecidos:
             continue
 
+        # O vocabulario FIXO vem primeiro — precedencia explicita, para um
+        # nick homonimo de comando jamais sombrear o comando.
+        argumento = None
         comando = interpretar(bruta.get("content"))
         if comando is None:
-            continue
+            dinamico = interpretar_dinamico(bruta.get("content"), nicks_conhecidos)
+            if dinamico is None:
+                continue
+            comando, argumento = dinamico
 
         # TRAVA 5: quem mandou pode mandar? Vale ate dentro de um grupo, onde a
         # allowlist de conversa sozinha liberaria todo mundo.
@@ -218,6 +299,7 @@ def comandos_novos(
                 autor=remetente.get("name"),
                 texto=str(bruta.get("content", "")),
                 conversa=bruta.get("conversation_id"),
+                argumento=argumento,
             )
         )
 

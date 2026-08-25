@@ -28,6 +28,9 @@ recordings/
 # maquina, igual ao outbox. Versionar faria um clone novo achar que ja
 # avisou o TvT de um dia que ele nunca viveu, e calar de verdade.
 .agenda/
+# .loot/ guarda o registro de loot do Solo Boss — estado local e DURAVEL
+# (nunca podado). Versionar misturaria a estatistica de maquinas diferentes.
+.loot/
 outbox.jsonl
 events.jsonl
 logs/

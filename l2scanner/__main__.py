@@ -55,6 +55,11 @@ from .comandos import (  # noqa: E402
     comandos_novos,
 )
 from .console import destacar  # noqa: E402
+from .loot import (  # noqa: E402
+    RegistroDeLoot,
+    responder_consulta,
+    responder_designacao,
+)
 from .frames import MssSource, ReplaySource, SaudeDoFrame  # noqa: E402
 from .gravador import Gravador  # noqa: E402
 from .notificador import (  # noqa: E402
@@ -78,6 +83,10 @@ ARQUIVO_OUTBOX = RAIZ / "outbox.jsonl"
 # Marcadores de "este aviso ja saiu". Compartilhada pelas DUAS instancias
 # que o usuario roda — e o que impede o grupo de receber tudo em dobro.
 PASTA_AGENDA = RAIZ / ".agenda"
+# O registro de loot do Solo Boss. Pasta PROPRIA porque o RegistroEmDisco
+# poda marcadores com prefixo de data em 3 dias — certo para "ja avisei",
+# fatal para estatistica: "quantos loots o J4guar pegou" e para sempre.
+PASTA_LOOT = RAIZ / ".loot"
 
 INTERVALO_PADRAO = 1.0
 
@@ -432,6 +441,7 @@ def atender_comandos(
     agora: datetime,
     monotonico: float,
     rastreador=None,
+    loot=None,
 ) -> None:
     """Le, obedece e confirma. Nunca levanta.
 
@@ -455,7 +465,10 @@ def atender_comandos(
         return
 
     for pedido in comandos_novos(
-        leitor.ler(monotonico), registro.enviados(), leitor.telefones
+        leitor.ler(monotonico),
+        registro.enviados(),
+        leitor.telefones,
+        nicks_conhecidos=loot.nicks_conhecidos() if loot else frozenset(),
     ):
         # Marca ANTES de agir. Se o processo morrer no meio, o pior caso e um
         # comando perdido — nao um comando obedecido em laco a cada tick.
@@ -484,6 +497,25 @@ def atender_comandos(
             # Muda o que o GRUPO vai receber daqui pra frente: em solo o
             # scanner para de falar sobre a party. Todo mundo merece saber.
             avisar_o_grupo = True
+        elif pedido.comando is Comando.LOOT_DESIGNAR:
+            if loot is None:
+                resposta = "Nao consigo mexer no loot agora."
+            else:
+                resposta = responder_designacao(
+                    loot, eventos_agendados, agora, pedido.argumento
+                )
+            # O grupo vai ficar sabendo pelo proprio aviso de antecedencia,
+            # que sai com "Loot: X" no fim. Ecoar agora seria dizer a mesma
+            # coisa duas vezes — e o grupo nem entrega incoming; os comandos
+            # chegam pelo privado.
+            avisar_o_grupo = False
+        elif pedido.comando is Comando.LOOT_CONSULTA:
+            if loot is None:
+                resposta = "Nao consigo mexer no loot agora."
+            else:
+                resposta = responder_consulta(loot, pedido.argumento, agora)
+            # Pergunta pessoal, mesmo racional do .status.
+            avisar_o_grupo = False
         else:
             continue
 
@@ -650,6 +682,7 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
         despachante.iniciar()
 
     registro = RegistroEmDisco(PASTA_AGENDA)
+    registro_de_loot = RegistroDeLoot(PASTA_LOOT)
     silencio = ControleDoSilencio(eventos, registro)
     leitor = montar_leitor_de_comandos(args)
     # Este e o modo de quem NAO esta com o jogo aberto: aqui o relogio e
@@ -666,7 +699,8 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
         while True:
             agora = relogio.agora()
             atender_comandos(
-                leitor, registro, eventos, despachante, agora, time.monotonic()
+                leitor, registro, eventos, despachante, agora,
+                time.monotonic(), loot=registro_de_loot,
             )
             encerrou = silencio.atualizar(agora)
             if encerrou:
@@ -854,6 +888,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     # acrescentar depois sem reescrever isto.
     eventos_agendados = ler_agenda()
     registro_da_agenda = RegistroEmDisco(PASTA_AGENDA)
+    registro_de_loot = RegistroDeLoot(PASTA_LOOT)
     silencio = ControleDoSilencio(eventos_agendados, registro_da_agenda)
     leitor_de_comandos = montar_leitor_de_comandos(args)
     if despachante:
@@ -944,6 +979,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 datetime.fromtimestamp(momento),
                 time.monotonic(),
                 rastreador,
+                loot=registro_de_loot,
             )
 
             resultado = sessao.tick(frame, momento)
