@@ -35,6 +35,7 @@ from l2scanner.loot import (
     nick_para_o_aviso,
     responder_cancelamento,
     responder_consulta,
+    responder_correcao,
     responder_designacao,
 )
 
@@ -551,3 +552,60 @@ class TestCancelamento:
 
         assert "Era do" not in resposta
         assert registro.designacao().nick == "j4guar"
+
+
+class TestCorrecao:
+    """Trocar o dono de um loot JA CONSUMADO: o `.corrigir-<nick>`.
+
+    O caso real: o boss das 10:00 passou, a designacao era do TioMad, o
+    `consumir()` gravou `pegou_..._tiomad`, mas quem pegou foi o Kaus. Antes
+    disto a unica saida era renomear o arquivo a mao no Explorer.
+
+    Cancelar e sobre a VEZ; corrigir e sobre o HISTORICO. Sao coisas
+    diferentes de proposito, e a propriedade que manda aqui e uma so: o dono
+    de um loot pode mudar, o loot nunca some.
+    """
+
+    SOLO = EventoAgendado(
+        nome="Solo Boss",
+        horarios=tuple((h, 0) for h in range(0, 24, 2)),
+        avisar_no_horario=False,
+    )
+
+    def test_a_troca_aparece_nos_DOIS_lados(self, tmp_path):
+        """O antigo perde um loot e o novo ganha um, na mesma chamada.
+
+        Uma correcao que so somasse no novo (ou so subtraisse do antigo)
+        deixaria a estatistica mentindo de um dos dois lados — e e justamente
+        pelo `.<nick>` que a party confere se a correcao pegou.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("TioMad", em(10, 0))
+
+        resposta = responder_correcao(registro, [self.SOLO], em(10, 30), "Kaus")
+
+        assert registro.resumo("TioMad") == (0, None), "o antigo continuou com o loot"
+        assert registro.resumo("Kaus") == (1, em(10, 0)), "o novo nao recebeu o loot"
+        assert len(registro.registros()) == 1, "o total de loots mudou"
+        # O dono ANTIGO sai slug-cased ("Tiomad") porque o nome do arquivo e o
+        # unico registro que existe dele — limitacao aceita e documentada.
+        assert "Tiomad" in resposta
+        assert "Kaus" in resposta
+        assert "10:00" in resposta
+
+    def test_corrigir_para_o_MESMO_apelido_nao_apaga_nada(self, tmp_path):
+        """A guarda critica: mesmo apelido, caixa diferente, nada muda.
+
+        `apelido("TIOMAD") == apelido("TioMad")`, entao os dois geram o MESMO
+        nome de arquivo: o `_criar` devolveria "ja_existia" e o passo de
+        apagar destruiria o unico registro que existia. Sem esta guarda o
+        caminho de sucesso apaga o arquivo que ele acabou de nao criar.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("TioMad", em(10, 0))
+
+        correcao = registro.corrigir("TIOMAD")
+
+        assert correcao.estado == "mesmo_dono"
+        assert registro.resumo("TioMad") == (1, em(10, 0)), "a guarda apagou o loot"
+        assert len(registro.registros()) == 1

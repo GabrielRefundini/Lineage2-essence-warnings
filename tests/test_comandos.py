@@ -772,6 +772,28 @@ class TestLootNaCostura:
         )
         assert "J4guar" in destinos[0][0]
 
+    def test_corrigir_atravessa_parser_dispatch_e_disco(self, tmp_path):
+        """A costura inteira do `.corrigir-<nick>`: o loot troca de dono.
+
+        Sem eco no grupo: corrigir historico e conserto de contabilidade entre
+        quem sabe o que aconteceu, e anunciar que o loot mudou de dono
+        convidaria justamente a discussao que o registro existe para encerrar.
+        """
+        from datetime import datetime
+
+        from l2scanner.loot import RegistroDeLoot
+
+        loot = RegistroDeLoot(tmp_path / "loot")
+        loot.registrar("tiomad", datetime(2026, 8, 25, 8, 0))
+
+        destinos = self._atender(tmp_path, ".corrigir-kaus", loot)
+
+        assert [alvo for _, alvo in destinos] == ["1"], (
+            "a confirmacao tinha que sair SO na conversa de origem"
+        )
+        assert "Kaus" in destinos[0][0]
+        assert loot.resumo("kaus")[0] == 1, "a correcao nao chegou no disco"
+
     def test_cancelar_sem_nada_marcado_nao_levanta_e_responde(self, tmp_path):
         """O comando nao pode morrer calado: quem mandou merece saber que nao
         havia nada marcado, em vez de ficar na duvida se funcionou."""
