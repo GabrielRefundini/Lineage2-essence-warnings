@@ -280,9 +280,9 @@ class TestAgendaRealDoUsuario:
         assert len(agenda) == 3
         assert {e.nome for e in agenda} == {"TvT", "Prime", "Solo Boss"}
 
-    def test_tvt_tem_os_tres_horarios_todo_dia(self, agenda):
+    def test_tvt_tem_os_horarios_do_config_todo_dia(self, agenda):
         tvt = next(e for e in agenda if e.nome == "TvT")
-        assert tvt.horarios == ((15, 0), (17, 0), (21, 50))
+        assert tvt.horarios == ((15, 0), (17, 0), (21, 50), (23, 0))
         assert tvt.dias == TODOS_OS_DIAS
 
     def test_prime_as_20h_de_segunda_a_quinta(self, agenda):
@@ -335,6 +335,8 @@ class TestAgendaRealDoUsuario:
             ("Prime", TipoDeAviso.AGORA, "20:00"),
             ("TvT", TipoDeAviso.ANTES, "21:40"),
             ("TvT", TipoDeAviso.AGORA, "21:50"),
+            ("TvT", TipoDeAviso.ANTES, "22:50"),
+            ("TvT", TipoDeAviso.AGORA, "23:00"),
         ]
 
     def test_solo_boss_avisa_de_duas_em_duas_horas_so_com_antecedencia(self, agenda):
@@ -360,7 +362,7 @@ class TestAgendaRealDoUsuario:
         O grupo do WhatsApp e de pessoas, nao um feed. Este teste existe para
         um evento novo nao dobrar o volume sem ninguem perceber.
         """
-        assert len(self._varrer_um_dia(agenda, SEGUNDA)) == 20
+        assert len(self._varrer_um_dia(agenda, SEGUNDA)) == 22
 
     def test_no_sabado_o_prime_nao_aparece(self, agenda):
         from datetime import timedelta
@@ -376,7 +378,7 @@ class TestAgendaRealDoUsuario:
             instante += timedelta(minutes=1)
 
         assert "Prime" not in nomes
-        assert nomes.count("TvT") == 6, "3 horarios de TvT x 2 avisos"
+        assert nomes.count("TvT") == 8, "4 horarios de TvT x 2 avisos"
 
     def test_mudar_a_antecedencia_nao_exige_tocar_em_codigo(self, tmp_path):
         """AGEN-04: uma atualizacao do jogo nao pode custar um commit."""
@@ -489,8 +491,8 @@ class TestRegistroEmDisco:
 
         todos = enviados_por["A"] + enviados_por["B"]
         assert len(todos) == len(set(todos)), "houve aviso duplicado"
-        # 20 avisos por dia (TvT 6 + Prime 2 + Solo Boss 12), dois dias.
-        assert len(todos) == 40
+        # 22 avisos por dia (TvT 8 + Prime 2 + Solo Boss 12), dois dias.
+        assert len(todos) == 44
 
     def test_poda_apaga_o_velho_e_preserva_o_de_hoje(self, tmp_path):
         from datetime import date as _date
@@ -671,8 +673,15 @@ class TestJanelaDeSilencio:
                 silenciados.append(instante.strftime("%H:%M"))
             instante += timedelta(minutes=1)
 
+        # (hora, minuto, duracao). O Prime das 20h dura 125 min e nao 120
+        # porque a UNIAO com o TvT das 21:50 estende o fim ate 22:05.
         esperados = []
-        for hora, minuto, duracao in ((15, 0, 15), (17, 0, 15), (20, 0, 125)):
+        for hora, minuto, duracao in (
+            (15, 0, 15),
+            (17, 0, 15),
+            (20, 0, 125),
+            (23, 0, 15),
+        ):
             base = SEGUNDA.replace(hour=hora, minute=minuto)
             esperados += [
                 (base + timedelta(minutes=i)).strftime("%H:%M")

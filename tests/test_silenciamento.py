@@ -141,6 +141,14 @@ class TestControleDoSilencio:
         assert "TvT" in mensagens[0]
 
     def test_ficar_em_silencio_nao_repete_a_mensagem(self, agenda):
+        """UMA janela produz UMA mensagem, por mais longa que seja.
+
+        A varredura para no fim da uniao Prime+TvT (22:05) de proposito: ir
+        alem entraria na janela SEGUINTE, e ai duas mensagens seria o certo.
+        Amarrar o teste ao fim da janela em vez de a um numero de minutos faz
+        ele sobreviver a um horario novo no config.toml — foi exatamente o que
+        aconteceu quando o TvT das 23:00 entrou.
+        """
         from datetime import timedelta
 
         from tests.test_agenda import SEGUNDA
@@ -149,12 +157,13 @@ class TestControleDoSilencio:
         c.atualizar(SEGUNDA.replace(hour=19, minute=59))
         mensagens = []
         instante = SEGUNDA.replace(hour=20, minute=0)
-        for _ in range(200):  # atravessa a janela inteira do Prime + TvT
+        fim = SEGUNDA.replace(hour=22, minute=10)  # logo apos a uniao acabar
+        while instante <= fim:
             m = c.atualizar(instante)
             if m:
                 mensagens.append(m)
             instante += timedelta(minutes=1)
-        assert len(mensagens) == 1
+        assert len(mensagens) == 1, mensagens
 
     def test_a_mensagem_nomeia_quem_terminou_por_ultimo(self, agenda):
         """Seg-qui a uniao termina as 22:05, e quem estava rolando era o TvT."""
