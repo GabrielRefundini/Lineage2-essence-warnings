@@ -240,6 +240,29 @@ class RegistroDeLoot:
         (self._pasta / _ARQUIVO_PROXIMO).unlink(missing_ok=True)
         return designacao if estado == "criado" else None
 
+    def cancelar(self) -> Designacao | None:
+        """Apaga a designacao corrente. Devolve quem perdeu a vez, ou None.
+
+        DUAS COISAS QUE PARECEM DETALHE E NAO SAO:
+
+        1. **`missing_ok=True` e o que torna o cancelamento IDEMPOTENTE.** As
+           duas instancias do usuario dividem a mesma pasta, e a segunda a
+           mandar encontra o arquivo ja apagado. Levantar ali transformaria um
+           comando inofensivo — cancelar o que ja esta cancelado — em erro no
+           meio do farm.
+
+        2. **Nao mexe nos `pegou_*` nem nos `nick_*`, de proposito.** Cancelar
+           e sobre de quem e a VEZ; apagar o historico junto destruiria o
+           registro que o `.<nick>` consulta, e meses de estatistica sumiriam
+           num comando de sete letras.
+
+        A exposicao a `OSError` num disco travado e a mesma que `consumir` ja
+        tem — consistencia deliberada, nao esquecimento.
+        """
+        anterior = self.designacao()
+        (self._pasta / _ARQUIVO_PROXIMO).unlink(missing_ok=True)
+        return anterior
+
     def nicks_conhecidos(self) -> frozenset[str]:
         """Slugs que o `.<nick>` aceita consultar.
 
@@ -360,3 +383,47 @@ def responder_designacao(
     ):
         resposta += f" (Era do {exibir(anterior.nick)}.)"
     return resposta
+
+
+def responder_cancelamento(
+    registro: RegistroDeLoot,
+    eventos: list[EventoAgendado],
+    agora: datetime,
+) -> str:
+    """Obedece o `.loot-`: apaga a designacao e diz de quem era.
+
+    APAGA PRIMEIRO, olha a agenda depois — e a imagem-espelho da regra do
+    `responder_designacao`, e a assimetria e proposital. GRAVAR depende da
+    agenda ter um alvo (uma designacao sem alvo nunca consome e nunca some),
+    mas APAGAR nao pode depender de nada: um config.toml quebrado, ou o Solo
+    Boss renomeado por engano, prenderia a designacao corrente para sempre
+    sem nenhum jeito de solta-la pelo WhatsApp.
+
+    A resposta nomeia QUEM perdeu a vez e QUAL boss, porque "cancelado"
+    sozinho obrigaria a pessoa a lembrar o que estava marcado.
+    """
+    anterior = registro.cancelar()
+
+    # A grafia sai do config.toml do usuario ("Solo Boss", "SoloBoss"), com
+    # recurso ao nome canonico quando a agenda nao tem o evento — o que nao
+    # impede o cancelamento, so o deixa menos especifico.
+    evento = next((e for e in eventos if eh_solo_boss(e.nome)), None)
+    nome_do_evento = evento.nome if evento is not None else "Solo Boss"
+
+    if anterior is not None:
+        return (
+            f"Loot do {nome_do_evento} das "
+            f"{anterior.alvo.hour:02d}:{anterior.alvo.minute:02d} cancelado — "
+            f"era do {exibir(anterior.nick)}. O aviso sai sem nome."
+        )
+
+    # Sem nada marcado a resposta e uma correcao de expectativa, entao ela
+    # nomeia o boss de que se esta falando: e o PROXIMO que estava em jogo.
+    proximo = proxima_ocorrencia(agora, [evento]) if evento is not None else None
+    if proximo is None:
+        return f"Nao havia loot marcado para o proximo {nome_do_evento}."
+    _, alvo = proximo
+    return (
+        f"Nao havia loot marcado para o {nome_do_evento} das "
+        f"{alvo.hour:02d}:{alvo.minute:02d}."
+    )

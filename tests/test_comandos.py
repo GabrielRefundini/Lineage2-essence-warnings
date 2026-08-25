@@ -76,6 +76,10 @@ class TestInterpretar:
             # designar quem pega o proximo, e consultar quanto um nick pegou.
             Comando.LOOT_DESIGNAR,
             Comando.LOOT_CONSULTA,
+            # E desmarcar. O unico DESTRUTIVO da lista — entrou de proposito,
+            # porque sem ele o proximo boss nao tinha como voltar a ser de
+            # ninguem sem editar arquivo e reiniciar o scanner.
+            Comando.LOOT_CANCELAR,
         }
 
     def test_as_formas_do_modo_solo(self):

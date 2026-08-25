@@ -59,6 +59,7 @@ from .loot import (  # noqa: E402
     RegistroDeLoot,
     exibir,
     nick_para_o_aviso,
+    responder_cancelamento,
     responder_consulta,
     responder_designacao,
 )
@@ -510,6 +511,15 @@ def atender_comandos(
             # que sai com "Loot: X" no fim. Ecoar agora seria dizer a mesma
             # coisa duas vezes — e o grupo nem entrega incoming; os comandos
             # chegam pelo privado.
+            avisar_o_grupo = False
+        elif pedido.comando is Comando.LOOT_CANCELAR:
+            if loot is None:
+                resposta = "Nao consigo mexer no loot agora."
+            else:
+                resposta = responder_cancelamento(loot, eventos_agendados, agora)
+            # Mesmo racional do LOOT_DESIGNAR logo acima: o grupo fica sabendo
+            # pelo proprio aviso de antecedencia, que agora sai SEM a linha
+            # "Loot:". Ecoar aqui seria dizer a mesma coisa duas vezes.
             avisar_o_grupo = False
         elif pedido.comando is Comando.LOOT_CONSULTA:
             if loot is None:

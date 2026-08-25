@@ -89,6 +89,12 @@ class Comando(Enum):
     LOOT_DESIGNAR = "loot_designar"
     LOOT_CONSULTA = "loot_consulta"
 
+    # O UNICO comando DESTRUTIVO da superficie dinamica: ele APAGA estado
+    # duravel em vez de escrever por cima. Por isso a sintaxe dele e
+    # explicita (hifen ou palavra reservada) e `.loot` sozinho nao serve —
+    # ver D-02 em `interpretar_dinamico`.
+    LOOT_CANCELAR = "loot_cancelar"
+
 
 # As formas escritas que valem para cada comando. Varias por comando porque
 # ninguem lembra a sintaxe exata no meio de um farm.
@@ -200,6 +206,15 @@ _NICK_VALIDO = re.compile(r"[A-Za-z0-9]{2,16}")
 # um dia exista um personagem chamado Offline.
 _PALAVRA_HUMANA = "offline"
 
+# As palavras que, no lugar do nick, querem dizer "ninguem" — o `.loot-`
+# escrito por extenso, para quem nao lembra que o hifen sozinho basta.
+#
+# O PRECO, ACEITO E DOCUMENTADO: um personagem chamado "Cancelar" (ou
+# "Ninguem", "Nenhum", "Limpar") nao pode ser designado por `.loot-<nick>`.
+# E barato perto da alternativa — `.loot-cancelar` DESIGNANDO um personagem
+# inexistente chamado "Cancelar" e deixando a party sem jeito de desmarcar.
+_PALAVRAS_DE_CANCELAMENTO = frozenset({"cancelar", "ninguem", "nenhum", "limpar"})
+
 
 def interpretar_dinamico(
     texto: str | None, nicks_conhecidos: frozenset[str]
@@ -232,6 +247,11 @@ def interpretar_dinamico(
     # e preservado como digitado.
     if crua.lower().startswith("loot-"):
         nick = crua[len("loot-") :]
+        # A ORDEM E A COISA MAIS IMPORTANTE DESTE RAMO: o cancelamento vem
+        # ANTES do `_NICK_VALIDO`, porque "cancelar" casa o charset de nick
+        # e viraria uma designacao para um personagem que nao existe.
+        if not nick or nick.lower() in _PALAVRAS_DE_CANCELAMENTO:
+            return (Comando.LOOT_CANCELAR, "")
         if _NICK_VALIDO.fullmatch(nick):
             return (Comando.LOOT_DESIGNAR, nick)
         return None
