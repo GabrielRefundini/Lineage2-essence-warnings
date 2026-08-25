@@ -110,8 +110,11 @@ class TestEntradaDegenerada:
         monkeypatch.setattr(ocr, "_CHECADO", True)
         monkeypatch.setattr(ocr, "_MOTIVO", None)
         chamou = []
+        # A ASSINATURA IMPORTA: `_reconhecer` passou a receber a escala (D-d).
+        # Um duble de um argumento so faria este teste passar pelo motivo
+        # ERRADO — engolindo um TypeError em vez da guarda que ele diz provar.
         monkeypatch.setattr(
-            ocr, "_reconhecer", lambda _: chamou.append(1) or "nunca deveria"
+            ocr, "_reconhecer", lambda _p, _e: chamou.append(1) or "nunca deveria"
         )
 
         assert ocr.ler_texto(entrada) is None
@@ -128,7 +131,7 @@ class TestExcecaoDaPlataformaEEngolida:
         monkeypatch.setattr(ocr, "_CHECADO", True)
         monkeypatch.setattr(ocr, "_MOTIVO", None)
 
-        def explode(_pixels):
+        def explode(_pixels, _escala):
             raise RuntimeError("o WinRT nao esta feliz")
 
         monkeypatch.setattr(ocr, "_reconhecer", explode)
@@ -172,8 +175,15 @@ class TestFixtureRealPontaAPonta:
         assert pixels is not None, "cv2 nao conseguiu abrir a fixture"
         return pixels
 
-    def test_a_fixture_real_sai_como_40_minutos_e_26_segundos(self):
-        texto = ocr.ler_texto(self.imagem_real())
+    @pytest.mark.parametrize("escala", ["ler_texto", "ler_texto_ampliado"])
+    def test_a_fixture_real_sai_como_40_minutos_e_26_segundos(self, escala):
+        """AS DUAS escalas, porque o anuncio exige que as duas concordem (D-d).
+
+        Se so a barata fosse conferida aqui, a passada de conferencia poderia
+        estar errada em producao e o recurso ficaria mudo — com todos os testes
+        verdes.
+        """
+        texto = getattr(ocr, escala)(self.imagem_real())
 
         assert texto is not None, "o motor nao devolveu texto nenhum"
         assert eh_banner_de_manutencao(texto) is True, texto

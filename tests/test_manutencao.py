@@ -229,21 +229,51 @@ class TestChaveDoMarcador:
         assert faltam5 != a
 
 
+# Sentinela do ESPELHO. Nao pode ser None nem "": os dois sao textos legitimos
+# de conferencia (None = o motor nao leu nada), e usa-los como "nao configurado"
+# tornaria impossivel testar a discordancia contra um None.
+_ESPELHO = object()
+
+
 class LeitorFalso:
-    """Um `ler_texto` injetavel: conta chamadas e deixa trocar o texto no meio.
+    """As DUAS leitoras injetaveis: conta chamadas e deixa trocar o texto no meio.
 
     O Python que roda a suite nao tem as bindings do WinRT, entao esta e a
     UNICA forma de exercitar o caminho COM texto. Trocar o texto no meio e o
     que permite simular o banner sumindo da tela.
+
+    A conferencia ESPELHA `texto` por padrao (D-d). E a escolha que mantem
+    todos os testes de consenso TEMPORAL que ja existiam exercitando exatamente
+    o que exercitavam — duas escalas que concordam trivialmente. So os testes
+    novos apontam as duas para lados diferentes.
+
+    `chamadas` conta SO a passada barata. Se ela passasse a somar as duas,
+    `TestCadencia` mediria outra coisa sem ninguem perceber.
     """
 
     def __init__(self, texto: str | None = None) -> None:
         self.texto = texto
+        self._conferencia = _ESPELHO
         self.chamadas = 0
+        self.chamadas_de_conferencia = 0
+
+    @property
+    def texto_de_conferencia(self):
+        if self._conferencia is _ESPELHO:
+            return self.texto
+        return self._conferencia
+
+    @texto_de_conferencia.setter
+    def texto_de_conferencia(self, valor) -> None:
+        self._conferencia = valor
 
     def __call__(self, _pixels):
         self.chamadas += 1
         return self.texto
+
+    def conferir(self, _pixels):
+        self.chamadas_de_conferencia += 1
+        return self.texto_de_conferencia
 
 
 class PixelsFalsos:
@@ -262,7 +292,10 @@ def novo_vigia(texto=None):
     from l2scanner.manutencao import VigiaDeManutencao
 
     leitor = LeitorFalso(texto)
-    return VigiaDeManutencao(ler_texto=leitor), leitor
+    vigia = VigiaDeManutencao(
+        ler_texto=leitor, ler_texto_conferencia=leitor.conferir
+    )
+    return vigia, leitor
 
 
 def rodar(vigia, obter_pixels, inicio, segundos, passo=1):
@@ -389,6 +422,131 @@ class TestConsenso:
         esperado = HOJE + timedelta(seconds=15) + timedelta(minutes=90)
         assert abs((vigia.momento - esperado).total_seconds()) <= 1
         assert [a.tipo for a in saiu] == [TipoDeAvisoDeManutencao.ANUNCIADA]
+
+
+class TestCruzamentoDeEscalas:
+    """D-d: duas ESCALAS sobre o MESMO frame, antes do consenso temporal.
+
+    Este e o teste que o consenso temporal sozinho nao consegue fazer. Duas
+    leituras pelo MESMO metodo, com 5 s de intervalo, concordam no MESMO erro
+    sistematico — foi assim que o erro medido (cor -> 0:00:26) atravessaria a
+    protecao de 260825-onz inteira e chegaria no WhatsApp da party.
+
+    Tudo aqui roda com leitores INJETADOS: zero OCR, vale em qualquer maquina.
+    """
+
+    # A conferencia dizendo so os segundos: e a forma do erro real, com a
+    # barata acertando os 40 minutos e a cara discordando por 40 minutos.
+    DISCORDANTE = "Server Maintence 26 seconds"
+
+    def test_escalas_que_discordam_nao_anunciam_e_nao_ancoram(self):
+        """O bug reproduzido: 40 minutos contra 26 segundos, e NADA sai.
+
+        Repetido por varios ticks de proposito. Um erro sistematico e estavel —
+        se a guarda so olhasse o tick isolado, a repeticao acabaria confirmando.
+        """
+        vigia, leitor = novo_vigia(TEXTO_LIMPO)
+        leitor.texto_de_conferencia = self.DISCORDANTE
+        obter = PixelsFalsos()
+
+        saiu = rodar(vigia, obter, HOJE, segundos=60)
+
+        assert saiu == []
+        assert vigia.momento is None
+
+    def test_escalas_que_concordam_seguem_alimentando_o_consenso_temporal(self):
+        """As duas guardas sao COMPLEMENTARES — cruzar escalas nao substitui repetir.
+
+        Cruzar escalas pega erro de METODO; repetir no tempo pega erro de FRAME
+        (uma captura no meio do desenho do banner). Guardar so uma deixaria uma
+        das duas classes descoberta.
+        """
+        vigia, leitor = novo_vigia(TEXTO_LIMPO)
+        obter = PixelsFalsos()
+
+        assert vigia.avaliar(obter, HOJE) == [], "uma leitura so nunca anuncia"
+
+        saiu = vigia.avaliar(obter, HOJE + timedelta(seconds=5))
+
+        assert [a.tipo for a in saiu] == [TipoDeAvisoDeManutencao.ANUNCIADA]
+
+    def test_uma_discordancia_nao_destroi_a_candidata(self):
+        """Nem confirma, nem apaga: a discordancia sai sem tocar no estado.
+
+        Se ela zerasse a candidata, um unico frame ruim no meio de uma contagem
+        de 40 minutos adiaria o anuncio indefinidamente.
+        """
+        vigia, leitor = novo_vigia(TEXTO_LIMPO)
+        obter = PixelsFalsos()
+
+        vigia.avaliar(obter, HOJE)  # candidata guardada
+
+        leitor.texto_de_conferencia = self.DISCORDANTE
+        assert vigia.avaliar(obter, HOJE + timedelta(seconds=5)) == []
+
+        leitor.texto_de_conferencia = _ESPELHO  # volta a concordar
+        saiu = vigia.avaliar(obter, HOJE + timedelta(seconds=10))
+
+        assert [a.tipo for a in saiu] == [TipoDeAvisoDeManutencao.ANUNCIADA]
+
+    def test_uma_discordancia_nao_derruba_uma_ancora_ja_confirmada(self):
+        vigia, leitor = novo_vigia(TEXTO_LIMPO)
+        obter = PixelsFalsos()
+        vigia.avaliar(obter, HOJE)
+        vigia.avaliar(obter, HOJE + timedelta(seconds=5))
+        ancorado = vigia.momento
+        assert ancorado is not None
+
+        leitor.texto_de_conferencia = self.DISCORDANTE
+        saiu = vigia.avaliar(obter, HOJE + timedelta(seconds=10))
+
+        assert saiu == []
+        assert vigia.momento == ancorado
+
+    def test_a_escala_cara_nao_roda_quando_a_barata_nao_ve_o_banner(self):
+        """D-e, o orcamento inteiro deste recurso.
+
+        A barata custa 44 ms medidos e a cara 308 ms. Em regime permanente — que
+        e o dia inteiro, com o banner ausente — so a barata pode rodar.
+        """
+        vigia, leitor = novo_vigia("Korzis: bora upar? Kaus ta on")
+        obter = PixelsFalsos()
+
+        rodar(vigia, obter, HOJE, segundos=12)
+
+        assert leitor.chamadas == 3, "esperava leituras em t=0, 5 e 10"
+        assert leitor.chamadas_de_conferencia == 0
+
+    def test_a_escala_cara_roda_uma_vez_por_cadencia_quando_a_barata_detecta(self):
+        vigia, leitor = novo_vigia(TEXTO_LIMPO)
+        obter = PixelsFalsos()
+
+        rodar(vigia, obter, HOJE, segundos=12)
+
+        assert leitor.chamadas == 3
+        assert leitor.chamadas_de_conferencia == 3
+
+    def test_o_desacordo_entre_escalas_vai_para_o_log(self, caplog):
+        """"O banner esta na tela e nos NAO vamos anunciar" e o estado mais
+        perigoso deste recurso — e o log rotativo e a unica forense pos-farm.
+
+        Os DOIS textos crus precisam estar la: e a unica coisa que diz se o
+        conserto e a faixa (chave `banner_manutencao`) ou o motor de OCR.
+        """
+        import logging
+
+        vigia, leitor = novo_vigia(TEXTO_LIMPO)
+        leitor.texto_de_conferencia = self.DISCORDANTE
+        obter = PixelsFalsos()
+
+        with caplog.at_level(logging.WARNING, logger="l2scanner.manutencao"):
+            vigia.avaliar(obter, HOJE)
+
+        mensagens = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert mensagens
+        juntas = " ".join(mensagens)
+        assert self.DISCORDANTE in juntas
+        assert TEXTO_LIMPO in juntas
 
 
 class TestAncoraSobreviveACegueira:
@@ -687,3 +845,4 @@ class TestMontagemNoArranque:
 
         assert isinstance(vigia, VigiaDeManutencao)
         assert vigia._ler_texto is ocr.ler_texto
+        assert vigia._ler_texto_conferencia is ocr.ler_texto_ampliado
