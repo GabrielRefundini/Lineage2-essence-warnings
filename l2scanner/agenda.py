@@ -205,20 +205,28 @@ def proxima_ocorrencia(
     return melhor
 
 
-def texto_do_aviso(aviso: Aviso) -> str:
+def texto_do_aviso(aviso: Aviso, loot: str | None = None) -> str:
     """A mensagem que vai para o WhatsApp.
 
     O aviso de ANTES serve para parar o farm e se deslocar; o de AGORA serve
     para dizer que comecou. Textos diferentes porque servem a acoes diferentes
     — repetir a mesma frase duas vezes treinaria a party a ignorar as duas.
+
+    `loot` e o nick de quem pega o loot desta ocorrencia, e so entra no aviso
+    de ANTECEDENCIA. A agenda nao conhece designacao nenhuma: quem decide SE
+    ha loot e o chamador, a agenda so formata — mesma linha do console nao
+    ganhar relogio.
     """
     hora = f"{aviso.alvo.hour:02d}:{aviso.alvo.minute:02d}"
     if aviso.tipo is TipoDeAviso.ANTES:
         faltam = int((aviso.alvo - aviso.devido_em).total_seconds() // 60)
-        return (
+        texto = (
             f"{aviso.evento} comeca em {faltam} minutos, as {hora}. "
             f"Hora de voltar para a cidade e se preparar."
         )
+        if loot:
+            texto += f" Loot: {loot}."
+        return texto
     return f"{aviso.evento} comecou agora, as {hora}."
 
 

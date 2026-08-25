@@ -42,6 +42,7 @@ from datetime import datetime
 
 from .agenda import avisos_devidos, texto_do_aviso
 from .frames import Frame, SaudeDoFrame
+from .loot import Designacao, nick_para_o_aviso
 from .notificador import Categoria
 from .rastreador import Evento
 from .visao import Observacao, extrair
@@ -67,6 +68,12 @@ class ResultadoDoTick:
     # Avisos de agenda que venceram neste tick.
     avisos: list[str] = field(default_factory=list)
 
+    # A designacao de loot que ESTE tick consumiu (o horario do boss passou e
+    # esta instancia venceu a corrida do registro). Estruturado, nao texto —
+    # pelo mesmo motivo de `despachos` existir: teste afirma estrutura, nao
+    # redacao.
+    loot_consumado: Designacao | None = None
+
     # A extração falhou e o tick não concluiu nada sobre a party.
     falhou_ao_analisar: bool = False
 
@@ -90,6 +97,7 @@ class Sessao:
         gravador=None,
         fonte=None,
         ao_registrar=None,
+        loot=None,
     ) -> None:
         self.cal = cal
         self.rastreador = rastreador
@@ -100,6 +108,9 @@ class Sessao:
         self.leitor_de_comandos = leitor_de_comandos
         self.gravador = gravador
         self.fonte = fonte
+        # O registro de loot do Solo Boss. Default None mantem toda chamada
+        # existente intacta — sem ele o tick simplesmente nao fala de loot.
+        self.loot = loot
         # Chamado a cada mensagem despachada. A casca usa para logar; o teste
         # usa para nada — ele lê o `ResultadoDoTick`.
         self._ao_registrar = ao_registrar or (lambda *_: None)
@@ -195,14 +206,25 @@ class Sessao:
             resultado.avisos.append(encerrou)
             self._despachar(encerrou, Categoria.SEMPRE, resultado=resultado)
 
+        # Lida UMA vez, antes do loop: todos os avisos deste tick enxergam a
+        # mesma designacao, e um json trocado no meio nao produz avisos
+        # contraditorios no mesmo segundo.
+        designacao = self.loot.designacao() if self.loot else None
+
         for aviso in avisos_devidos(
             agora, self.eventos_agendados, self.registro.enviados()
         ):
             if not self.registro.marcar(aviso.chave):
                 continue
-            texto = texto_do_aviso(aviso)
+            texto = texto_do_aviso(aviso, nick_para_o_aviso(aviso, designacao))
             resultado.avisos.append(texto)
             self._despachar(texto, Categoria.SEMPRE, resultado=resultado)
+
+        # DEPOIS dos avisos, de proposito. A ordem e indiferente no relogio —
+        # o aviso ANTES vence 10 min antes do alvo e o consumo so dispara no
+        # alvo — mas fixa-la torna o tick deterministico para o teste.
+        if self.loot:
+            resultado.loot_consumado = self.loot.consumir(agora)
 
 
 def texto_do_evento(evento: Evento) -> str:

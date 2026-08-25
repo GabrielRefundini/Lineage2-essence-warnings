@@ -16,6 +16,7 @@ from l2scanner.comandos import (
     chave_da_mensagem,
     comandos_novos,
     interpretar,
+    interpretar_dinamico,
 )
 
 
@@ -71,6 +72,10 @@ class TestInterpretar:
             Comando.STATUS,
             Comando.SOLO,
             Comando.PARTY,
+            # O controle de loot do Solo Boss. Crescimento DE PROPOSITO:
+            # designar quem pega o proximo, e consultar quanto um nick pegou.
+            Comando.LOOT_DESIGNAR,
+            Comando.LOOT_CONSULTA,
         }
 
     def test_as_formas_do_modo_solo(self):
@@ -82,6 +87,126 @@ class TestInterpretar:
     def test_falar_de_solo_sem_ponto_nao_liga_nada(self):
         for texto in ("vou jogar solo", "solo", "party amanha"):
             assert interpretar(texto) is None, texto
+
+
+class TestInterpretarDinamico:
+    """Os comandos com argumento: `.loot-<nick>` e `.<nick>`.
+
+    Superficie dinamica e superficie de ataque. Por isso o desenho e todo
+    restricao: nick com charset fechado, consulta so de nick conhecido, o
+    vocabulario fixo com precedencia e `.offline` excluido por nome.
+    """
+
+    def test_loot_com_hifen_designa(self):
+        assert interpretar_dinamico(".loot-j4guar", frozenset()) == (
+            Comando.LOOT_DESIGNAR,
+            "j4guar",
+        )
+
+    def test_o_comando_e_case_insensitive_mas_o_nick_e_preservado(self):
+        """`.LOOT-J4guar` designa "J4guar", nao "j4guar" — a resposta vai
+        mostrar o nick como a pessoa o escreveu."""
+        assert interpretar_dinamico(".LOOT-J4guar", frozenset()) == (
+            Comando.LOOT_DESIGNAR,
+            "J4guar",
+        )
+
+    def test_loot_em_duas_palavras_tambem_designa(self):
+        assert interpretar_dinamico(".loot j4guar", frozenset()) == (
+            Comando.LOOT_DESIGNAR,
+            "j4guar",
+        )
+
+    def test_loot_sem_nick_nao_faz_nada(self):
+        assert interpretar_dinamico(".loot-", frozenset()) is None
+        assert interpretar_dinamico(".loot", frozenset()) is None
+
+    def test_nick_de_um_caractere_nao_designa(self):
+        """`.loot-a` e quase sempre um dedo escorregado, nao uma designacao."""
+        assert interpretar_dinamico(".loot-a", frozenset()) is None
+
+    def test_nick_com_caractere_fora_do_charset_nao_designa(self):
+        for texto in (".loot-j4;rm", ".loot-j4_guar", ".loot-nick!"):
+            assert interpretar_dinamico(texto, frozenset()) is None, texto
+
+    def test_consulta_so_de_nick_conhecido(self):
+        """O portao central: sem ele o scanner responderia lixo a qualquer
+        `.palavra` do grupo."""
+        conhecidos = frozenset({"j4guar"})
+        assert interpretar_dinamico(".j4guar", conhecidos) == (
+            Comando.LOOT_CONSULTA,
+            "j4guar",
+        )
+        assert interpretar_dinamico(".kaus", conhecidos) is None
+
+    def test_consulta_atravessa_maiusculas(self):
+        assert interpretar_dinamico(".J4GUAR", frozenset({"j4guar"})) == (
+            Comando.LOOT_CONSULTA,
+            "J4GUAR",
+        )
+
+    def test_offline_NUNCA_e_comando(self):
+        """`.offline` e convencao humana do grupo — quem digita esta avisando
+        gente, nao o bot. Nem estando no conjunto de nicks ele vira consulta."""
+        assert interpretar_dinamico(".offline", frozenset({"offline"})) is None
+
+    def test_o_vocabulario_fixo_tem_precedencia(self):
+        """Um nick homonimo de comando jamais sombreia o comando."""
+        for palavra in ("status", "cancelar", "solo", "party", "pt", "grupo"):
+            conhecidos = frozenset({palavra})
+            assert interpretar_dinamico(f".{palavra}", conhecidos) is None, palavra
+
+    def test_sem_prefixo_nao_e_nada(self):
+        assert interpretar_dinamico("j4guar", frozenset({"j4guar"})) is None
+        assert interpretar_dinamico("loot j4guar", frozenset()) is None
+
+    def test_texto_vazio_ou_ausente(self):
+        assert interpretar_dinamico(None, frozenset()) is None
+        assert interpretar_dinamico("", frozenset()) is None
+        assert interpretar_dinamico("   ", frozenset()) is None
+
+
+class TestComandosDinamicosNasTravas:
+    """As travas antigas valem INTEGRALMENTE para os comandos novos.
+
+    `.loot-<nick>` muda estado compartilhado; se um estranho pudesse mandar,
+    ele controlaria de quem e a vez do loot da party inteira.
+    """
+
+    def test_loot_designar_atravessa_com_argumento(self):
+        achados = comandos_novos(
+            [msg(1, ".loot-j4guar")], set(), nicks_conhecidos=frozenset()
+        )
+        assert len(achados) == 1
+        assert achados[0].comando is Comando.LOOT_DESIGNAR
+        assert achados[0].argumento == "j4guar"
+
+    def test_consulta_atravessa_com_argumento(self):
+        achados = comandos_novos(
+            [msg(2, ".j4guar")], set(), nicks_conhecidos=frozenset({"j4guar"})
+        )
+        assert len(achados) == 1
+        assert achados[0].comando is Comando.LOOT_CONSULTA
+        assert achados[0].argumento == "j4guar"
+
+    def test_nick_desconhecido_morre_em_silencio(self):
+        assert comandos_novos([msg(3, ".kaus")], set()) == []
+
+    def test_telefone_nao_autorizado_e_descartado(self):
+        """A trava de allowlist vale para o comando novo."""
+        meus = ["+5544997077000"]
+        de_outro = [msg(4, ".loot-j4guar", autor="Hiago")]
+        de_outro[0]["sender"]["phone_number"] = "+48608297919"
+        assert comandos_novos(de_outro, set(), meus) == []
+
+    def test_comando_fixo_continua_sem_argumento(self):
+        """`.status` com "status" nos nicks conhecidos continua STATUS."""
+        achados = comandos_novos(
+            [msg(5, ".status")], set(), nicks_conhecidos=frozenset({"status"})
+        )
+        assert len(achados) == 1
+        assert achados[0].comando is Comando.STATUS
+        assert achados[0].argumento is None
 
 
 class TestOQueOScannerSeRecusaAObedecer:
@@ -479,3 +604,93 @@ class TestRespondeOndePerguntaram:
         """Compatibilidade: melhor responder em algum lugar do que em nenhum."""
         destinos = self._atender(tmp_path, ".status", conversa=None)
         assert [alvo for _, alvo in destinos] == [None]
+
+
+class TestLootNaCostura:
+    """Os dois comandos de loot pelo caminho que o LACO usa.
+
+    Sem eco no grupo, de proposito: a designacao vai aparecer no aviso de
+    antecedencia que ja existe ("Loot: X"), e ecoar agora seria dizer a mesma
+    coisa duas vezes. A consulta e pergunta pessoal, mesmo racional do
+    `.status`.
+    """
+
+    def _atender(self, tmp_path, texto, loot):
+        import time
+        from datetime import datetime
+
+        from l2scanner.__main__ import atender_comandos
+        from l2scanner.agenda import EventoAgendado, RegistroEmDisco
+        from l2scanner.notificador import Despachante, NotificadorEmMemoria
+
+        class LeitorFalso:
+            ativo = True
+            telefones: list[str] = []
+
+            def ler(self, _):
+                return [
+                    {
+                        "id": 999,
+                        "content": texto,
+                        "message_type": 0,
+                        "private": False,
+                        "sender": {"name": "Yazalaque"},
+                        "conversation_id": "1",
+                    }
+                ]
+
+        notificador = NotificadorEmMemoria()
+        despachante = Despachante(notificador)
+        eventos = [
+            EventoAgendado(
+                nome="Solo Boss",
+                horarios=tuple((h, 0) for h in range(0, 24, 2)),
+                avisar_no_horario=False,
+            )
+        ]
+        atender_comandos(
+            LeitorFalso(),
+            RegistroEmDisco(tmp_path / "agenda"),
+            eventos,
+            despachante,
+            datetime(2026, 8, 25, 9, 5),
+            time.monotonic(),
+            loot=loot,
+        )
+        despachante.iniciar()
+        despachante.encerrar()
+        return notificador.destinos
+
+    def test_designar_responde_so_no_privado_e_grava(self, tmp_path):
+        from l2scanner.loot import RegistroDeLoot
+
+        loot = RegistroDeLoot(tmp_path / "loot")
+        destinos = self._atender(tmp_path, ".loot-j4guar", loot)
+
+        assert [alvo for _, alvo in destinos] == ["1"], (
+            "a confirmacao tinha que sair SO na conversa de origem"
+        )
+        assert "J4guar" in destinos[0][0]
+        assert loot.designacao() is not None
+
+    def test_consultar_responde_so_no_privado(self, tmp_path):
+        from datetime import datetime
+
+        from l2scanner.loot import RegistroDeLoot
+
+        loot = RegistroDeLoot(tmp_path / "loot")
+        loot.registrar("j4guar", datetime(2026, 8, 25, 8, 0))
+        destinos = self._atender(tmp_path, ".j4guar", loot)
+
+        assert [alvo for _, alvo in destinos] == ["1"]
+        assert "pegou 1 loot" in destinos[0][0]
+
+    def test_sem_registro_de_loot_avisa_que_nao_da(self, tmp_path):
+        """Mesmo padrao do _obedecer_modo sem rastreador: responder que nao
+        da e melhor que calar — calar parece quebrado."""
+        destinos = self._atender(tmp_path, ".loot-j4guar", None)
+
+        # Sem `loot` nao ha nicks conhecidos, mas `.loot-<nick>` nao depende
+        # do portao — o comando existe e a resposta explica a limitacao.
+        assert destinos, "o comando morreu em silencio"
+        assert "Nao consigo mexer no loot agora." in destinos[0][0]
