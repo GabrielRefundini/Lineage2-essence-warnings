@@ -601,6 +601,25 @@ class TestLootNoTick:
         assert "Loot" not in r.avisos[0]
 
 
+class LeitorDoBanner:
+    """Le o banner nas duas primeiras vezes e fica cego depois.
+
+    Duas leituras e o minimo que o consenso de D-05 exige. Ficar cego em
+    seguida e o caso REAL: o banner some, o jogo fica coberto, o cliente
+    engasga — e e exatamente ai que a ancora tem que segurar o segundo aviso.
+    """
+
+    def __init__(self, texto: str, leituras: int = 2) -> None:
+        self._texto = texto
+        self._restantes = leituras
+
+    def __call__(self, _pixels):
+        if self._restantes <= 0:
+            return None
+        self._restantes -= 1
+        return self._texto
+
+
 class TestManutencaoNoTick:
     """A costura do aviso de manutencao — que e onde os erros deste projeto moram.
 
@@ -659,3 +678,70 @@ class TestManutencaoNoTick:
             total += len(s.tick(frame, momento=base + i).avisos_de_manutencao)
 
         assert total == 1
+
+    def test_as_duas_instancias_competem_pelo_mesmo_marcador(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """D-09: Yazalaque e Faerlina rodam lado a lado — e o grupo recebe UMA.
+
+        Prova que o `marcar` E a decisao de despachar, e nao uma checagem
+        anterior: as duas sessoes chegam ao mesmo aviso, com a mesma chave, no
+        mesmo instante, e exatamente uma cria o arquivo com O_CREAT|O_EXCL.
+        """
+        from l2scanner.manutencao import VigiaDeManutencao
+
+        frame = self._frame_com_banner(frame_real)
+        sessoes = [
+            nova_sessao(
+                calibracao,
+                tmp_path,
+                manutencao=VigiaDeManutencao(
+                    ler_texto=LeitorDoBanner(self.BANNER)
+                ),
+            )
+            for _ in range(2)
+        ]
+
+        despachos = []
+        for momento in (em(12, 0), em(12, 0) + 6):
+            for s in sessoes:
+                despachos += [
+                    d
+                    for d in s.tick(frame, momento=momento).despachos
+                    if "manuten" in d[0].lower()
+                ]
+
+        assert len(despachos) == 1
+
+    def test_o_faltam5_tambem_atravessa_a_costura(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """Os DOIS avisos saem `SEMPRE` e moldurados — e o segundo sai cego.
+
+        Depois das duas leituras o banner some (o leitor passa a devolver
+        None), e mesmo assim o aviso de 5 minutos sai: ele vem da ancora, nao
+        da tela (D-10).
+        """
+        from l2scanner.manutencao import TipoDeAvisoDeManutencao, VigiaDeManutencao
+
+        vigia = VigiaDeManutencao(
+            ler_texto=LeitorDoBanner("Server Maintence 6 minutes")
+        )
+        s = nova_sessao(calibracao, tmp_path, manutencao=vigia)
+        frame = self._frame_com_banner(frame_real)
+
+        base = em(12, 0)
+        tipos, despachos = [], []
+        for segundos in [0, 6] + list(range(7, 131)):
+            r = s.tick(frame, momento=base + segundos)
+            tipos += r.avisos_de_manutencao
+            despachos += [d for d in r.despachos if "manuten" in d[0].lower()]
+
+        assert tipos == [
+            TipoDeAvisoDeManutencao.ANUNCIADA,
+            TipoDeAvisoDeManutencao.FALTAM5,
+        ]
+        assert len(despachos) == 2
+        for texto, categoria, _ in despachos:
+            assert categoria is Categoria.SEMPRE
+            assert texto.split("\n")[0].strip("*") == ""

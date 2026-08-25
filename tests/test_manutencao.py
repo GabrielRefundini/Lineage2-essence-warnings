@@ -138,3 +138,274 @@ class TestChaveDoMarcador:
 
         faltam5 = chave_do_marcador(HOJE, TipoDeAvisoDeManutencao.FALTAM5)
         assert faltam5 != a
+
+
+class LeitorFalso:
+    """Um `ler_texto` injetavel: conta chamadas e deixa trocar o texto no meio.
+
+    O Python que roda a suite nao tem as bindings do WinRT, entao esta e a
+    UNICA forma de exercitar o caminho COM texto. Trocar o texto no meio e o
+    que permite simular o banner sumindo da tela.
+    """
+
+    def __init__(self, texto: str | None = None) -> None:
+        self.texto = texto
+        self.chamadas = 0
+
+    def __call__(self, _pixels):
+        self.chamadas += 1
+        return self.texto
+
+
+class PixelsFalsos:
+    """O `obter_pixels` chamavel — passar um CHAMAVEL e o que faz a cadencia valer."""
+
+    def __init__(self, tem_recorte: bool = True) -> None:
+        self._tem_recorte = tem_recorte
+        self.chamadas = 0
+
+    def __call__(self):
+        self.chamadas += 1
+        return pixels() if self._tem_recorte else None
+
+
+def novo_vigia(texto=None):
+    from l2scanner.manutencao import VigiaDeManutencao
+
+    leitor = LeitorFalso(texto)
+    return VigiaDeManutencao(ler_texto=leitor), leitor
+
+
+def rodar(vigia, obter_pixels, inicio, segundos, passo=1):
+    """Roda `avaliar` um tick por segundo e junta tudo que saiu."""
+    colhidos = []
+    for i in range(0, segundos, passo):
+        colhidos.extend(vigia.avaliar(obter_pixels, inicio + timedelta(seconds=i)))
+    return colhidos
+
+
+class TestCadencia:
+    def test_o_ocr_nao_roda_a_cada_tick(self):
+        """D-06: 12 ticks, 3 leituras. O motivo e o mesmo do `VigiaDoCliente`.
+
+        Uma chamada cara rodando a cada tick comeria o CPU do scanner inteiro —
+        e ela nao precisa dessa frequencia, porque um banner de manutencao nao
+        pisca: ele aparece e FICA.
+        """
+        vigia, leitor = novo_vigia("Server Maintence 40 minutes")
+        obter = PixelsFalsos()
+
+        rodar(vigia, obter, HOJE, segundos=12)
+
+        assert leitor.chamadas == 3, "esperava leituras em t=0, 5 e 10"
+
+    def test_os_pixels_so_sao_pedidos_quando_a_busca_vence(self):
+        """O contador de pixels acompanha o de leituras, nunca o de ticks."""
+        vigia, leitor = novo_vigia("Server Maintence 40 minutes")
+        obter = PixelsFalsos()
+
+        rodar(vigia, obter, HOJE, segundos=12)
+
+        assert obter.chamadas == leitor.chamadas == 3
+
+    def test_pixels_none_nao_quebram_e_nao_consomem_consenso(self):
+        """Sem recorte nao ha leitura — e nao ha meia leitura guardada tambem."""
+        vigia, leitor = novo_vigia("Server Maintence 40 minutes")
+        obter = PixelsFalsos(tem_recorte=False)
+
+        assert rodar(vigia, obter, HOJE, segundos=60) == []
+        assert leitor.chamadas == 0
+        assert vigia.momento is None
+
+
+class TestConsenso:
+    def test_duas_leituras_concordantes_anunciam(self):
+        vigia, leitor = novo_vigia("Server Maintence 40 minutes")
+        obter = PixelsFalsos()
+
+        saiu = vigia.avaliar(obter, HOJE)
+        assert saiu == [], "uma leitura so nunca anuncia"
+
+        leitor.texto = "Server Maintence 39 minutes 55 seconds"
+        saiu = vigia.avaliar(obter, HOJE + timedelta(seconds=5))
+
+        assert len(saiu) == 1
+        assert saiu[0].tipo is TipoDeAvisoDeManutencao.ANUNCIADA
+        esperado = HOJE + timedelta(minutes=40)
+        assert abs((vigia.momento - esperado).total_seconds()) <= 1
+
+    def test_a_leitura_discrepante_nao_anuncia(self):
+        """40, depois 4, depois 40 minutos: NADA sai (D-05).
+
+        Sem esta regra um digito comido pelo OCR anunciaria "faltam 4 minutos"
+        quando faltam 40, e a party largaria o farm por nada. Numa contagem de
+        40 minutos, atrasar o primeiro aviso uma cadencia (~5 s) nao custa nada
+        — e e o preco inteiro desta protecao.
+        """
+        vigia, leitor = novo_vigia("Server Maintence 40 minutes")
+        obter = PixelsFalsos()
+        saiu = []
+
+        saiu += vigia.avaliar(obter, HOJE)
+        leitor.texto = "Server Maintence 4 minutes"
+        saiu += vigia.avaliar(obter, HOJE + timedelta(seconds=5))
+        leitor.texto = "Server Maintence 40 minutes"
+        saiu += vigia.avaliar(obter, HOJE + timedelta(seconds=10))
+
+        assert saiu == []
+        assert vigia.momento is None
+
+    def test_uma_leitura_discrepante_nao_move_uma_ancora_ja_confirmada(self):
+        vigia, leitor = novo_vigia("Server Maintence 40 minutes")
+        obter = PixelsFalsos()
+        vigia.avaliar(obter, HOJE)
+        vigia.avaliar(obter, HOJE + timedelta(seconds=5))
+        ancorado = vigia.momento
+        assert ancorado is not None
+
+        leitor.texto = "Server Maintence 4 minutes"
+        saiu = vigia.avaliar(obter, HOJE + timedelta(seconds=10))
+
+        assert vigia.momento == ancorado
+        assert saiu == []
+
+    def test_a_re_ancora_acontece_dentro_da_tolerancia(self):
+        """A leitura mais recente e a mais precisa (D-04)."""
+        vigia, leitor = novo_vigia("Server Maintence 40 minutes")
+        obter = PixelsFalsos()
+        vigia.avaliar(obter, HOJE)
+        vigia.avaliar(obter, HOJE + timedelta(seconds=5))
+        ancorado = vigia.momento
+
+        leitor.texto = "Server Maintence 40 minutes 15 seconds"
+        vigia.avaliar(obter, HOJE + timedelta(seconds=10))
+
+        assert vigia.momento != ancorado
+        esperado = HOJE + timedelta(seconds=10) + timedelta(minutes=40, seconds=15)
+        assert abs((vigia.momento - esperado).total_seconds()) <= 1
+
+    def test_uma_manutencao_remarcada_re_ancora_com_duas_leituras(self):
+        """A ancora anterior nao pode prender o vigia num horario que sumiu."""
+        vigia, leitor = novo_vigia("Server Maintence 40 minutes")
+        obter = PixelsFalsos()
+        vigia.avaliar(obter, HOJE)
+        vigia.avaliar(obter, HOJE + timedelta(seconds=5))
+        antigo = vigia.momento
+
+        leitor.texto = "Server Maintence 90 minutes"
+        vigia.avaliar(obter, HOJE + timedelta(seconds=10))
+        saiu = vigia.avaliar(obter, HOJE + timedelta(seconds=15))
+
+        assert vigia.momento != antigo
+        esperado = HOJE + timedelta(seconds=15) + timedelta(minutes=90)
+        assert abs((vigia.momento - esperado).total_seconds()) <= 1
+        assert [a.tipo for a in saiu] == [TipoDeAvisoDeManutencao.ANUNCIADA]
+
+
+class TestAncoraSobreviveACegueira:
+    """O coracao de D-10, e a razao inteira de a ancora existir."""
+
+    def _ancorar(self, vigia, leitor, obter, texto):
+        leitor.texto = texto
+        saiu = vigia.avaliar(obter, HOJE)
+        saiu += vigia.avaliar(obter, HOJE + timedelta(seconds=5))
+        return saiu
+
+    def test_o_aviso_de_5_minutos_sai_com_o_ocr_devolvendo_none_depois(self):
+        """GOAL-02 sobrevive ao banner sumir, ao jogo coberto e ao alt-tab.
+
+        Sem a ancora, o segundo aviso dependeria de uma leitura bem sucedida no
+        instante exato — e manutencao e justamente quando o cliente comeca a
+        engasgar e a leitura falha. E o unico teste deste arquivo que prova o
+        motivo de a ancora existir.
+        """
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+        self._ancorar(vigia, leitor, obter, "Server Maintence 8 minutes")
+        assert vigia.momento is not None
+
+        leitor.texto = None  # o banner sumiu; o OCR nao le mais nada
+        antes = leitor.chamadas
+        momento = vigia.momento
+
+        saiu = rodar(vigia, obter, HOJE + timedelta(seconds=6), segundos=4 * 60)
+
+        assert [a.tipo for a in saiu] == [TipoDeAvisoDeManutencao.FALTAM5]
+        assert momento.strftime("%H:%M") in saiu[0].texto
+        assert leitor.chamadas > antes, "o OCR rodou, so nao leu nada util"
+
+    def test_os_dois_avisos_saem_quando_o_scanner_sobe_com_pouco_tempo(self):
+        """E o FALTAM5 diz 3 minutos, nao 5 — o aviso nunca mente sobre o tempo."""
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+
+        saiu = self._ancorar(vigia, leitor, obter, "Server Maintence 3 minutes")
+
+        assert [a.tipo for a in saiu] == [
+            TipoDeAvisoDeManutencao.ANUNCIADA,
+            TipoDeAvisoDeManutencao.FALTAM5,
+        ]
+        assert "3 minutos" in saiu[1].texto
+        assert "5 minutos" not in saiu[1].texto
+
+    def test_cada_tipo_sai_uma_vez_so(self):
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+        saiu = self._ancorar(vigia, leitor, obter, "Server Maintence 6 minutes")
+        leitor.texto = None
+
+        saiu += rodar(vigia, obter, HOJE + timedelta(seconds=6), segundos=200)
+
+        tipos = [a.tipo for a in saiu]
+        assert tipos.count(TipoDeAvisoDeManutencao.ANUNCIADA) == 1
+        assert tipos.count(TipoDeAvisoDeManutencao.FALTAM5) == 1
+
+
+class TestExpiracao:
+    """D-10: a ancora tem que morrer, senao a manutencao seguinte morre com ela."""
+
+    def _ancorar(self, vigia, leitor, obter, texto="Server Maintence 6 minutes"):
+        leitor.texto = texto
+        vigia.avaliar(obter, HOJE)
+        vigia.avaliar(obter, HOJE + timedelta(seconds=5))
+        leitor.texto = None
+
+    def test_a_ancora_expira_depois_do_momento_com_folga(self):
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+        self._ancorar(vigia, leitor, obter)
+        momento = vigia.momento
+
+        vigia.avaliar(obter, momento + timedelta(minutes=11))
+
+        assert vigia.momento is None
+
+    def test_nao_reavisa_depois_de_expirar(self):
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+        self._ancorar(vigia, leitor, obter)
+        momento = vigia.momento
+
+        saiu = rodar(vigia, obter, momento + timedelta(minutes=11), segundos=300)
+
+        assert saiu == []
+
+    def test_depois_de_expirar_uma_manutencao_nova_pode_ser_anunciada(self):
+        """Limpar `_emitidos` na expiracao e OBRIGATORIO.
+
+        Sem isso a proxima manutencao de verdade seria detectada e nunca
+        anunciada — o pior modo de falha deste projeto, porque o scanner
+        pareceria estar funcionando.
+        """
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+        self._ancorar(vigia, leitor, obter)
+        depois = vigia.momento + timedelta(minutes=11)
+        vigia.avaliar(obter, depois)
+        assert vigia.momento is None
+
+        leitor.texto = "Server Maintence 40 minutes"
+        saiu = vigia.avaliar(obter, depois + timedelta(seconds=10))
+        saiu += vigia.avaliar(obter, depois + timedelta(seconds=15))
+
+        assert [a.tipo for a in saiu] == [TipoDeAvisoDeManutencao.ANUNCIADA]

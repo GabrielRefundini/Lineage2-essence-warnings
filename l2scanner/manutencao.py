@@ -243,6 +243,20 @@ def texto_de_anuncio(momento: datetime, duracao: timedelta) -> str:
     )
 
 
+def texto_de_5_minutos(momento: datetime, restante: timedelta) -> str:
+    """Diz os minutos REAIS que faltam, calculados da ancora.
+
+    POR QUE ELE NAO PODE DIZER "5" FIXO: quando o scanner sobe no meio de uma
+    contagem de 3 minutos, os dois avisos saem juntos e atrasados. Cravar "5"
+    ali seria mentir sobre o unico numero que importa — e o grupo se
+    programaria para dois minutos que nao existem.
+    """
+    return (
+        f"MANUTENCAO DO SERVIDOR em {descrever_duracao(restante)} "
+        f"(as {momento.strftime('%H:%M')}). Saia da instance e recolha o loot do chao."
+    )
+
+
 class VigiaDeManutencao:
     """Le o banner com CADENCIA e ancora a manutencao no RELOGIO.
 
@@ -287,7 +301,13 @@ class VigiaDeManutencao:
 
         Passar um CHAMAVEL em vez dos pixels e o que faz a cadencia valer
         alguma coisa: nos ticks sem busca o recorte nem chega a ser tocado.
+
+        A ORDEM E DELIBERADA: expirar, ler, registrar, montar. Montar por
+        ultimo e a partir da ANCORA — nunca da leitura — e o que faz o aviso de
+        5 minutos sair num tick em que o OCR nao leu nada.
         """
+        self._expirar(agora)
+
         vencido = (
             self._ultima_leitura is None
             or (agora - self._ultima_leitura).total_seconds() >= self._intervalo
@@ -304,6 +324,23 @@ class VigiaDeManutencao:
 
         return self._avisos_devidos(agora)
 
+    def _expirar(self, agora: datetime) -> None:
+        """Esquece a manutencao depois que o momento passou, com folga (D-10).
+
+        LIMPAR `_emitidos` AQUI E OBRIGATORIO. Sem isso a proxima manutencao de
+        verdade seria detectada, ancorada — e nunca anunciada, porque o vigia
+        acharia que ja tinha avisado. E o pior modo de falha deste projeto,
+        porque de fora ele parece estar funcionando.
+        """
+        if self._ancora is None:
+            return
+        if agora <= self._ancora + FOLGA_APOS_A_MANUTENCAO:
+            return
+        self._ancora = None
+        self._candidata = None
+        self._duracao_confirmada = None
+        self._emitidos.clear()
+
     def _ler(self, pixels) -> str | None:
         """Cinto E suspensorio: `ocr.ler_texto` ja promete nao levantar.
 
@@ -317,7 +354,37 @@ class VigiaDeManutencao:
             return None
 
     def _registrar(self, implicado: datetime, duracao: timedelta) -> None:
-        """Aplica o consenso de D-05 a uma leitura bem sucedida."""
+        """Aplica o consenso de D-05 a uma leitura bem sucedida.
+
+        Tres situacoes, e a do meio e a que protege o usuario:
+
+        - JA ANCORADO E DENTRO DA TOLERANCIA -> re-ancora. E a mesma
+          manutencao, so que medida mais perto do fim: a leitura mais recente e
+          a mais precisa (D-04). `_emitidos` fica intacto, senao o grupo
+          receberia o mesmo anuncio a cada 5 s.
+        - JA ANCORADO E FORA DA TOLERANCIA -> NAO move a ancora. Uma leitura so
+          nunca derruba um horario ja confirmado por duas. Se DUAS leituras
+          seguidas concordarem no horario novo, e uma manutencao REMARCADA e ai
+          sim a ancora troca, com `_emitidos` zerado — a ancora velha nao pode
+          prender o vigia num horario que nao existe mais.
+        - SEM ANCORA -> a segunda leitura concordante confirma. E a porta de
+          D-05: um digito comido pelo OCR sozinho nunca anuncia nada.
+        """
+        if self._ancora is not None:
+            if self._bate(implicado, self._ancora):
+                self._ancora = implicado
+                self._duracao_confirmada = duracao
+                self._candidata = None
+                return
+            if self._candidata is not None and self._bate(implicado, self._candidata):
+                self._ancora = implicado
+                self._duracao_confirmada = duracao
+                self._candidata = None
+                self._emitidos.clear()
+                return
+            self._candidata = implicado
+            return
+
         if self._candidata is not None and self._bate(implicado, self._candidata):
             self._ancora = implicado
             self._duracao_confirmada = duracao
@@ -349,6 +416,20 @@ class VigiaDeManutencao:
                     tipo=TipoDeAvisoDeManutencao.ANUNCIADA,
                     momento=self._ancora,
                     texto=texto_de_anuncio(self._ancora, duracao),
+                )
+            )
+
+        restante = self._ancora - agora
+        if (
+            restante <= ANTECEDENCIA
+            and TipoDeAvisoDeManutencao.FALTAM5 not in self._emitidos
+        ):
+            self._emitidos.add(TipoDeAvisoDeManutencao.FALTAM5)
+            avisos.append(
+                AvisoDeManutencao(
+                    tipo=TipoDeAvisoDeManutencao.FALTAM5,
+                    momento=self._ancora,
+                    texto=texto_de_5_minutos(self._ancora, max(timedelta(0), restante)),
                 )
             )
 
