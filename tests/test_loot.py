@@ -492,3 +492,62 @@ class TestCancelamento:
         assert "TioMad" in resposta
         assert "10:00" in resposta
         assert registro.designacao() is None
+
+    def test_cancelar_duas_vezes_nao_levanta(self, tmp_path):
+        """A idempotencia entre as duas instancias do usuario.
+
+        Elas dividem a mesma pasta: a segunda a mandar encontra o
+        `proximo.json` ja apagado, e levantar ali transformaria um comando
+        inofensivo em erro no meio do farm.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.designar("J4guar", em(10, 0), em(9, 0))
+
+        assert registro.cancelar() is not None
+        assert registro.cancelar() is None
+
+    def test_cancelar_sem_designacao_responde_com_honestidade(self, tmp_path):
+        """Sem nada marcado a resposta corrige a expectativa e nomeia o
+        proximo boss — e o que faz o parametro de tempo ganhar o lugar dele."""
+        registro = RegistroDeLoot(tmp_path)
+
+        resposta = responder_cancelamento(registro, [self.SOLO], em(9, 5))
+
+        assert "Nao havia loot marcado" in resposta
+        assert "10:00" in resposta
+
+    def test_sem_solo_boss_na_agenda_o_cancelamento_ainda_acontece(self, tmp_path):
+        """A assimetria contra `responder_designacao`: GRAVAR depende da
+        agenda ter um alvo, APAGAR nunca pode depender disso.
+
+        Se dependesse, um config.toml quebrado prenderia a designacao
+        corrente para sempre, sem jeito de solta-la pelo WhatsApp.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.designar("Kaus", em(10, 0), em(9, 0))
+        tvt = EventoAgendado(nome="TvT", horarios=((21, 50),))
+
+        resposta = responder_cancelamento(registro, [tvt], em(9, 5))
+
+        assert registro.designacao() is None, "o config quebrado prendeu a vez"
+        assert "Kaus" in resposta
+
+    def test_depois_de_cancelar_a_designacao_nova_nao_menciona_ninguem(
+        self, tmp_path
+    ):
+        """O cancelamento apaga tambem do TEXTO: sem ele, a proxima
+        designacao ainda diria "(Era do Kaus.)" e a party leria uma troca
+        onde houve um recomeco.
+
+        A TROCA em si continua coberta por
+        `TestResponderDesignacao::test_substituir_menciona_o_substituido`,
+        que prova o "(Era do X.)" com as duas designacoes seguidas.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        responder_designacao(registro, [self.SOLO], em(9, 0), "kaus")
+        responder_cancelamento(registro, [self.SOLO], em(9, 2))
+
+        resposta = responder_designacao(registro, [self.SOLO], em(9, 5), "j4guar")
+
+        assert "Era do" not in resposta
+        assert registro.designacao().nick == "j4guar"

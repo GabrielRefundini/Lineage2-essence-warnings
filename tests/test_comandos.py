@@ -149,6 +149,34 @@ class TestInterpretarDinamico:
             "J4guar",
         )
 
+    def test_as_palavras_reservadas_tambem_cancelam(self):
+        """Quem nao lembra que o hifen sozinho basta escreve por extenso.
+
+        O preco esta pago e documentado: um personagem chamado "Cancelar" nao
+        pode ser designado. Barato perto de `.loot-cancelar` designar um
+        personagem que nao existe e deixar a party sem jeito de desmarcar.
+        """
+        for texto in (
+            ".loot-cancelar",
+            ".loot-ninguem",
+            ".loot-nenhum",
+            ".loot-limpar",
+            ".LOOT-CANCELAR",  # o comando e case-insensitive
+        ):
+            assert interpretar_dinamico(texto, frozenset()) == (
+                Comando.LOOT_CANCELAR,
+                "",
+            ), texto
+
+    def test_a_palavra_reservada_vale_em_duas_palavras(self):
+        """`.loot cancelar` cancela — a alternativa seria DESIGNAR um
+        personagem inexistente chamado "cancelar", exatamente o acidente que
+        as palavras reservadas existem para evitar."""
+        assert interpretar_dinamico(".loot cancelar", frozenset()) == (
+            Comando.LOOT_CANCELAR,
+            "",
+        )
+
     def test_nick_de_um_caractere_nao_designa(self):
         """`.loot-a` e quase sempre um dedo escorregado, nao uma designacao."""
         assert interpretar_dinamico(".loot-a", frozenset()) is None
@@ -720,5 +748,43 @@ class TestLootNaCostura:
 
         # Sem `loot` nao ha nicks conhecidos, mas `.loot-<nick>` nao depende
         # do portao — o comando existe e a resposta explica a limitacao.
+        assert destinos, "o comando morreu em silencio"
+        assert "Nao consigo mexer no loot agora." in destinos[0][0]
+
+    def test_cancelar_apaga_de_verdade_e_responde_so_no_privado(self, tmp_path):
+        """A costura inteira do `.loot-`: parser, dispatch, disco e resposta.
+
+        Sem eco no grupo, mesmo racional do designar: o grupo vai perceber
+        pelo proprio aviso de antecedencia, que passa a sair sem "Loot:".
+        """
+        from datetime import datetime
+
+        from l2scanner.loot import RegistroDeLoot
+
+        loot = RegistroDeLoot(tmp_path / "loot")
+        loot.designar("J4guar", datetime(2026, 8, 25, 10, 0), datetime(2026, 8, 25, 9))
+
+        destinos = self._atender(tmp_path, ".loot-", loot)
+
+        assert loot.designacao() is None, "o comando nao apagou nada"
+        assert [alvo for _, alvo in destinos] == ["1"], (
+            "a confirmacao tinha que sair SO na conversa de origem"
+        )
+        assert "J4guar" in destinos[0][0]
+
+    def test_cancelar_sem_nada_marcado_nao_levanta_e_responde(self, tmp_path):
+        """O comando nao pode morrer calado: quem mandou merece saber que nao
+        havia nada marcado, em vez de ficar na duvida se funcionou."""
+        from l2scanner.loot import RegistroDeLoot
+
+        loot = RegistroDeLoot(tmp_path / "loot")
+        destinos = self._atender(tmp_path, ".loot-", loot)
+
+        assert destinos, "o cancelamento morreu em silencio"
+        assert "Nao havia loot marcado" in destinos[0][0]
+
+    def test_cancelar_sem_registro_de_loot_avisa_que_nao_da(self, tmp_path):
+        destinos = self._atender(tmp_path, ".loot-", None)
+
         assert destinos, "o comando morreu em silencio"
         assert "Nao consigo mexer no loot agora." in destinos[0][0]
