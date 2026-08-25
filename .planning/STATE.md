@@ -22,7 +22,7 @@ See: .planning/PROJECT.md (updated 2026-08-24)
 
 Phase: 4 de 4 — todas implementadas
 Status: Código completo, 338 testes. Nenhum bug conhecido em aberto. O que falta é VALIDAÇÃO EM CAMPO, não implementação: a última milha (morte real -> mensagem no WhatsApp na mesma sessão) e ver a agenda/silêncio funcionando num TvT de verdade. A cegueira recorrente teve a causa encontrada e tratada na Fase 5 (era manutenção do servidor).
-Last activity: 2026-08-25 — Quick 260825-cou: controle de loot do Solo Boss pelo WhatsApp (`.loot-<nick>` e `.<nick>`)
+Last activity: 2026-08-25 — O aviso de agenda vai para o WhatsApp na mesma moldura do console
 
 Progress: [██████████] 100% (7 de 7 fases)
 
@@ -133,6 +133,7 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 
 | Data | Tarefa | Resultado |
 |------|--------|-----------|
+| 2026-08-25 | moldura do aviso no WhatsApp | O aviso de agenda passou a sair no celular como BLOCO — borda de asteriscos, recuo de dois espaços e carimbo `[HH:MM]` do envio à direita —, o mesmo que já aparecia no console. A geometria virou `console.moldurar()`, pura e sem ANSI, usada pelos dois destinos: uma conta só, então as bordas não divergem. Moldurado no despacho e cru em `resultado.avisos`, senão o console poria bloco dentro de bloco (`876a8e1`). |
 | 2026-08-25 | [controle-de-loot-do-solo-boss](quick/260825-cou-controle-de-loot-do-solo-boss-via-comand/260825-cou-SUMMARY.md) | Controle de loot do Solo Boss pelo WhatsApp: `.loot-<nick>` designa quem pega o próximo loot (o aviso de antecedência sai com "Loot: X"), `.<nick>` responde quantos loots o char já pegou e o último horário, e o registro em `.loot/` é durável e à prova de duas instâncias. Consumo automático no horário do boss. |
 | 2026-08-25 | TvT das 19:30 | O usuário adicionou um TvT às 19:30 no `config.toml`; os testes da agenda real passaram a conhecê-lo. Config e teste no mesmo commit (`42f3ed3`) — separados, um clone novo teria testes esperando o horário e um config sem ele. Sem colisão com o Prime. |
 | 2026-08-25 | [hora-certa-do-servidor](quick/260825-c6g-hora-certa-do-servidor-nao-depender-do-r/260825-c6g-SUMMARY.md) | A agenda parou de perguntar as horas ao Windows. A hora vem do cabeçalho `Date` do Chatwoot, ancorada uma vez e contada pelo monotônico daí em diante — imune ao relógio que desajusta no dual boot (Linux grava o RTC em UTC, Windows lê como local). Sem rede, cai no relógio local e avisa alto. Zero dependência nova. |
