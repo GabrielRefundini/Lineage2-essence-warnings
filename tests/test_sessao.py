@@ -319,6 +319,26 @@ class TestLootNoTick:
 
         assert "\n" not in r.avisos[0], "o console recebe o texto CRU"
 
+    def test_depois_do_cancelamento_o_aviso_sai_sem_a_linha(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """A prova de que o `.loot-` apagou DE VERDADE.
+
+        Nao basta o registro devolver None: o que a party ve e o aviso de
+        antecedencia, e e nele que a linha "Loot:" tem que sumir. O aviso
+        continua saindo — cancelar o loot nao cancela o boss.
+        """
+        loot = self._loot(tmp_path)
+        loot.designar("J4guar", SEGUNDA.replace(hour=10), SEGUNDA.replace(hour=9))
+        loot.cancelar()
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO], loot=loot)
+
+        r = s.tick(frame_real, momento=em(9, 50))
+
+        assert r.avisos, "o aviso do Solo Boss sumiu junto com a designacao"
+        assert "Solo Boss" in r.avisos[0]
+        assert "Loot" not in r.avisos[0]
+
     def test_sem_designacao_o_aviso_sai_sem_a_linha(
         self, calibracao, frame_real, tmp_path
     ):

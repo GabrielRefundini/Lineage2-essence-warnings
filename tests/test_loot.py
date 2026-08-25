@@ -33,6 +33,7 @@ from l2scanner.loot import (
     eh_solo_boss,
     exibir,
     nick_para_o_aviso,
+    responder_cancelamento,
     responder_consulta,
     responder_designacao,
 )
@@ -432,4 +433,62 @@ class TestResponderDesignacao:
         resposta = responder_designacao(registro, [nunca], em(9, 5), "j4guar")
 
         assert "Nao achei o Solo Boss" in resposta
+        assert registro.designacao() is None
+
+
+class TestCancelamento:
+    """Apagar a designacao: o `.loot-` que deixa o proximo boss sem dono.
+
+    Designar e trocar ja existiam; o que faltava era voltar ao estado "sem
+    dono" sem editar arquivo e sem reiniciar o scanner. Duas propriedades
+    mandam aqui: cancelar toca SO a vez (nunca a estatistica), e cancelar e
+    idempotente (as duas instancias do usuario dividem a mesma pasta).
+    """
+
+    SOLO = EventoAgendado(
+        nome="Solo Boss",
+        horarios=tuple((h, 0) for h in range(0, 24, 2)),
+        avisar_no_horario=False,
+    )
+
+    def test_cancelar_devolve_a_anterior_e_some_com_a_designacao(self, tmp_path):
+        registro = RegistroDeLoot(tmp_path)
+        registro.designar("J4guar", em(10, 0), em(9, 0))
+
+        anterior = registro.cancelar()
+
+        assert anterior is not None
+        assert anterior.nick == "J4guar"
+        assert anterior.alvo == em(10, 0)
+        assert registro.designacao() is None, "a designacao nao foi apagada"
+
+    def test_cancelar_nao_toca_no_historico(self, tmp_path):
+        """Cancelar e sobre a VEZ, nunca sobre a estatistica.
+
+        Apagar os `pegou_*` junto destruiria o registro que o `.<nick>`
+        consulta — meses de loot indo embora num comando de sete letras.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.designar("J4guar", em(10, 0), em(9, 0))
+        registro.registrar("J4guar", em(8, 0))
+
+        registro.cancelar()
+
+        total, ultimo = registro.resumo("J4guar")
+        assert total == 1 and ultimo == em(8, 0)
+        assert "j4guar" in registro.nicks_conhecidos()
+
+    def test_responder_cancelamento_diz_de_quem_era_e_de_qual_boss(self, tmp_path):
+        """A resposta tem que nomear os dois: quem perdeu a vez e qual boss.
+
+        "Cancelado" sozinho obrigaria a pessoa a lembrar o que estava marcado
+        — exatamente o que o registro existe para nao exigir.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.designar("TioMad", em(10, 0), em(9, 0))
+
+        resposta = responder_cancelamento(registro, [self.SOLO], em(9, 5))
+
+        assert "TioMad" in resposta
+        assert "10:00" in resposta
         assert registro.designacao() is None

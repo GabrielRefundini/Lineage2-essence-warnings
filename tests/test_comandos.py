@@ -117,9 +117,33 @@ class TestInterpretarDinamico:
             "j4guar",
         )
 
-    def test_loot_sem_nick_nao_faz_nada(self):
-        assert interpretar_dinamico(".loot-", frozenset()) is None
+    def test_loot_com_hifen_e_nada_depois_CANCELA(self):
+        """`.loot-` apaga a designacao — a sintaxe que o usuario escolheu.
+
+        Antes isto morria em silencio no `_NICK_VALIDO.fullmatch("")`, e nao
+        havia como deixar o proximo boss sem dono sem editar arquivo.
+        """
+        assert interpretar_dinamico(".loot-", frozenset()) == (
+            Comando.LOOT_CANCELAR,
+            "",
+        )
+
+    def test_loot_SOZINHO_continua_sendo_nada(self):
+        """A trava de D-02: comando sem argumento nao pode ser destrutivo.
+
+        Quem digita `.loot` no meio de um farm quase sempre esta PERGUNTANDO
+        "quem pega o loot?", nao mandando apagar. Um `.loot` que apagasse em
+        silencio seria a pior armadilha possivel nesta superficie.
+        """
         assert interpretar_dinamico(".loot", frozenset()) is None
+
+    def test_o_nick_normal_nao_virou_cancelamento(self):
+        """A regressao que o ramo novo poderia causar: o cancelamento entra
+        ANTES do `_NICK_VALIDO`, e um nick comum tem que passar ileso."""
+        assert interpretar_dinamico(".loot-J4guar", frozenset()) == (
+            Comando.LOOT_DESIGNAR,
+            "J4guar",
+        )
 
     def test_nick_de_um_caractere_nao_designa(self):
         """`.loot-a` e quase sempre um dedo escorregado, nao uma designacao."""
