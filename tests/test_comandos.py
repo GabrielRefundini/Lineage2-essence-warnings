@@ -61,8 +61,27 @@ class TestInterpretar:
         assert interpretar(".rm -rf") is None
 
     def test_o_vocabulario_e_fechado(self):
-        """Cada item e algo que qualquer um do grupo pode mandar o bot fazer."""
-        assert set(Comando) == {Comando.CANCELAR_SILENCIO, Comando.STATUS}
+        """Cada item e algo que qualquer um autorizado pode mandar o bot fazer.
+
+        A lista curta nao e falta de imaginacao — e o limite do estrago
+        possivel. Quando ela crescer, e para crescer de proposito.
+        """
+        assert set(Comando) == {
+            Comando.CANCELAR_SILENCIO,
+            Comando.STATUS,
+            Comando.SOLO,
+            Comando.PARTY,
+        }
+
+    def test_as_formas_do_modo_solo(self):
+        for forma in (".solo", ".soloplay", ".SOLO"):
+            assert interpretar(forma) is Comando.SOLO, forma
+        for forma in (".party", ".pt", ".grupo"):
+            assert interpretar(forma) is Comando.PARTY, forma
+
+    def test_falar_de_solo_sem_ponto_nao_liga_nada(self):
+        for texto in ("vou jogar solo", "solo", "party amanha"):
+            assert interpretar(texto) is None, texto
 
 
 class TestOQueOScannerSeRecusaAObedecer:

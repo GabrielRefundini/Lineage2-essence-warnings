@@ -168,6 +168,12 @@ def desenhar_status(
         PortaoGlobal.REAQUISICAO: "reajustando",
     }[rastreador.portao]
 
+    # No solo, "SEM VISAO" seria mentira por omissao: o scanner nao perdeu
+    # nada, nao ha party para ver. Ele esta vigiando VOCE, e o console tem que
+    # dizer isso — senao parece quebrado justamente quando esta trabalhando.
+    if getattr(rastreador, "modo_solo", False):
+        portao = "SOLO - vigiando so voce" 
+
     # Quando o cliente caiu, o motivo VENCE o portao. "SEM VISAO" e verdade mas
     # nao ajuda; "JOGO CAIU - TELA DE LOGIN" diz o que fazer a respeito. Foi a
     # falta disso que deixou o usuario olhando 90 s de "SEM VISAO" enquanto o
@@ -348,6 +354,7 @@ def atender_comandos(
     despachante,
     agora: datetime,
     monotonico: float,
+    rastreador=None,
 ) -> None:
     """Le, obedece e confirma. Nunca levanta.
 
@@ -388,10 +395,18 @@ def atender_comandos(
             # confirmacao, e o grupo precisa saber que voltou.
             avisar_o_grupo = True
         elif pedido.comando is Comando.STATUS:
-            resposta = _obedecer_status(registro, eventos_agendados, agora)
+            resposta = _obedecer_status(
+                registro, eventos_agendados, agora, rastreador
+            )
             # STATUS e pergunta pessoal. Ecoar no grupo seria ruido para quem
             # nao perguntou nada.
             avisar_o_grupo = False
+        elif pedido.comando in (Comando.SOLO, Comando.PARTY):
+            solo = pedido.comando is Comando.SOLO
+            resposta = _obedecer_modo(rastreador, solo, quem)
+            # Muda o que o GRUPO vai receber daqui pra frente: em solo o
+            # scanner para de falar sobre a party. Todo mundo merece saber.
+            avisar_o_grupo = True
         else:
             continue
 
@@ -422,10 +437,38 @@ def _obedecer_cancelar(registro, eventos, agora, quem: str) -> str:
     return f"{quem} cancelou: " + texto_de_cancelamento(nome, inicio, rolando)
 
 
-def _obedecer_status(registro, eventos, agora) -> str:
+def _obedecer_modo(rastreador, solo: bool, quem: str) -> str:
+    """Liga ou desliga o modo solo, sem reiniciar nada.
+
+    E o comando que mais faz sentido vir do WhatsApp: a hora de virar solo e
+    quando a party se desfaz, e nesse momento o usuario esta no jogo, nao na
+    frente do console.
+    """
+    if rastreador is None:
+        return "Nao consigo trocar de modo agora."
+    if rastreador.modo_solo == solo:
+        atual = "solo" if solo else "party"
+        return f"Ja estava no modo {atual}."
+
+    rastreador.modo_solo = solo
+    if solo:
+        nome = rastreador.nome_proprio or "voce"
+        return (
+            f"{quem} ligou o modo SOLO. Vou vigiar so o {nome} e parar de "
+            f"falar sobre a party. Avisos de TvT e Prime continuam."
+        )
+    return (
+        f"{quem} desligou o modo solo. Voltei a vigiar a party inteira."
+    )
+
+
+def _obedecer_status(registro, eventos, agora, rastreador=None) -> str:
     janela = silencio_ativo(agora, eventos, registro.cancelados())
     proximo = proxima_ocorrencia(agora, eventos)
     partes = []
+    if getattr(rastreador, "modo_solo", False):
+        nome = getattr(rastreador, "nome_proprio", None) or "voce"
+        partes.append(f"modo SOLO, vigiando so o {nome}")
     if janela:
         partes.append(
             f"Em silencio de {janela.evento} ate {janela.fim.strftime('%H:%M')}"
@@ -698,7 +741,13 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         nomes=list(cal.nomes),
         nome_proprio=cal.nome_proprio,
         nomes_reservados=cal.nomes_com_assinatura,
+        modo_solo=args.solo,
     )
+    if args.solo:
+        log.info(
+            "MODO SOLO: vigiando so %s. Nao vou reclamar de party ausente.",
+            cal.nome_proprio or "voce",
+        )
     despachante = montar_despachante(args)
     if despachante:
         despachante.iniciar()
@@ -946,6 +995,14 @@ def main() -> int:
         action="store_true",
         dest="testar_agenda",
         help="envia um aviso de agenda de exemplo e sai, sem esperar o horario",
+    )
+    parser.add_argument(
+        "--solo",
+        action="store_true",
+        help=(
+            "modo solo: vigia so a SUA barra, sem reclamar de party ausente. "
+            "A agenda de TvT/Prime continua igual."
+        ),
     )
     parser.add_argument(
         "--cancelar-silencio",

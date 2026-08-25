@@ -180,6 +180,18 @@ class Rastreador:
     # tem mais chance de morrer sem ninguem perceber.
     nome_proprio: str | None = None
 
+    # MODO SOLO: voce nao esta em party, e isso e escolha, nao problema.
+    #
+    # A diferenca em relacao a "party window sumiu" e toda: ali o scanner nao
+    # sabe se voce saiu, se a UI travou ou se o jogo caiu, e reclamar e o certo.
+    # Aqui ele SABE que nao ha party — voce disse — entao reclamar da ausencia
+    # seria ruido garantido, a cada tick, pela sessao inteira.
+    #
+    # O que NAO muda: a sua morte continua sendo vigiada com o mesmo debounce, e
+    # a agenda continua igual. Solo e justamente quando morrer AFK passa mais
+    # despercebido — em party alguem nota.
+    modo_solo: bool = False
+
     # Se ha assinaturas visuais gravadas. Quando ha, a lista `nomes` deixa de
     # valer como identidade por posicao — ela so serviria para atribuir o nome
     # de uma pessoa a uma linha que nao e dela.
@@ -365,7 +377,9 @@ class Rastreador:
         #   voce fora da party     -> so a party window some
         # Sem a barra propria, "sair da party" era indistinguivel de "perdi a
         # visao" e o scanner ficava calado.
-        if obs.hp_proprio is not None:
+        # No solo a pergunta "voce esta em party?" nao tem sentido: a resposta
+        # e nao, por escolha sua, e anunciar isso todo tick seria ruido.
+        if obs.hp_proprio is not None and not self.modo_solo:
             eventos.extend(self._avaliar_se_voce_esta_em_party(obs, agora))
 
         # --- PORTAO GLOBAL. Nunca depois das linhas. ---
@@ -378,6 +392,10 @@ class Rastreador:
             elif (
                 self._cego_desde is not None
                 and not self._cegueira_ja_avisada
+                # No solo nao HA party window para enxergar. Avisar "sem visao
+                # da party ha 5min" seria reclamar da ausencia de algo que o
+                # usuario decidiu nao ter.
+                and not self.modo_solo
                 and agora - self._cego_desde
                 >= self.ajustes.segundos_para_cegueira_longa
             ):

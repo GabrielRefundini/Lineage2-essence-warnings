@@ -74,6 +74,12 @@ class Comando(Enum):
     CANCELAR_SILENCIO = "cancelar_silencio"
     STATUS = "status"
 
+    # Entrar e sair do modo solo sem reiniciar. E o comando que mais faz
+    # sentido vir do WhatsApp: a hora de virar solo e quando a party se
+    # desfaz, e nesse momento o usuario esta no jogo, nao no console.
+    SOLO = "solo"
+    PARTY = "party"
+
 
 # As formas escritas que valem para cada comando. Varias por comando porque
 # ninguem lembra a sintaxe exata no meio de um farm.
@@ -84,6 +90,11 @@ _VOCABULARIO: dict[str, Comando] = {
     "voltar": Comando.CANCELAR_SILENCIO,
     "status": Comando.STATUS,
     "scanner": Comando.STATUS,
+    "solo": Comando.SOLO,
+    "soloplay": Comando.SOLO,
+    "party": Comando.PARTY,
+    "pt": Comando.PARTY,
+    "grupo": Comando.PARTY,
 }
 
 

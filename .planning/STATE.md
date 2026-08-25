@@ -38,7 +38,7 @@ Progress: [██████████] 100% (7 de 7 fases)
 | 6 | Agenda de TvT e Prime, rodando sem o jogo aberto | ✓ verificado ao vivo com o cliente fechado |
 | 7 | Silêncio durante o evento, com união de janelas | ✓ simulado minuto a minuto de 19:45 a 22:10 |
 
-**413 testes passando**, todos sem precisar do jogo aberto ou de rede.
+**446 testes passando**, todos sem precisar do jogo aberto ou de rede.
 
 ## Calibração real medida (2026-08-24)
 
@@ -133,6 +133,7 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 
 | Data | Tarefa | Resultado |
 |------|--------|-----------|
+| 2026-08-24 | [modo-solo-explicito](quick/20260824-modo-solo-explicito/SUMMARY.md) | Modo solo: vigia só o próprio personagem e para de reclamar de party ausente. `--solo`, ou `.solo`/`.party` pelo WhatsApp. A agenda continua igual. |
 | 2026-08-24 | [comandos-so-do-meu-numero](quick/20260824-comandos-so-do-meu-numero/SUMMARY.md) | Comandos do WhatsApp travados por telefone (últimos 8 dígitos, por causa do nono dígito brasileiro) e por etiqueta do Chatwoot. Antes qualquer um da conversa mandava no scanner. |
 | 2026-08-24 | [identidade-por-imagem-do-nome](quick/20260824-identidade-por-imagem-do-nome/SUMMARY.md) | O nome no alerta vem de reconhecer a IMAGEM do nome na tela, não da posição da linha. Margem medida de 0.546 (mesmo nome 1.000, outros máx 0.454). Resolve o alerta sair com o nome errado quando a ordem da party muda. |
 
