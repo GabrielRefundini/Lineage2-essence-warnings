@@ -225,8 +225,8 @@ def montar_vigia_de_manutencao(regiao) -> VigiaDeManutencao | None:
     # justamente o que torna o custo aceitavel (D-e).
     log.info(
         "Aviso de manutencao ativo — lendo o banner em (%d,%d) %dx%d "
-        "em duas escalas: cinza 1x a cada %.0fs (~44 ms medidos) e cinza 3x "
-        "(~308 ms) so quando a barata ve o banner. As duas precisam concordar.",
+        "em duas escalas: cinza 2x a cada %.0fs (~23 ms medidos) e cinza 3x "
+        "(~31 ms) so quando a primeira ve o banner. As duas precisam concordar.",
         regiao.esquerda, regiao.topo, regiao.largura, regiao.altura,
         SEGUNDOS_ENTRE_LEITURAS,
     )
@@ -1021,7 +1021,7 @@ def comando_testar_manutencao(args: argparse.Namespace, cal: Calibracao) -> int:
 
         # Delimitadores VISIVEIS porque espaco em branco importa aqui: o OCR
         # comendo um espaco e o que separa `40 minutes` de `40minutes`.
-        log.info("Escala de DETECCAO (cinza 1x) leu: >>>%s<<<", texto)
+        log.info("Escala de DETECCAO (cinza 2x) leu: >>>%s<<<", texto)
         log.info("Escala de CONFERENCIA (cinza 3x) leu: >>>%s<<<", ampliado)
 
         eh_banner = eh_banner_de_manutencao(texto)

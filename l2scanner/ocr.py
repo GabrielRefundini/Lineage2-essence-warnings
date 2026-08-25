@@ -33,29 +33,51 @@ log = logging.getLogger(__name__)
 
 # DUAS ESCALAS, E ELAS EXISTEM PORQUE A PRECISAO NAO E MONOTONICA (D-d).
 #
-# Medido na fixture real `tests/fixtures/manutencao/banner_40min26s.png`
-# (verdade = 40 min 26 s), sempre em cinza:
+# ESTA TABELA SUBSTITUI UMA MEDICAO ANTERIOR QUE FOI REFUTADA. O registro da
+# refutacao fica aqui de proposito: este projeto documenta numero medido, e um
+# numero que caiu precisa dizer que caiu, senao ele volta na proxima leitura.
 #
-#     1x -> `40 minutes 26 seconds`  -> 0:40:26  CERTO
-#     2x -> `40ninutes 26 seconds`   -> 0:00:26  ERRADO (sem a tolerancia D-c)
-#     3x -> `40 minutes 26 seconds`  -> 0:40:26  CERTO
-#     4x -> `40 minutes 26 seconds`  -> 0:40:26  CERTO
+# A medicao antiga dizia "1x acerta, 2x erra" e foi o que escolheu o 1x como
+# escala de deteccao. Ela tinha sido feita na imagem INTEIRA e com
+# pre-processamento MANUAL, ANTES de a conversao para cinza (D-a), a guarda
+# estrutural (D-b) e a tolerancia (D-c) existirem. Refeita com o codigo de
+# hoje, sobre DUAS imagens reais, o resultado se inverte e se estabiliza:
 #
-# O 2x ERRA ENTRE DOIS ACERTOS. Nao da para dizer "quanto maior, melhor" e
-# escolher uma escala: nenhuma escala unica e confiavel sozinha. Por isso o
-# vigia exige que DUAS concordem sobre o MESMO frame antes de anunciar — e por
-# isso o 2x nao aparece aqui, nem como deteccao nem como conferencia.
+#     escala   fixture 360x135   screenshot 385x285   custo (fixture/screenshot)
+#     1x       None              None                 52 / 19 ms
+#     2x       0:40:26           0:40:26              19 / 44 ms
+#     3x       0:40:26           0:40:26              28 / 58 ms
+#     4x       0:40:26           0:40:26              47 / 95 ms
 #
-# CUSTO MEDIDO, na banda de producao 732x140:
+# 1x ABSTEM NAS DUAS IMAGENS — le `MOninutes`, e a guarda de D-b devolve None
+# (conferido 5 de 5, deterministico). Ele NAO serve como escala de leitura.
+# 2x, 3x e 4x acertam nas duas imagens.
 #
-#     1x = 44 ms | 2x = 158 ms | 3x = 308 ms | 4x = 680 ms
+# E as duas medicoes discordarem sobre qual escala vence e, ironicamente, a
+# evidencia mais forte a favor de D-d: se duas condicoes de leitura honestas
+# chegam a vereditos opostos sobre a MESMA fonte, entao nenhuma escala unica e
+# confiavel sozinha, e exigir que DUAS concordem sobre o MESMO frame e a unica
+# postura defensavel.
 #
-# ORCAMENTO (D-e): a passada BARATA roda sempre na cadencia — 44 ms a cada 5 s
-# sao 0,9% de um nucleo, a mesma ordem do `matchTemplate` que o projeto ja
-# aceita e documenta em `cliente.py`. A passada CARA so roda quando a barata ja
-# viu a raiz `mainten`, ou seja durante uma contagem regressiva, que e rara e
-# limitada.
-ESCALA_DE_DETECCAO = 1
+# POR QUE A DETECCAO E 2x E NAO 1x: 1x nao le os digitos. Com 1x e 3x as duas
+# escalas nunca concordariam sobre o banner real — a barata abstem, a cara
+# acerta, e o recurso gravaria o warning de desacordo a cada 5 s sem nunca
+# avisar ninguem. O modo de falha silencioso que este projeto passa o tempo
+# todo tentando evitar.
+#
+# O ORCAMENTO DEIXOU DE SER A RESTRICAO (D-e revisado). A tabela de custo
+# antiga (1x=44, 2x=158, 3x=308, 4x=680 ms) estava inflada pela inicializacao
+# do motor amortizada em poucas chamadas. Medido de novo, ja aquecido, na banda
+# de producao 732x240 (a de D-f): 1x=10, 2x=23, 3x=31, 4x=55 ms. A 0,2 Hz, a
+# passada de 2x custa ~0,5% de um nucleo.
+#
+# ENTAO A RAZAO DE EXISTIR UMA ESCALA BARATA MUDOU, e vale dizer em voz alta:
+# nao e mais ORCAMENTO, e DIVERSIDADE DE METODO. As duas passadas existem para
+# ler os mesmos pixels de dois jeitos diferentes e se contradizerem quando o
+# motor errar. Se um dia alguem colapsar as duas numa so para economizar 23 ms,
+# estara economizando o que nao aperta e gastando a unica guarda que pega erro
+# de metodo.
+ESCALA_DE_DETECCAO = 2
 ESCALA_DE_CONFERENCIA = 3
 
 # O idioma do banner. O jogo escreve em ingles, e `en-US` esta presente em
@@ -146,16 +168,21 @@ def motivo_indisponivel() -> str | None:
 
 
 def ler_texto(pixels) -> str | None:
-    """A passada BARATA (cinza 1x, 44 ms medidos). Roda sempre na cadencia.
+    """A passada de DETECCAO (cinza 2x, 23 ms medidos). Roda sempre na cadencia.
 
     E ela que DETECTA o banner. So depois de ela ver a raiz `mainten` e que a
-    passada cara vale o seu preco (D-e).
+    passada de conferencia roda (D-e).
+
+    2x, e nao 1x: 1x abstem nas duas imagens reais medidas — le `MOninutes` e a
+    guarda de D-b devolve None. Uma escala que nao le digito nunca poderia
+    concordar com a outra, e o recurso ficaria mudo. Veja a tabela no topo do
+    modulo.
     """
     return _ler(pixels, ESCALA_DE_DETECCAO)
 
 
 def ler_texto_ampliado(pixels) -> str | None:
-    """A passada CARA (cinza 3x, 308 ms medidos). So durante a contagem.
+    """A passada de CONFERENCIA (cinza 3x, 31 ms medidos). So durante a contagem.
 
     E a segunda opiniao de D-d: uma maneira INDEPENDENTE de ler os mesmos
     pixels, para que um erro de metodo do motor nao atravesse o consenso
@@ -207,8 +234,8 @@ def _reconhecer(pixels: np.ndarray, escala: int) -> str | None:
     luminancia. Os tres canais BGR carregam variacao de COR que nao carrega
     forma nenhuma, e o motor gasta contraste com ela.
 
-    E custa zero: um `cvtColor` sobre 732x140 e ruido perto dos 44 ms que a
-    propria passada de reconhecimento leva.
+    E custa zero: um `cvtColor` sobre a banda de producao e ruido perto dos
+    23-31 ms que a propria passada de reconhecimento leva.
 
     Um recorte que ja chega com um canal so passa direto — quem grava frame
     em escala de cinza nao paga uma conversao que nao precisa.
@@ -216,9 +243,10 @@ def _reconhecer(pixels: np.ndarray, escala: int) -> str | None:
     if pixels.ndim == 3:
         pixels = cv2.cvtColor(pixels, cv2.COLOR_BGR2GRAY)
     if escala != 1:
-        # NA ESCALA 1 O RESIZE NAO E CHAMADO DE FORMA NENHUMA. E dai que sai a
-        # diferenca medida entre 44 ms e 308 ms — um resize por 9 na banda de
-        # producao nao e arredondamento, e sete vezes o custo da passada.
+        # NA ESCALA 1 O RESIZE NAO E CHAMADO DE FORMA NENHUMA. Nenhuma das
+        # duas escalas de producao usa 1 hoje (2x e 3x), mas o atalho fica:
+        # ele e o que permite medir a escala 1 sem pagar um resize por 1, e e
+        # por uma medicao dessas que o 1x foi descartado.
         pixels = cv2.resize(
             pixels, None, fx=escala, fy=escala, interpolation=cv2.INTER_CUBIC
         )

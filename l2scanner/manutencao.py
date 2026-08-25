@@ -354,9 +354,12 @@ class VigiaDeManutencao:
     diferentes, e guardar so um deixaria uma classe inteira descoberta:
 
     - Cruzar ESCALAS pega ERRO DE METODO: o motor lendo mal a MESMA imagem.
-      Medido na fixture real — em cor e em cinza 2x o motor erra, em cinza 1x e
-      3x acerta. O consenso temporal e CEGO a isso, porque duas leituras pelo
-      mesmo metodo, com 5 s de intervalo, concordam no MESMO erro sistematico.
+      Medido em duas imagens reais: em COR o motor erra (le `MO-mi u` e
+      `__40nin? es`), e em CINZA acerta de 2x para cima — mas em cinza 1x ele
+      ABSTEM. Duas condicoes de leitura honestas chegaram a vereditos opostos
+      sobre a MESMA fonte, que e a evidencia mais forte a favor desta guarda.
+      O consenso temporal e CEGO a isso, porque duas leituras pelo mesmo
+      metodo, com 5 s de intervalo, concordam no MESMO erro sistematico.
       Foi exatamente assim que "40 minutos e 26 segundos" viraria "26 segundos"
       com as duas leituras concordando.
     - Repetir no TEMPO pega ERRO DE FRAME: uma captura no meio do desenho do
@@ -463,9 +466,13 @@ class VigiaDeManutencao:
     def _ler_com_as_duas_escalas(self, pixels, agora: datetime):
         """O acordo de D-d, dentro do tick. Devolve (implicado, duracao) ou None.
 
-        A ORDEM E O ORCAMENTO. A barata roda sempre; a cara so depois de a
-        barata ver a raiz `mainten`. Sem essa ordem, os 308 ms medidos da
-        passada de 3x rodariam a cada 5 s o dia inteiro, para ler o chao.
+        A ORDEM IMPORTA, mas NAO POR ORCAMENTO — e vale dizer, porque a razao
+        antiga caiu. A passada de deteccao custa 23 ms e a de conferencia 31 ms
+        (medidos na banda de producao, ja aquecidos): rodar as duas sempre
+        caberia folgado no tick. O que a ordem preserva e DIVERSIDADE DE
+        METODO — duas leituras independentes dos MESMOS pixels, uma podendo
+        contradizer a outra — e a disciplina de nao gastar trabalho para ler o
+        chao quando nao ha banner nenhum na tela.
 
         QUALQUER REPROVACAO DEVOLVE None SEM TOCAR EM `_candidata` NEM NA
         ANCORA. Uma discordancia nao confirma e tambem nao destroi: se ela

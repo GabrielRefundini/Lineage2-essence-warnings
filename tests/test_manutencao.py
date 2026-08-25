@@ -32,13 +32,20 @@ from l2scanner.manutencao import (
 
 # OS TEXTOS ABAIXO SAO SAIDA MEDIDA DO MOTOR DE OCR, NAO TEXTO INVENTADO.
 #
-# Todos vieram da fixture REAL `tests/fixtures/manutencao/banner_40min26s.png`
-# (360x135, fonte do jogo, verdade na tela = 40 minutos e 26 segundos), cada um
-# de uma passada diferente do motor do Windows:
+# Todos vieram da fonte REAL do jogo — a fixture
+# `tests/fixtures/manutencao/banner_40min26s.png` (360x135) e o screenshot
+# inteiro de onde ela foi recortada. Verdade na tela: 40 minutos e 26 segundos.
 #
-#   BANNER_REAL       — cinza 1x e cinza 3x/4x (as passadas que ACERTAM)
+#   BANNER_REAL       — as passadas em cinza que ACERTAM (2x, 3x, 4x)
 #   TEXTO_EMBARALHADO — a imagem em COR, sem converter para cinza
-#   TEXTO_GRUDADO     — cinza 2x
+#   TEXTO_GRUDADO     — uma passada em cinza que comeu o espaco da unidade
+#
+# UMA HONESTIDADE SOBRE A PROVENIENCIA: qual escala produz qual texto MUDOU
+# entre duas medicoes honestas — a primeira feita na imagem inteira com
+# pre-processamento manual, a segunda na fixture recortada com o codigo de
+# hoje. O modulo `ocr` carrega a tabela e a refutacao. Aqui isso nao importa: o
+# que estes tres textos guardam sao as FORMAS de embaralhamento que o motor
+# produz de verdade, e o parser tem que dar conta delas venham de onde vierem.
 #
 # Estes tres sao a regressao PERMANENTE do parser: rodam sem OCR nenhum, no
 # Python da suite, e por isso valem em qualquer maquina.
@@ -52,13 +59,16 @@ TEXTO_EMBARALHADO = (
     "Please avoid entering instance Korzis O' Kaus"
 )
 
-# Cinza 2x: a unidade sobreviveu, mas grudada no numero e com `m` virando `n`.
+# Cinza: a unidade sobreviveu, mas grudada no numero e com `m` virando `n`.
+# Medido de novo em 6x, entao nao e artefato de uma escala so — e a forma que
+# D-c existe para recuperar.
 TEXTO_GRUDADO = (
     "12 Server Maintence 40ninutes 26 seconds "
     "Please avoid entering instance ( 3>YKorzis"
 )
 
-# Cinza 1x, o caso bom — e o alvo do que a conversao para cinza (D-a) entrega.
+# O caso bom — e o alvo do que a conversao para cinza (D-a) entrega. E o que as
+# duas escalas de producao (2x e 3x) leem na fixture real.
 TEXTO_LIMPO = (
     "12 Server Maintence 40 minutes 26 seconds "
     "Please avoid entering instance Korzis O' Kaus"
@@ -504,10 +514,13 @@ class TestCruzamentoDeEscalas:
         assert vigia.momento == ancorado
 
     def test_a_escala_cara_nao_roda_quando_a_barata_nao_ve_o_banner(self):
-        """D-e, o orcamento inteiro deste recurso.
+        """D-e — e a razao dele MUDOU, entao vale registrar aqui tambem.
 
-        A barata custa 44 ms medidos e a cara 308 ms. Em regime permanente — que
-        e o dia inteiro, com o banner ausente — so a barata pode rodar.
+        Nao e mais orcamento: medidas de novo e ja aquecidas, na banda de
+        producao, a passada de deteccao custa 23 ms e a de conferencia 31 ms.
+        Rodar as duas sempre caberia folgado. O que esta ordem preserva e a
+        disciplina de nao gastar trabalho lendo o chao quando nao ha banner
+        nenhum na tela — e o teste continua valendo igual.
         """
         vigia, leitor = novo_vigia("Korzis: bora upar? Kaus ta on")
         obter = PixelsFalsos()

@@ -47,10 +47,10 @@ VERSAO_DO_ESQUEMA = 2
 # real, a imagem INTEIRA em cinza tambem leu 0:40:26 — o motor nao se perde por
 # receber vizinhanca.
 #
-# O CUSTO, E ELE E EXTRAPOLACAO, NAO MEDICAO: a faixa sai de 732x140 para
-# 732x240, 1,71x pixels, o que sobre os 44 ms medidos da passada barata PROJETA
-# ~75 ms. Segue dentro do orcamento (a cada 5 s, pouco mais de 1% de um
-# nucleo). Projecao — o numero medido e o de 732x140.
+# O CUSTO DA FAIXA MAIOR FOI MEDIDO, e nao extrapolado: na banda de 732x240 ja
+# aquecida, a passada de deteccao (cinza 2x) custa 23 ms e a de conferencia
+# (3x) custa 31 ms. A cada 5 s isso e ~0,5% de um nucleo. A folga vertical sai
+# de graca.
 #
 # O PRECO NOVO QUE A FOLGA CRIA, real e aceito: mais area significa mais texto
 # vizinho dentro da faixa, e a guarda estrutural de `interpretar_banner` (D-b)
