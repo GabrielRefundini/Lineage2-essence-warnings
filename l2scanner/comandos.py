@@ -32,13 +32,12 @@ separada da de avisos: da para receber comando no privado e responder no grupo.
 from __future__ import annotations
 
 import json
-import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from enum import Enum
 
-from .loot import apelido
+from .loot import NICK_VALIDO, apelido, interpretar_pegou
 
 # Todo comando comeca com isto. Mesma convencao do `.offline` que o grupo ja
 # usa, entao nao e vocabulario novo para ninguem.
@@ -95,12 +94,24 @@ class Comando(Enum):
     # ver D-02 em `interpretar_dinamico`.
     LOOT_CANCELAR = "loot_cancelar"
 
-    # O UNICO comando que reescreve HISTORICO. Os outros tres mexem na VEZ do
-    # proximo boss — estado que expira sozinho quando o horario passa. Este
+    # O PRIMEIRO comando que reescreve HISTORICO. Os outros tres mexem na VEZ
+    # do proximo boss — estado que expira sozinho quando o horario passa. Este
     # mexe na estatistica, que nunca e podada e nao tem backup. E por isso que
     # o alcance dele para no registro MAIS RECENTE: o limite do estrago
     # possivel nao pode depender de quem digita lembrar de ter cuidado.
     LOOT_CORRIGIR = "loot_corrigir"
+
+    # O SEGUNDO comando que reescreve historico, e o limite dele e de outra
+    # natureza. O `.corrigir` e contido por NAO TER SINTAXE que alcance o
+    # passado: nao ha como digitar um horario, entao nao ha como errar de
+    # boss por meses. O `.pegou` tem exatamente essa sintaxe — e o motivo dele
+    # existir, porque o `.corrigir` nao alcanca "nao ha registro nenhum" —, e
+    # paga por ela com duas protecoes proprias: o horario tem que ENCAIXAR
+    # numa ocorrencia real do Solo Boss (nunca nasce registro orfao) e a
+    # resposta sempre diz o DIA de volta, para quem digitou conferir na hora
+    # que acertou o boss. Os dois limites sao reais e sao diferentes; e por
+    # isso que os dois comandos coexistem em vez de um substituir o outro.
+    LOOT_ATRIBUIR = "loot_atribuir"
 
 
 # As formas escritas que valem para cada comando. Varias por comando porque
@@ -133,9 +144,10 @@ class MensagemDeComando:
     # perguntaram, em vez de responder sempre no grupo de avisos.
     conversa: str | None = None
 
-    # O argumento dos comandos dinamicos: o nick, COMO FOI DIGITADO. A
-    # resposta mostra o que a pessoa escreveu; normalizar e trabalho de quem
-    # consome.
+    # O argumento dos comandos dinamicos, SEMPRE COMO FOI DIGITADO: o nick,
+    # na maioria deles, e o argumento inteiro do `.pegou` ("18:00 Korzis"),
+    # ainda cru. A resposta mostra o que a pessoa escreveu; normalizar — e,
+    # no caso do `.pegou`, reler a gramatica — e trabalho de quem consome.
     argumento: str | None = None
 
 
@@ -204,9 +216,11 @@ def interpretar(texto: str | None) -> Comando | None:
     return _VOCABULARIO.get(miolo.replace("-", "").replace("_", ""))
 
 
-# O charset de nick do L2, e um minimo de 2 para que `.loot-a` de um dedo
-# escorregado nao vire designacao.
-_NICK_VALIDO = re.compile(r"[A-Za-z0-9]{2,16}")
+# O nome privado sobrevive porque os seis usos deste arquivo ja falam essa
+# lingua. A DEFINICAO (e o comentario que explica o charset do L2 e o minimo
+# de 2 caracteres) mudou para o `loot.py`, porque `interpretar_pegou` precisa
+# dela e o `loot` nao pode importar `comandos` sem fechar um ciclo.
+_NICK_VALIDO = NICK_VALIDO
 
 # `.offline` e convencao humana do grupo — quem digita esta avisando GENTE,
 # nao o bot. Excluido por nome para jamais virar consulta de nick, nem que
@@ -296,6 +310,20 @@ def interpretar_dinamico(
         # erro que fez `.loot cancelar` DESIGNAR um personagem chamado
         # "cancelar" na tarefa anterior. A forma de duas palavras nunca e
         # opcional num comando que mexe em estado duravel.
+        return None
+
+    # `.pegou <hora> <nick>`: registra o loot de um boss que JA PASSOU. Quem
+    # decide se a gramatica esta certa e `interpretar_pegou`, la no `loot.py`
+    # — uma gramatica so, que valida aqui e le no responder. Duas divergiriam
+    # no primeiro ajuste e o comando passaria a aceitar o que nao executa.
+    if crua.lower() == "pegou":
+        argumento = " ".join(palavras[1:])
+        if interpretar_pegou(argumento) is not None:
+            return (Comando.LOOT_ATRIBUIR, argumento)
+        # O `return None` NAO e redundancia, pela mesma razao do `.corrigir`
+        # logo acima: sem ele o fluxo cai no ramo de consulta, onde
+        # `_NICK_VALIDO` casa a palavra "pegou" e um personagem homonimo
+        # transformaria o comando numa consulta dele.
         return None
 
     # `.{nick}` sozinho: o portao por nick conhecido e decisao do usuario —

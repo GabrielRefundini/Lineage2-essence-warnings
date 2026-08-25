@@ -80,11 +80,18 @@ class TestInterpretar:
             # porque sem ele o proximo boss nao tinha como voltar a ser de
             # ninguem sem editar arquivo e reiniciar o scanner.
             Comando.LOOT_CANCELAR,
-            # E corrigir um loot JA CONSUMADO. Tambem de proposito, e o de
-            # maior alcance da lista: e o unico que reescreve HISTORICO, que
-            # nunca e podado. O contrapeso e a mira fixa no registro mais
-            # recente — nao ha sintaxe para atingir a estatistica antiga.
+            # E corrigir um loot JA CONSUMADO. Tambem de proposito: reescreve
+            # HISTORICO, que nunca e podado. O contrapeso e a mira fixa no
+            # registro mais recente — nao ha sintaxe para atingir a
+            # estatistica antiga.
             Comando.LOOT_CORRIGIR,
+            # E registrar o loot de um boss que ja passou, mesmo sem nunca ter
+            # havido designacao — o caso que o `.corrigir` nao alcanca, porque
+            # ele so troca o dono de um registro que ja existe. E o de MAIOR
+            # alcance da lista: ele tem sintaxe para enderecar o passado. O
+            # contrapeso e outro, e proprio dele — o horario tem que encaixar
+            # numa ocorrencia real do Solo Boss, e a resposta sempre diz o dia.
+            Comando.LOOT_ATRIBUIR,
         }
 
     def test_as_formas_do_modo_solo(self):

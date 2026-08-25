@@ -34,10 +34,16 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from .agenda import Aviso, EventoAgendado, TipoDeAviso, proxima_ocorrencia
+from .agenda import (
+    Aviso,
+    EventoAgendado,
+    TipoDeAviso,
+    ocorrencias_do_dia,
+    proxima_ocorrencia,
+)
 
 # Prefixos dos arquivos que convivem na pasta — mesma tecnica de namespaces do
 # `.agenda/`: a atomicidade e o compartilhamento valem para todos de graca.
@@ -48,6 +54,27 @@ _ARQUIVO_PROXIMO = "proximo.json"
 # O carimbo de horario no nome do arquivo: `pegou_2026-08-25-1000_j4guar`.
 # A identidade do registro E o nome — o arquivo fica vazio de proposito.
 _FORMATO_CARIMBO = "%Y-%m-%d-%H%M"
+
+# O charset de nick do L2, e um minimo de 2 para que `.loot-a` de um dedo
+# escorregado nao vire designacao.
+#
+# MORA AQUI, e nao no `comandos.py` onde nasceu, porque `interpretar_pegou`
+# precisa validar nick e o `loot.py` NAO PODE importar `comandos` (ciclo — ver
+# o fim da docstring do modulo). O `comandos.py` ja importa `apelido` daqui,
+# entao a direcao da dependencia so foi reusada, nao invertida.
+NICK_VALIDO = re.compile(r"[A-Za-z0-9]{2,16}")
+
+# Quanto o horario digitado no `.pegou` pode estar longe de uma ocorrencia
+# real do Solo Boss e ainda assim encaixar nela.
+#
+# O NUMERO NAO E ARBITRARIO. O boss nasce de duas em duas horas, entao
+# QUALQUER minuto do dia esta a no maximo 60 min de alguma ocorrencia: uma
+# tolerancia de 60 nunca recusaria nada e transformaria o encaixe em
+# decoracao. 30 aceita "lembrei 20 minutos depois" — o caso real — e recusa
+# `.pegou 19:00`, que e exatamente ambiguo entre o boss das 18:00 e o das
+# 20:00. Ambiguidade RECUSA, porque o registro e permanente e nao ha poda que
+# desfaca um palpite errado.
+TOLERANCIA_DE_ENCAIXE = timedelta(minutes=30)
 
 
 def apelido(nick: str) -> str:
@@ -93,23 +120,58 @@ class Designacao:
 
 @dataclass(frozen=True)
 class Correcao:
-    """O que aconteceu numa tentativa de trocar o dono de um loot consumado.
+    """O que aconteceu numa tentativa de mexer no dono de um loot consumado.
 
-    O `estado` e uma string de quatro valores e nao um booleano pelo MESMO
+    O `estado` e uma string de CINCO valores e nao um booleano pelo MESMO
     motivo do `_criar` logo abaixo: a resposta precisa distinguir "trocou" de
-    "ja era dele" de "nao tinha nada para corrigir" de "o disco falhou".
-    Colapsar qualquer par desses faria o bot mentir sobre o que acabou de
-    acontecer com a estatistica — e um "pronto" depois de uma falha de disco e
-    indistinguivel de sucesso para quem esta do outro lado do WhatsApp.
+    "criei do zero" de "ja era dele" de "nao tinha nada para corrigir" de "o
+    disco falhou". Colapsar qualquer par desses faria o bot mentir sobre o que
+    acabou de acontecer com a estatistica — e um "pronto" depois de uma falha
+    de disco e indistinguivel de sucesso para quem esta do outro lado do
+    WhatsApp.
+
+    O QUINTO estado, `"criado"`, nasceu com o `.pegou`. O `corrigir` nunca
+    cria registro — ele so troca o dono de um que ja existe, e por isso os
+    quatro primeiros bastavam. O `atribuir` cria quando nao havia NADA, que e
+    o caso que o usuario relatou (o scanner estava fora do ar quando o boss
+    passou). "Registrei o loot que ninguem tinha registrado" e uma frase
+    diferente de "passou do Fulano para o Beltrano", e sair com a segunda
+    quando aconteceu a primeira nomearia um dono anterior que nunca existiu.
 
     O `anterior` e o SLUG do dono antigo, minusculo, porque e o nome do
-    arquivo que o guarda — nao ha outro registro da caixa original.
+    arquivo que o guarda — nao ha outro registro da caixa original. No estado
+    `"criado"` ele fica `""`, e a mensagem desse estado NAO pode chamar
+    `exibir(anterior)`.
     """
 
-    estado: str  # "corrigido" | "mesmo_dono" | "sem_registro" | "falhou"
+    # "corrigido" | "criado" | "mesmo_dono" | "sem_registro" | "falhou"
+    estado: str
     anterior: str = ""  # o slug do dono antigo
     novo: str = ""  # o nick novo, como foi digitado
     alvo: datetime | None = None
+
+
+@dataclass(frozen=True)
+class PedidoDePegou:
+    """O `.pegou` DEPOIS da gramatica e ANTES do relogio.
+
+    Nenhum `datetime` aqui, de proposito: e a mesma disciplina do modulo
+    inteiro — o tempo entra por parametro, nunca por `datetime.now()`. Um
+    pedido guarda o que a pessoa DIGITOU (hora, minuto e, quando ela quis ser
+    explicita, o dia); transformar isso num instante e trabalho de
+    `momento_desejado`, que recebe o `agora` de fora.
+
+    E o que permite testar a virada da meia-noite sem esperar meia-noite: a
+    frase "18:00" nao muda de sentido, mas o instante que ela nomeia muda
+    conforme a hora em que foi dita.
+    """
+
+    nick: str  # como foi digitado
+    hora: int
+    minuto: int
+    dia: int | None = None
+    mes: int | None = None
+    ano: int | None = None
 
 
 class RegistroDeLoot:
@@ -346,6 +408,113 @@ class RegistroDeLoot:
         self._criar(f"{_PREFIXO_NICK}{apelido(nick)}")
         return Correcao("corrigido", anterior=anterior, novo=nick, alvo=alvo)
 
+    def atribuir(self, nick: str, alvo: datetime) -> Correcao:
+        """Poe o loot de UM boss especifico no nome deste nick. Nunca levanta.
+
+        E o motor do `.pegou`, e a diferenca dele para o `corrigir` logo acima
+        e o alvo: o `corrigir` mira o registro MAIS RECENTE e nao aceita
+        argumento de horario nenhum; o `atribuir` recebe um `alvo` ENDERECADO,
+        que o chamador ja encaixou numa ocorrencia real da agenda. Os dois
+        limites sao reais e sao DIFERENTES — o do `corrigir` e "nao existe
+        sintaxe que alcance o passado", o do `atribuir` e "so alcanca instante
+        que a agenda produz, e so no passado". E por isso que os dois comandos
+        coexistem em vez de um substituir o outro.
+
+        TRES COISAS QUE PARECEM DETALHE E SAO O TRABALHO INTEIRO:
+
+        1. **CRIAR o registro novo ANTES de apagar o velho**, a mesma ordem do
+           `corrigir`, e pelo mesmo desenho da falha. Se o criar falhar: nada
+           muda, o dono antigo continua com o loot. Se o apagar falhar: sobra
+           um DUPLICADO, visivel no `.<nick>` e consertavel com outro `.pegou`.
+           A ordem inversa PERDE o loot em silencio, que e o pior desfecho
+           possivel numa estatistica que nunca e podada e nao tem backup.
+
+        2. **A guarda compara a LISTA INTEIRA de donos, nao o primeiro.** Com
+           um unico dono que ja e o nick novo, mexer em disco seria destrutivo:
+           `_criar` devolveria "ja_existia" e o apagar destruiria o unico
+           registro que existia — e a resposta ainda diria sucesso. Mas quando
+           o alvo tem DOIS donos e um deles ja e o nick novo, sair cedo
+           deixaria o duplicado de pe; o certo ali e seguir e deixar o passo do
+           apagar colapsar. Sao dois casos diferentes, e so a comparacao com a
+           lista inteira os separa. E aqui que ela difere do `corrigir`, que
+           olha um registro so e por isso compara um slug so.
+
+        3. **Sem dono nenhum, CRIA** — o caso que o `corrigir` nao tem. E o
+           motivo do comando existir: se o scanner estava fora do ar quando o
+           boss passou, nao ha registro nenhum para corrigir, e o unico
+           conserto ate aqui era criar arquivo a mao no Explorer.
+        """
+        donos = sorted(slug for slug, quando in self.registros() if quando == alvo)
+        slug_novo = apelido(nick)
+
+        if not donos:
+            estado = self._criar(self._nome_do_pegou(nick, alvo))
+            if estado == "falhou":
+                return Correcao("falhou", novo=nick, alvo=alvo)
+            # "ja_existia" aqui e impossivel (nao havia dono), mas tratar
+            # junto com "criado" e honesto: o desfecho para quem le e o
+            # mesmo — o loot daquele boss agora esta no nome dele.
+            self._criar(f"{_PREFIXO_NICK}{slug_novo}")
+            self._soltar_designacao(alvo)
+            return Correcao("criado", novo=nick, alvo=alvo)
+
+        if donos == [slug_novo]:
+            return Correcao(
+                "mesmo_dono", anterior=slug_novo, novo=nick, alvo=alvo
+            )
+
+        anterior = next(d for d in donos if d != slug_novo)
+
+        estado = self._criar(self._nome_do_pegou(nick, alvo))
+        if estado == "falhou":
+            # Nada apagado: o loot continua exatamente de quem era.
+            return Correcao("falhou", anterior=anterior, novo=nick, alvo=alvo)
+
+        # "ja_existia" segue para o apagar DE PROPOSITO: ele so acontece
+        # quando o alvo tinha DOIS donos registrados. Apagar o velho ali e o
+        # conserto do duplicado, nao a perda.
+        try:
+            # `apelido()` e idempotente sobre um slug, entao `_nome_do_pegou`
+            # reconstroi o nome do arquivo velho sem formatador novo.
+            (self._pasta / self._nome_do_pegou(anterior, alvo)).unlink(
+                missing_ok=True
+            )
+        except OSError:
+            # Sobrou duplicado: visivel no `.<nick>` e consertavel. Seguir em
+            # frente e melhor que levantar no meio do farm.
+            pass
+
+        self._criar(f"{_PREFIXO_NICK}{slug_novo}")
+        self._soltar_designacao(alvo)
+        return Correcao("corrigido", anterior=anterior, novo=nick, alvo=alvo)
+
+    def _soltar_designacao(self, alvo: datetime) -> None:
+        """Apaga a designacao corrente SE ela mirar exatamente este alvo.
+
+        Este e o unico ponto deste comando que encosta na fronteira entre a
+        VEZ e o HISTORICO — a mesma fronteira que o `cancelar` e o `corrigir`
+        respeitam sem atravessar. Ele atravessa num caso so, e o caso e
+        concreto: se o scanner estava fora do ar as 18:00, a designacao das
+        18:00 continua em `proximo.json` sem nunca ter sido consumida. O
+        usuario roda `.pegou 18:00 Korzis` e, no proximo tick, o `consumir()`
+        cria um SEGUNDO dono para as 18:00 — um duplicado que ninguem pediu e
+        que aparece na contagem de quem nao pegou nada.
+
+        Uma designacao cujo boss ja passou E ja tem dono escrito a mao nao tem
+        mais alvo nenhum. A comparacao e por igualdade EXATA justamente para a
+        regra nao vazar: a designacao do boss das 20:00 fica intacta quando o
+        usuario registra o das 18:00, porque aquela ainda tem para onde ir.
+        """
+        designacao = self.designacao()
+        if designacao is None or designacao.alvo != alvo:
+            return
+        try:
+            (self._pasta / _ARQUIVO_PROXIMO).unlink(missing_ok=True)
+        except OSError:
+            # Mesma exposicao do `cancelar` e do `consumir`: um disco travado
+            # nao pode virar excecao no meio do farm.
+            pass
+
     def nicks_conhecidos(self) -> frozenset[str]:
         """Slugs que o `.<nick>` aceita consultar.
 
@@ -388,6 +557,132 @@ def descrever_momento(alvo: datetime, agora: datetime) -> str:
     if dias == 1:
         return f"ontem as {hora}"
     return f"em {alvo.day:02d}/{alvo.month:02d} as {hora}"
+
+
+# O horario do `.pegou`, na unica grafia que esta task aceita. As faixas
+# (hora 0-23, minuto 0-59) NAO moram aqui de proposito: este arquivo prefere
+# uma linha legivel a uma expressao esperta, e uma faixa numerica escrita em
+# regex e ilegivel na revisao seguinte.
+_HORARIO_DO_PEGOU = re.compile(r"(\d{1,2}):(\d{2})")
+
+
+def interpretar_pegou(argumento: str) -> PedidoDePegou | None:
+    """A gramatica do `.pegou`, e ela mora AQUI por um motivo.
+
+    Esta funcao e o PORTAO do parser e o LEITOR do responder: o
+    `comandos.py` so devolve `LOOT_ATRIBUIR` quando ela aceita o argumento, e
+    o `responder_atribuicao` le o mesmo argumento com a mesma funcao. Uma
+    gramatica no parser e outra no responder divergiriam no primeiro ajuste, e
+    o comando passaria a ACEITAR o que nao sabe EXECUTAR — que e o modo de
+    falha mais caro possivel num comando que escreve estado permanente.
+
+    O preco e um parse duplicado por comando: uma vez por mensagem, para um
+    comando que o usuario manda uma vez por semana. Irrelevante.
+
+    Recebe o argumento ja sem o `.pegou`. Devolve None para qualquer coisa que
+    nao entenda — nunca levanta, nunca adivinha.
+
+    Sem palavras reservadas aqui: o `.pegou` nao tem forma destrutiva sem
+    argumento, entao nao existe a colisao que obrigou o
+    `_PALAVRAS_DE_CANCELAMENTO` do `.loot-` a nascer.
+    """
+    palavras = (argumento or "").split()
+    if len(palavras) != 2:
+        return None
+
+    bruto, nick = palavras
+
+    casado = _HORARIO_DO_PEGOU.fullmatch(bruto)
+    if casado is None:
+        return None
+    hora, minuto = int(casado.group(1)), int(casado.group(2))
+    if not (0 <= hora <= 23 and 0 <= minuto <= 59):
+        return None
+
+    if not NICK_VALIDO.fullmatch(nick):
+        return None
+
+    # O nick sai COMO FOI DIGITADO: a resposta mostra o que a pessoa
+    # escreveu, e normalizar e trabalho de `apelido()`, la no disco.
+    return PedidoDePegou(nick=nick, hora=hora, minuto=minuto)
+
+
+def momento_desejado(pedido: PedidoDePegou, agora: datetime) -> datetime | None:
+    """O instante que a pessoa quis dizer. None quando nao existe nenhum.
+
+    SEM DATA, o horario resolve para a ocorrencia mais recente que JA PASSOU,
+    nunca para o futuro. O recuo de um dia e uma linha e e a regra inteira:
+    as 02h da manha, quem digita "18:00" esta falando do boss de ONTEM — o
+    boss de hoje as 18:00 ainda nao aconteceu, e registrar loot de um boss que
+    ainda nao nasceu nao e coisa que alguem queira dizer.
+
+    (A forma com data explicita entra no Task 3; ate la ela devolve None em
+    vez de fingir que entendeu.)
+    """
+    if pedido.dia is not None:
+        # Task 3: `.pegou 23/08 18:00 Korzis`. Ate la, um pedido com data nao
+        # tem como virar instante, e mentir seria pior que recusar.
+        return None
+
+    desejado = agora.replace(
+        hour=pedido.hora, minute=pedido.minuto, second=0, microsecond=0
+    )
+    if desejado > agora:
+        desejado -= timedelta(days=1)
+    return desejado
+
+
+def encaixar_na_agenda(
+    desejado: datetime, eventos: list[EventoAgendado], agora: datetime
+) -> datetime | None:
+    """A ocorrencia REAL de Solo Boss mais proxima do horario desejado.
+
+    None quando nao ha Solo Boss na agenda, ou quando a melhor candidata esta
+    mais longe que `TOLERANCIA_DE_ENCAIXE`. Esse None e o unico ponto entre
+    "nao entendi" e um registro ORFAO PERMANENTE: a pasta de loot nunca e
+    podada, entao um `pegou_` num horario que nenhum boss produz fica na
+    estatistica para sempre e nao ha comando nenhum que o alcance.
+
+    A varredura sao TRES dias centrados no DESEJADO, nunca em `agora`. E o que
+    faz a virada da meia-noite funcionar nos dois sentidos: as 00:10, "23:50"
+    quer dizer ontem, mas a ocorrencia mais proxima que ja passou e a de HOJE
+    as 00:00, dez minutos depois do desejado. Centrar em `agora` a perderia.
+
+    Ocorrencia no futuro e DESCARTADA aqui, e nao la em cima: sem esta linha,
+    `.pegou 18:00` as 17:50 encaixaria no boss das 18:00 que ainda nao
+    aconteceu, e o loot de um boss inexistente entraria na contagem.
+    """
+    evento = next((e for e in eventos if eh_solo_boss(e.nome)), None)
+    if evento is None:
+        return None
+
+    candidatas: list[datetime] = []
+    for deslocamento in (-1, 0, 1):
+        dia = desejado.date() + timedelta(days=deslocamento)
+        candidatas.extend(a for a in ocorrencias_do_dia(evento, dia) if a <= agora)
+    if not candidatas:
+        return None
+
+    # O desempate pela ocorrencia mais CEDO e deterministico de proposito:
+    # duas chamadas iguais precisam escolher o mesmo registro, senao um
+    # `.pegou` repetido criaria um segundo dono num alvo vizinho.
+    melhor = min(candidatas, key=lambda alvo: (abs(alvo - desejado), alvo))
+    if abs(melhor - desejado) > TOLERANCIA_DE_ENCAIXE:
+        return None
+    return melhor
+
+
+def horarios_do_solo_boss(eventos: list[EventoAgendado]) -> list[str]:
+    """Os horarios do Solo Boss como texto, ordenados. Vazio se nao houver.
+
+    Existe para a mensagem de RECUSA. Recusar sem dizer quais horarios valem
+    obrigaria a pessoa a abrir o `config.toml` no meio do farm para descobrir
+    por que o comando nao pegou — e a essa altura ela ja desistiu.
+    """
+    evento = next((e for e in eventos if eh_solo_boss(e.nome)), None)
+    if evento is None:
+        return []
+    return [f"{h:02d}:{m:02d}" for h, m in sorted(evento.horarios)]
 
 
 def nick_para_o_aviso(aviso: Aviso, designacao: Designacao | None) -> str | None:
@@ -562,6 +857,100 @@ def responder_correcao(
             f"Nao consegui gravar a correcao do {nome_do_evento} de {momento} — "
             f"o loot continua do {exibir(correcao.anterior)}, nao do "
             f"{exibir(correcao.novo)}."
+        )
+
+    return (
+        f"O loot do {nome_do_evento} de {momento} passou do "
+        f"{exibir(correcao.anterior)} para o {exibir(correcao.novo)}."
+    )
+
+
+def responder_atribuicao(
+    registro: RegistroDeLoot,
+    eventos: list[EventoAgendado],
+    agora: datetime,
+    argumento: str,
+) -> str:
+    """Obedece o `.pegou [data] <hora> <nick>`: registra o loot de um boss que
+    JA PASSOU, mesmo quando nunca houve designacao nenhuma.
+
+    A RESPOSTA SEMPRE DIZ O DIA, por `descrever_momento`, e isso nao e
+    cosmetico. O `.corrigir` mira o registro mais recente e a duvida de quem
+    digita e "sera que outro boss passou no meio tempo?"; o `.pegou` alcanca
+    horario ARBITRARIO, e a duvida passa a ser outra e maior: "sera que ele
+    entendeu o dia que eu quis dizer?". As 02h da manha, `.pegou 18:00 Korzis`
+    fala do boss de ONTEM — e a unica coisa entre acertar e registrar o boss
+    errado e a resposta dizer "de ontem as 18:00" em vez de um "pronto" seco.
+    E a mesma razao que o `responder_correcao` ja documenta, aplicada a um
+    comando de alcance maior.
+
+    Cada None do caminho tem TEXTO PROPRIO, porque cada um pede uma correcao
+    diferente de quem digitou: arrumar a frase, arrumar o config.toml, arrumar
+    a data ou arrumar o horario.
+    """
+    pedido = interpretar_pegou(argumento)
+    if pedido is None:
+        # Nao deveria acontecer — o parser so devolve LOOT_ATRIBUIR quando
+        # esta mesma funcao aceita. Existe porque confiar na camada de cima e
+        # exatamente o tipo de aposta que levanta no meio do farm.
+        return (
+            "Nao entendi. Use assim: `.pegou 18:00 Korzis` "
+            "(ou `.pegou 24/08 18:00 Korzis` para um dia antigo)."
+        )
+
+    evento = next((e for e in eventos if eh_solo_boss(e.nome)), None)
+    if evento is None:
+        return (
+            "Nao achei o Solo Boss na agenda do config.toml — "
+            "nao da para registrar o loot."
+        )
+    nome_do_evento = evento.nome
+
+    desejado = momento_desejado(pedido, agora)
+    if desejado is None:
+        # UMA mensagem so para data no futuro e para data que nao existe: o
+        # texto e verdadeiro nos dois casos, e inventar um segundo canal de
+        # erro para distingui-los nao ajudaria ninguem a digitar melhor.
+        return (
+            "Essa data nao aponta para nenhum momento que ja passou — "
+            f"o `.pegou` so registra {nome_do_evento} que ja aconteceu."
+        )
+
+    alvo = encaixar_na_agenda(desejado, eventos, agora)
+    if alvo is None:
+        horarios = horarios_do_solo_boss(eventos)
+        lista = ", ".join(horarios) if horarios else "nenhum"
+        return (
+            f"Nao achei nenhum {nome_do_evento} perto das "
+            f"{pedido.hora:02d}:{pedido.minuto:02d}. "
+            f"Os horarios sao: {lista}."
+        )
+
+    correcao = registro.atribuir(pedido.nick, alvo)
+    momento = descrever_momento(alvo, agora)
+
+    if correcao.estado == "criado":
+        return (
+            f"Registrei: o loot do {nome_do_evento} de {momento} e do "
+            f"{exibir(correcao.novo)}. Ninguem tinha registrado esse boss."
+        )
+
+    if correcao.estado == "mesmo_dono":
+        return (
+            f"O loot do {nome_do_evento} de {momento} JA era do "
+            f"{exibir(correcao.novo)} — nada mudou."
+        )
+
+    if correcao.estado == "falhou":
+        if correcao.anterior:
+            return (
+                f"Nao consegui gravar o loot do {nome_do_evento} de "
+                f"{momento} — ele continua do {exibir(correcao.anterior)}, "
+                f"nao do {exibir(correcao.novo)}."
+            )
+        return (
+            f"Nao consegui gravar o loot do {nome_do_evento} de {momento} — "
+            "nao foi registrado nada."
         )
 
     return (

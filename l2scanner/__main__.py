@@ -60,6 +60,7 @@ from .loot import (  # noqa: E402
     RegistroDeLoot,
     exibir,
     nick_para_o_aviso,
+    responder_atribuicao,
     responder_cancelamento,
     responder_consulta,
     responder_correcao,
@@ -588,6 +589,20 @@ def atender_comandos(
             # aconteceu no boss. Anunciar no grupo que o loot mudou de dono
             # convidaria exatamente a discussao que o registro existe para
             # encerrar — e quem quiser conferir tem o `.<nick>`.
+            avisar_o_grupo = False
+        elif pedido.comando is Comando.LOOT_ATRIBUIR:
+            if loot is None:
+                resposta = "Nao consigo mexer no loot agora."
+            else:
+                resposta = responder_atribuicao(
+                    loot, eventos_agendados, agora, pedido.argumento
+                )
+            # Sem eco no grupo, e o motivo aqui e PROPRIO deste ramo:
+            # registrar loot de um boss que ja passou e conserto de
+            # contabilidade entre quem ja estava la e ja sabe o que aconteceu.
+            # A confirmacao com o DIA nao serve ao grupo — ela serve a quem
+            # digitou, para conferir na hora que acertou o boss, e e por isso
+            # que ela precisa chegar onde a pergunta foi feita.
             avisar_o_grupo = False
         elif pedido.comando is Comando.LOOT_CONSULTA:
             if loot is None:

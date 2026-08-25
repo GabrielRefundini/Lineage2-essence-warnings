@@ -120,11 +120,16 @@ class Aviso:
         )
 
 
-def _ocorrencias(evento: EventoAgendado, dia: date) -> list[datetime]:
+def ocorrencias_do_dia(evento: EventoAgendado, dia: date) -> list[datetime]:
     """Instantes em que este evento acontece nesta data.
 
     Vazio quando a data nao e um dia configurado. A checagem de dia mora AQUI,
     olhando a data do EVENTO — nunca a do aviso.
+
+    PUBLICA porque o encaixe do `.pegou` precisa enumerar ocorrencias que JA
+    PASSARAM, e `proxima_ocorrencia` so olha para frente. Uma segunda
+    enumeracao dentro do `loot.py` divergiria desta no primeiro ajuste da
+    regra de dias da semana.
     """
     if dia.weekday() not in evento.dias:
         return []
@@ -154,7 +159,7 @@ def avisos_devidos(
     for deslocamento in (-1, 0, 1):
         dia = hoje + timedelta(days=deslocamento)
         for evento in eventos:
-            for alvo in _ocorrencias(evento, dia):
+            for alvo in ocorrencias_do_dia(evento, dia):
                 candidatos = [
                     (
                         TipoDeAviso.ANTES,
@@ -197,7 +202,7 @@ def proxima_ocorrencia(
     for deslocamento in range(0, 8):
         dia = hoje + timedelta(days=deslocamento)
         for evento in eventos:
-            for alvo in _ocorrencias(evento, dia):
+            for alvo in ocorrencias_do_dia(evento, dia):
                 if alvo <= agora:
                     continue
                 if melhor is None or alvo < melhor[1]:
@@ -399,7 +404,7 @@ def silencio_ativo(
         for evento in eventos:
             if evento.silenciar_minutos <= 0:
                 continue
-            for inicio in _ocorrencias(evento, dia):
+            for inicio in ocorrencias_do_dia(evento, dia):
                 # Cancelado pelo usuario: esta ocorrencia deixa de silenciar,
                 # e so ela. O Prime de amanha continua valendo.
                 if chave_da_ocorrencia(evento.nome, inicio) in cancelados:
@@ -473,7 +478,7 @@ def ocorrencias_cancelaveis(
         for evento in eventos:
             if evento.silenciar_minutos <= 0:
                 continue
-            for inicio in _ocorrencias(evento, dia):
+            for inicio in ocorrencias_do_dia(evento, dia):
                 if chave_da_ocorrencia(evento.nome, inicio) in cancelados:
                     continue
                 fim = inicio + timedelta(minutes=evento.silenciar_minutos)
