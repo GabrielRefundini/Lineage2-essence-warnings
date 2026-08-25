@@ -16,10 +16,35 @@ Onde o resultado dependeria do ambiente, os testes FORCAM o estado com
 
 from __future__ import annotations
 
+from datetime import timedelta
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 import l2scanner.ocr as ocr
+from l2scanner.manutencao import eh_banner_de_manutencao, interpretar_banner
+
+FIXTURE_DO_BANNER = (
+    Path(__file__).parent / "fixtures" / "manutencao" / "banner_40min26s.png"
+)
+
+# Calculado UMA vez, no nivel do modulo, porque a decisao de pular a classe
+# inteira e tomada na COLETA — antes de qualquer fixture rodar. O
+# `_resetar_cache` logo abaixo devolve o modulo ao estado de quem nunca
+# perguntou, para nao poluir a fixture autouse que cada teste usa.
+TEM_OCR = ocr.disponivel()
+MOTIVO_SEM_OCR = ocr.motivo_indisponivel()
+ocr._resetar_cache()
+
+# A razao do skip diz o CONSERTO, no mesmo estilo de `SEM_BINDINGS`: quem le
+# `skipped` no `-rs` precisa saber COMO rodar o teste, nao so que ele nao rodou.
+RAZAO_DO_SKIP = (
+    "Este Python nao tem as bindings de OCR do Windows"
+    f" ({MOTIVO_SEM_OCR.splitlines()[0] if MOTIVO_SEM_OCR else 'motivo desconhecido'})."
+    " Rode pelo .venv do usuario:"
+    ' PYTHONPATH=. .venv/Scripts/python.exe -m pytest tests/test_ocr.py'
+)
 
 
 @pytest.fixture(autouse=True)
@@ -121,3 +146,35 @@ class TestContratoDeTipo:
         """
         resultado = ocr.ler_texto(imagem())
         assert resultado is None or isinstance(resultado, str)
+
+
+@pytest.mark.skipif(not TEM_OCR, reason=RAZAO_DO_SKIP)
+class TestFixtureRealPontaAPonta:
+    """O PNG REAL do jogo atravessando OCR e parser, sem duble nenhum.
+
+    E o unico teste do projeto que exercita a FONTE DO JOGO — o risco que o
+    SUMMARY de 260825-onz deixou declarado em aberto. Ele so roda no `.venv`,
+    e e por isso que aparece como `skipped` com razao legivel na suite do
+    sistema: sumir em silencio seria fingir cobertura que nao existe.
+
+    AFIRMAMOS O VEREDITO DO PARSER, NUNCA O TEXTO EXATO DO OCR. O texto varia
+    com a build do Windows e com o pacote de idioma; o veredito e o contrato.
+
+    Sem a conversao para cinza (D-a) este teste falharia com `0:00:26` — em
+    cor, o motor le `__40nin? es` e o `40` nunca vira minuto.
+    """
+
+    def imagem_real(self):
+        import cv2
+
+        assert FIXTURE_DO_BANNER.exists(), FIXTURE_DO_BANNER
+        pixels = cv2.imread(str(FIXTURE_DO_BANNER))
+        assert pixels is not None, "cv2 nao conseguiu abrir a fixture"
+        return pixels
+
+    def test_a_fixture_real_sai_como_40_minutos_e_26_segundos(self):
+        texto = ocr.ler_texto(self.imagem_real())
+
+        assert texto is not None, "o motor nao devolveu texto nenhum"
+        assert eh_banner_de_manutencao(texto) is True, texto
+        assert interpretar_banner(texto) == timedelta(minutes=40, seconds=26), texto

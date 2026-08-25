@@ -30,8 +30,39 @@ from l2scanner.manutencao import (
     interpretar_banner,
 )
 
-# Texto EXATO que o spike leu de um banner sintetico, typo do jogo incluso.
+# OS TEXTOS ABAIXO SAO SAIDA MEDIDA DO MOTOR DE OCR, NAO TEXTO INVENTADO.
+#
+# Todos vieram da fixture REAL `tests/fixtures/manutencao/banner_40min26s.png`
+# (360x135, fonte do jogo, verdade na tela = 40 minutos e 26 segundos), cada um
+# de uma passada diferente do motor do Windows:
+#
+#   BANNER_REAL       — cinza 1x e cinza 3x/4x (as passadas que ACERTAM)
+#   TEXTO_EMBARALHADO — a imagem em COR, sem converter para cinza
+#   TEXTO_GRUDADO     — cinza 2x
+#
+# Estes tres sao a regressao PERMANENTE do parser: rodam sem OCR nenhum, no
+# Python da suite, e por isso valem em qualquer maquina.
 BANNER_REAL = "Server Maintence 40 minutes 26 seconds Please avoid entering instance"
+
+# O BUG. Em cor, o motor comeu o `40 minutes` inteiro e sobrou `__40nin? es`.
+# O parser antigo nao achava minuto nenhum, achava `26 seconds` e devolvia 26
+# segundos com cara de resposta boa — quando faltavam 40 minutos e 26 segundos.
+TEXTO_EMBARALHADO = (
+    "12 Server Maintence __40nin? es 26 seconds "
+    "Please avoid entering instance Korzis O' Kaus"
+)
+
+# Cinza 2x: a unidade sobreviveu, mas grudada no numero e com `m` virando `n`.
+TEXTO_GRUDADO = (
+    "12 Server Maintence 40ninutes 26 seconds "
+    "Please avoid entering instance ( 3>YKorzis"
+)
+
+# Cinza 1x, o caso bom — e o alvo do que a conversao para cinza (D-a) entrega.
+TEXTO_LIMPO = (
+    "12 Server Maintence 40 minutes 26 seconds "
+    "Please avoid entering instance Korzis O' Kaus"
+)
 
 HOJE = datetime(2026, 8, 25, 14, 0, 0)
 
@@ -45,6 +76,63 @@ class TestLeituraDoBanner:
     def test_o_banner_real_do_jogo_e_reconhecido_e_interpretado(self):
         assert eh_banner_de_manutencao(BANNER_REAL) is True
         assert interpretar_banner(BANNER_REAL) == timedelta(minutes=40, seconds=26)
+
+    def test_o_texto_real_embaralhado_devolve_none_e_nao_26_segundos(self):
+        """O BUG, nominalmente. Este teste e a razao inteira desta tarefa (D-b).
+
+        Medido contra `banner_40min26s.png` lida em COR: o motor devolveu
+        `__40nin? es 26 seconds`, e o parser antigo — que so procurava numero
+        colado em unidade — nao achava minuto nenhum, achava os segundos e
+        devolvia 26 segundos. Plausivel, silencioso e errado por 40 minutos.
+
+        A assercao contra `timedelta(seconds=26)` esta escrita a parte de
+        proposito: e o valor exato que o produto anunciaria, e um dia alguem vai
+        "simplificar" a guarda e precisa ver este nome de teste falhar.
+        """
+        assert eh_banner_de_manutencao(TEXTO_EMBARALHADO) is True
+        assert interpretar_banner(TEXTO_EMBARALHADO) is None
+        assert interpretar_banner(TEXTO_EMBARALHADO) != timedelta(seconds=26)
+
+    def test_o_texto_real_grudado_devolve_os_40_minutos(self):
+        """Cinza 2x: `40ninutes`. O `m` virou `n` E o espaco sumiu (D-c).
+
+        D-c e D-b sao complementares, nao alternativos: aqui a unidade AINDA
+        carrega o numero, entao recuperar a leitura e melhor do que calar.
+        """
+        assert eh_banner_de_manutencao(TEXTO_GRUDADO) is True
+        assert interpretar_banner(TEXTO_GRUDADO) == timedelta(minutes=40, seconds=26)
+
+    def test_o_texto_real_limpo_devolve_os_40_minutos(self):
+        assert eh_banner_de_manutencao(TEXTO_LIMPO) is True
+        assert interpretar_banner(TEXTO_LIMPO) == timedelta(minutes=40, seconds=26)
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "Server Maintence nin es 26 seconds",
+            "Server Maintence __40nin? es 26 seconds",
+            "Server Maintence minutes 26 seconds",
+        ],
+    )
+    def test_unidade_de_minutos_sem_numero_cala_a_leitura(self, texto):
+        """A guarda estrutural de D-b, isolada das formas que a disparam.
+
+        `is None`, e nunca "um numero pequeno": cair para "entao e so os
+        segundos" foi EXATAMENTE como 40min26s virou 26s. Perder a leitura
+        custa 5 segundos, uma cadencia; anunciar manutencao iminente sem motivo
+        custa a farm da party inteira.
+        """
+        assert interpretar_banner(texto) is None
+
+    def test_a_guarda_nao_e_uma_rede_que_pega_tudo(self):
+        """Banner sem parte de minutos NENHUMA segue valendo.
+
+        Sem este teste a guarda poderia virar "na duvida devolve None", que
+        desliga o recurso sem ninguem perceber.
+        """
+        assert interpretar_banner("SERVER MAINTENCE 26 SECONDS") == timedelta(
+            seconds=26
+        )
 
     def test_a_grafia_correta_tambem_vale(self):
         """O jogo escreve `Maintence`; a grafia certa e `Maintenance`.
