@@ -312,6 +312,17 @@ def interpretar_dinamico(
         # opcional num comando que mexe em estado duravel.
         return None
 
+    # `.pegou-18:00 Korzis` faz o mesmo que `.pegou 18:00 Korzis`. As duas
+    # formas existem porque a mao do usuario ja aprendeu `.loot-` e
+    # `.corrigir-`, e porque tratar so uma delas foi exatamente o erro que fez
+    # `.loot cancelar` DESIGNAR um personagem chamado "cancelar": a forma de
+    # duas palavras nunca e opcional num comando que mexe em estado duravel.
+    if crua.lower().startswith("pegou-"):
+        argumento = " ".join([crua[len("pegou-") :], *palavras[1:]]).strip()
+        if interpretar_pegou(argumento) is not None:
+            return (Comando.LOOT_ATRIBUIR, argumento)
+        return None
+
     # `.pegou <hora> <nick>`: registra o loot de um boss que JA PASSOU. Quem
     # decide se a gramatica esta certa e `interpretar_pegou`, la no `loot.py`
     # — uma gramatica so, que valida aqui e le no responder. Duas divergiriam

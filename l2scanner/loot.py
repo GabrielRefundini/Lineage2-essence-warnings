@@ -559,11 +559,23 @@ def descrever_momento(alvo: datetime, agora: datetime) -> str:
     return f"em {alvo.day:02d}/{alvo.month:02d} as {hora}"
 
 
-# O horario do `.pegou`, na unica grafia que esta task aceita. As faixas
-# (hora 0-23, minuto 0-59) NAO moram aqui de proposito: este arquivo prefere
-# uma linha legivel a uma expressao esperta, e uma faixa numerica escrita em
-# regex e ilegivel na revisao seguinte.
-_HORARIO_DO_PEGOU = re.compile(r"(\d{1,2}):(\d{2})")
+# As grafias de horario que o `.pegou` aceita: "18:00", "18h00", "18h" e "18".
+# O usuario escreveu "boss das 18h" ao relatar o problema — recusar por causa
+# do formato transformaria o comando numa adivinhacao de sintaxe.
+#
+# As faixas (hora 0-23, minuto 0-59) NAO moram aqui de proposito: este arquivo
+# prefere uma linha legivel a uma expressao esperta, e uma faixa numerica
+# escrita em regex e ilegivel na revisao seguinte.
+_HORARIO_DO_PEGOU = re.compile(r"(\d{1,2})(?::|h)?(\d{2})?", re.IGNORECASE)
+
+# A data do `.pegou`: "23/08" ou "23/08/2026" — e "23/08/26", porque quem
+# digita o ano curto nao esta pedindo o ano 26.
+#
+# A EXISTENCIA da data (30/02 nao existe) nao pode ser decidida aqui: ela
+# depende do ano, e o ano so aparece com o relogio em maos. Quem decide e
+# `momento_desejado`, e e por isso que ele constroi o `datetime` dentro de um
+# `try`.
+_DATA_DO_PEGOU = re.compile(r"(\d{1,2})/(\d{1,2})(?:/(\d{2}|\d{4}))?")
 
 
 def interpretar_pegou(argumento: str) -> PedidoDePegou | None:
@@ -587,15 +599,32 @@ def interpretar_pegou(argumento: str) -> PedidoDePegou | None:
     `_PALAVRAS_DE_CANCELAMENTO` do `.loot-` a nascer.
     """
     palavras = (argumento or "").split()
-    if len(palavras) != 2:
+    if len(palavras) == 2:
+        bruto_da_data, bruto_da_hora, nick = "", palavras[0], palavras[1]
+    elif len(palavras) == 3:
+        bruto_da_data, bruto_da_hora, nick = palavras
+    else:
         return None
 
-    bruto, nick = palavras
+    dia = mes = ano = None
+    if bruto_da_data:
+        casada = _DATA_DO_PEGOU.fullmatch(bruto_da_data)
+        if casada is None:
+            return None
+        dia, mes = int(casada.group(1)), int(casada.group(2))
+        if not (1 <= dia <= 31 and 1 <= mes <= 12):
+            return None
+        if casada.group(3) is not None:
+            ano = int(casada.group(3))
+            # Ano de dois digitos: quem digita "26" quer 2026, nao o ano 26.
+            if len(casada.group(3)) == 2:
+                ano += 2000
 
-    casado = _HORARIO_DO_PEGOU.fullmatch(bruto)
+    casado = _HORARIO_DO_PEGOU.fullmatch(bruto_da_hora)
     if casado is None:
         return None
-    hora, minuto = int(casado.group(1)), int(casado.group(2))
+    hora = int(casado.group(1))
+    minuto = int(casado.group(2)) if casado.group(2) is not None else 0
     if not (0 <= hora <= 23 and 0 <= minuto <= 59):
         return None
 
@@ -604,7 +633,9 @@ def interpretar_pegou(argumento: str) -> PedidoDePegou | None:
 
     # O nick sai COMO FOI DIGITADO: a resposta mostra o que a pessoa
     # escreveu, e normalizar e trabalho de `apelido()`, la no disco.
-    return PedidoDePegou(nick=nick, hora=hora, minuto=minuto)
+    return PedidoDePegou(
+        nick=nick, hora=hora, minuto=minuto, dia=dia, mes=mes, ano=ano
+    )
 
 
 def momento_desejado(pedido: PedidoDePegou, agora: datetime) -> datetime | None:
@@ -616,13 +647,56 @@ def momento_desejado(pedido: PedidoDePegou, agora: datetime) -> datetime | None:
     boss de hoje as 18:00 ainda nao aconteceu, e registrar loot de um boss que
     ainda nao nasceu nao e coisa que alguem queira dizer.
 
-    (A forma com data explicita entra no Task 3; ate la ela devolve None em
-    vez de fingir que entendeu.)
+    COM DATA E SEM ANO, a data nomeia a ocorrencia do calendario MAIS PROXIMA
+    de agora — e so entao ela precisa ter passado. E o que resolve a virada do
+    ano sem abrir uma porta de oito meses:
+
+    - em 03/01/2027, "30/12" tem duas leituras: 30/12/2027 (a 361 dias no
+      futuro) e 30/12/2026 (a 4 dias no passado). A segunda esta muito mais
+      perto, e e obviamente a que a pessoa quis dizer. Sem este recuo,
+      dezembro seria SEMPRE futuro para quem digita em janeiro, e o comando
+      recusaria justamente na semana em que "que dia foi aquilo mesmo?" mais
+      acontece.
+    - em 25/08/2026, o mesmo "30/12" tem as leituras 30/12/2026 (a 127 dias
+      no futuro) e 30/12/2025 (a 238 dias no passado). Agora a mais proxima e
+      a FUTURA, e o comando recusa. Recuar sempre para o ano anterior faria
+      um dedo escorregado em agosto gravar um loot em dezembro do ano passado
+      — permanente, invisivel, e sem nenhum comando que o alcance depois.
+
+    Escolher a mais proxima e depois exigir que ela ja tenha passado nao e uma
+    heuristica com numero magico: e a mesma regra do caso sem data, aplicada a
+    escala do ano.
+
+    COM ANO EXPLICITO nao ha leitura nenhuma a escolher — e se aquele instante
+    ainda nao chegou, e porque nao chegou.
+
+    Data que nao existe (31/02) devolve None em vez de levantar: nada aqui
+    pode explodir no meio do farm, e o `try` e o que garante.
     """
     if pedido.dia is not None:
-        # Task 3: `.pegou 23/08 18:00 Korzis`. Ate la, um pedido com data nao
-        # tem como virar instante, e mentir seria pior que recusar.
-        return None
+        anos = (
+            [pedido.ano]
+            if pedido.ano is not None
+            else [agora.year, agora.year - 1]
+        )
+        candidatas: list[datetime] = []
+        for ano in anos:
+            try:
+                candidatas.append(
+                    datetime(ano, pedido.mes, pedido.dia, pedido.hora, pedido.minuto)
+                )
+            except ValueError:
+                # 31/02 nunca existe; 29/02 depende do ano. Pular em vez de
+                # levantar e o que deixa a data impossivel virar resposta.
+                continue
+        if not candidatas:
+            return None
+        desejado = min(candidatas, key=lambda d: abs(d - agora))
+        # Ainda no futuro depois de escolher a leitura mais proxima: aquela
+        # data nao aponta para nenhum momento que ja passou. O responder trata
+        # este None e o de data impossivel com o MESMO texto, porque ele e
+        # verdadeiro nos dois casos.
+        return desejado if desejado <= agora else None
 
     desejado = agora.replace(
         hour=pedido.hora, minute=pedido.minuto, second=0, microsecond=0
