@@ -41,6 +41,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 from .agenda import avisos_devidos, texto_do_aviso
+from .console import moldurar
 from .frames import Frame, SaudeDoFrame
 from .loot import Designacao, nick_para_o_aviso
 from .notificador import Categoria
@@ -218,7 +219,14 @@ class Sessao:
                 continue
             texto = texto_do_aviso(aviso, nick_para_o_aviso(aviso, designacao))
             resultado.avisos.append(texto)
-            self._despachar(texto, Categoria.SEMPRE, resultado=resultado)
+            # CRU no resultado, MOLDURADO no despacho. O console monta a
+            # propria moldura (com cor) a partir de `avisos`; moldurar aqui
+            # tambem faria o bloco sair dentro de outro bloco na tela.
+            self._despachar(
+                moldurar(texto, agora.strftime("%H:%M")),
+                Categoria.SEMPRE,
+                resultado=resultado,
+            )
 
         # DEPOIS dos avisos, de proposito. A ordem e indiferente no relogio —
         # o aviso ANTES vence 10 min antes do alvo e o consumo so dispara no

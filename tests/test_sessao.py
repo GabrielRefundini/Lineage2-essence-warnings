@@ -295,6 +295,30 @@ class TestLootNoTick:
         assert "Solo Boss" in r.avisos[0]
         assert "Loot: J4guar" in r.avisos[0]
 
+    def test_o_que_vai_para_o_whatsapp_vai_dentro_da_moldura(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """O aviso concorre com a conversa do grupo — e o bloco e quem ganha.
+
+        A moldura vale no DESPACHO e nao no `avisos`: quem imprime o console
+        monta a propria moldura a partir de `avisos`, e moldurar nos dois
+        lugares poria um bloco dentro do outro na tela.
+        """
+        loot = self._loot(tmp_path)
+        loot.designar("TioMad", SEGUNDA.replace(hour=10), SEGUNDA.replace(hour=9))
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO], loot=loot)
+
+        r = s.tick(frame_real, momento=em(9, 50))
+
+        (texto, _, _) = r.despachos[0]
+        linhas = texto.split("\n")
+        assert len(linhas) == 3, f"esperava borda/texto/borda, veio {texto!r}"
+        assert set(linhas[0]) == {"*"} and linhas[0] == linhas[2]
+        assert linhas[1].endswith("  [09:50]"), "carimbo da hora do envio"
+        assert "Loot: TioMad" in linhas[1]
+
+        assert "\n" not in r.avisos[0], "o console recebe o texto CRU"
+
     def test_sem_designacao_o_aviso_sai_sem_a_linha(
         self, calibracao, frame_real, tmp_path
     ):

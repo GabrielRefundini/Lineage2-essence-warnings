@@ -94,6 +94,31 @@ _ESTILO = {
 }
 
 
+def moldurar(texto: str, hora: str, marca: str = "*") -> str:
+    """A moldura crua: tres linhas, sem cor e sem linha em branco em volta.
+
+    Existe separada de `destacar` porque o WhatsApp usa a MESMA moldura, e la
+    um codigo ANSI nao vira cor nenhuma — vira lixo no meio da mensagem, no
+    celular de todo mundo da party.
+
+    Uma geometria so para os dois destinos, e nao duas parecidas: a largura da
+    borda e a posicao do carimbo sao a mesma conta, entao o bloco do celular
+    nao tem como desalinhar em relacao ao do console quando alguem mexer aqui.
+    """
+    miolo = f"  {texto}"
+    carimbo = f"  [{hora}]"
+    largura = max(LARGURA, len(miolo) + len(carimbo))
+
+    preenchimento = largura - len(miolo) - len(carimbo)
+    return "\n".join(
+        [
+            marca * largura,
+            f"{miolo}{' ' * preenchimento}{carimbo}",
+            marca * largura,
+        ]
+    )
+
+
 def destacar(
     texto: str, tipo: TipoDeEvento | None = None, hora: str | None = None
 ) -> str:
@@ -117,14 +142,6 @@ def destacar(
 
         hora = datetime.now().strftime("%H:%M")
 
-    miolo = f"  {texto}"
-    carimbo = f"  [{hora}]"
-    largura = max(LARGURA, len(miolo) + len(carimbo))
+    linhas = moldurar(texto, hora, marca).split("\n")
 
-    preenchimento = largura - len(miolo) - len(carimbo)
-    linha = f"{miolo}{' ' * preenchimento}{carimbo}"
-    borda = marca * largura
-
-    return "\n".join(
-        ["", _pintar(borda, cor), _pintar(linha, cor), _pintar(borda, cor), ""]
-    )
+    return "\n".join(["", *(_pintar(linha, cor) for linha in linhas), ""])

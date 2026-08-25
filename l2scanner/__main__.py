@@ -54,7 +54,7 @@ from .comandos import (  # noqa: E402
     chave_da_mensagem,
     comandos_novos,
 )
-from .console import destacar  # noqa: E402
+from .console import destacar, moldurar  # noqa: E402
 from .loot import (  # noqa: E402
     RegistroDeLoot,
     exibir,
@@ -723,10 +723,15 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
                 texto = texto_do_aviso(aviso, nick_para_o_aviso(aviso, designacao))
                 log.info(destacar(texto, hora=agora.strftime("%H:%M")))
                 if despachante:
+                    # A MESMA moldura do console vai para o celular. O aviso
+                    # concorre com a conversa do grupo, e uma linha solta no
+                    # meio de cem passa batido — o bloco nao passa.
                     # SEMPRE: o lembrete atravessa o silencio. De segunda a
                     # quinta o aviso do TvT das 21h40 cai dentro do silencio do
                     # Prime — sem isto, a funcionalidade se anula sozinha.
-                    despachante.despachar(texto, Categoria.SEMPRE)
+                    despachante.despachar(
+                        moldurar(texto, agora.strftime("%H:%M")), Categoria.SEMPRE
+                    )
 
             # O horario do boss passou com designacao ativa: registra e some.
             # SO LOG, sem WhatsApp: o Solo Boss ja e 12 ocorrencias/dia, e a

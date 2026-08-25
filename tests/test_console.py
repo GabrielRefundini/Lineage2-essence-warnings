@@ -127,6 +127,67 @@ class TestDestaque:
         assert morte != vida
 
 
+class TestMoldurarParaOWhatsApp:
+    """A moldura crua — a que sai no celular.
+
+    O usuario pediu o bloco do console dentro da mensagem do WhatsApp, e
+    escreveu o formato exato que queria. Este teste GUARDA esse formato: se
+    alguem mexer na largura, no recuo ou no carimbo, quebra aqui e nao no
+    grupo da party as duas da manha.
+    """
+
+    AVISO = (
+        "Solo Boss comeca em 10 minutos, as 10:00. "
+        "Hora de voltar para a cidade e se preparar. Loot: TioMad."
+    )
+
+    def test_e_o_formato_que_o_usuario_pediu(self):
+        from l2scanner.console import moldurar
+
+        linhas = moldurar(self.AVISO, "09:50").split("\n")
+
+        assert len(linhas) == 3, "borda, texto, borda — nada alem disso"
+        assert set(linhas[0]) == {"*"} and linhas[0] == linhas[2]
+        assert linhas[1] == f"  {self.AVISO}  [09:50]"
+        assert len(linhas[0]) == len(linhas[1]), "borda do tamanho do conteudo"
+
+    def test_nao_leva_cor_nem_linha_em_branco(self):
+        """ANSI no celular nao vira cor — vira lixo no meio da mensagem."""
+        from l2scanner.console import moldurar
+
+        bloco = moldurar(self.AVISO, "09:50")
+        assert "\033" not in bloco
+        assert not bloco.startswith("\n") and not bloco.endswith("\n")
+
+    def test_texto_curto_ainda_enche_a_largura_minima(self):
+        from l2scanner.console import LARGURA, moldurar
+
+        linhas = moldurar("TvT comecou.", "21:50").split("\n")
+        assert len(linhas[0]) == LARGURA
+        assert len({len(l) for l in linhas}) == 1
+
+    def test_console_e_whatsapp_usam_a_MESMA_geometria(self):
+        """Uma conta so. Duas parecidas divergem no primeiro que for mexido.
+
+        A cor e tirada antes de medir porque ela depende de o terminal ser
+        tty — sem isso o teste passaria no pytest e falharia com `-s`.
+        """
+        import re
+
+        from l2scanner.console import moldurar
+
+        sem_cor = lambda t: re.sub(r"\033\[[0-9;]*m", "", t)  # noqa: E731
+
+        do_console = [
+            sem_cor(linha)
+            for linha in destacar(self.AVISO, hora="09:50").split("\n")
+            if linha.strip()
+        ]
+        do_whatsapp = moldurar(self.AVISO, "09:50").split("\n")
+
+        assert do_console == do_whatsapp
+
+
 class TestDestacarSemEvento:
     """Nem tudo que merece destaque no console e um Evento do rastreador.
 
