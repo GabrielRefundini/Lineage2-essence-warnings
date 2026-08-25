@@ -291,6 +291,73 @@ class TestInterpretarDinamico:
         """
         assert interpretar_dinamico(".pegou", frozenset({"pegou"})) is None
 
+    def test_pegou_com_hifen_faz_a_MESMA_coisa(self):
+        """A mao do usuario ja aprendeu `.loot-` e `.corrigir-`.
+
+        Tratar so uma das duas formas foi exatamente o erro que fez
+        `.loot cancelar` DESIGNAR um personagem chamado "cancelar": a forma
+        de duas palavras nunca e opcional num comando que mexe em estado
+        duravel, e a de hifen tambem nao.
+        """
+        assert interpretar_dinamico(".pegou-18:00 Korzis", frozenset()) == (
+            Comando.LOOT_ATRIBUIR,
+            "18:00 Korzis",
+        )
+
+    def test_pegou_com_hifen_e_data_carrega_as_tres_partes(self):
+        assert interpretar_dinamico(".pegou-24/08 18:00 Korzis", frozenset()) == (
+            Comando.LOOT_ATRIBUIR,
+            "24/08 18:00 Korzis",
+        )
+
+    def test_pegou_e_case_insensitive_mas_o_nick_e_preservado(self):
+        assert interpretar_dinamico(".PEGOU 18:00 Korzis", frozenset()) == (
+            Comando.LOOT_ATRIBUIR,
+            "18:00 Korzis",
+        )
+
+    def test_as_formas_que_NAO_registram(self):
+        """O portao e `interpretar_pegou`: o parser so reconhece o comando
+        quando a gramatica aceita o argumento inteiro. Aceitar aqui o que o
+        responder nao sabe executar seria o pior desfecho possivel."""
+        for texto in (
+            ".pegou 18:00",  # sem nick
+            ".pegou Korzis",  # sem hora
+            ".pegou 18:00 a",  # nick curto demais
+            ".pegou 18:00 j4;rm",  # fora do charset
+            ".pegou 25:00 Korzis",  # hora que nao existe
+            ".pegou 18:70 Korzis",  # minuto que nao existe
+            ".pegou-",
+            ".pegou 18:00 20:00 Korzis",  # duas horas, nenhum sentido
+        ):
+            assert interpretar_dinamico(texto, frozenset()) is None, texto
+
+    def test_o_pegou_nao_deslocou_os_ramos_de_loot_nem_de_corrigir(self):
+        """Regressao: o ramo novo entrou entre o `.corrigir` e a consulta, e
+        nenhum dos ramos existentes pode ter mudado de comportamento."""
+        assert interpretar_dinamico(".loot-j4guar", frozenset()) == (
+            Comando.LOOT_DESIGNAR,
+            "j4guar",
+        )
+        assert interpretar_dinamico(".loot", frozenset()) is None
+        assert interpretar_dinamico(".loot cancelar", frozenset()) == (
+            Comando.LOOT_CANCELAR,
+            "",
+        )
+        assert interpretar_dinamico(".corrigir-kaus", frozenset()) == (
+            Comando.LOOT_CORRIGIR,
+            "kaus",
+        )
+        assert interpretar_dinamico(".corrigir kaus", frozenset()) == (
+            Comando.LOOT_CORRIGIR,
+            "kaus",
+        )
+        assert interpretar_dinamico(".corrigir", frozenset()) is None
+        assert interpretar_dinamico(".j4guar", frozenset({"j4guar"})) == (
+            Comando.LOOT_CONSULTA,
+            "j4guar",
+        )
+
     def test_o_comando_novo_nao_deslocou_os_ramos_de_loot(self):
         """Regressao: `.corrigir` entrou entre o ramo do `.loot` e o da
         consulta, e nenhum dos dois pode ter mudado de comportamento."""

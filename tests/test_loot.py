@@ -1091,3 +1091,78 @@ class TestAtribuicaoEnderecada:
         assert designacao is not None, "apagou a designacao de outro boss"
         assert designacao.alvo == em(20, 0)
         assert designacao.nick == "TioMad"
+
+    def test_data_explicita_alcanca_um_dia_ANTIGO(self, tmp_path):
+        """`.pegou 23/08 18:00 Korzis` em 25/08: dois dias atras.
+
+        Sem a data, "18:00" so alcanca a ocorrencia mais recente que ja
+        passou — e um boss de anteontem fica fora de alcance para sempre,
+        porque a pasta nunca e podada e nao ha outro jeito de escrever nela.
+        """
+        registro = RegistroDeLoot(tmp_path)
+
+        resposta = responder_atribuicao(
+            registro, [self.SOLO], em(10, 0), "23/08 18:00 Korzis"
+        )
+
+        assert registro.resumo("Korzis") == (1, datetime(2026, 8, 23, 18, 0))
+        assert "23/08" in resposta, "a resposta precisa dizer o DIA de volta"
+
+    def test_data_com_ano_de_quatro_digitos_chega_no_mesmo_alvo(self, tmp_path):
+        registro = RegistroDeLoot(tmp_path)
+
+        responder_atribuicao(
+            registro, [self.SOLO], em(10, 0), "23/08/2026 18:00 Korzis"
+        )
+
+        assert registro.resumo("Korzis") == (1, datetime(2026, 8, 23, 18, 0))
+
+    def test_data_no_FUTURO_ou_IMPOSSIVEL_recusa_e_nao_grava(self, tmp_path):
+        """Uma mensagem so para os dois casos, porque ela e verdadeira nos
+        dois: aquela data nao aponta para nenhum momento que ja passou.
+
+        Inventar um segundo canal de erro para distinguir "30/12 ainda nao
+        chegou" de "31/02 nao existe" nao ajudaria ninguem a digitar melhor.
+        """
+        for argumento in ("30/12 18:00 Korzis", "31/02 18:00 Korzis"):
+            registro = RegistroDeLoot(tmp_path / apelido(argumento))
+            resposta = responder_atribuicao(
+                registro, [self.SOLO], em(10, 0), argumento
+            )
+            assert registro.registros() == [], argumento
+            assert "ja passou" in resposta, argumento
+
+    def test_a_virada_do_ANO(self, tmp_path):
+        """Em 03/01/2027, "30/12" sem ano e dezembro de 2026.
+
+        Sem o recuo de um ano, dezembro seria SEMPRE uma data futura para
+        quem digita em janeiro — e o comando recusaria justamente na semana
+        em que a pessoa mais precisa dele, com uma mensagem que nao explica
+        nada.
+        """
+        registro = RegistroDeLoot(tmp_path)
+
+        responder_atribuicao(
+            registro,
+            [self.SOLO],
+            datetime(2027, 1, 3, 10, 0),
+            "30/12 18:00 Korzis",
+        )
+
+        assert registro.resumo("Korzis") == (1, datetime(2026, 12, 30, 18, 0))
+
+    def test_as_grafias_de_horario(self, tmp_path):
+        """"18h" e a grafia que o usuario usa — ele escreveu "boss das 18h"
+        ao relatar o problema. Recusar por causa do formato transformaria o
+        comando numa adivinhacao de sintaxe.
+        """
+        for argumento in (
+            "18:00 Korzis",
+            "18h Korzis",
+            "18h00 Korzis",
+            "18h30 Korzis",  # encaixa em 18:00 pela tolerancia
+            "18 Korzis",
+        ):
+            registro = RegistroDeLoot(tmp_path / apelido(argumento))
+            responder_atribuicao(registro, [self.SOLO], em(19, 0), argumento)
+            assert [a for _, a in registro.registros()] == [em(18, 0)], argumento
