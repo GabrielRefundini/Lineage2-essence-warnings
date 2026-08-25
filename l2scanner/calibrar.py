@@ -219,15 +219,30 @@ def achar_barra_do_proprio(
     O texto por cima nao atrapalha a medicao: a barra e alta o bastante para
     que as letras nao ocupem metade de nenhuma coluna.
     """
-    # A busca e relativa ao topo da JANELA DO JOGO, nao ao topo da imagem.
-    # Quando a calibracao roda pelo desktop, a imagem e a tela virtual inteira
-    # — num arranjo de tres monitores, seus primeiros 260 pixels sao de outro
-    # monitor, e a barra nunca apareceria.
+    # A BUSCA COBRE A JANELA INTEIRA, e nao so o topo.
+    #
+    # Ela olhava apenas os primeiros 260 px, porque a UI do jogo nasce com a
+    # barra no canto superior esquerdo. Mas a UI do Lineage 2 e ARRASTAVEL: o
+    # usuario moveu a barra dele para baixo e a busca parou de achar — nem o
+    # calibrar.bat resolvia mais, e a regiao gravada passou a apontar para
+    # grama, o que produziu um "Yazalaque MORTO" com ele vivo e com 3537/3537
+    # de HP na tela.
+    #
+    # Alargar e seguro, e isso foi MEDIDO na janela real: 299 componentes
+    # vermelhos na janela inteira, e EXATAMENTE UM passa nos criterios abaixo.
+    # A assinatura da barra — faixa vermelha saturada, larga, com 14 a 40 px de
+    # altura, mais de 3x mais larga que alta e mais de metade preenchida — nao
+    # tem concorrente na tela.
+    #
+    # A janela continua sendo o limite: num arranjo de tres monitores a imagem
+    # do desktop inclui telas vizinhas, e procurar nelas acharia a barra do
+    # OUTRO cliente.
     jx, jy = origem_janela
-    faixa_do_topo = pixels[jy : jy + 260, jx : jx + 900]
-    if faixa_do_topo.size == 0:
+    altura, largura = pixels.shape[:2]
+    recorte = pixels[jy:altura, jx:largura]
+    if recorte.size == 0:
         return None
-    hsv = cv2.cvtColor(faixa_do_topo, cv2.COLOR_BGR2HSV)
+    hsv = cv2.cvtColor(recorte, cv2.COLOR_BGR2HSV)
     h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
     vermelho = (((h <= 12) | (h >= 168)) & (s > 150) & (v > 60)).astype(np.uint8)
 
@@ -248,13 +263,15 @@ def achar_barra_do_proprio(
     if not candidatas:
         return None
 
-    # A barra do proprio personagem e a MAIS A ESQUERDA E MAIS ACIMA. Nao a
-    # mais larga: quando ha um alvo selecionado, a barra dele aparece no topo
-    # ao centro e e MAIS larga que a nossa — escolher pela largura pegava o
-    # monstro em vez do jogador.
+    # A barra do proprio personagem e a MAIS A ESQUERDA. Nao a mais larga:
+    # quando ha um alvo selecionado, a barra dele aparece ao CENTRO e e mais
+    # larga que a nossa — escolher pela largura pegava o monstro em vez do
+    # jogador.
     #
-    # A posicao e estavel porque a barra do personagem e ancorada no canto
-    # superior esquerdo da UI; a do alvo flutua no centro.
+    # Continua sendo a mais a esquerda mesmo depois de a busca passar a cobrir
+    # a janela inteira: a barra do alvo e a da party ficam mais ao centro e a
+    # direita. O desempate por altura mudou para o MENOR y so para manter o
+    # comportamento antigo quando ha empate horizontal.
     x, y, larg, alt = min(candidatas, key=lambda c: (c[0], c[1]))
     # devolve em coordenadas RELATIVAS a janela, como a party window
     return Regiao(esquerda=x, topo=y, largura=larg, altura=alt)

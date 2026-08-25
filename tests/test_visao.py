@@ -490,3 +490,74 @@ class TestPartyVaziaNaoExiste:
         obs = extrair(frame_real, calibracao)
         assert obs.ui_visivel is True
         assert obs.membros_presentes == 4
+
+
+class TestBuscaDaBarraPropriaNaJanelaInteira:
+    """A UI do Lineage 2 e ARRASTAVEL, e a busca so olhava o topo.
+
+    O usuario moveu a barra dele para baixo. A busca parou de achar, nem o
+    calibrar.bat resolvia, e a regiao gravada passou a apontar para GRAMA — o
+    que produziu um "Yazalaque MORTO" com ele vivo e com 3537/3537 de HP.
+
+    Medido na janela real: 299 componentes vermelhos, e EXATAMENTE UM passa nos
+    criterios. Alargar a busca nao criou ambiguidade.
+    """
+
+    def _janela_com_barra_em(self, x, y, largura=1720, altura=1392):
+        """Fabrica uma janela com terreno e UMA barra vermelha na posicao."""
+        import numpy as np
+
+        gerador = np.random.default_rng(3)
+        # terreno: verde texturizado, como grama
+        px = np.zeros((altura, largura, 3), np.uint8)
+        px[:, :, 1] = gerador.integers(40, 120, (altura, largura))
+        px[:, :, 0] = gerador.integers(20, 70, (altura, largura))
+        # a barra: vermelho saturado, 191x24
+        px[y : y + 24, x : x + 191] = (30, 30, 200)
+        return px
+
+    def test_acha_a_barra_no_TOPO(self):
+        from l2scanner.calibrar import achar_barra_do_proprio
+
+        achada = achar_barra_do_proprio(self._janela_com_barra_em(87, 60), (0, 0))
+        assert achada is not None
+        assert (achada.esquerda, achada.topo) == (87, 60)
+
+    def test_acha_a_barra_ARRASTADA_PARA_BAIXO(self):
+        """A posicao real medida depois de o usuario mover a UI."""
+        from l2scanner.calibrar import achar_barra_do_proprio
+
+        achada = achar_barra_do_proprio(self._janela_com_barra_em(173, 803), (0, 0))
+        assert achada is not None, "a busca voltou a olhar so o topo"
+        assert (achada.esquerda, achada.topo) == (173, 803)
+
+    def test_acha_a_barra_no_canto_de_baixo(self):
+        from l2scanner.calibrar import achar_barra_do_proprio
+
+        achada = achar_barra_do_proprio(self._janela_com_barra_em(40, 1300), (0, 0))
+        assert achada is not None
+        assert achada.topo == 1300
+
+    def test_a_MAIS_A_ESQUERDA_vence_a_do_alvo(self):
+        """A barra do alvo selecionado e mais larga e fica ao centro.
+
+        Escolher pela largura pegava o monstro em vez do jogador.
+        """
+        from l2scanner.calibrar import achar_barra_do_proprio
+
+        px = self._janela_com_barra_em(173, 803)
+        px[300 : 300 + 24, 700 : 700 + 400] = (30, 30, 200)  # alvo, mais larga
+
+        achada = achar_barra_do_proprio(px, (0, 0))
+        assert achada is not None
+        assert achada.esquerda == 173, "pegou a barra do alvo"
+
+    def test_janela_sem_barra_nenhuma_devolve_None(self):
+        import numpy as np
+
+        from l2scanner.calibrar import achar_barra_do_proprio
+
+        gerador = np.random.default_rng(1)
+        so_terreno = np.zeros((600, 800, 3), np.uint8)
+        so_terreno[:, :, 1] = gerador.integers(40, 120, (600, 800))
+        assert achar_barra_do_proprio(so_terreno, (0, 0)) is None
