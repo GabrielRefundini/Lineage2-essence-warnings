@@ -328,13 +328,22 @@ class TestAgendaUsaOTempoDoFrame:
         assert "self.rastreador.observar(observacao, momento)" in fonte
 
     def test_o_modo_so_agenda_usa_o_relogio_mesmo(self):
-        """La nao existe frame, entao o relogio e a unica fonte de tempo."""
+        """La nao existe frame, entao o relogio e a unica fonte de tempo.
+
+        E esse relogio nao pode mais ser o do Windows. Este e o modo de quem
+        NAO esta com o jogo aberto, entao um relogio 3h adiantado (dual boot
+        voltando do Linux) nao atrasa o aviso de TvT — ele o APAGA, porque os
+        3h atravessam inteira a janela de tolerancia de 5 minutos.
+        """
         import inspect
 
         from l2scanner import __main__ as principal
 
         fonte = inspect.getsource(principal.laco_da_agenda)
-        assert "agora = datetime.now()" in fonte
+        assert "agora = relogio.agora()" in fonte
+        assert "datetime.now()" not in fonte, (
+            "o modo so-agenda voltou a perguntar as horas ao Windows"
+        )
 
 
 class TestCorrecoesDaRevisao:

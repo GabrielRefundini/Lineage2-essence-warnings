@@ -66,6 +66,7 @@ from .notificador import (  # noqa: E402
     formatar_console,
 )
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
+from .relogio import Relogio, fonte_chatwoot  # noqa: E402
 from .sessao import Sessao  # noqa: E402
 from .visao import EstadoDaLinha  # noqa: E402
 
@@ -84,6 +85,11 @@ INTERVALO_PADRAO = 1.0
 # tempo demais para um alt-tab qualquer, curto o bastante para o usuario
 # ainda lembrar do que mexeu.
 TICKS_CEGO_PARA_SUGERIR_RECALIBRAR = 30
+
+# Abaixo disto o desvio nao muda nada que o usuario perceba: a agenda
+# trabalha em minutos. Acima, o aviso vira ruido util — e o numero que
+# explica por que o TvT saiu na hora errada.
+DESVIO_TOLERAVEL_SEGUNDOS = 60.0
 
 log = logging.getLogger("l2scanner")
 
@@ -149,6 +155,77 @@ def montar_despachante(args: argparse.Namespace) -> Despachante | None:
         arquivo_outbox=ARQUIVO_OUTBOX,
         ao_falhar=avisar_falha,
     )
+
+
+def _duracao_legivel(segundos: float) -> str:
+    """Segundos viram "3h02min" — "10920s" nao ajuda ninguem a reconhecer o
+    proprio problema de dual boot."""
+    segundos = int(abs(segundos))
+    horas, resto = divmod(segundos, 3600)
+    minutos, sobra = divmod(resto, 60)
+    if horas:
+        return f"{horas}h{minutos:02d}min"
+    if minutos:
+        return f"{minutos}min{sobra:02d}s"
+    return f"{sobra}s"
+
+
+def montar_relogio(args: argparse.Namespace, fonte=None) -> Relogio:
+    """Decide de onde vem a hora da agenda — e NUNCA levanta.
+
+    Espelha `montar_despachante` de proposito: monta, degrada com WARNING, e
+    deixa o scanner subir. Sem rede, sem .env e em --dry-run o usuario ainda
+    tem que ver o proximo TvT; a fonte de hora nao pode virar mais um motivo
+    para o produto nao abrir.
+
+    `fonte` entra por parametro pela mesma disciplina de `agenda.py` e de
+    `relogio.py`: e o que permite testar o arranque offline sem tocar no .env
+    real do usuario nem encostar na rede.
+    """
+    if fonte is None:
+        try:
+            config = config_do_chatwoot()
+        except ConfigAusente:
+            log.warning(
+                "Sem .env do Chatwoot: a hora vem do relogio do Windows, nao "
+                "do servidor. Se voce acabou de voltar do Linux, o horario de "
+                "TvT/Prime pode sair errado."
+            )
+            return Relogio()
+        fonte = fonte_chatwoot(config.url)
+
+    relogio = Relogio(fonte=fonte)
+
+    # Sincrono e ANTES do laco, de proposito. Se a primeira volta rodasse com
+    # o relogio torto, ela poderia gravar um marcador de "ja avisei" com a
+    # chave errada — e o marcador e DURAVEL, entao envenenaria o aviso de
+    # verdade horas depois.
+    if not relogio.sincronizar():
+        log.warning("A hora do servidor nao veio — usando o relogio do Windows.")
+        log.warning(
+            "Se voce acabou de voltar do Linux, o horario de TvT/Prime pode "
+            "sair errado ate o Windows se corrigir sozinho."
+        )
+        return relogio
+
+    desvio = relogio.desvio_do_windows() or 0.0
+    if abs(desvio) > DESVIO_TOLERAVEL_SEGUNDOS:
+        direcao = "ADIANTADO" if desvio > 0 else "ATRASADO"
+        log.warning(
+            "O relogio do Windows esta %s %s em relacao ao servidor — a "
+            "agenda vai usar a hora do servidor.",
+            direcao,
+            _duracao_legivel(desvio),
+        )
+        log.warning(
+            "Causa provavel: dual boot. O Linux grava o relogio do hardware "
+            "em UTC e o Windows le o mesmo valor como hora local."
+        )
+    else:
+        log.info("Hora ancorada no servidor (o relogio da maquina confere).")
+
+    relogio.iniciar_sincronizacao_periodica()
+    return relogio
 
 
 def desenhar_status(
@@ -496,7 +573,11 @@ def comando_cancelar_silencio(args: argparse.Namespace) -> int:
         return 2
 
     registro = RegistroEmDisco(PASTA_AGENDA)
-    agora = datetime.now()
+    # Processo SEPARADO do scanner, entao monta o proprio relogio: com o
+    # relogio do Windows adiantado, --cancelar-silencio escolheria a
+    # ocorrencia errada e calaria justamente a que o usuario queria ouvir.
+    relogio = montar_relogio(args)
+    agora = relogio.agora()
     candidatos = ocorrencias_cancelaveis(agora, eventos, registro.cancelados())
 
     if not candidatos:
@@ -571,16 +652,19 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
     registro = RegistroEmDisco(PASTA_AGENDA)
     silencio = ControleDoSilencio(eventos, registro)
     leitor = montar_leitor_de_comandos(args)
+    # Este e o modo de quem NAO esta com o jogo aberto: aqui o relogio e
+    # 100% do produto. Um erro de 3h nao atrasa o aviso, ele o APAGA.
+    relogio = montar_relogio(args)
 
     nomes = ", ".join(e.nome for e in eventos)
     log.info("Modo agenda: vigiando o relogio, nao a tela. Eventos: %s", nomes)
     log.info("O jogo NAO precisa estar aberto. O PC, sim.")
-    _anunciar_proximo(eventos)
+    _anunciar_proximo(eventos, relogio)
 
-    ultimo_anuncio = datetime.now()
+    ultimo_anuncio = relogio.agora()
     try:
         while True:
-            agora = datetime.now()
+            agora = relogio.agora()
             atender_comandos(
                 leitor, registro, eventos, despachante, agora, time.monotonic()
             )
@@ -589,7 +673,7 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
                 # Loga SEMPRE, despacha se houver para onde. Sem essa
                 # separacao, quem roda sem .env e sem --dry-run perdia a
                 # mensagem ate no console — silencio que nao deveria existir.
-                log.info(destacar(encerrou))
+                log.info(destacar(encerrou, hora=agora.strftime("%H:%M")))
                 if despachante:
                     despachante.despachar(encerrou, Categoria.SEMPRE)
 
@@ -597,7 +681,7 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
                 if not registro.marcar(aviso.chave):
                     continue
                 texto = texto_do_aviso(aviso)
-                log.info(destacar(texto))
+                log.info(destacar(texto, hora=agora.strftime("%H:%M")))
                 if despachante:
                     # SEMPRE: o lembrete atravessa o silencio. De segunda a
                     # quinta o aviso do TvT das 21h40 cai dentro do silencio do
@@ -614,7 +698,7 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
                         janela.evento,
                         janela.fim.strftime("%H:%M"),
                     )
-                _anunciar_proximo(eventos)
+                _anunciar_proximo(eventos, relogio)
                 ultimo_anuncio = agora
 
             time.sleep(args.intervalo)
@@ -626,13 +710,19 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
     return 0
 
 
-def _anunciar_proximo(eventos) -> None:
-    """Diz no console qual e o proximo evento e quanto falta."""
-    proximo = proxima_ocorrencia(datetime.now(), eventos)
+def _anunciar_proximo(eventos, relogio: Relogio) -> None:
+    """Diz no console qual e o proximo evento e quanto falta.
+
+    O relogio entra por parametro em vez de ser lido aqui dentro: e o que
+    impede esta funcao de ser a ultima do arquivo a perguntar as horas ao
+    Windows.
+    """
+    agora = relogio.agora()
+    proximo = proxima_ocorrencia(agora, eventos)
     if not proximo:
         return
     nome, quando = proximo
-    faltam = quando - datetime.now()
+    faltam = quando - agora
     horas, resto = divmod(int(faltam.total_seconds()), 3600)
     minutos = resto // 60
     log.info(
@@ -651,7 +741,8 @@ def comando_teste_de_agenda(args: argparse.Namespace) -> int:
         log.error("Nao ha agenda no config.toml para testar.")
         return 2
 
-    proximo = proxima_ocorrencia(datetime.now(), eventos)
+    relogio = montar_relogio(args)
+    proximo = proxima_ocorrencia(relogio.agora(), eventos)
     if proximo is None:
         log.error("A agenda nao tem nenhuma ocorrencia futura.")
         return 2
@@ -752,6 +843,10 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     if despachante:
         despachante.iniciar()
 
+    # A hora que a agenda usa vem daqui, nao do Windows. Montado ANTES do
+    # laco porque a primeira volta ja consulta a agenda.
+    relogio = montar_relogio(args)
+
     # A AGENDA: a segunda fonte de eventos do projeto, e a primeira que nao
     # olha para a tela. Ela despacha pelo MESMO Despachante que o rastreador —
     # nunca chamando enviar() direto. E o seam que a Fase 7 vai usar para
@@ -767,7 +862,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         # que sai para o WhatsApp.
         despachante.em_silencio = silencio.ativo
     if eventos_agendados:
-        proximo = proxima_ocorrencia(datetime.now(), eventos_agendados)
+        proximo = proxima_ocorrencia(relogio.agora(), eventos_agendados)
         if proximo:
             log.info(
                 "Agenda: %d evento(s). Proximo: %s as %s",
@@ -832,7 +927,14 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 elif frame.saude is SaudeDoFrame.CONGELADO:
                     log.warning("Imagem congelada — jogo travado ou captura presa")
 
-            momento = frame.momento if frame.momento is not None else time.time()
+            # A LINHA QUE CONSERTA A AGENDA INTEIRA: este `momento` desce
+            # para Sessao.tick, vira datetime e alimenta avisos_devidos e
+            # silencio_ativo. A precedencia de frame.momento fica como
+            # esta: no replay o horario e o GRAVADO, senao uma sessao de
+            # uma hora reproduzida em trinta segundos mediria tudo errado.
+            momento = (
+                frame.momento if frame.momento is not None else relogio.agora_epoch()
+            )
 
             atender_comandos(
                 leitor_de_comandos,
@@ -847,7 +949,9 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
             resultado = sessao.tick(frame, momento)
 
             for texto in resultado.avisos:
-                log.info(destacar(texto))
+                log.info(
+                    destacar(texto, hora=relogio.agora().strftime("%H:%M"))
+                )
 
             if resultado.falhou_ao_analisar:
                 log.warning("Erro ao analisar o frame — seguindo")
