@@ -31,13 +31,32 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-# Quanto ampliar o recorte antes de mandar para o OCR.
+# DUAS ESCALAS, E ELAS EXISTEM PORQUE A PRECISAO NAO E MONOTONICA (D-d).
 #
-# Fonte de UI de jogo e pequena e estilizada, e ampliar antes do OCR e a
-# recomendacao da propria pesquisa de stack deste projeto. A 0,2 Hz (uma
-# leitura a cada 5 s) o custo de um resize e irrelevante — e a diferenca entre
-# ler `40 minutes` e ler `4O rninutes` nao e.
-ESCALA = 3
+# Medido na fixture real `tests/fixtures/manutencao/banner_40min26s.png`
+# (verdade = 40 min 26 s), sempre em cinza:
+#
+#     1x -> `40 minutes 26 seconds`  -> 0:40:26  CERTO
+#     2x -> `40ninutes 26 seconds`   -> 0:00:26  ERRADO (sem a tolerancia D-c)
+#     3x -> `40 minutes 26 seconds`  -> 0:40:26  CERTO
+#     4x -> `40 minutes 26 seconds`  -> 0:40:26  CERTO
+#
+# O 2x ERRA ENTRE DOIS ACERTOS. Nao da para dizer "quanto maior, melhor" e
+# escolher uma escala: nenhuma escala unica e confiavel sozinha. Por isso o
+# vigia exige que DUAS concordem sobre o MESMO frame antes de anunciar — e por
+# isso o 2x nao aparece aqui, nem como deteccao nem como conferencia.
+#
+# CUSTO MEDIDO, na banda de producao 732x140:
+#
+#     1x = 44 ms | 2x = 158 ms | 3x = 308 ms | 4x = 680 ms
+#
+# ORCAMENTO (D-e): a passada BARATA roda sempre na cadencia — 44 ms a cada 5 s
+# sao 0,9% de um nucleo, a mesma ordem do `matchTemplate` que o projeto ja
+# aceita e documenta em `cliente.py`. A passada CARA so roda quando a barata ja
+# viu a raiz `mainten`, ou seja durante uma contagem regressiva, que e rara e
+# limitada.
+ESCALA_DE_DETECCAO = 1
+ESCALA_DE_CONFERENCIA = 3
 
 # O idioma do banner. O jogo escreve em ingles, e `en-US` esta presente em
 # praticamente todo Windows 11 (o usuario tem `en-us` e `pt-br` em
@@ -127,6 +146,26 @@ def motivo_indisponivel() -> str | None:
 
 
 def ler_texto(pixels) -> str | None:
+    """A passada BARATA (cinza 1x, 44 ms medidos). Roda sempre na cadencia.
+
+    E ela que DETECTA o banner. So depois de ela ver a raiz `mainten` e que a
+    passada cara vale o seu preco (D-e).
+    """
+    return _ler(pixels, ESCALA_DE_DETECCAO)
+
+
+def ler_texto_ampliado(pixels) -> str | None:
+    """A passada CARA (cinza 3x, 308 ms medidos). So durante a contagem.
+
+    E a segunda opiniao de D-d: uma maneira INDEPENDENTE de ler os mesmos
+    pixels, para que um erro de metodo do motor nao atravesse o consenso
+    temporal — que e cego a ele, porque duas leituras pelo mesmo metodo
+    concordam no mesmo erro.
+    """
+    return _ler(pixels, ESCALA_DE_CONFERENCIA)
+
+
+def _ler(pixels, escala: int) -> str | None:
     """O texto que o OCR viu no recorte, ou None. NUNCA levanta.
 
     Nunca levanta porque roda DENTRO do tick de captura. Uma excecao aqui
@@ -146,13 +185,13 @@ def ler_texto(pixels) -> str | None:
         return None
 
     try:
-        return _reconhecer(pixels)
+        return _reconhecer(pixels, escala)
     except Exception as erro:
         log.debug("OCR falhou neste recorte: %s", erro)
         return None
 
 
-def _reconhecer(pixels: np.ndarray) -> str | None:
+def _reconhecer(pixels: np.ndarray, escala: int) -> str | None:
     """O caminho do WinRT que o spike provou. Nao redescobrir — reproduzir.
 
     CINZA ANTES DE TUDO (D-a), e e a correcao mais barata deste recurso.
@@ -176,10 +215,14 @@ def _reconhecer(pixels: np.ndarray) -> str | None:
     """
     if pixels.ndim == 3:
         pixels = cv2.cvtColor(pixels, cv2.COLOR_BGR2GRAY)
-    ampliado = cv2.resize(
-        pixels, None, fx=ESCALA, fy=ESCALA, interpolation=cv2.INTER_CUBIC
-    )
-    ok, codificado = cv2.imencode(".png", ampliado)
+    if escala != 1:
+        # NA ESCALA 1 O RESIZE NAO E CHAMADO DE FORMA NENHUMA. E dai que sai a
+        # diferenca medida entre 44 ms e 308 ms — um resize por 9 na banda de
+        # producao nao e arredondamento, e sete vezes o custo da passada.
+        pixels = cv2.resize(
+            pixels, None, fx=escala, fy=escala, interpolation=cv2.INTER_CUBIC
+        )
+    ok, codificado = cv2.imencode(".png", pixels)
     if not ok:
         return None
     return asyncio.run(_reconhecer_async(codificado.tobytes()))

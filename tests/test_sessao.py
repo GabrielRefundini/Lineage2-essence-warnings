@@ -612,12 +612,39 @@ class LeitorDoBanner:
     def __init__(self, texto: str, leituras: int = 2) -> None:
         self._texto = texto
         self._restantes = leituras
+        self._ultimo: str | None = None
 
     def __call__(self, _pixels):
         if self._restantes <= 0:
+            self._ultimo = None
             return None
         self._restantes -= 1
+        self._ultimo = self._texto
         return self._texto
+
+    def conferir(self, _pixels):
+        """A segunda escala de D-d, devolvendo o que a barata acabou de ler.
+
+        ELA NAO CONSOME UMA LEITURA. As duas escalas leem os MESMOS pixels do
+        MESMO frame — gastar o contador aqui transformaria "duas escalas num
+        tick" em "dois ticks", que e a outra guarda, e a cegueira chegaria na
+        metade do tempo.
+        """
+        return self._ultimo
+
+
+def _vigia_das_duas_escalas(leitor: LeitorDoBanner):
+    """Liga as DUAS escalas no mesmo duble (D-d).
+
+    Aqui elas concordam sempre, de proposito: o que estes testes exercitam e a
+    COSTURA no `Sessao`, e o desacordo entre escalas tem testes proprios em
+    `test_manutencao.py`.
+    """
+    from l2scanner.manutencao import VigiaDeManutencao
+
+    return VigiaDeManutencao(
+        ler_texto=leitor, ler_texto_conferencia=leitor.conferir
+    )
 
 
 class TestManutencaoNoTick:
@@ -643,7 +670,8 @@ class TestManutencaoNoTick:
     def _vigia(self, texto=BANNER):
         from l2scanner.manutencao import VigiaDeManutencao
 
-        return VigiaDeManutencao(ler_texto=lambda _: texto)
+        ler = lambda _: texto  # noqa: E731 — as duas escalas concordam trivialmente
+        return VigiaDeManutencao(ler_texto=ler, ler_texto_conferencia=ler)
 
     def test_o_anuncio_atravessa_vigia_marcador_resultado_e_despacho(
         self, calibracao, frame_real, tmp_path
@@ -695,9 +723,7 @@ class TestManutencaoNoTick:
             nova_sessao(
                 calibracao,
                 tmp_path,
-                manutencao=VigiaDeManutencao(
-                    ler_texto=LeitorDoBanner(self.BANNER)
-                ),
+                manutencao=_vigia_das_duas_escalas(LeitorDoBanner(self.BANNER)),
             )
             for _ in range(2)
         ]
@@ -724,8 +750,8 @@ class TestManutencaoNoTick:
         """
         from l2scanner.manutencao import TipoDeAvisoDeManutencao, VigiaDeManutencao
 
-        vigia = VigiaDeManutencao(
-            ler_texto=LeitorDoBanner("Server Maintence 6 minutes")
+        vigia = _vigia_das_duas_escalas(
+            LeitorDoBanner("Server Maintence 6 minutes")
         )
         s = nova_sessao(calibracao, tmp_path, manutencao=vigia)
         frame = self._frame_com_banner(frame_real)

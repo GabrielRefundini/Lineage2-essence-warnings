@@ -69,6 +69,7 @@ from .loot import (  # noqa: E402
 from . import ocr  # noqa: E402
 from .frames import MssSource, Regiao, ReplaySource, SaudeDoFrame  # noqa: E402
 from .manutencao import (  # noqa: E402
+    SEGUNDOS_ENTRE_LEITURAS,
     VigiaDeManutencao,
     eh_banner_de_manutencao,
     interpretar_banner,
@@ -218,11 +219,21 @@ def montar_vigia_de_manutencao(regiao) -> VigiaDeManutencao | None:
         )
         return None
 
+    # A LINHA DE ARRANQUE CONTA O ORCAMENTO, e nao so que o recurso ligou.
+    # Quem le o log precisa saber o que este recurso vai custar de CPU antes de
+    # o farm comecar — e a passada cara so aparecer durante a contagem e
+    # justamente o que torna o custo aceitavel (D-e).
     log.info(
-        "Aviso de manutencao ativo — lendo o banner em (%d,%d) %dx%d",
+        "Aviso de manutencao ativo — lendo o banner em (%d,%d) %dx%d "
+        "em duas escalas: cinza 1x a cada %.0fs (~44 ms medidos) e cinza 3x "
+        "(~308 ms) so quando a barata ve o banner. As duas precisam concordar.",
         regiao.esquerda, regiao.topo, regiao.largura, regiao.altura,
+        SEGUNDOS_ENTRE_LEITURAS,
     )
-    return VigiaDeManutencao(ler_texto=ocr.ler_texto)
+    return VigiaDeManutencao(
+        ler_texto=ocr.ler_texto,
+        ler_texto_conferencia=ocr.ler_texto_ampliado,
+    )
 
 
 def _duracao_legivel(segundos: float) -> str:
@@ -1003,14 +1014,41 @@ def comando_testar_manutencao(args: argparse.Namespace, cal: Calibracao) -> int:
                       "O motor rodou e nao achou texto nenhum no recorte.")
             return 1
 
+        # AS DUAS ESCALAS, porque o desacordo entre elas e justamente o que esta
+        # ferramenta precisa expor: em producao nada e anunciado sem que as duas
+        # concordem (D-d), entao ver so a barata esconderia a metade da decisao.
+        ampliado = ocr.ler_texto_ampliado(recorte)
+
         # Delimitadores VISIVEIS porque espaco em branco importa aqui: o OCR
         # comendo um espaco e o que separa `40 minutes` de `40minutes`.
-        log.info("O OCR leu: >>>%s<<<", texto)
+        log.info("Escala de DETECCAO (cinza 1x) leu: >>>%s<<<", texto)
+        log.info("Escala de CONFERENCIA (cinza 3x) leu: >>>%s<<<", ampliado)
 
         eh_banner = eh_banner_de_manutencao(texto)
         duracao = interpretar_banner(texto)
-        log.info("eh_banner_de_manutencao: %s", eh_banner)
-        log.info("interpretar_banner: %s", duracao)
+        eh_banner_ampliado = eh_banner_de_manutencao(ampliado)
+        duracao_ampliada = interpretar_banner(ampliado)
+        log.info(
+            "DETECCAO   -> eh_banner_de_manutencao: %s | interpretar_banner: %s",
+            eh_banner, duracao,
+        )
+        log.info(
+            "CONFERENCIA -> eh_banner_de_manutencao: %s | interpretar_banner: %s",
+            eh_banner_ampliado, duracao_ampliada,
+        )
+
+        # A LINHA FINAL E O VEREDITO, e ela existe porque e a unica coisa que o
+        # usuario precisa ler para saber se o recurso vai anunciar ou calar.
+        if duracao is not None and duracao == duracao_ampliada:
+            log.info("As duas escalas CONCORDAM — em producao isto anunciaria.")
+        else:
+            log.warning(
+                "As duas escalas DISCORDAM — em producao isto NAO anunciaria. "
+                "Compare os dois textos acima: se so uma escala esta cortando o "
+                "banner, o conserto e a faixa (chave 'banner_manutencao' no "
+                "calibration.json); se as duas leem torto, e o motor."
+            )
+
         if duracao is not None:
             momento = montar_relogio(args).agora() + duracao
             log.info(

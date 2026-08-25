@@ -32,10 +32,13 @@ ja quebrou.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
+
+log = logging.getLogger(__name__)
 
 # Cadencia do OCR. O MESMO numero e o MESMO motivo do
 # `SEGUNDOS_ENTRE_BUSCAS_DO_DIALOGO`: uma busca cara rodando a cada tick comeria
@@ -346,18 +349,44 @@ class VigiaDeManutencao:
     ele, um digito comido pelo OCR anunciaria "faltam 4 minutos" quando faltam
     40 — e a party largaria o farm por nada.
 
-    `ler_texto` entra por PARAMETRO e e obrigatorio. E o que mantem este modulo
-    sem OCR nenhum e o que permite os testes injetarem texto no Python da
-    suite, que nao tem as bindings do WinRT.
+    O CRUZAMENTO DE ESCALAS (D-d) e a segunda guarda, e ela e COMPLEMENTAR ao
+    consenso temporal — nunca substituta. Os dois pegam falhas de classes
+    diferentes, e guardar so um deixaria uma classe inteira descoberta:
+
+    - Cruzar ESCALAS pega ERRO DE METODO: o motor lendo mal a MESMA imagem.
+      Medido na fixture real — em cor e em cinza 2x o motor erra, em cinza 1x e
+      3x acerta. O consenso temporal e CEGO a isso, porque duas leituras pelo
+      mesmo metodo, com 5 s de intervalo, concordam no MESMO erro sistematico.
+      Foi exatamente assim que "40 minutos e 26 segundos" viraria "26 segundos"
+      com as duas leituras concordando.
+    - Repetir no TEMPO pega ERRO DE FRAME: uma captura no meio do desenho do
+      banner, um frame sujo, o jogo engasgando. O cruzamento de escalas e CEGO
+      a isso, porque as duas escalas leem os MESMOS pixels.
+
+    Custo de manter os dois: uma cadencia, 5 s numa contagem de 40 minutos.
+
+    AS DUAS LEITORAS entram por PARAMETRO e as DUAS sao OBRIGATORIAS. E o que
+    mantem este modulo sem OCR nenhum e o que permite os testes injetarem texto
+    no Python da suite, que nao tem as bindings do WinRT.
+
+    Obrigatorias, e nao opcionais com queda para uma so: a guarda de cruzamento
+    e a razao de existir desta classe, e um argumento opcional convida a que ela
+    fique desligada em silencio — que e o modo de falha que este recurso inteiro
+    existe para evitar.
+
+    O vigia segue sem saber o que "escala" significa. Ele recebe duas maneiras
+    INDEPENDENTES de ler o mesmo recorte, e nada mais.
     """
 
     def __init__(
         self,
         ler_texto,
+        ler_texto_conferencia,
         segundos_entre_leituras: float = SEGUNDOS_ENTRE_LEITURAS,
         tolerancia: timedelta = TOLERANCIA_DO_CONSENSO,
     ) -> None:
         self._ler_texto = ler_texto
+        self._ler_texto_conferencia = ler_texto_conferencia
         self._intervalo = segundos_entre_leituras
         self._tolerancia = tolerancia
 
@@ -392,11 +421,10 @@ class VigiaDeManutencao:
             self._ultima_leitura = agora
             pixels = obter_pixels()
             if pixels is not None:
-                texto = self._ler(pixels)
-                if eh_banner_de_manutencao(texto):
-                    duracao = interpretar_banner(texto)
-                    if duracao is not None:
-                        self._registrar(agora + duracao, duracao)
+                acordo = self._ler_com_as_duas_escalas(pixels, agora)
+                if acordo is not None:
+                    implicado, duracao = acordo
+                    self._registrar(implicado, duracao)
 
         return self._avisos_devidos(agora)
 
@@ -417,17 +445,78 @@ class VigiaDeManutencao:
         self._duracao_confirmada = None
         self._emitidos.clear()
 
-    def _ler(self, pixels) -> str | None:
+    def _ler(self, leitora, pixels) -> str | None:
         """Cinto E suspensorio: `ocr.ler_texto` ja promete nao levantar.
 
         A promessa nao basta porque este vigia roda DENTRO do tick de captura,
         e uma excecao aqui pararia o scanner de olhar a party — o unico defeito
         que este projeto trata como inaceitavel.
+
+        AS DUAS leitoras passam por aqui. A protecao vale para a cara tambem:
+        ela e a que roda menos e a que menos foi exercitada em campo.
         """
         try:
-            return self._ler_texto(pixels)
+            return leitora(pixels)
         except Exception:
             return None
+
+    def _ler_com_as_duas_escalas(self, pixels, agora: datetime):
+        """O acordo de D-d, dentro do tick. Devolve (implicado, duracao) ou None.
+
+        A ORDEM E O ORCAMENTO. A barata roda sempre; a cara so depois de a
+        barata ver a raiz `mainten`. Sem essa ordem, os 308 ms medidos da
+        passada de 3x rodariam a cada 5 s o dia inteiro, para ler o chao.
+
+        QUALQUER REPROVACAO DEVOLVE None SEM TOCAR EM `_candidata` NEM NA
+        ANCORA. Uma discordancia nao confirma e tambem nao destroi: se ela
+        zerasse a candidata, um unico frame ruim no meio de uma contagem de 40
+        minutos adiaria o anuncio indefinidamente.
+
+        Aprovado, VENCE A LEITURA DE CONFERENCIA. E a que pagamos para ter, e e
+        a que as medicoes de 3x e 4x mostraram acertando.
+        """
+        barato = self._ler(self._ler_texto, pixels)
+        if not eh_banner_de_manutencao(barato):
+            return None  # D-e: a cara nem e tocada
+
+        caro = self._ler(self._ler_texto_conferencia, pixels)
+        if not eh_banner_de_manutencao(caro):
+            self._registrar_desacordo(barato, caro)
+            return None
+
+        duracao_barata = interpretar_banner(barato)
+        duracao_cara = interpretar_banner(caro)
+        if duracao_barata is None or duracao_cara is None:
+            self._registrar_desacordo(barato, caro)
+            return None
+
+        if not self._bate(agora + duracao_barata, agora + duracao_cara):
+            self._registrar_desacordo(barato, caro)
+            return None
+
+        return agora + duracao_cara, duracao_cara
+
+    def _registrar_desacordo(self, barato: str | None, caro: str | None) -> None:
+        """O banner ESTA na tela e nos NAO vamos anunciar — o estado mais
+        perigoso deste recurso, e por isso ele nunca pode ser silencioso.
+
+        Os DOIS textos crus, entre delimitadores visiveis, porque espaco em
+        branco importa aqui: `40 minutes` e `40minutes` sao leituras
+        diferentes. E o log rotativo (5 MB x 3) e a unica ferramenta de forense
+        pos-farm do projeto — sem estas duas linhas, "por que nao avisou" nao
+        tem resposta em lugar nenhum.
+
+        ESCOLHA DELIBERADA: NAO ha limitacao de repeticao. Durante uma contagem
+        de 40 minutos isto pode render centenas de linhas, e sao exatamente as
+        linhas que o usuario vai precisar para decidir se o conserto e a faixa
+        (chave `banner_manutencao` no `calibration.json`) ou o motor de OCR.
+        """
+        log.warning(
+            "As duas escalas de OCR DISCORDAM sobre o banner — nada sera "
+            "anunciado. barata=>>>%s<<< conferencia=>>>%s<<<",
+            barato,
+            caro,
+        )
 
     def _registrar(self, implicado: datetime, duracao: timedelta) -> None:
         """Aplica o consenso de D-05 a uma leitura bem sucedida.
