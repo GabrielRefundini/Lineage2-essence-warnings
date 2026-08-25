@@ -11,7 +11,6 @@ da PARTY WINDOW, e deixa-lo bloquear a avaliacao da propria barra confundia
 
 from __future__ import annotations
 
-import pytest
 
 from l2scanner.rastreador import Ajustes, EstadoDoMembro, Rastreador, TipoDeEvento
 from l2scanner.visao import Observacao
