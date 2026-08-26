@@ -48,7 +48,7 @@ from .agenda import (
     ocorrencias_do_dia,
     proxima_ocorrencia,
 )
-from .loot import apelido, exibir
+from .loot import apelido, dono_do_loot, exibir, sugerir_a_vez
 
 
 @dataclass(frozen=True)
@@ -90,15 +90,52 @@ def _com_chamada(eventos: list[EventoAgendado]) -> list[EventoAgendado]:
 def ocorrencia_da_chamada(
     agora: datetime, eventos: list[EventoAgendado]
 ) -> tuple[str, datetime] | None:
-    """A ocorrencia sobre a qual um `.join` de agora fala. None se nao ha.
+    """A proxima ocorrencia com chamada, ESTRITAMENTE no futuro. None se nao ha.
 
     E a `proxima_ocorrencia` da agenda, filtrada pelos eventos com chamada. Um
     `.join` fora da janela de chamada e ACEITO de proposito (D-07): quem lembrou
     tres horas antes nao pode ser punido por lembrar cedo. E por isso mesmo a
     resposta cita sempre o horario — e ela que impede a pessoa de achar que
     entrou no boss errado.
+
+    ESTRITAMENTE NO FUTURO, e isso e o que o `.leave` precisa. A lista que
+    acabou de fechar e historico (D-14): um `.leave` as 20:01 nao pode tirar
+    ninguem da lista das 20:00, que ja foi ao grupo e ja alimentou a sugestao
+    da vez do loot. Quem quer a tolerancia e o `.join` — ver
+    `ocorrencia_do_join`, logo abaixo, e a razao pela qual as duas perguntas
+    tem funcoes separadas em vez de um parametro booleano.
     """
     return proxima_ocorrencia(agora, _com_chamada(eventos))
+
+
+def ocorrencia_do_join(
+    agora: datetime, eventos: list[EventoAgendado]
+) -> tuple[str, datetime] | None:
+    """A ocorrencia sobre a qual um `.join` de agora fala. None se nao ha.
+
+    A DIFERENCA PARA `ocorrencia_da_chamada` E A TOLERANCIA, E ELA E O CONSERTO
+    DE UM BUG MEDIDO.
+
+    A ponte Baileys entrega mensagem com atraso. Um `.join` que saiu do celular
+    as 19:59:58 chega no tick de 20:00:03 — e, pela regra estrita, cai no boss
+    das 22:00: a pessoa acha que confirmou o boss que esta COMECANDO e o
+    scanner a poe no de duas horas depois. O eco privado cita o horario (D-07),
+    entao ela ate consegue perceber, mas so lendo com atencao um texto que
+    parece uma confirmacao.
+
+    Dentro da tolerancia, um `.join` fala do boss que acabou de nascer. A
+    ordem "ler antes de marcar" de `fechar_ocorrencias` e o que faz isso valer
+    de ponta a ponta: com a lista ainda vazia as 20:00:00 nenhum marcador foi
+    queimado, entao o tick de 20:00:04 encontra a pessoa e ANUNCIA.
+
+    Reusa `ocorrencias_na_janela`, a mesma que o fechamento usa, e por isso as
+    duas nunca podem discordar sobre o que e "o boss de agora". A mais recente
+    quando ha duas vivas, pela mesma razao do `ocorrencia_recem_fechada`.
+    """
+    recem = ocorrencias_na_janela(agora, eventos)
+    if recem:
+        return recem[-1]
+    return ocorrencia_da_chamada(agora, eventos)
 
 
 def ocorrencias_na_janela(
@@ -212,11 +249,15 @@ def responder_join(
     Todas as tres citam o horario do alvo (D-07). "Voce ja esta na lista", sem
     horario, e ambiguo entre o boss das 20:00 e o das 22:00 — e as 19:59 essa
     ambiguidade custa uma pessoa.
+
+    A ocorrencia sai de `ocorrencia_do_join`, e nao de `ocorrencia_da_chamada`:
+    dentro da tolerancia um `.join` atrasado pela ponte fala do boss que acabou
+    de nascer, e nao do de daqui a duas horas. Ver a docstring de la.
     """
     if not nick:
         return _sem_nick()
 
-    proximo = ocorrencia_da_chamada(agora, eventos)
+    proximo = ocorrencia_do_join(agora, eventos)
     if proximo is None:
         return _sem_chamada_na_agenda()
 
@@ -252,15 +293,24 @@ def responder_leave(
 ) -> RespostaDePresenca:
     """Obedece o `.leave`: tira da lista, ou recusa se o boss ja comecou.
 
-    A CONSULTA AO FECHAMENTO VEM PRIMEIRO (D-14). Uma lista fechada e
-    historico: ela ja alimentou a sugestao da vez do loot, e reabri-la faz duas
-    pessoas lembrarem coisas diferentes do mesmo boss — a categoria de bug que
-    o `.corrigir` do `loot.py` ja documenta como cara.
+    A SAIDA E TENTADA PRIMEIRO, E A RECUSA SO VEM DEPOIS. A ordem inversa —
+    consultar o fechamento antes de qualquer coisa — deixava o `.leave`
+    QUEBRADO durante os 5 minutos de tolerancia de CADA ocorrencia. `.leave`
+    nao tem argumento, entao quem estava na lista que acabou de fechar nao
+    conseguia sair da lista SEGUINTE, e ainda recebia uma recusa citando uma
+    ocorrencia que ele nem mencionou. Com doze ocorrencias por dia isso e uma
+    hora inteira por dia de comando quebrado.
 
-    A recusa e para quem ESTAVA na lista que fechou, e so. Quem nao entrou no
-    boss das 20:00 nao tem historico para reabrir as 20:01: o `.leave` dele
-    fala do boss das 22:00, e responder "o boss ja comecou" seria uma recusa
-    sem causa e sem conserto.
+    D-14 CONTINUA VALENDO, e e por construcao: nada aqui toca na chave da
+    ocorrencia fechada. `registro.sair` opera SEMPRE sobre
+    `ocorrencia_da_chamada`, que e estritamente futura — a lista que fechou e
+    historico e continua intocavel. A recusa nao era a garantia; ela era so a
+    mensagem. A garantia e a chave.
+
+    A recusa e para quem ESTAVA na lista que fechou E nao tinha nada a tirar
+    adiante — e so ai ela responde a pergunta que a pessoa realmente fez. Quem
+    nao entrou no boss das 20:00 nao tem historico para reabrir as 20:01: o
+    `.leave` dele fala do boss das 22:00.
 
     A ASSIMETRIA COM O `responder_join` E PROPOSITAL, e e a mesma do par
     `responder_designacao`/`responder_cancelamento` do loot: a saida so anuncia
@@ -273,6 +323,18 @@ def responder_leave(
 
     slug = apelido(nick)
 
+    proximo = ocorrencia_da_chamada(agora, eventos)
+    if proximo is not None:
+        nome, alvo = proximo
+        hora = _hora(alvo)
+        if registro.sair(chave_da_ocorrencia(nome, alvo), slug):
+            return RespostaDePresenca(
+                privado=f"Pronto. Voce saiu da lista do {nome} das {hora}.",
+                grupo=f"{exibir(nick)} saiu da lista do {nome} das {hora}.",
+            )
+
+    # So agora a recusa de historico faz sentido: nao havia nada a tirar
+    # adiante, entao a pessoa esta MESMO falando da lista que fechou.
     fechada = ocorrencia_recem_fechada(agora, eventos)
     if fechada is not None:
         nome_fechado, alvo_fechado = fechada
@@ -285,20 +347,12 @@ def responder_leave(
                 )
             )
 
-    proximo = ocorrencia_da_chamada(agora, eventos)
     if proximo is None:
         return _sem_chamada_na_agenda()
 
     nome, alvo = proximo
-    hora = _hora(alvo)
-
-    if registro.sair(chave_da_ocorrencia(nome, alvo), slug):
-        return RespostaDePresenca(
-            privado=f"Pronto. Voce saiu da lista do {nome} das {hora}.",
-            grupo=f"{exibir(nick)} saiu da lista do {nome} das {hora}.",
-        )
     return RespostaDePresenca(
-        privado=f"Voce nao estava na lista do {nome} das {hora}."
+        privado=f"Voce nao estava na lista do {nome} das {_hora(alvo)}."
     )
 
 
@@ -336,16 +390,21 @@ def fechar_ocorrencias(
     anterior. Isso continua verdade aqui — mas D-12 acrescenta uma segunda
     regra: zero confirmacoes produz ZERO mensagem.
 
-    Marcar primeiro satisfaria a primeira regra e quebraria a segunda num caso
-    concreto: as 20:00:00 a lista esta vazia, o tick marca a ocorrencia como
-    fechada e cala (nao havia quem anunciar); as 20:00:03 chega o `.join` que
-    saiu do celular as 19:59:58 e a ponte do Chatwoot demorou a entregar; o
-    tick de 20:00:04 encontra a ocorrencia JA fechada e essa pessoa nunca vira
-    mensagem. O marcador teria sido queimado por um tick que nao falou nada.
+    A JUSTIFICATIVA E ESSA SEGUNDA REGRA, E SO ELA: LISTA VAZIA NAO PODE
+    QUEIMAR O MARCADOR. Marcando primeiro, o tick de 20:00:00 com a lista vazia
+    fecharia a ocorrencia e calaria — e qualquer `.join` que chegasse dentro
+    dos 5 minutos seguintes encontraria a ocorrencia ja fechada e nunca viraria
+    mensagem, porque o marcador teria sido queimado por um tick que nao falou
+    nada. Lendo antes, um tick de lista vazia simplesmente nao toca em disco, e
+    o primeiro tick que enxergar alguem fecha e anuncia.
 
-    Lendo antes, um tick de lista vazia simplesmente nao toca em disco, e o
-    primeiro tick que enxergar alguem — a qualquer momento dentro da tolerancia
-    de 5 minutos — fecha e anuncia.
+    (Esta docstring ja defendeu a ordem com um cenario que NAO existia: o
+    `.join` de 20:00:03 caindo na ocorrencia das 20:00. Ate o conserto do
+    WR-01 ele caia na das 22:00, porque `responder_join` resolvia por
+    `proxima_ocorrencia`, que exige `alvo > agora` estritamente. Hoje o cenario
+    e real — `ocorrencia_do_join` tem a mesma tolerancia que esta funcao — mas
+    ele e a CONSEQUENCIA de ler antes de marcar, e nao a razao dela. A razao
+    continua sendo o marcador que a lista vazia nao queima.)
 
     A GARANTIA CONTRA DUPLICATA NAO SE PERDE. O `fechar` continua sendo a linha
     que decide quem fala: com as duas instancias do usuario (Yazalaque e
@@ -367,6 +426,18 @@ def fechar_ocorrencias(
             continue
         if not registro.fechar(chave):
             continue
+        # RELER DEPOIS DE VENCER. A leitura de tres linhas acima decide SE ha o
+        # que anunciar; ela nao pode decidir O QUE se anuncia. Com as duas
+        # instancias do usuario sobre a mesma pasta, um `.join` gravado entre
+        # aquela leitura e o `fechar` existe em disco e nao apareceria na
+        # mensagem — e nunca apareceria, porque o marcador ja foi queimado. A
+        # janela e de microssegundos e o efeito e permanente: a pessoa esta na
+        # lista em disco e ausente da lista que a party leu.
+        #
+        # O `or presentes` guarda o caso em que a releitura falha (disco
+        # travando bem nesse instante): anunciar a lista de antes e melhor que
+        # anunciar uma lista vazia num marcador ja queimado.
+        presentes = registro.presentes(chave) or presentes
         fechados.append(
             Fechamento(evento=nome, alvo=alvo, nicks=tuple(sorted(presentes)))
         )
@@ -391,10 +462,10 @@ def texto_de_fechamento(
     plano 10-04 (precedente literal: `EventoAgendado.silenciar_minutos`, da
     Fase 6) e o plano 10-05 o ligou.
 
-    A funcao so FORMATA — quem decide SE ha sugestao e o chamador. Mesmo
-    idioma de `texto_do_aviso(aviso, loot)`, em que a agenda nao conhece
-    designacao nenhuma. E e por isso que `presenca.py` continua sem importar
-    `loot.sugerir_a_vez`: aqui chega um par de valores, nunca um registro.
+    A funcao so FORMATA — quem decide SE ha sugestao e o chamador, e neste
+    modulo o chamador e `fechar_e_narrar`. Mesmo idioma de
+    `texto_do_aviso(aviso, loot)`, em que a agenda nao conhece designacao
+    nenhuma: aqui chega um par de valores, nunca um registro.
 
     `None` produz a mensagem EXATA do plano 10-04. Nao e tolerancia
     decorativa: e o caso de quem roda com `loot=None`, e perder a lista
@@ -417,6 +488,69 @@ def texto_de_fechamento(
             quanto = f"{total} loot" + ("" if total == 1 else "s")
         texto += f" Sugestao de loot: {mapa.get(slug, exibir(slug))} ({quanto})."
     return texto
+
+
+def fechar_e_narrar(
+    registro: RegistroEmDisco,
+    eventos: list[EventoAgendado],
+    agora: datetime,
+    membros: Iterable[object] = (),
+    loot: object | None = None,
+) -> list[tuple[Fechamento, str]]:
+    """Fecha as listas que venceram e escreve o que a party le. UMA implementacao.
+
+    EXISTE PORQUE ESTA SEQUENCIA ESTAVA DUPLICADA LITERALMENTE (WR-08), entre
+    `sessao.Sessao._processar_agenda` (o laco principal) e
+    `__main__._fechar_listas_de_presenca` (o `--so-agenda`) — os mesmos cinco
+    passos, com ate os comentarios repetidos. As duas copias escrevem no MESMO
+    `.agenda/` e falam no MESMO grupo, entao qualquer conserto precisava ser
+    aplicado duas vezes; aplicado uma so, os dois modos do scanner passariam a
+    anunciar coisas diferentes sobre o mesmo boss. E o usuario deste projeto e
+    exatamente quem roda os dois modos.
+
+    O QUE FICA COM O CHAMADOR e o que e mesmo dele: o log, a moldura, o
+    despacho e o `ResultadoDoTick`. Aqui mora so a decisao e o texto.
+
+    A SUGESTAO E CALADA QUANDO ESTE BOSS JA TEM DONO (CR-02). Se `.loot-<nick>`
+    ja foi consumido para esta ocorrencia, a mensagem de fechamento nao tem
+    opiniao nenhuma a dar sobre ele: dez minutos antes o aviso de antecedencia
+    do MESMO boss saiu no MESMO grupo dizendo "Loot: Kaus", e uma sugestao
+    calculada DEPOIS do consumo aponta necessariamente para outra pessoa —
+    porque o Kaus acabou de ganhar um loot no placar. O bot se desmentia no
+    pior momento, e quem obedecesse a sugestao errada gravaria `.pegou` no
+    `.loot/`, que nao tem poda nem backup.
+
+    Calar e mais honesto que explicar. A alternativa era escrever "sugestao
+    para o proximo boss", e ai a mesma frase teria dois significados conforme o
+    estado do disco — de quem e a vez NESTE boss quando nao ha designacao
+    consumida, e no PROXIMO quando ha. Uma frase que muda de sentido sem mudar
+    de forma e pior que frase nenhuma.
+
+    D-13 CONTINUA INTOCADO: a lista SUGERE e nunca manda. Calar a sugestao nao
+    bloqueia coisa alguma — `.loot-<nick>` de quem nao joinou continua avisando
+    e OBEDECENDO, em `responder_designacao`.
+
+    `loot` entra tipado como `object | None` pela mesma razao de
+    `nomes_dos_membros`: a assinatura pede a FORMA, e o `None` e o caminho de
+    quem roda sem registro de loot — a lista fecha igual, so sem sugestao.
+    """
+    fechados = fechar_ocorrencias(registro, eventos, agora)
+    if not fechados:
+        return []
+
+    nomes = nomes_dos_membros(membros)
+    narrados: list[tuple[Fechamento, str]] = []
+    for fechamento in fechados:
+        # A LEITURA DA LISTA ACONTECE AQUI, NA BORDA: `loot.py` recebe os
+        # presentes por parametro e nunca importa `presenca` — a direcao e
+        # `presenca -> loot -> agenda` e um ciclo mataria os dois modulos.
+        sugestao = None
+        if loot is not None and dono_do_loot(loot, fechamento.alvo) is None:
+            sugestao = sugerir_a_vez(loot, frozenset(fechamento.nicks))
+        narrados.append(
+            (fechamento, texto_de_fechamento(fechamento, nomes, sugestao))
+        )
+    return narrados
 
 
 def nomes_dos_membros(membros: Iterable[object]) -> dict[str, str]:

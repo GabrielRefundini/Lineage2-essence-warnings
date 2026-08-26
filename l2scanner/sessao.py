@@ -43,9 +43,9 @@ from datetime import datetime
 from .agenda import avisos_devidos, texto_do_aviso
 from .console import moldurar
 from .frames import Frame, SaudeDoFrame
-from .loot import Designacao, nick_para_o_aviso, sugerir_a_vez
+from .loot import Designacao, nick_para_o_aviso
 from .notificador import Categoria
-from .presenca import fechar_ocorrencias, nomes_dos_membros, texto_de_fechamento
+from .presenca import fechar_e_narrar
 from .rastreador import Evento
 from .visao import EstadoDaLinha, Observacao, extrair
 
@@ -308,23 +308,21 @@ class Sessao:
         # NAO passa por `avisos_devidos` (D-12): o Solo Boss do usuario tem
         # `avisar_no_horario = false`, e pendurar o fechamento no aviso de
         # AGORA o obrigaria a religar as doze mensagens diarias que desligou.
-        fechados = fechar_ocorrencias(self.registro, self.eventos_agendados, agora)
-        nomes = nomes_dos_membros(self.membros) if fechados else {}
-        for fechamento in fechados:
+        #
+        # A SEQUENCIA INTEIRA MORA EM `presenca.fechar_e_narrar`, e nao aqui:
+        # ela estava duplicada literalmente com `__main__._fechar_listas_de_
+        # presenca` (WR-08). As duas escrevem no MESMO `.agenda/` e falam no
+        # MESMO grupo, e o usuario roda os dois modos — uma correcao aplicada
+        # so de um lado faria os dois anunciarem coisas diferentes sobre o
+        # mesmo boss. Aqui fica so o que e do tick: o resultado e o despacho.
+        for fechamento, texto in fechar_e_narrar(
+            self.registro,
+            self.eventos_agendados,
+            agora,
+            self.membros,
+            self.loot,
+        ):
             resultado.presencas_fechadas.append(fechamento)
-            # A LEITURA DA LISTA ACONTECE AQUI, NA BORDA, e nunca dentro do
-            # `loot.py`: ele recebe os presentes por parametro porque nao pode
-            # importar `presenca` (a direcao e `presenca -> loot -> agenda`).
-            #
-            # Sem registro de loot a lista fecha do mesmo jeito, sem sugestao:
-            # a sugestao e um extra, e o desfecho da chamada feita 1h50 antes
-            # nao pode se perder por falta dele.
-            sugestao = (
-                sugerir_a_vez(self.loot, frozenset(fechamento.nicks))
-                if self.loot
-                else None
-            )
-            texto = texto_de_fechamento(fechamento, nomes, sugestao)
             resultado.avisos.append(texto)
             # CRU no resultado, MOLDURADO no despacho — a mesma separacao de
             # tres linhas acima.

@@ -711,18 +711,54 @@ class TestPresencaNoTick:
             "Solo Boss das 10:00 comecando. Confirmaram: Kaus, Tiomad."
         )
 
+    def test_o_boss_que_JA_TEM_DONO_fecha_sem_opiniao_de_loot(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """CR-02: a lista fechada nao pode contradizer a designacao do MESMO boss.
+
+        Este teste ja existia sob o nome
+        `test_o_consumo_do_boss_ANTERIOR_ja_conta_na_sugestao` e afirmava o
+        defeito: o `kaus` designado para ESTE boss das 10:00, o consumo
+        creditando o loot dele antes de a lista fechar, e a sugestao — calculada
+        em seguida — apontando para o `tiomad`. Dez minutos antes, o aviso de
+        antecedencia do MESMO boss saiu no MESMO grupo com "Loot: Kaus". O bot
+        se desmentia, e quem obedecesse a sugestao errada gravaria `.pegou` no
+        `.loot/`, que nao tem poda nem backup.
+
+        Quando o loot deste boss ja esta decidido e registrado, a mensagem de
+        fechamento nao tem opiniao nenhuma a dar sobre ele.
+        """
+        loot = self._loot_com(tmp_path)
+        loot.designar("kaus", SEGUNDA.replace(hour=10), SEGUNDA.replace(hour=9))
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO], loot=loot)
+        self._com_lista(s, 10, "kaus", "tiomad")
+
+        r = s.tick(frame_real, momento=em(10, 0))
+
+        assert r.loot_consumado is not None, "o consumo continua rodando antes"
+        assert r.avisos[-1] == (
+            "Solo Boss das 10:00 comecando. Confirmaram: Kaus, Tiomad."
+        ), "a mensagem sugeriu um loot que contradiz a designacao ja consumida"
+
     def test_o_consumo_do_boss_ANTERIOR_ja_conta_na_sugestao(
         self, calibracao, frame_real, tmp_path
     ):
         """A razao de o fechamento vir DEPOIS do consumo de loot no tick.
 
-        O `kaus` foi designado para este mesmo boss das 10:00. No tick das
-        10:00 o consumo registra o loot dele ANTES de a lista fechar, entao a
-        sugestao ja o enxerga com um loot a mais e passa a vez para o outro.
-        Invertida a ordem, o bot sugeriria justamente quem acabou de pegar.
+        A ordem continua importando — mas o caso que a exercita e o do boss
+        ANTERIOR, como o nome sempre disse. O `kaus` foi designado para o boss
+        das 08:00 e ninguem consumiu a tempo; no tick das 10:00 o consumo
+        registra o loot dele (com o carimbo das 08:00) ANTES de a lista fechar,
+        entao a sugestao deste boss ja o enxerga com um loot a mais e passa a
+        vez para o outro. Invertida a ordem, o bot sugeriria justamente quem
+        acabou de pegar.
+
+        E, como o dono registrado e do boss das 08:00 e nao do das 10:00, a
+        sugestao SAI: este boss ainda nao tem dono, entao a mensagem tem o que
+        dizer sobre ele.
         """
         loot = self._loot_com(tmp_path)
-        loot.designar("kaus", SEGUNDA.replace(hour=10), SEGUNDA.replace(hour=9))
+        loot.designar("kaus", SEGUNDA.replace(hour=8), SEGUNDA.replace(hour=7))
         s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO], loot=loot)
         self._com_lista(s, 10, "kaus", "tiomad")
 

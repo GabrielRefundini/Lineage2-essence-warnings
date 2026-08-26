@@ -544,6 +544,34 @@ class RegistroDeLoot:
 # -- texto e decisao (puras: tempo por parametro, sem disco proprio) ---------
 
 
+def dono_do_loot(registro: RegistroDeLoot, alvo: datetime) -> str | None:
+    """O slug de quem JA tem o loot desta ocorrencia registrado. None se nao ha.
+
+    Existe para a mensagem de fechamento nao se desmentir (CR-02). No tick do
+    horario do boss o consumo da designacao roda ANTES do fechamento, entao
+    quando havia `.loot-<nick>` para aquela ocorrencia o credito ja esta em
+    disco — e `sugerir_a_vez`, calculada em seguida, enxerga esse credito e
+    aponta para OUTRA pessoa. A frase saia colada numa mensagem que fala do
+    boss que esta COMECANDO AGORA, dez minutos depois de o aviso de
+    antecedencia do MESMO boss ter dito "Loot: Kaus" no MESMO grupo.
+
+    LE O DISCO EM VEZ DE OLHAR O RETORNO DE `consumir`, e a diferenca importa
+    em dois casos reais. (1) `consumir` devolve `None` quando a OUTRA instancia
+    venceu a corrida do `pegou_` — e ela pode perfeitamente ter perdido a
+    corrida do `fechado_`, entao quem escreve a mensagem nao sabe do consumo.
+    (2) Um `.pegou` mandado a mao para aquele boss registra dono sem passar por
+    designacao nenhuma. Nos dois, o disco sabe e o valor de retorno nao.
+
+    Somente-leitura, como `sugerir_a_vez`: nao grava, nao apaga, nao cria
+    cache. O `.loot/` nunca e podado e nao tem backup, e nenhuma funcao de
+    conveniencia pode encostar nele de outro jeito.
+    """
+    for slug, registrado in registro.registros():
+        if registrado == alvo:
+            return slug
+    return None
+
+
 def sugerir_a_vez(
     registro: RegistroDeLoot, presentes: frozenset[str]
 ) -> tuple[str, int] | None:

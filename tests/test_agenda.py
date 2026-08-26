@@ -1040,6 +1040,56 @@ class TestListaDePresencaEmDisco:
         assert registro.fechar("2026-08-24_solo-boss-2000") is True
         assert registro.fechar("2026-08-24_solo-boss-2200") is True
 
+    def test_pasta_nao_gravavel_nao_reanuncia_a_lista_a_cada_tick(
+        self, tmp_path, monkeypatch
+    ):
+        """WR-09: o "preferir o duplicado ao perdido" precisava de teto.
+
+        Com a `.agenda/` legivel e NAO gravavel — permissao, disco cheio, pasta
+        em rede — `marcar` devolve True em toda tentativa. Sem teto, o
+        fechamento sai a cada tick durante os 5 minutos de tolerancia: a 1 Hz
+        sao ~300 mensagens identicas no grupo por ocorrencia.
+        """
+        import os
+
+        registro = self.registro(tmp_path)
+
+        def disco_travado(*args, **kwargs):
+            raise PermissionError("pasta somente leitura")
+
+        monkeypatch.setattr(os, "open", disco_travado)
+
+        assert registro.fechar(self.CHAVE) is True, (
+            "o primeiro fechamento tem que sair mesmo com o disco travado — "
+            "a party nao adivinha uma lista que ninguem anunciou"
+        )
+        for _ in range(300):
+            assert registro.fechar(self.CHAVE) is False, (
+                "o segundo tick reanunciou: e a enxurrada de mensagens do WR-09"
+            )
+
+    def test_o_teto_e_por_OCORRENCIA_e_nao_por_processo(self, tmp_path, monkeypatch):
+        """Dois bosses nascendo juntos continuam produzindo dois anuncios."""
+        import os
+
+        registro = self.registro(tmp_path)
+        monkeypatch.setattr(
+            os, "open", lambda *a, **k: (_ for _ in ()).throw(PermissionError())
+        )
+
+        assert registro.fechar("2026-08-24_solo-boss-2000") is True
+        assert registro.fechar("2026-08-24_tvt-2000") is True
+
+    def test_o_teto_nao_enfraquece_a_garantia_entre_as_duas_instancias(
+        self, tmp_path
+    ):
+        """Com o disco funcionando, quem decide continua sendo o O_CREAT|O_EXCL."""
+        registro_a = self.registro(tmp_path)
+        registro_b = self.registro(tmp_path)
+        assert registro_a.fechar(self.CHAVE) is True
+        assert registro_b.fechar(self.CHAVE) is False
+        assert registro_a.fechar(self.CHAVE) is False
+
     def test_o_slug_com_separador_de_caminho_nao_escapa_da_pasta(self, tmp_path):
         """T-10-12: travessia de caminho pelo nick.
 

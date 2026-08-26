@@ -55,11 +55,14 @@ from .captura_janela import (  # noqa: E402
     listar_janelas_do_jogo,
 )
 from .comandos import (  # noqa: E402
+    DIGITOS_FINAIS_DO_TELEFONE,
     Comando,
+    ConfiguracaoPerigosa,
     LeitorDeComandos,
     chave_da_mensagem,
     colisoes_de_telefone,
     comandos_novos,
+    so_digitos,
     texto_de_ajuda,
 )
 from .console import destacar, moldurar  # noqa: E402
@@ -72,7 +75,6 @@ from .loot import (  # noqa: E402
     responder_consulta,
     responder_correcao,
     responder_designacao,
-    sugerir_a_vez,
 )
 from . import ocr  # noqa: E402
 from .frames import MssSource, Regiao, ReplaySource, SaudeDoFrame  # noqa: E402
@@ -93,11 +95,9 @@ from .notificador import (  # noqa: E402
 )
 from .presenca import (  # noqa: E402
     RespostaDePresenca,
-    fechar_ocorrencias,
-    nomes_dos_membros,
+    fechar_e_narrar,
     responder_join,
     responder_leave,
-    texto_de_fechamento,
 )
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
@@ -529,31 +529,104 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
     # Mesmo motivo do aviso COMANDOS ABERTOS logo acima: quem pode mandar no
     # scanner nao pode ser um estado que se descobre por acidente. Aqui isso
     # vale para o nivel novo — quantos party-mates ganharam .join e .leave.
+    #
+    # A AFIRMACAO E CONDICIONADA AO ESTADO QUE A SUSTENTA. "Nenhum deles
+    # alcanca comando de loot" so e verdade quando existe allowlist de dono:
+    # com `CHATWOOT_TELEFONES_COMANDO` vazia, `autor_autorizado` devolve True
+    # para QUALQUER remetente e `autorizado_para` pergunta por ela primeiro —
+    # entao todo mundo, membro ou nao, alcanca `.corrigir` e `.pegou`. Dizer o
+    # contrario justamente ai era mentir na frase que da confianca ao usuario.
     if membros:
-        log.info(
-            "Presenca: %d party-mate(s) podem dar .join/.leave (%s). Nenhum "
-            "deles alcanca comando de loot.",
-            len(membros),
-            ", ".join(m.nick for m in membros),
-        )
+        if config.telefones_de_comando:
+            log.info(
+                "Presenca: %d party-mate(s) podem dar .join/.leave (%s). Nenhum "
+                "deles alcanca comando de loot.",
+                len(membros),
+                ", ".join(m.nick for m in membros),
+            )
+        else:
+            log.warning(
+                "Presenca: os %d [[membro]] (%s) NAO estao contidos — com "
+                "CHATWOOT_TELEFONES_COMANDO vazio qualquer remetente alcanca "
+                "TODO comando, inclusive .corrigir e .pegou.",
+                len(membros),
+                ", ".join(m.nick for m in membros),
+            )
 
-    for primeiro, segundo in colisoes_de_telefone(config.telefones_de_comando, membros):
-        # NAO derruba o scanner, e a proporcao e deliberada: uma colisao entre
-        # dois MEMBROS nao escala privilegio nenhum, e recusar a subir por
-        # causa dela deixaria o usuario sem vigia por um erro de digitacao. Um
-        # aviso alto, nomeando as duas linhas, e o que ele consegue consertar.
+    _recusar_telefones_de_dono_curtos(config.telefones_de_comando)
+
+    perigosas = []
+    for colisao in colisoes_de_telefone(config.telefones_de_comando, membros):
+        # A PROPORCAO E O ASSUNTO DESTE BLOCO, e ela mudou onde precisava.
+        #
+        # Colisao membro contra membro (ou dono contra dono) continua sendo
+        # AVISO: ninguem ganha poder, e derrubar o scanner por um erro de
+        # digitacao deixaria o usuario sem vigia. Colisao dono contra membro e
+        # outra coisa — e uma escalada de privilegio silenciosa para dentro de
+        # `.corrigir`/`.pegou`, que reescrevem o `.loot/`, pasta que nunca e
+        # podada e nao tem backup. Um `log.warning` num console que rola nao e
+        # mitigacao para isso: quem esta farmando nao le o console.
         log.warning(
-            "TELEFONES AMBIGUOS: '%s' e '%s' terminam nos mesmos 8 digitos e o "
-            "scanner nao consegue distinguir os dois.",
-            primeiro,
-            segundo,
+            "TELEFONES AMBIGUOS: '%s' (%s) e '%s' (%s) terminam nos mesmos %d "
+            "digitos e o scanner nao consegue distinguir os dois.",
+            colisao.primeiro,
+            colisao.origem_do_primeiro,
+            colisao.segundo,
+            colisao.origem_do_segundo,
+            DIGITOS_FINAIS_DO_TELEFONE,
         )
-        log.warning(
-            "Se um deles for de CHATWOOT_TELEFONES_COMANDO e o outro de um "
-            "[[membro]], aquele party-mate alcanca TODOS os comandos, "
-            "inclusive .corrigir e .pegou. Troque um dos dois."
+        if colisao.escala_privilegio:
+            perigosas.append(colisao)
+        else:
+            log.warning(
+                "Os dois sao do mesmo nivel (%s): ninguem ganha comando novo, "
+                "mas um .join pode ser creditado ao nick errado. Troque um "
+                "dos dois.",
+                colisao.origem_do_primeiro,
+            )
+
+    if perigosas:
+        linhas = "\n".join(
+            f"  - '{c.primeiro}' ({c.origem_do_primeiro}) e "
+            f"'{c.segundo}' ({c.origem_do_segundo})"
+            for c in perigosas
+        )
+        raise ConfiguracaoPerigosa(
+            "ESCALADA DE PRIVILEGIO NA CONFIGURACAO — o scanner nao vai subir.\n"
+            f"{linhas}\n"
+            "Um lado veio de CHATWOOT_TELEFONES_COMANDO (.env) e o outro de um "
+            "[[membro]] (config.toml), e o scanner nao consegue distinguir os "
+            "dois. Aquele party-mate alcancaria .corrigir e .pegou, que "
+            "reescrevem a estatistica do .loot/ — pasta que nunca e podada e "
+            "nao tem backup.\n"
+            "Escreva os dois numeros por inteiro (com +55 e DDD), ou tire um "
+            "dos dois lados."
         )
     return leitor
+
+
+def _recusar_telefones_de_dono_curtos(telefones: list[str]) -> None:
+    """Um numero de dono mais curto que o corte de comparacao nao e allowlist.
+
+    `telefone_equivalente` compara os `DIGITOS_FINAIS_DO_TELEFONE` finais; uma
+    entrada com menos digitos que isso cai no ramo de igualdade completa e
+    passa a casar com o SUFIXO de qualquer telefone que termine igual — quer
+    dizer, com meio mundo. E o mesmo corte que `_membro_de_dict` ja exige do
+    lado do `config.toml`; exigir dos dois lados e o que impede a allowlist de
+    ser mais frouxa que a comparacao que ela alimenta.
+    """
+    curtos = [
+        t for t in telefones if 0 < len(so_digitos(t)) < DIGITOS_FINAIS_DO_TELEFONE
+    ]
+    if not curtos:
+        return
+    raise ConfiguracaoPerigosa(
+        "CHATWOOT_TELEFONES_COMANDO tem numero curto demais: "
+        + ", ".join(f"'{t}'" for t in curtos)
+        + f".\nO scanner compara os {DIGITOS_FINAIS_DO_TELEFONE} digitos "
+        "finais, e um numero mais curto que isso autoriza gente que voce nao "
+        'escreveu. Ponha o numero inteiro, com DDD: "+5544999998888".'
+    )
 
 
 def _para_o_console(resposta: str) -> str:
@@ -625,6 +698,18 @@ def atender_comandos(
 
         quem = pedido.autor or "alguem"
         log.info("Comando de %s: %s", quem, pedido.texto.strip())
+
+        # DEFAULT EXPLICITO, POR ITERACAO. `avisar_o_grupo` e uma variavel de
+        # escopo de FUNCAO atribuida dentro dos ramos e lida no bloco de
+        # despacho. Os dois ramos de presenca nao a atribuem, e hoje isso e
+        # inofensivo so porque eles produzem `RespostaDePresenca` e o
+        # `isinstance` curto-circuita antes da leitura — uma coincidencia que
+        # nada no codigo preserva. O primeiro ramo futuro que devolver `str`
+        # sem setar a flag herdaria EM SILENCIO o valor do comando ANTERIOR da
+        # mesma volta do laco, e o efeito e uma resposta privada vazando para o
+        # grupo (ou o contrario). O comentario logo abaixo do bloco ja diz que
+        # um erro ali "muda o destino de todos ao mesmo tempo, em silencio".
+        avisar_o_grupo = False
 
         if pedido.comando is Comando.CANCELAR_SILENCIO:
             resposta = _obedecer_cancelar(registro, eventos_agendados, agora, quem)
@@ -777,11 +862,21 @@ def atender_comandos(
             if resposta.grupo is not None:
                 despachante.despachar(resposta.grupo, Categoria.SEMPRE)
         else:
-            # Sem conversa de origem sai UMA mensagem so, a do privado, e ela
-            # cai no grupo: melhor responder em algum lugar do que em nenhum.
-            # Mandar tambem a redacao de grupo aqui faria o mesmo evento
-            # aparecer duas vezes no MESMO destino.
-            despachante.despachar(resposta.privado, Categoria.SEMPRE)
+            # Sem conversa de origem sai UMA mensagem so, e o destino dela e o
+            # GRUPO — entao mande a redacao FEITA para o grupo, e caia no
+            # privado so quando nao houver uma.
+            #
+            # Para os oito comandos antigos isso e indiferente: os dois textos
+            # sao o mesmo. Para presenca era a escolha errada das duas — o
+            # grupo recebia "Anotado. Voce esta na lista do Solo Boss das
+            # 22:00.", sem nick, inutil para quem le, e a redacao feita para o
+            # grupo ("J4guar vai no Solo Boss das 22:00.") era DESCARTADA.
+            #
+            # Mandar as duas aqui faria o mesmo evento aparecer duas vezes no
+            # MESMO destino, que e o defeito que este ramo sempre evitou.
+            despachante.despachar(
+                resposta.grupo or resposta.privado, Categoria.SEMPRE
+            )
 
 
 def _obedecer_cancelar(registro, eventos, agora, quem: str) -> str:
@@ -932,17 +1027,21 @@ def _fechar_listas_de_presenca(
     plano 10-04, so sem a sugestao. Quem roda `--so-agenda` e justamente quem
     esta longe do jogo, e perder a lista fechada por falta de uma estatistica
     de conveniencia seria o pior negocio possivel.
+
+    A DECISAO E O TEXTO MORAM EM `presenca.fechar_e_narrar`, e nao aqui
+    (WR-08): esta sequencia estava duplicada literalmente com
+    `sessao.Sessao._processar_agenda`. As duas copias escrevem no MESMO
+    `.agenda/` e falam no MESMO grupo, e o usuario roda os dois modos — um
+    conserto aplicado so de um lado faria `--so-agenda` e o laco principal
+    anunciarem coisas diferentes sobre o mesmo boss. Aqui fica so o que e deste
+    modo: o log e o despacho.
     """
-    fechados = fechar_ocorrencias(registro, eventos, agora)
-    nomes = nomes_dos_membros(membros) if fechados else {}
     hora = agora.strftime("%H:%M")
-    for fechamento in fechados:
-        # A leitura da lista acontece AQUI, na borda: `loot.py` recebe os
-        # presentes por parametro e nunca importa `presenca`.
-        sugestao = (
-            sugerir_a_vez(loot, frozenset(fechamento.nicks)) if loot else None
-        )
-        texto = texto_de_fechamento(fechamento, nomes, sugestao)
+    fechados = []
+    for fechamento, texto in fechar_e_narrar(
+        registro, eventos, agora, membros, loot
+    ):
+        fechados.append(fechamento)
         log.info(destacar(texto, hora=hora))
         if despachante:
             # A MESMA moldura do console vai para o celular, e `SEMPRE`: a
@@ -1719,7 +1818,11 @@ def main() -> int:
     # ele nao olha para a tela, entao exigir qualquer uma das duas seria
     # inventar um requisito que a funcionalidade nao tem.
     if args.so_agenda:
-        return laco_da_agenda(args)
+        try:
+            return laco_da_agenda(args)
+        except ConfiguracaoPerigosa as erro:
+            log.error("%s", erro)
+            return 2
 
     janela_pedida = args.janela == "AUTO"
 
@@ -1763,6 +1866,14 @@ def main() -> int:
     try:
         return laco_principal(args, cal)
     except JanelaNaoEncontrada as erro:
+        log.error("%s", erro)
+        return 2
+    except ConfiguracaoPerigosa as erro:
+        # RECUSAR A SUBIR e o desfecho certo, e nao um aviso: enquanto a
+        # colisao dono contra membro existir, um party-mate alcanca .corrigir
+        # e .pegou. Um scanner que nao liga ate o numero ser desambiguado e
+        # menos ruim que uma escalada de privilegio dentro de uma estatistica
+        # permanente que ninguem faz backup.
         log.error("%s", erro)
         return 2
 
