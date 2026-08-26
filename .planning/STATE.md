@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
 current_phase: 10
-current_phase_name: lista-de-presenca-do-solo-boss-pelo-whatsapp
-status: phase-10-planned
-stopped_at: "Fase 10 planejada: 6 planos, 6 ondas, plan-checker sem blocker"
-last_updated: "2026-08-26T00:00:00.000Z"
-last_activity: 2026-08-25
-last_activity_desc: "Quick 260825-t1n: `.help` com a lista de comandos derivada do enum, com tripwire"
-state_head: ee86740d8e3f183a3c25c2d471204ec6374234b5
+current_phase_name: Lista de presenca do Solo Boss pelo WhatsApp
+status: phase-10-implemented-pending-field-validation
+stopped_at: "Fase 10 implementada e verificada offline (1052 testes); falta validacao em campo no WhatsApp"
+last_updated: "2026-08-26T14:48:51.328Z"
+last_activity: 2026-08-26
+last_activity_desc: Phase 10 execution started
+state_head: bf00d63b89a446cb01dc356c6b65746599df2347
 progress:
-  total_phases: 9
+  total_phases: 10
   completed_phases: 0
-  total_plans: 3
+  total_plans: 9
   completed_plans: 2
   percent: 0
 ---
@@ -23,13 +23,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-24)
 
 **Core value:** Quando alguém da party morre ou sai da PT, a galera fica sabendo no WhatsApp em segundos — mesmo quem está AFK.
-**Current focus:** Milestone v2 implementado; falta validação em campo
+**Current focus:** Phase 10 — Lista de presenca do Solo Boss pelo WhatsApp
 
 ## Current Position
 
-Phase: 9 de 9 — todas implementadas
-Status: Código completo, 338 testes. Nenhum bug conhecido em aberto. O que falta é VALIDAÇÃO EM CAMPO, não implementação: a última milha (morte real -> mensagem no WhatsApp na mesma sessão) e ver a agenda/silêncio funcionando num TvT de verdade. A cegueira recorrente teve a causa encontrada e tratada na Fase 5 (era manutenção do servidor).
-Last activity: 2026-08-26 — Quick 260826-es0: duas pendências fechadas com medição; resta a do terreno escuro
+Phase: 10 (Lista de presenca do Solo Boss pelo WhatsApp) — EXECUTING
+Status: Executing Phase 10
+Last activity: 2026-08-26 — Phase 10 execution started
 
 Progress: [██████████] 100% (9 de 9 fases)
 
@@ -184,3 +184,18 @@ Resume file: None
 - [Phase 4]: [loot]: Data sem ano resolve para a leitura de calendario MAIS PROXIMA de agora, e so entao precisa ter passado. Em janeiro "30/12" e dezembro passado; em agosto o mesmo "30/12" recusa em vez de gravar oito meses atras. Recuar sempre para o ano anterior gravaria estado permanente por um dedo escorregado.
 - [Phase 9]: [comandos]: O texto da ajuda e DERIVADO de uma tabela chaveada pelo enum Comando, com tripwire set(_AJUDA) == set(Comando). Cinco comandos nasceram em um dia; ajuda escrita a mao envelheceria antes do fim da semana, e ajuda desatualizada ensina sintaxe que nao funciona. O tripwire foi provado por MUTACAO, nao por leitura.
 - [Phase 9]: [console]: Resposta com quebra de linha nunca e moldurada. moldurar faz max(LARGURA, len(miolo) + len(carimbo)) sobre a string INTEIRA, entao a ajuda de dezenove linhas sairia no log com uma borda de 725 caracteres — medido. A regra vale pela FORMA do texto, nao pelo comando de origem.
+
+## Deferred Verification
+
+| Phase | State | Resume |
+|-------|-------|--------|
+| 10 | verification_deferred_human | /gsd-verify-work 10 |
+
+A Fase 10 passou em 40/40 must-haves por execucao, com o jogo fechado e sem
+rede. O que ficou aberto sao 6 itens que exigem a ponte Baileys real: o ciclo
+`.join`/`.leave` no WhatsApp, o silencio com lista vazia, a recusa do
+`.corrigir` vindo de um membro, e a legibilidade do bloco `[[membro]]` para
+leigo. Ver `.planning/phases/10-.../10-UAT.md`.
+
+Branch: `feat/solo-boss-join` (nao mesclada — aguarda validacao em campo e o
+fim do trabalho da outra instancia no master).

@@ -28,7 +28,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Milestone v3 — Lista de presença do Solo Boss** (definido 2026-08-26)
 
-- [ ] **Phase 10: Lista de presença do Solo Boss pelo WhatsApp** - O scanner pergunta quem vai, cada um responde `.join` no privado, e a lista se fecha no horário
+- [~] **Phase 10: Lista de presença do Solo Boss pelo WhatsApp** - O scanner pergunta quem vai, cada um responde `.join` no privado, e a lista se fecha no horário — *implementada e verificada offline (1052 testes); aguarda validação em campo*
 
 ## Phase Details
 
