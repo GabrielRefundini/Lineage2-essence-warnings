@@ -185,7 +185,16 @@ def montar_despachante(args: argparse.Namespace) -> Despachante | None:
         log.error("FALHA DE ENTREGA — %s | alerta: %s", erro, texto)
 
     if args.dry_run:
-        log.info("Modo simulacao: alertas so no console, nada e enviado")
+        # A frase diz o DISCO, e nao so o envio. Ela prometia "nada e enviado"
+        # e calava que a simulacao gravava marcador na .agenda/ compartilhada
+        # — do jeito que estava, quem lesse isto acharia seguro rodar um
+        # --dry-run ao lado do scanner de verdade, que e exatamente o que
+        # quase apagou o aviso de TvT das 19:30 em 2026-08-26.
+        log.info(
+            "Modo simulacao: alertas so no console. Nada e enviado e nada e "
+            "gravado em .agenda/, entao da para rodar junto com o scanner de "
+            "verdade."
+        )
         return Despachante(NotificadorDeConsole(), ao_falhar=avisar_falha)
 
     try:
@@ -1075,7 +1084,10 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
     if despachante:
         despachante.iniciar()
 
-    registro = RegistroEmDisco(PASTA_AGENDA)
+    # `simulando` entra AQUI, na construcao, e nao perto de cada `marcar`: o
+    # laco continua sem saber que o conceito existe. Ver a docstring de
+    # `RegistroEmDisco.marcar` e o incidente de 2026-08-26 19:30.
+    registro = RegistroEmDisco(PASTA_AGENDA, simulando=args.dry_run)
     registro_de_loot = RegistroDeLoot(PASTA_LOOT)
     silencio = ControleDoSilencio(eventos, registro)
     leitor = montar_leitor_de_comandos(args)
@@ -1474,7 +1486,9 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     # silenciar; furar ele aqui tornaria o silenciamento impossivel de
     # acrescentar depois sem reescrever isto.
     eventos_agendados = ler_agenda()
-    registro_da_agenda = RegistroEmDisco(PASTA_AGENDA)
+    # Mesmo `simulando` do `laco_da_agenda`: a Sessao recebe um registro que ja
+    # sabe se e para valer, e por isso `sessao.py` nao conhece `dry_run`.
+    registro_da_agenda = RegistroEmDisco(PASTA_AGENDA, simulando=args.dry_run)
     registro_de_loot = RegistroDeLoot(PASTA_LOOT)
     silencio = ControleDoSilencio(eventos_agendados, registro_da_agenda)
     leitor_de_comandos = montar_leitor_de_comandos(args)
