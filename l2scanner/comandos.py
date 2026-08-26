@@ -410,8 +410,20 @@ def autor_autorizado(remetente: dict, telefones: list[str]) -> bool:
     return any(telefone_equivalente(numero, permitido) for permitido in telefones)
 
 
-def nick_do_membro(remetente: dict, membros: Sequence[Membro]) -> str | None:
+def membro_do_remetente(
+    remetente: dict, membros: Sequence[Membro]
+) -> Membro | None:
     """Qual party-mate configurado mandou isto? None quando nenhum.
+
+    O UNICO LUGAR QUE RESPONDE "quem e este telefone?". Havia dois pontos de
+    decisao sobre essa mesma pergunta — um para decidir se o remetente e membro
+    e outro para descobrir o nick dele — e eles podiam divergir do mesmo jeito
+    que duas implementacoes do corte de 8 digitos divergiriam: no primeiro
+    ajuste. Um filtro futuro ("membro desativado") aplicado so num dos dois
+    produziria uma mensagem AUTORIZADA entrando na lista com `nick=None`, e o
+    bot responderia "nao sei que nick por na lista" a alguem corretamente
+    configurado. Ver `comandos_novos`, que resolve uma vez e deriva as duas
+    respostas do mesmo valor.
 
     Compara com `telefone_equivalente`, E ISSO NAO E DETALHE DE ESTILO. Uma
     segunda implementacao do corte de 8 digitos aqui divergiria da primeira no
@@ -421,8 +433,21 @@ def nick_do_membro(remetente: dict, membros: Sequence[Membro]) -> str | None:
     numero = remetente.get("phone_number")
     for membro in membros:
         if telefone_equivalente(numero, membro.telefone):
-            return membro.nick
+            return membro
     return None
+
+
+def nick_do_membro(remetente: dict, membros: Sequence[Membro]) -> str | None:
+    """O nick do party-mate que mandou isto. None quando nenhum.
+
+    Casca fina sobre `membro_do_remetente`, e nao uma segunda varredura: a
+    pergunta e a mesma e a resposta tem que vir do mesmo lugar.
+    """
+    membro = membro_do_remetente(remetente, membros)
+    return membro.nick if membro is not None else None
+
+
+_NAO_RESOLVIDO = object()
 
 
 def autorizado_para(
@@ -430,6 +455,8 @@ def autorizado_para(
     remetente: dict,
     telefones: list[str],
     membros: Sequence[Membro] = (),
+    *,
+    membro: Membro | None | object = _NAO_RESOLVIDO,
 ) -> bool:
     """Quem mandou pode mandar ISTO?
 
@@ -453,12 +480,22 @@ def autorizado_para(
     que nunca e podada e nao tem backup. Era exatamente esse poder que por os
     quatro a oito telefones da party na allowlist de dono teria dado a todos
     eles, so para que pudessem dar `.join`.
+
+    O `membro` por palavra-chave e a resposta JA RESOLVIDA de
+    `membro_do_remetente`, e existe para `comandos_novos` nao perguntar duas
+    vezes "quem e este telefone?" (uma aqui e outra para preencher o `nick`).
+    O sentinela distingue "nao resolvi, procure voce" de "procurei e nao era
+    membro" — um `None` default colapsaria os dois e faria a trava recusar todo
+    party-mate em silencio. Sem o parametro, a funcao continua se virando
+    sozinha com `membros`, que e como todo teste unitario a chama.
     """
     if autor_autorizado(remetente, telefones):
         return True
     if comando not in COMANDOS_DE_MEMBRO:
         return False
-    return nick_do_membro(remetente, membros) is not None
+    if membro is _NAO_RESOLVIDO:
+        membro = membro_do_remetente(remetente, membros)
+    return membro is not None
 
 
 def _forma_canonica(telefone: str | None) -> str:
@@ -819,7 +856,16 @@ def comandos_novos(
         # precisar mudar de lugar: esta trava ja rodava DEPOIS da
         # interpretacao, entao o comando ja e conhecido neste ponto.
         remetente = bruta.get("sender") or {}
-        if not autorizado_para(comando, remetente, telefones or [], membros):
+        # UMA pergunta so sobre "quem e este telefone?", e as duas respostas
+        # derivadas do MESMO valor: a trava, logo abaixo, e o `nick` que vai
+        # para a lista de presenca. Enquanto eram duas chamadas independentes,
+        # um filtro futuro aplicado so numa delas produziria uma mensagem
+        # autorizada entrando na lista com `nick=None` — e o bot responderia
+        # "nao sei que nick por na lista" a alguem corretamente configurado.
+        membro = membro_do_remetente(remetente, membros)
+        if not autorizado_para(
+            comando, remetente, telefones or [], membro=membro
+        ):
             continue
         achados.append(
             MensagemDeComando(
@@ -833,7 +879,10 @@ def comandos_novos(
                 # esta tres linhas acima alimentando o `autor`. Ver a docstring
                 # de `Membro`: o nome do contato e escrito pelo dono do
                 # telefone, e o nick do jogo nao.
-                nick=nick_do_membro(remetente, membros),
+                #
+                # E sai do MESMO `membro` que a trava acima consultou, e nao de
+                # uma segunda varredura.
+                nick=membro.nick if membro is not None else None,
             )
         )
 

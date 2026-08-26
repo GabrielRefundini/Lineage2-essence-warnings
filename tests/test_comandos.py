@@ -1836,6 +1836,104 @@ class TestOSufixoNaoProvaIdentidade:
         assert _mesma_pessoa("97077000", "+5544997077000") is False
 
 
+class TestUmaPerguntaSoSobreQuemEEsteTelefone:
+    """WR-11: a trava e o nick vinham de duas varreduras independentes.
+
+    Toda mensagem autorizada varria `membros` duas vezes — uma para decidir se
+    o remetente e membro, outra para descobrir o nick dele. Alem do trabalho
+    repetido, eram DOIS pontos de decisao sobre a mesma pergunta. O dia em que
+    um deles ganhasse um filtro ("membro desativado") e o outro nao, uma
+    mensagem AUTORIZADA entraria na lista com `nick=None` e o bot responderia
+    "nao sei que nick por na lista" a alguem corretamente configurado.
+    """
+
+    MEMBRO = Membro(nick="Korzis", telefone="+5544998001122")
+
+    def _mensagem(self):
+        return {
+            "id": 77,
+            "message_type": 0,
+            "content": ".join",
+            "conversation_id": 1,
+            "sender": {"name": "Korzis WhatsApp", "phone_number": "+5544998001122"},
+        }
+
+    def test_a_trava_e_o_nick_saem_do_mesmo_membro(self, monkeypatch):
+        """A resolucao acontece UMA vez por mensagem, e as duas derivam dela."""
+        from l2scanner import comandos as modulo
+
+        chamadas = []
+        original = modulo.membro_do_remetente
+
+        def contando(remetente, membros):
+            chamadas.append(remetente.get("phone_number"))
+            return original(remetente, membros)
+
+        monkeypatch.setattr(modulo, "membro_do_remetente", contando)
+
+        achados = modulo.comandos_novos(
+            [self._mensagem()], set(), ["+5544997077000"], membros=[self.MEMBRO]
+        )
+
+        assert [m.nick for m in achados] == ["Korzis"]
+        assert len(chamadas) == 1, (
+            "a mesma pergunta foi feita duas vezes por dois caminhos "
+            f"independentes: {chamadas}"
+        )
+
+    def test_um_filtro_novo_nao_pode_autorizar_com_nick_None(self, monkeypatch):
+        """A prova de que o defeito virou impossivel, e nao so improvavel.
+
+        Simula o filtro futuro que WR-11 descreve: `membro_do_remetente` passa
+        a recusar este party-mate. As duas respostas tem que mudar JUNTAS — a
+        mensagem nao pode ser autorizada e chegar sem nick.
+        """
+        from l2scanner import comandos as modulo
+
+        monkeypatch.setattr(modulo, "membro_do_remetente", lambda *_: None)
+
+        achados = modulo.comandos_novos(
+            [self._mensagem()], set(), ["+5544997077000"], membros=[self.MEMBRO]
+        )
+
+        assert achados == [], (
+            "o filtro pegou so um dos dois caminhos: a mensagem foi autorizada "
+            "e entraria na lista com nick=None"
+        )
+
+    def test_autorizado_para_sem_o_parametro_continua_se_virando_sozinho(self):
+        """Todo teste unitario chama assim; o sentinela nao pode ter quebrado."""
+        remetente = {"phone_number": "+5544998001122"}
+        assert (
+            autorizado_para(Comando.JOIN, remetente, ["+5544997077000"], [self.MEMBRO])
+            is True
+        )
+        assert (
+            autorizado_para(Comando.JOIN, remetente, ["+5544997077000"], [])
+            is False
+        )
+
+    def test_membro_None_explicito_e_diferente_de_nao_resolvido(self):
+        """O sentinela distingue "procurei e nao era" de "procure voce".
+
+        Um `None` default colapsaria os dois e faria a trava recusar todo
+        party-mate em silencio.
+        """
+        remetente = {"phone_number": "+5544998001122"}
+        assert (
+            autorizado_para(
+                Comando.JOIN, remetente, ["+5544997077000"], membro=None
+            )
+            is False
+        )
+        assert (
+            autorizado_para(
+                Comando.JOIN, remetente, ["+5544997077000"], membro=self.MEMBRO
+            )
+            is True
+        )
+
+
 class TestArranqueComMembros:
     """O que o console diz sobre o nivel novo, no arranque.
 
