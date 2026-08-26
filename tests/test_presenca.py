@@ -1508,6 +1508,111 @@ class TestDestinoDosComandosAntigos:
         despachante = despachos_de(".status", tmp_path, conversa=None)
         assert despachante.alvos == [None]
 
+
+class TestSemConversaDeOrigemVaiAREDACAODEGRUPO:
+    """WR-07: no ramo sem conversa, o destino e o grupo — entao o texto tambem.
+
+    Para os oito comandos antigos os dois textos sao o mesmo e a escolha era
+    indiferente. Para presenca era a errada das duas: o grupo recebia "Anotado.
+    Voce esta na lista do Solo Boss das 22:00." — sem nick, inutil para quem le
+    — e a redacao feita para o grupo era descartada.
+    """
+
+    def test_o_join_sem_conversa_manda_a_redacao_do_GRUPO(self, tmp_path):
+        despachante = despachos_do_membro(".join", tmp_path, conversa=None)
+
+        assert despachante.alvos == [None]
+        texto = despachante.textos[0]
+        assert "J4guar" in texto, (
+            "o grupo recebeu o texto do privado: sem nick, ele nao diz a "
+            "ninguem quem esta indo"
+        )
+        assert "Anotado" not in texto
+
+    def test_quando_nao_ha_redacao_de_grupo_cai_no_privado(self, tmp_path):
+        """`.join` repetido tem `grupo is None` — e ainda assim tem que responder."""
+        registro = RegistroEmDisco(tmp_path / "agenda")
+        despachos_do_membro(
+            ".join", tmp_path, conversa=None, registro=registro, identificador=1
+        )
+        despachante = despachos_do_membro(
+            ".join", tmp_path, conversa=None, registro=registro, identificador=2
+        )
+
+        assert despachante.alvos == [None]
+        assert "ja esta na lista" in despachante.textos[0]
+
+    def test_o_ramo_sem_conversa_manda_UMA_mensagem_so(self, tmp_path):
+        """O defeito que este ramo sempre evitou nao pode ter voltado."""
+        despachante = despachos_do_membro(".join", tmp_path, conversa=None)
+        assert len(despachante.despachos) == 1
+
+
+class TestAFlagDoGrupoNaoAtravessaIteracoes:
+    """WR-06: `avisar_o_grupo` nunca era inicializada por volta do laco.
+
+    Ela e atribuida dentro dos ramos e lida no bloco de despacho. Os dois ramos
+    de presenca NAO a atribuem — hoje isso e inofensivo apenas porque eles
+    produzem `RespostaDePresenca` e o `isinstance` curto-circuita antes da
+    leitura, e nada no codigo preserva essa coincidencia. O primeiro ramo
+    futuro que devolver `str` sem setar a flag herda EM SILENCIO o destino do
+    comando ANTERIOR da mesma volta.
+
+    Lido por AST porque o defeito e estrutural: nao ha entrada que o produza
+    HOJE, e um teste de comportamento passaria provando nada. O que se afirma e
+    a propriedade que impede o defeito de nascer.
+    """
+
+    def _corpo_do_laco(self):
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        arvore = ast.parse(inspect.getsource(principal.atender_comandos))
+        funcao = next(
+            no for no in ast.walk(arvore) if isinstance(no, ast.FunctionDef)
+        )
+        return next(no for no in ast.walk(funcao) if isinstance(no, ast.For))
+
+    def test_a_flag_tem_default_no_topo_de_cada_volta(self):
+        laco = self._corpo_do_laco()
+        atribuicoes = [
+            no
+            for no in laco.body
+            if isinstance(no, ast.Assign)
+            and any(
+                getattr(alvo, "id", None) == "avisar_o_grupo" for alvo in no.targets
+            )
+        ]
+        assert atribuicoes, (
+            "`avisar_o_grupo` nao tem default por iteracao: o primeiro ramo "
+            "que devolver str sem setar a flag herda o destino do comando "
+            "anterior, em silencio"
+        )
+        assert atribuicoes[0].value.value is False, (
+            "o default tem que ser False — silencio no grupo e o caminho facil"
+        )
+
+    def test_o_default_vem_ANTES_de_qualquer_ramo_que_a_use(self):
+        laco = self._corpo_do_laco()
+        linha_do_default = min(
+            no.lineno
+            for no in laco.body
+            if isinstance(no, ast.Assign)
+            and any(
+                getattr(alvo, "id", None) == "avisar_o_grupo" for alvo in no.targets
+            )
+        )
+        leituras = [
+            no.lineno
+            for no in ast.walk(laco)
+            if isinstance(no, ast.Name)
+            and no.id == "avisar_o_grupo"
+            and isinstance(no.ctx, ast.Load)
+        ]
+        assert leituras, "ninguem le a flag; a prova nao prova nada"
+        assert min(leituras) > linha_do_default
+
     def test_sem_despachante_nada_levanta(self, tmp_path):
         """Rodar sem `.env` e um modo suportado — o log continua saindo.
 

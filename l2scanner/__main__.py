@@ -699,6 +699,18 @@ def atender_comandos(
         quem = pedido.autor or "alguem"
         log.info("Comando de %s: %s", quem, pedido.texto.strip())
 
+        # DEFAULT EXPLICITO, POR ITERACAO. `avisar_o_grupo` e uma variavel de
+        # escopo de FUNCAO atribuida dentro dos ramos e lida no bloco de
+        # despacho. Os dois ramos de presenca nao a atribuem, e hoje isso e
+        # inofensivo so porque eles produzem `RespostaDePresenca` e o
+        # `isinstance` curto-circuita antes da leitura — uma coincidencia que
+        # nada no codigo preserva. O primeiro ramo futuro que devolver `str`
+        # sem setar a flag herdaria EM SILENCIO o valor do comando ANTERIOR da
+        # mesma volta do laco, e o efeito e uma resposta privada vazando para o
+        # grupo (ou o contrario). O comentario logo abaixo do bloco ja diz que
+        # um erro ali "muda o destino de todos ao mesmo tempo, em silencio".
+        avisar_o_grupo = False
+
         if pedido.comando is Comando.CANCELAR_SILENCIO:
             resposta = _obedecer_cancelar(registro, eventos_agendados, agora, quem)
             # CANCELAR muda o que o GRUPO recebe: todo mundo tinha parado de
@@ -850,11 +862,21 @@ def atender_comandos(
             if resposta.grupo is not None:
                 despachante.despachar(resposta.grupo, Categoria.SEMPRE)
         else:
-            # Sem conversa de origem sai UMA mensagem so, a do privado, e ela
-            # cai no grupo: melhor responder em algum lugar do que em nenhum.
-            # Mandar tambem a redacao de grupo aqui faria o mesmo evento
-            # aparecer duas vezes no MESMO destino.
-            despachante.despachar(resposta.privado, Categoria.SEMPRE)
+            # Sem conversa de origem sai UMA mensagem so, e o destino dela e o
+            # GRUPO — entao mande a redacao FEITA para o grupo, e caia no
+            # privado so quando nao houver uma.
+            #
+            # Para os oito comandos antigos isso e indiferente: os dois textos
+            # sao o mesmo. Para presenca era a escolha errada das duas — o
+            # grupo recebia "Anotado. Voce esta na lista do Solo Boss das
+            # 22:00.", sem nick, inutil para quem le, e a redacao feita para o
+            # grupo ("J4guar vai no Solo Boss das 22:00.") era DESCARTADA.
+            #
+            # Mandar as duas aqui faria o mesmo evento aparecer duas vezes no
+            # MESMO destino, que e o defeito que este ramo sempre evitou.
+            despachante.despachar(
+                resposta.grupo or resposta.privado, Categoria.SEMPRE
+            )
 
 
 def _obedecer_cancelar(registro, eventos, agora, quem: str) -> str:
