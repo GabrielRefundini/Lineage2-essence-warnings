@@ -55,6 +55,7 @@ import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
+from typing import NamedTuple
 
 from .loot import NICK_VALIDO, apelido, interpretar_pegou
 
@@ -468,34 +469,103 @@ def _forma_canonica(telefone: str | None) -> str:
     pela regra que o scanner usa?"; esta pergunta "estes dois sao a mesma
     pessoa escrita de dois jeitos?".
 
-    Celular brasileiro completo tem 13 digitos: 55 + DDD + 9 + os oito. Tirar
-    esse 9 devolve a forma de 12 que o Chatwoot as vezes registra, e as duas
-    passam a ser literalmente o mesmo texto.
+    Celular brasileiro completo tem 13 digitos: 55 + DDD + 9 + os oito. A forma
+    canonica joga fora as DUAS coisas que o mesmo numero ganha e perde ao ser
+    escrito por gente diferente — o codigo de pais e o nono digito — e devolve
+    `DDD + os oito`, que e o que sobra de invariante:
+
+        +5544997077000 -> 4497077000
+         554497077000  -> 4497077000
+          44997077000  -> 4497077000
+
+    O CODIGO DE PAIS PRECISA CAIR, e nao e refinamento. Sem isso,
+    `5544999998888` e `44999998888` — o MESMO celular, um com +55 e outro sem —
+    saem como formas diferentes, e `colisoes_de_telefone` reporta uma colisao
+    que e pura redundancia. Isso passou a doer quando o par dono contra membro
+    deixou de ser aviso e virou recusa de arranque: um usuario que escreveu o
+    proprio numero das duas maneiras nao pode ficar sem scanner por causa
+    disso.
+
+    Nao substitui `telefone_equivalente` e nem autoriza nada: ela responde
+    "estes dois sao a mesma pessoa escrita de dois jeitos?", e a outra responde
+    "estes dois casam pela regra que o scanner usa?".
     """
     digitos = so_digitos(telefone)
-    if len(digitos) == 13 and digitos.startswith("55") and digitos[4] == "9":
-        return digitos[:4] + digitos[5:]
+    if digitos.startswith("55") and len(digitos) in (12, 13):
+        digitos = digitos[2:]
+    if len(digitos) == 11 and digitos[2] == "9":
+        digitos = digitos[:2] + digitos[3:]
     return digitos
 
 
 def _mesma_pessoa(a: str | None, b: str | None) -> bool:
     """Os dois textos sao o MESMO numero, so escrito diferente?
 
-    Um sufixo do outro, depois de tirar o nono digito: cobre o `+55`, o DDD
-    omitido e o 9 que a base do WhatsApp carrega nas duas formas. Serve para
-    NAO gritar colisao quando o usuario escreveu o proprio numero de duas
-    maneiras — isso e redundancia, nao ambiguidade.
+    IGUALDADE DA FORMA CANONICA, E NUNCA SUFIXO — e a diferenca e uma falha de
+    seguranca, nao estilo.
+
+    A versao anterior aceitava "um e sufixo do outro" e com isso calava
+    exatamente o par que esta funcao existe para deixar visivel. Um numero
+    curto e sufixo de meio mundo: com `CHATWOOT_TELEFONES_COMANDO=99998888`
+    (sem DDD, sem +55) e um `[[membro]]` `+5544999998888`, o sufixo casava, a
+    colisao era descartada como "redundancia", e o party-mate passava a
+    alcancar `.corrigir` e `.pegou` sem uma linha no console. A supressao
+    escondia a ESCALADA DE PRIVILEGIO enquanto ela acontecia.
+
+    A supressao continua existindo e continua certa, mas so por PROVA: tirar o
+    nono digito ja normaliza as duas formas que a base do WhatsApp carrega do
+    mesmo numero (`+5544997077000` e `554497077000` viram o mesmo texto). O
+    que ela nao pode mais fazer e adivinhar identidade por parentesco de
+    sufixo — uma pergunta que a heuristica nunca respondeu.
     """
     ca, cb = _forma_canonica(a), _forma_canonica(b)
-    if not ca or not cb:
-        return False
-    curto, longo = (ca, cb) if len(ca) <= len(cb) else (cb, ca)
-    return longo.endswith(curto)
+    return bool(ca) and ca == cb
+
+
+ORIGEM_DONO = "dono"
+ORIGEM_MEMBRO = "membro"
+
+
+class ConfiguracaoPerigosa(Exception):
+    """O scanner NAO sobe: a configuracao daria poder a quem nao deveria ter.
+
+    Separada de `AgendaInvalida` de proposito. `AgendaInvalida` quer dizer "o
+    config.toml nao faz sentido"; esta quer dizer "o config.toml faz sentido, e
+    o sentido dele e perigoso". A primeira e um erro de digitacao; a segunda e
+    uma escalada de privilegio, e o desfecho tem que ser o mesmo que o de uma
+    trava de seguranca que falhou: parar.
+    """
+
+
+class Colisao(NamedTuple):
+    """Um par de entradas configuradas que o scanner nao consegue distinguir.
+
+    Carrega a ORIGEM dos dois lados porque o arranque trata os tres tipos de
+    par com pesos diferentes. Sem a origem, quem le a lista teria que
+    redescobrir de onde veio cada texto — um SEGUNDO ponto de decisao sobre a
+    mesma pergunta, que e a forma como as duas travas deste modulo passariam a
+    discordar em silencio.
+
+    `escala_privilegio` e a unica pergunta que muda o desfecho do arranque:
+    dono contra membro e a unica combinacao em que alguem GANHA poder.
+    """
+
+    primeiro: str
+    segundo: str
+    origem_do_primeiro: str
+    origem_do_segundo: str
+
+    @property
+    def escala_privilegio(self) -> bool:
+        return {self.origem_do_primeiro, self.origem_do_segundo} == {
+            ORIGEM_DONO,
+            ORIGEM_MEMBRO,
+        }
 
 
 def colisoes_de_telefone(
     telefones: list[str], membros: Sequence[Membro] = ()
-) -> list[tuple[str, str]]:
+) -> list[Colisao]:
     """Pares de entradas configuradas que o scanner nao consegue distinguir.
 
     O comentario do `DIGITOS_FINAIS_DO_TELEFONE` aceitou a colisao por escrito,
@@ -517,19 +587,30 @@ def colisoes_de_telefone(
     `.env`, depois os membros na ordem do config.toml, e os pares na ordem dos
     indices. Cada par sai com os dois textos COMO FORAM CONFIGURADOS, e nao
     normalizados, para o usuario achar as duas linhas nos arquivos dele.
-    """
-    entradas = [str(t) for t in telefones] + [m.telefone for m in membros]
 
-    pares: list[tuple[str, str]] = []
-    for i, primeiro in enumerate(entradas):
-        for segundo in entradas[i + 1 :]:
+    Devolve `Colisao`, e nao um par cru, porque a ORIGEM de cada lado e o que
+    distingue o par inofensivo do par que derruba o arranque. Quem decide o
+    que fazer com cada tipo e `__main__.montar_leitor_de_comandos`, e ele
+    RECUSA A SUBIR no par dono contra membro — um `log.warning` num console
+    que rola nao e mitigacao de escalada de privilegio.
+    """
+    entradas = [(str(t), ORIGEM_DONO) for t in telefones]
+    entradas += [(m.telefone, ORIGEM_MEMBRO) for m in membros]
+
+    pares: list[Colisao] = []
+    for i, (primeiro, origem_do_primeiro) in enumerate(entradas):
+        for segundo, origem_do_segundo in entradas[i + 1 :]:
             if not telefone_equivalente(primeiro, segundo):
                 continue
             # O mesmo numero escrito de dois jeitos nao e colisao: e o usuario
             # tendo posto o proprio celular com e sem o 9, ou com e sem o +55.
+            # A prova e IGUALDADE canonica — ver `_mesma_pessoa` e o defeito
+            # de seguranca que a heuristica de sufixo escondia.
             if _mesma_pessoa(primeiro, segundo):
                 continue
-            pares.append((primeiro, segundo))
+            pares.append(
+                Colisao(primeiro, segundo, origem_do_primeiro, origem_do_segundo)
+            )
     return pares
 
 

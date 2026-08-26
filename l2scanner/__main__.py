@@ -55,11 +55,14 @@ from .captura_janela import (  # noqa: E402
     listar_janelas_do_jogo,
 )
 from .comandos import (  # noqa: E402
+    DIGITOS_FINAIS_DO_TELEFONE,
     Comando,
+    ConfiguracaoPerigosa,
     LeitorDeComandos,
     chave_da_mensagem,
     colisoes_de_telefone,
     comandos_novos,
+    so_digitos,
     texto_de_ajuda,
 )
 from .console import destacar, moldurar  # noqa: E402
@@ -529,31 +532,104 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
     # Mesmo motivo do aviso COMANDOS ABERTOS logo acima: quem pode mandar no
     # scanner nao pode ser um estado que se descobre por acidente. Aqui isso
     # vale para o nivel novo — quantos party-mates ganharam .join e .leave.
+    #
+    # A AFIRMACAO E CONDICIONADA AO ESTADO QUE A SUSTENTA. "Nenhum deles
+    # alcanca comando de loot" so e verdade quando existe allowlist de dono:
+    # com `CHATWOOT_TELEFONES_COMANDO` vazia, `autor_autorizado` devolve True
+    # para QUALQUER remetente e `autorizado_para` pergunta por ela primeiro —
+    # entao todo mundo, membro ou nao, alcanca `.corrigir` e `.pegou`. Dizer o
+    # contrario justamente ai era mentir na frase que da confianca ao usuario.
     if membros:
-        log.info(
-            "Presenca: %d party-mate(s) podem dar .join/.leave (%s). Nenhum "
-            "deles alcanca comando de loot.",
-            len(membros),
-            ", ".join(m.nick for m in membros),
-        )
+        if config.telefones_de_comando:
+            log.info(
+                "Presenca: %d party-mate(s) podem dar .join/.leave (%s). Nenhum "
+                "deles alcanca comando de loot.",
+                len(membros),
+                ", ".join(m.nick for m in membros),
+            )
+        else:
+            log.warning(
+                "Presenca: os %d [[membro]] (%s) NAO estao contidos — com "
+                "CHATWOOT_TELEFONES_COMANDO vazio qualquer remetente alcanca "
+                "TODO comando, inclusive .corrigir e .pegou.",
+                len(membros),
+                ", ".join(m.nick for m in membros),
+            )
 
-    for primeiro, segundo in colisoes_de_telefone(config.telefones_de_comando, membros):
-        # NAO derruba o scanner, e a proporcao e deliberada: uma colisao entre
-        # dois MEMBROS nao escala privilegio nenhum, e recusar a subir por
-        # causa dela deixaria o usuario sem vigia por um erro de digitacao. Um
-        # aviso alto, nomeando as duas linhas, e o que ele consegue consertar.
+    _recusar_telefones_de_dono_curtos(config.telefones_de_comando)
+
+    perigosas = []
+    for colisao in colisoes_de_telefone(config.telefones_de_comando, membros):
+        # A PROPORCAO E O ASSUNTO DESTE BLOCO, e ela mudou onde precisava.
+        #
+        # Colisao membro contra membro (ou dono contra dono) continua sendo
+        # AVISO: ninguem ganha poder, e derrubar o scanner por um erro de
+        # digitacao deixaria o usuario sem vigia. Colisao dono contra membro e
+        # outra coisa — e uma escalada de privilegio silenciosa para dentro de
+        # `.corrigir`/`.pegou`, que reescrevem o `.loot/`, pasta que nunca e
+        # podada e nao tem backup. Um `log.warning` num console que rola nao e
+        # mitigacao para isso: quem esta farmando nao le o console.
         log.warning(
-            "TELEFONES AMBIGUOS: '%s' e '%s' terminam nos mesmos 8 digitos e o "
-            "scanner nao consegue distinguir os dois.",
-            primeiro,
-            segundo,
+            "TELEFONES AMBIGUOS: '%s' (%s) e '%s' (%s) terminam nos mesmos %d "
+            "digitos e o scanner nao consegue distinguir os dois.",
+            colisao.primeiro,
+            colisao.origem_do_primeiro,
+            colisao.segundo,
+            colisao.origem_do_segundo,
+            DIGITOS_FINAIS_DO_TELEFONE,
         )
-        log.warning(
-            "Se um deles for de CHATWOOT_TELEFONES_COMANDO e o outro de um "
-            "[[membro]], aquele party-mate alcanca TODOS os comandos, "
-            "inclusive .corrigir e .pegou. Troque um dos dois."
+        if colisao.escala_privilegio:
+            perigosas.append(colisao)
+        else:
+            log.warning(
+                "Os dois sao do mesmo nivel (%s): ninguem ganha comando novo, "
+                "mas um .join pode ser creditado ao nick errado. Troque um "
+                "dos dois.",
+                colisao.origem_do_primeiro,
+            )
+
+    if perigosas:
+        linhas = "\n".join(
+            f"  - '{c.primeiro}' ({c.origem_do_primeiro}) e "
+            f"'{c.segundo}' ({c.origem_do_segundo})"
+            for c in perigosas
+        )
+        raise ConfiguracaoPerigosa(
+            "ESCALADA DE PRIVILEGIO NA CONFIGURACAO — o scanner nao vai subir.\n"
+            f"{linhas}\n"
+            "Um lado veio de CHATWOOT_TELEFONES_COMANDO (.env) e o outro de um "
+            "[[membro]] (config.toml), e o scanner nao consegue distinguir os "
+            "dois. Aquele party-mate alcancaria .corrigir e .pegou, que "
+            "reescrevem a estatistica do .loot/ — pasta que nunca e podada e "
+            "nao tem backup.\n"
+            "Escreva os dois numeros por inteiro (com +55 e DDD), ou tire um "
+            "dos dois lados."
         )
     return leitor
+
+
+def _recusar_telefones_de_dono_curtos(telefones: list[str]) -> None:
+    """Um numero de dono mais curto que o corte de comparacao nao e allowlist.
+
+    `telefone_equivalente` compara os `DIGITOS_FINAIS_DO_TELEFONE` finais; uma
+    entrada com menos digitos que isso cai no ramo de igualdade completa e
+    passa a casar com o SUFIXO de qualquer telefone que termine igual — quer
+    dizer, com meio mundo. E o mesmo corte que `_membro_de_dict` ja exige do
+    lado do `config.toml`; exigir dos dois lados e o que impede a allowlist de
+    ser mais frouxa que a comparacao que ela alimenta.
+    """
+    curtos = [
+        t for t in telefones if 0 < len(so_digitos(t)) < DIGITOS_FINAIS_DO_TELEFONE
+    ]
+    if not curtos:
+        return
+    raise ConfiguracaoPerigosa(
+        "CHATWOOT_TELEFONES_COMANDO tem numero curto demais: "
+        + ", ".join(f"'{t}'" for t in curtos)
+        + f".\nO scanner compara os {DIGITOS_FINAIS_DO_TELEFONE} digitos "
+        "finais, e um numero mais curto que isso autoriza gente que voce nao "
+        'escreveu. Ponha o numero inteiro, com DDD: "+5544999998888".'
+    )
 
 
 def _para_o_console(resposta: str) -> str:
@@ -1719,7 +1795,11 @@ def main() -> int:
     # ele nao olha para a tela, entao exigir qualquer uma das duas seria
     # inventar um requisito que a funcionalidade nao tem.
     if args.so_agenda:
-        return laco_da_agenda(args)
+        try:
+            return laco_da_agenda(args)
+        except ConfiguracaoPerigosa as erro:
+            log.error("%s", erro)
+            return 2
 
     janela_pedida = args.janela == "AUTO"
 
@@ -1763,6 +1843,14 @@ def main() -> int:
     try:
         return laco_principal(args, cal)
     except JanelaNaoEncontrada as erro:
+        log.error("%s", erro)
+        return 2
+    except ConfiguracaoPerigosa as erro:
+        # RECUSAR A SUBIR e o desfecho certo, e nao um aviso: enquanto a
+        # colisao dono contra membro existir, um party-mate alcanca .corrigir
+        # e .pegou. Um scanner que nao liga ate o numero ser desambiguado e
+        # menos ruim que uma escalada de privilegio dentro de uma estatistica
+        # permanente que ninguem faz backup.
         log.error("%s", erro)
         return 2
 

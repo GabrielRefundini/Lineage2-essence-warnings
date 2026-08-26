@@ -19,9 +19,14 @@ from l2scanner.agenda import AgendaInvalida
 from l2scanner.comandos import (
     _AJUDA,
     COMANDOS_DE_MEMBRO,
+    ORIGEM_DONO,
+    ORIGEM_MEMBRO,
     Comando,
+    ConfiguracaoPerigosa,
     LeitorDeComandos,
     Membro,
+    _mesma_pessoa,
+    autorizado_para,
     chave_da_mensagem,
     colisoes_de_telefone,
     comandos_novos,
@@ -1560,6 +1565,62 @@ class TestMembroNoConfigToml:
         with pytest.raises(AgendaInvalida):
             ler_membros(caminho)
 
+    def test_membro_que_nao_e_bloco_diz_QUAL_ARQUIVO_esta_errado(self, tmp_path):
+        """WR-04: `membro = "Kaus"` no lugar de `[[membro]]`.
+
+        E o erro exato que um nao-desenvolvedor comete, e ele produzia
+        `AttributeError: 'str' object has no attribute 'get'` — um traceback
+        que nao diz uma palavra sobre o config.toml, o oposto do contrato
+        escrito na docstring de `ler_membros`.
+        """
+        caminho = self._arquivo(tmp_path, 'membro = "isto nao e uma lista"\n')
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_membros(caminho)
+        assert "[[membro]]" in str(erro.value)
+
+    def test_lista_de_valores_crus_tambem_e_erro_de_config_e_nao_AttributeError(
+        self, tmp_path
+    ):
+        caminho = self._arquivo(tmp_path, "membro = [1, 2]\n")
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_membros(caminho)
+        assert "[[membro]] #1" in str(erro.value)
+
+    def test_dois_membros_com_o_mesmo_nick_sao_recusados(self, tmp_path):
+        """WR-05: dois blocos com o mesmo nick dividem a MESMA vaga em disco.
+
+        A lista e indexada por `apelido(nick)`: o segundo a mandar `.join`
+        receberia "voce ja esta na lista" sem nunca ter entrado, e o `.leave`
+        de um tiraria o outro.
+        """
+        caminho = self._arquivo(
+            tmp_path,
+            '[[membro]]\nnick = "Kaus"\ntelefone = "+5544999998888"\n\n'
+            '[[membro]]\nnick = "Kaus"\ntelefone = "+5544977776666"\n',
+        )
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_membros(caminho)
+        assert "Kaus" in str(erro.value)
+
+    def test_a_colisao_de_nick_e_pelo_SLUG_e_nao_pelo_texto(self, tmp_path):
+        """`Kaus` e `kaus` sao dois blocos no TOML e um arquivo so em disco."""
+        caminho = self._arquivo(
+            tmp_path,
+            '[[membro]]\nnick = "Kaus"\ntelefone = "+5544999998888"\n\n'
+            '[[membro]]\nnick = "kaus"\ntelefone = "+5544977776666"\n',
+        )
+        with pytest.raises(AgendaInvalida):
+            ler_membros(caminho)
+
+    def test_telefone_mais_curto_que_o_corte_de_comparacao_e_recusado(self, tmp_path):
+        """CR-01: um numero mais curto que os 8 digitos comparados casa demais."""
+        caminho = self._arquivo(
+            tmp_path, '[[membro]]\nnick = "Kaus"\ntelefone = "8888"\n'
+        )
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_membros(caminho)
+        assert "Kaus" in str(erro.value)
+
     def test_o_config_toml_do_REPOSITORIO_nao_carrega_telefone_de_ninguem(self):
         """O arquivo versionado leva so exemplo COMENTADO.
 
@@ -1649,10 +1710,13 @@ class TestColisaoDeTelefone:
             ["+5544997077000"],
             (Membro(nick="Korzis", telefone="+5511997077000"),),
         )
-        assert pares == [("+5544997077000", "+5511997077000")], (
+        assert pares == [
+            ("+5544997077000", "+5511997077000", ORIGEM_DONO, ORIGEM_MEMBRO)
+        ], (
             "DDDs diferentes com os mesmos 8 digitos finais: e exatamente o "
             "caso em que o membro herda o poder do dono sem ninguem ver"
         )
+        assert pares[0].escala_privilegio is True
 
     def test_membro_contra_membro_tambem_aparece(self):
         """Nao escala privilegio, mas credita o `.join` de um ao nick do outro."""
@@ -1663,11 +1727,17 @@ class TestColisaoDeTelefone:
                 Membro(nick="J4guar", telefone="+5511912345678"),
             ),
         )
-        assert pares == [("+5544912345678", "+5511912345678")]
+        assert pares == [
+            ("+5544912345678", "+5511912345678", ORIGEM_MEMBRO, ORIGEM_MEMBRO)
+        ]
+        assert pares[0].escala_privilegio is False
 
     def test_dono_contra_dono_tambem_aparece(self):
         pares = colisoes_de_telefone(["+5544912345678", "+5511912345678"])
-        assert pares == [("+5544912345678", "+5511912345678")]
+        assert pares == [
+            ("+5544912345678", "+5511912345678", ORIGEM_DONO, ORIGEM_DONO)
+        ]
+        assert pares[0].escala_privilegio is False
 
     def test_o_nono_digito_NAO_e_colisao(self):
         """E a mesma pessoa escrita de dois jeitos — redundancia, nao ambiguidade.
@@ -1696,7 +1766,74 @@ class TestColisaoDeTelefone:
             ["+55 (44) 99707-7000"],
             (Membro(nick="Korzis", telefone="+5511997077000"),),
         )
-        assert pares == [("+55 (44) 99707-7000", "+5511997077000")]
+        assert pares == [
+            ("+55 (44) 99707-7000", "+5511997077000", ORIGEM_DONO, ORIGEM_MEMBRO)
+        ]
+
+
+class TestOSufixoNaoProvaIdentidade:
+    """CR-01: a supressao por sufixo calava o par que ESCALA privilegio.
+
+    `_mesma_pessoa` existe para nao gritar quando o usuario escreveu o proprio
+    numero de duas maneiras. Enquanto ela aceitou "um e sufixo do outro", ela
+    tambem calou o par dono contra membro sempre que o lado do dono estava
+    escrito curto — e um numero curto e sufixo de meio mundo.
+
+    O probe do code review, na integra: com `CHATWOOT_TELEFONES_COMANDO`
+    valendo `99998888` e o `[[membro]]` Korzis em `+5544999998888`, o Korzis
+    alcancava `.corrigir` e `.pegou` — que reescrevem o `.loot/`, pasta sem
+    poda e sem backup — e o arranque nao dizia UMA palavra.
+    """
+
+    DONO_CURTO = ["99998888"]
+    KORZIS = Membro(nick="Korzis", telefone="+5544999998888")
+
+    def test_o_probe_do_review_agora_e_uma_colisao_visivel(self):
+        pares = colisoes_de_telefone(self.DONO_CURTO, (self.KORZIS,))
+        assert pares, (
+            "silencio aqui e a escalada de privilegio do CR-01: o par existe, "
+            "autoriza, e nao aparece em lugar nenhum"
+        )
+        assert pares[0].escala_privilegio is True
+        assert pares[0].origem_do_primeiro == ORIGEM_DONO
+        assert pares[0].origem_do_segundo == ORIGEM_MEMBRO
+
+    def test_e_o_par_realmente_autorizava_o_membro_no_comando_de_loot(self):
+        """A outra metade do probe: sem a colisao visivel, isto passa calado."""
+        assert (
+            autorizado_para(
+                Comando.LOOT_CORRIGIR,
+                {"phone_number": "+5544999998888"},
+                self.DONO_CURTO,
+                (self.KORZIS,),
+            )
+            is True
+        ), "se um dia isto virar False a colisao deixa de ser perigosa; ate la, e"
+
+    def test_o_mesmo_numero_com_e_sem_o_nono_digito_continua_calado(self):
+        """A supressao legitima nao pode ter sido jogada fora junto."""
+        assert _mesma_pessoa("+5544997077000", "554497077000") is True
+        assert _mesma_pessoa("+5544997077000", "+5544997077000") is True
+
+    def test_o_mesmo_numero_com_e_sem_o_codigo_de_pais_tambem(self):
+        """A outra metade do ruido que o review mediu.
+
+        Isto passou a importar quando o par dono contra membro deixou de ser
+        aviso e virou recusa de arranque: quem escreveu o proprio numero das
+        duas maneiras nao pode ficar sem scanner por redundancia.
+        """
+        assert _mesma_pessoa("5544999998888", "44999998888") is True
+        assert (
+            colisoes_de_telefone(
+                ["+5544999998888"],
+                (Membro(nick="Yaza", telefone="44999998888"),),
+            )
+            == []
+        )
+
+    def test_sufixo_NAO_e_mais_prova_de_identidade(self):
+        assert _mesma_pessoa("99998888", "+5544999998888") is False
+        assert _mesma_pessoa("97077000", "+5544997077000") is False
 
 
 class TestArranqueComMembros:
@@ -1749,22 +1886,93 @@ class TestArranqueComMembros:
         assert "Korzis" in caplog.text and "J4guar" in caplog.text
         assert ".join" in caplog.text
 
-    def test_a_colisao_dono_contra_membro_GRITA_nomeando_os_dois(
-        self, monkeypatch, caplog
-    ):
+    def test_a_colisao_dono_contra_membro_RECUSA_A_SUBIR(self, monkeypatch, caplog):
+        """CR-01: avisar nao e mitigar uma escalada de privilegio.
+
+        Este teste ja existia e afirmava o contrario — `leitor is not None`,
+        com a justificativa de que "entre dois membros ela nao escala
+        privilegio nenhum". A justificativa esta certa e o caso estava errado:
+        o par usado e dono contra membro, que e exatamente o que escala. Quem
+        roda com o console rolando nunca ia ver o warning, e o Korzis alcancava
+        `.corrigir` e `.pegou` no `.loot/`, pasta sem poda e sem backup.
+
+        A recusa e o desfecho certo: um scanner que nao liga ate o numero ser
+        desambiguado custa alguns minutos; a escalada custa meses de
+        estatistica, em silencio.
+        """
         membros = [Membro(nick="Korzis", telefone="+5511997077000")]
-        leitor = self._montar(monkeypatch, ["+5544997077000"], membros, caplog)
-        avisos = [r for r in caplog.records if r.levelno >= logging.WARNING]
-        texto = "\n".join(r.getMessage() for r in avisos)
-        assert "+5544997077000" in texto and "+5511997077000" in texto
+        with pytest.raises(ConfiguracaoPerigosa) as erro:
+            self._montar(monkeypatch, ["+5544997077000"], membros, caplog)
+
+        texto = str(erro.value)
+        assert "+5544997077000" in texto and "+5511997077000" in texto, (
+            "a recusa precisa nomear as duas linhas, senao o usuario nao sabe "
+            "o que consertar"
+        )
         assert ".corrigir" in texto, (
-            "o aviso precisa dizer a CONSEQUENCIA, nao so que os numeros sao "
+            "a recusa precisa dizer a CONSEQUENCIA, nao so que os numeros sao "
             "parecidos"
         )
-        assert leitor is not None, (
-            "uma colisao avisa alto, mas nao derruba o scanner: entre dois "
-            "membros ela nao escala privilegio nenhum"
-        )
+
+    def test_o_probe_do_review_derruba_o_arranque(self, monkeypatch, caplog):
+        """O probe do CR-01 na integra, pelo caminho real do arranque."""
+        membros = [Membro(nick="Korzis", telefone="+5544999998888")]
+        with pytest.raises(ConfiguracaoPerigosa):
+            self._montar(monkeypatch, ["99998888"], membros, caplog)
+
+    def test_a_colisao_entre_dois_MEMBROS_avisa_e_deixa_subir(
+        self, monkeypatch, caplog
+    ):
+        """A proporcao que a justificativa do teste antigo descrevia.
+
+        Aqui ninguem ganha comando novo — o dano e um `.join` creditado ao nick
+        errado — e recusar a subir deixaria o usuario sem vigia por um erro de
+        digitacao.
+        """
+        membros = [
+            Membro(nick="Korzis", telefone="+5544997077000"),
+            Membro(nick="J4guar", telefone="+5511997077000"),
+        ]
+        leitor = self._montar(monkeypatch, ["+5544912345678"], membros, caplog)
+        avisos = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        texto = "\n".join(r.getMessage() for r in avisos)
+        assert "TELEFONES AMBIGUOS" in texto
+        assert leitor is not None
+
+    def test_telefone_de_dono_curto_demais_derruba_o_arranque(
+        self, monkeypatch, caplog
+    ):
+        """Uma allowlist mais frouxa que a comparacao que a alimenta nao e allowlist.
+
+        `99998888` tem exatamente os 8 digitos comparados e passa neste corte —
+        quem pega esse caso e a recusa por colisao, dois testes acima. Aqui o
+        alvo e o numero que nem chega ao corte.
+        """
+        with pytest.raises(ConfiguracaoPerigosa) as erro:
+            self._montar(monkeypatch, ["7000"], [], caplog)
+        assert "7000" in str(erro.value)
+
+    def test_sem_allowlist_de_dono_o_arranque_NAO_promete_contencao(
+        self, monkeypatch, caplog
+    ):
+        """WR-03: `autor_autorizado` devolve True para todo mundo com a lista vazia.
+
+        Nesse estado "Nenhum deles alcanca comando de loot" e falso exatamente
+        quando importa — e essa e a frase que da confianca ao usuario.
+        """
+        membros = [Membro(nick="Korzis", telefone="+5544912345678")]
+        self._montar(monkeypatch, [], membros, caplog)
+        assert "Nenhum deles alcanca comando de loot" not in caplog.text
+        avisos = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        texto = "\n".join(r.getMessage() for r in avisos)
+        assert ".corrigir" in texto and "CHATWOOT_TELEFONES_COMANDO" in texto
+
+    def test_com_allowlist_de_dono_a_promessa_continua_sendo_feita(
+        self, monkeypatch, caplog
+    ):
+        membros = [Membro(nick="Korzis", telefone="+5544912345678")]
+        self._montar(monkeypatch, ["+5544997077000"], membros, caplog)
+        assert "Nenhum deles alcanca comando de loot" in caplog.text
 
     def test_sem_membro_o_arranque_loga_exatamente_como_antes(
         self, monkeypatch, caplog

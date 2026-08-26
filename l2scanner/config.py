@@ -22,8 +22,8 @@ from .agenda import (
 # importacoes, que ja e fixa no pacote: `config -> comandos -> loot -> agenda`.
 # Definir `Membro` neste arquivo obrigaria `comandos` a importar `config`, e o
 # ciclo fecharia no primeiro uso.
-from .comandos import Membro, so_digitos
-from .loot import NICK_VALIDO
+from .comandos import DIGITOS_FINAIS_DO_TELEFONE, Membro, so_digitos
+from .loot import NICK_VALIDO, apelido
 from .notificador import ConfigChatwoot
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -295,10 +295,44 @@ def ler_membros(caminho: Path | None = None) -> list[Membro]:
     except tomllib.TOMLDecodeError as erro:
         raise AgendaInvalida(f"{caminho.name} nao e um TOML valido: {erro}") from erro
 
-    return [_membro_de_dict(bruto, i) for i, bruto in enumerate(dados.get("membro", []))]
+    membros = [
+        _membro_de_dict(bruto, i) for i, bruto in enumerate(dados.get("membro", []))
+    ]
+    _recusar_nicks_repetidos(membros)
+    return membros
 
 
-def _membro_de_dict(bruto: dict, indice: int) -> Membro:
+def _recusar_nicks_repetidos(membros: list[Membro]) -> None:
+    """Dois `[[membro]]` nao podem dividir a mesma vaga na lista de presenca.
+
+    A lista e indexada por `apelido(nick)`, entao dois blocos que reduzem ao
+    mesmo slug disputam o arquivo `presenca_<chave>_<slug>`: o segundo a mandar
+    `.join` recebe "voce ja esta na lista" sem nunca ter entrado, e o `.leave`
+    de um tira o outro. `nomes_dos_membros` tambem colapsa em silencio, porque
+    e um dict por slug.
+
+    E o MESMO modo de falha que `colisoes_de_telefone` trata no eixo do
+    telefone, deixado aberto no eixo do nick — e aqui ele nem precisa de aviso,
+    porque nao existe caso legitimo de dois party-mates com o mesmo nick: o
+    servidor nao permite.
+
+    A comparacao e pelo SLUG e nao pelo texto: `Kaus` e `kaus` sao dois blocos
+    diferentes no TOML e o mesmo arquivo em disco.
+    """
+    vistos: dict[str, str] = {}
+    for membro in membros:
+        slug = apelido(membro.nick)
+        anterior = vistos.get(slug)
+        if anterior is not None:
+            raise AgendaInvalida(
+                f"membro '{membro.nick}': o nick colide com '{anterior}' — dois "
+                f"blocos [[membro]] nao podem dividir a mesma vaga na lista de "
+                f"presenca. Use nicks diferentes, ou apague o bloco repetido."
+            )
+        vistos[slug] = membro.nick
+
+
+def _membro_de_dict(bruto: object, indice: int) -> Membro:
     """Valida um bloco [[membro]] e diz exatamente o que esta errado.
 
     Mesmo padrao de `onde` do `_evento_de_dict`: cita o NICK sempre que ele
@@ -310,7 +344,27 @@ def _membro_de_dict(bruto: dict, indice: int) -> Membro:
     quem pega o loot. Um charset so para os dois lados, senao um nick aceito
     aqui seria recusado no `.loot-<nick>` e o registro de presenca e o de loot
     falariam de pessoas diferentes.
+
+    O `bruto` chega como `object` e a PRIMEIRA coisa que acontece e a checagem
+    de tipo. `membro = "Kaus"` no lugar de `[[membro]]` e o erro exato que um
+    nao-desenvolvedor comete, e sem esta linha ele produzia
+    `AttributeError: 'str' object has no attribute 'get'` — um traceback que
+    nao diz uma palavra sobre o config.toml, que e o oposto do contrato escrito
+    na docstring de `ler_membros`.
+
+    O telefone precisa de pelo menos `DIGITOS_FINAIS_DO_TELEFONE` digitos.
+    Nao e capricho: e o corte que `telefone_equivalente` usa para comparar, e
+    um numero mais curto que ele casa por igualdade completa com qualquer
+    entrada cujo sufixo bata — quer dizer, uma allowlist configurada com menos
+    digitos do que o scanner compara nao e uma allowlist, e um convite.
     """
+    if not isinstance(bruto, dict):
+        raise AgendaInvalida(
+            f"[[membro]] #{indice + 1}: precisa ser um bloco [[membro]] com "
+            f"nick e telefone, e nao {type(bruto).__name__}. Escreva assim:\n"
+            '  [[membro]]\n  nick = "Kaus"\n  telefone = "+5544999998888"'
+        )
+
     onde = f"membro '{bruto['nick']}'" if bruto.get("nick") else f"[[membro]] #{indice + 1}"
 
     nick = str(bruto.get("nick", "")).strip()
@@ -327,9 +381,17 @@ def _membro_de_dict(bruto: dict, indice: int) -> Membro:
         raise AgendaInvalida(
             f"{onde}: falta o campo 'telefone'. Exemplo: telefone = \"+5544999998888\""
         )
-    if not so_digitos(telefone):
+    digitos = so_digitos(telefone)
+    if not digitos:
         raise AgendaInvalida(
             f"{onde}: telefone '{telefone}' nao tem digito nenhum."
+        )
+    if len(digitos) < DIGITOS_FINAIS_DO_TELEFONE:
+        raise AgendaInvalida(
+            f"{onde}: telefone '{telefone}' tem so {len(digitos)} digito(s). "
+            f"O scanner compara os {DIGITOS_FINAIS_DO_TELEFONE} digitos finais, "
+            f"e um numero mais curto que isso casa com gente demais. "
+            'Escreva o numero inteiro, com DDD: "+5544999998888".'
         )
 
     return Membro(nick=nick, telefone=telefone)
