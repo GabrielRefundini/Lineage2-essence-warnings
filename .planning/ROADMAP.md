@@ -236,7 +236,7 @@ Plans:
 ### Phase 10: Lista de presenca do Solo Boss pelo WhatsApp
 
 **Goal**: A party sabe com uma hora e cinquenta de antecedencia quem vai no proximo Solo Boss, sem ninguem perguntar de boca — o scanner pergunta no grupo, cada um responde `.join` no privado, e a lista se fecha sozinha no horario
-**Requirements**: TBD (derivar em /gsd-plan-phase)
+**Requirements**: PRES-01, PRES-02, PRES-03, PRES-04, PRES-05, PRES-06, PRES-07, PRES-08, PRES-09, PRES-10, PRES-11, PRES-12, PRES-13, PRES-14, PRES-15
 **Depends on**: Phase 9
 **Success Criteria** (what must be TRUE):
 
@@ -247,7 +247,14 @@ Plans:
   5. No horario do boss a lista se fecha e o grupo recebe quem confirmou; a lista fechada alimenta o revezamento de loot existente, de modo que a vez do proximo boss so seja sugerida entre quem estava presente
   6. Tudo isso e demonstravel sem o jogo aberto e sem rede: o tempo entra por parametro, a etiqueta e o mapa telefone->nick entram por dado, e a corrida entre as duas instancias do usuario tem teste proprio — a mesma disciplina que `agenda.py` e `loot.py` ja seguem
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 10-01-PLAN.md — A autorizacao em dois niveis, sozinha (PRES-03, PRES-04)
+- [ ] 10-02-PLAN.md — A chamada de 1h50: `TipoDeAviso.CHAMADA` e `chamar_minutos_antes` (PRES-01, PRES-02)
+- [ ] 10-03-PLAN.md — A lista de presenca em disco, a poda consertada e o `.join`/`.leave` (PRES-05 a PRES-11, PRES-13, PRES-15)
+- [ ] 10-04-PLAN.md — O fechamento no horario, no tick e com o jogo fechado (PRES-12)
+- [ ] 10-05-PLAN.md — A lista sugere a vez do loot, sem escrever em `.loot/` (PRES-14, PRES-15)
 
 **CORRECAO (2026-08-26)**: a descoberta de conversa por etiqueta JA EXISTE — `LeitorDeComandos(etiqueta=...)` e `_por_etiqueta()` em `comandos.py`, ligados por `CHATWOOT_ETIQUETA_COMANDO` no `.env`, redescobrindo a cada leitura. Nao ha polling novo a construir. O que falta e outra coisa: a trava de QUEM (`autor_autorizado`) e global hoje, entao por o telefone de um membro nela daria a ele todos os comandos, inclusive os destrutivos.
 

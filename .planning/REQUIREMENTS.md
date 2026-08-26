@@ -188,6 +188,62 @@ categoria de problema que o projeto ainda nao tinha.
 - Deixar `--so-agenda` rodando e ver um aviso real chegar no WhatsApp
 - Atravessar um TvT de verdade e confirmar que o silêncio cala e o encerramento chega
 
+## v3 Requirements — Milestone "Lista de presença do Solo Boss"
+
+**Definido:** 2026-08-26 (derivado em `/gsd-plan-phase 10`)
+**Por que este milestone existe:** o milestone v1 respondeu "o que aconteceu
+na tela" e o v2 respondeu "que horas são". Este responde uma terceira: "quem
+vai". Nenhum pixel está envolvido, e o dado novo não vem do jogo nem do
+relógio — vem das pessoas, pelo WhatsApp.
+
+O coração da fase não é a lista: é a **autorização em dois níveis**. Hoje
+`autor_autorizado` é global, e pôr o telefone de quatro a oito party-mates
+nela daria a todos eles `.corrigir` e `.pegou`, que reescrevem estatística
+permanente numa pasta sem poda e sem backup. É por isso que o nível novo vem
+primeiro e sozinho no roadmap.
+
+### Presença (PRES)
+
+- [ ] **PRES-01**: A 1h50 antes de cada ocorrência de Solo Boss o grupo recebe uma chamada com o horário do próximo boss, e o aviso de 10 minutos antes continua saindo intacto
+- [ ] **PRES-02**: A chamada é opt-in por evento: só o `[[evento]]` que declarar `chamar_minutos_antes` ganha o aviso novo — TvT e Prime não mudam de comportamento em nada
+- [ ] **PRES-03**: Um telefone declarado em `[[membro]]` no `config.toml` alcança exclusivamente `.join` e `.leave`; `.cancelar`, `.solo`, `.party`, `.status`, `.loot-<nick>`, `.<nick>`, `.corrigir-<nick>`, `.pegou` e `.help` são recusados para ele
+- [ ] **PRES-04**: O nível de dono (`CHATWOOT_TELEFONES_COMANDO`) continua alcançando TODOS os comandos, inclusive `.join` e `.leave` — o nível de membro é ADITIVO, nunca exclusivo
+- [ ] **PRES-05**: Um `.join` no privado do bot põe o nick do remetente na lista da próxima ocorrência, e o grupo recebe a confirmação com o NICK configurado, nunca com o nome do contato do WhatsApp
+- [ ] **PRES-06**: `.join` repetido responde no privado que a pessoa já está na lista e NÃO produz uma segunda mensagem no grupo
+- [ ] **PRES-07**: `.join` fora de qualquer janela é aceito e vale para a próxima ocorrência; a resposta sempre diz QUAL horário pegou
+- [ ] **PRES-08**: `.leave` tira quem desistiu da lista e o grupo fica sabendo; `.leave` de quem nunca deu `.join` responde isso e não anuncia nada
+- [ ] **PRES-09**: A confirmação sai nos dois lugares com redações DIFERENTES: uma linha curta no privado de quem mandou e a confirmação no grupo
+- [ ] **PRES-10**: A lista mora no `.agenda/` com prefixo próprio, criada com `O_CREAT|O_EXCL`, e as duas instâncias do usuário nunca produzem uma confirmação em dobro
+- [ ] **PRES-11**: Marcadores de presença são podados junto com os demais depois de 3 dias — a lista morre quando o boss passa, ao contrário da estatística de loot
+- [ ] **PRES-12**: No horário do boss a lista fecha e o grupo recebe quem confirmou; zero confirmações produz zero mensagem, e o fechamento não depende de ligar `avisar_no_horario`
+- [ ] **PRES-13**: `.leave` depois do fechamento é recusado, dizendo que o boss já começou
+- [ ] **PRES-14**: A vez do próximo loot é SUGERIDA entre quem estava na lista fechada; `.loot-<nick>` de quem não joinou avisa e OBEDECE — nunca recusa
+- [ ] **PRES-15**: Tudo é demonstrável com o jogo fechado e sem rede: o tempo entra por parâmetro, o mapa telefone→nick entra por dado, e a corrida entre as duas instâncias tem teste próprio
+
+## Out of Scope (deste milestone)
+
+| Feature | Reason |
+|---------|--------|
+| Chamada para TvT e Prime | O mecanismo fica genérico nesta fase, mas ligar em outros eventos é outro volume de mensagem e decisão de outro dia |
+| `.join` de convidado fora do `[[membro]]` | Hoje ele é simplesmente ignorado; um fluxo de convite é uma fase própria |
+| Estatística de presença ("quantos Solo Boss o J4guar foi") | A lista é podada em 3 dias de propósito; virar estatística exigiria pasta sem poda, como o `.loot/` |
+| Cutucar no privado quem não respondeu | Superfície nova de mensagem, individual, e merece decisão separada |
+| Bloquear `.loot-<nick>` de quem não joinou | A autoridade é o usuário, não o registro. Bloquear transformaria conveniência em obstáculo no pior momento |
+| Consertar a poda dos marcadores `comando_<id>` | Observado nesta fase: eles também nunca são podados, porque não têm data no nome. Resolver exige outro desenho de chave |
+
+### Traceability — Milestone v3
+
+| Requisito | Plano | Status |
+|---|---|---|
+| PRES-03, PRES-04 | 10-01 | Pending |
+| PRES-01, PRES-02 | 10-02 | Pending |
+| PRES-05 a PRES-11, PRES-13, PRES-15 | 10-03 | Pending |
+| PRES-12 | 10-04 | Pending |
+| PRES-14, PRES-15 | 10-05 | Pending |
+
+**Cobertura v3:** 15 de 15 mapeados. Nenhum requisito sem plano, nenhum plano
+sem requisito.
+
 ## Traceability
 
 | Requirement | Phase | Status |
