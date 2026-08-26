@@ -75,7 +75,6 @@ from .loot import (  # noqa: E402
     responder_consulta,
     responder_correcao,
     responder_designacao,
-    sugerir_a_vez,
 )
 from . import ocr  # noqa: E402
 from .frames import MssSource, Regiao, ReplaySource, SaudeDoFrame  # noqa: E402
@@ -96,11 +95,9 @@ from .notificador import (  # noqa: E402
 )
 from .presenca import (  # noqa: E402
     RespostaDePresenca,
-    fechar_ocorrencias,
-    nomes_dos_membros,
+    fechar_e_narrar,
     responder_join,
     responder_leave,
-    texto_de_fechamento,
 )
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
@@ -1008,17 +1005,21 @@ def _fechar_listas_de_presenca(
     plano 10-04, so sem a sugestao. Quem roda `--so-agenda` e justamente quem
     esta longe do jogo, e perder a lista fechada por falta de uma estatistica
     de conveniencia seria o pior negocio possivel.
+
+    A DECISAO E O TEXTO MORAM EM `presenca.fechar_e_narrar`, e nao aqui
+    (WR-08): esta sequencia estava duplicada literalmente com
+    `sessao.Sessao._processar_agenda`. As duas copias escrevem no MESMO
+    `.agenda/` e falam no MESMO grupo, e o usuario roda os dois modos — um
+    conserto aplicado so de um lado faria `--so-agenda` e o laco principal
+    anunciarem coisas diferentes sobre o mesmo boss. Aqui fica so o que e deste
+    modo: o log e o despacho.
     """
-    fechados = fechar_ocorrencias(registro, eventos, agora)
-    nomes = nomes_dos_membros(membros) if fechados else {}
     hora = agora.strftime("%H:%M")
-    for fechamento in fechados:
-        # A leitura da lista acontece AQUI, na borda: `loot.py` recebe os
-        # presentes por parametro e nunca importa `presenca`.
-        sugestao = (
-            sugerir_a_vez(loot, frozenset(fechamento.nicks)) if loot else None
-        )
-        texto = texto_de_fechamento(fechamento, nomes, sugestao)
+    fechados = []
+    for fechamento, texto in fechar_e_narrar(
+        registro, eventos, agora, membros, loot
+    ):
+        fechados.append(fechamento)
         log.info(destacar(texto, hora=hora))
         if despachante:
             # A MESMA moldura do console vai para o celular, e `SEMPRE`: a

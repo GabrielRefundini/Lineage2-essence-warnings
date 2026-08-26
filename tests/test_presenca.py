@@ -39,9 +39,11 @@ from l2scanner.agenda import (
 from l2scanner.presenca import (
     Fechamento,
     RespostaDePresenca,
+    fechar_e_narrar,
     fechar_ocorrencias,
     nomes_dos_membros,
     ocorrencia_da_chamada,
+    ocorrencia_do_join,
     ocorrencia_recem_fechada,
     responder_join,
     responder_leave,
@@ -379,11 +381,16 @@ class TestLeave:
         assert "22:00" in resposta.privado
         assert "nao estava" in resposta.privado.lower()
 
-    def test_quem_entrou_na_lista_das_2200_sai_dela_as_2001(self, registro):
-        """O caso simetrico: ha o que apagar, e e da ocorrencia certa."""
-        responder_join(registro, [solo_boss()], em(20, 1), "Kaus")
+    def test_quem_entrou_na_lista_das_2200_sai_dela(self, registro):
+        """O caso simetrico: ha o que apagar, e e da ocorrencia certa.
 
-        resposta = responder_leave(registro, [solo_boss()], em(20, 2), "Kaus")
+        O `.join` e as 20:06, FORA da tolerancia de 5 minutos — dentro dela ele
+        falaria do boss das 20:00, que acabou de nascer (ver
+        `ocorrencia_do_join`). Este teste e sobre a lista SEGUINTE.
+        """
+        responder_join(registro, [solo_boss()], em(20, 6), "Kaus")
+
+        resposta = responder_leave(registro, [solo_boss()], em(20, 7), "Kaus")
 
         assert resposta.grupo is not None
         assert "22:00" in resposta.grupo
@@ -398,6 +405,169 @@ class TestLeave:
         resposta = responder_leave(registro, [sem_chamada()], em(18, 15), "J4guar")
         assert resposta.grupo is None
         assert "chamar_minutos_antes" in resposta.privado
+
+
+class TestOLeaveNaoFicaQuebradoCincoMinutosPorBoss:
+    """WR-02: a recusa de historico era consultada antes de qualquer coisa.
+
+    `.leave` nao tem argumento. Enquanto a recusa vinha primeiro, quem estava
+    na lista que acabou de fechar nao conseguia sair da lista SEGUINTE durante
+    toda a tolerancia de 5 minutos — e ainda recebia uma recusa citando uma
+    ocorrencia que ele nem mencionou. Com doze ocorrencias por dia isso e uma
+    hora inteira por dia de comando quebrado.
+    """
+
+    CHAVE_2000 = "2026-08-24_solo-boss-2000"
+    CHAVE_2200 = "2026-08-24_solo-boss-2200"
+
+    def test_quem_estava_nas_DUAS_listas_sai_da_que_ainda_da(self, registro):
+        registro.entrar(self.CHAVE_2000, "kaus")
+        registro.entrar(self.CHAVE_2200, "kaus")
+
+        resposta = responder_leave(registro, [solo_boss()], em(20, 1), "Kaus")
+
+        assert "22:00" in resposta.privado, (
+            "a recusa de historico respondeu por uma ocorrencia que o usuario "
+            "nem mencionou, e a lista das 22:00 ficou intocada"
+        )
+        assert registro.presentes(self.CHAVE_2200) == frozenset()
+
+    def test_e_a_lista_FECHADA_continua_intocada_D14(self, registro):
+        """A garantia de D-14 e a CHAVE, e nunca foi a mensagem de recusa."""
+        registro.entrar(self.CHAVE_2000, "kaus")
+        registro.entrar(self.CHAVE_2200, "kaus")
+
+        responder_leave(registro, [solo_boss()], em(20, 1), "Kaus")
+
+        assert registro.presentes(self.CHAVE_2000) == frozenset({"kaus"}), (
+            "o .leave reabriu historico: a lista das 20:00 ja foi ao grupo e "
+            "ja alimentou a sugestao da vez do loot"
+        )
+
+    def test_quem_so_estava_na_fechada_ainda_recebe_a_recusa(self, registro):
+        """A recusa continua existindo — ela so parou de vir na frente de tudo."""
+        registro.entrar(self.CHAVE_2000, "kaus")
+
+        resposta = responder_leave(registro, [solo_boss()], em(20, 1), "Kaus")
+
+        assert resposta.grupo is None
+        assert "20:00" in resposta.privado
+        assert "comecou" in resposta.privado.lower()
+        assert registro.presentes(self.CHAVE_2000) == frozenset({"kaus"})
+
+
+class TestOJoinAtrasadoPelaPonte:
+    """WR-01: o `.join` que a ponte Baileys entregou depois do alvo.
+
+    A docstring de `fechar_ocorrencias` defendia a ordem "ler antes de marcar"
+    com este cenario — e ele era impossivel, porque `responder_join` resolvia
+    por `proxima_ocorrencia`, que exige `alvo > agora` estritamente. O `.join`
+    de 20:00:03 caia silenciosamente no boss de DUAS HORAS DEPOIS e a pessoa
+    achava que tinha confirmado o boss que estava comecando.
+    """
+
+    CHAVE_2000 = "2026-08-24_solo-boss-2000"
+
+    def test_dentro_da_tolerancia_o_join_fala_do_boss_que_acabou_de_nascer(self):
+        assert ocorrencia_do_join(em(20, 3), [solo_boss()]) == (
+            "Solo Boss",
+            em(20, 0),
+        )
+
+    def test_fora_da_tolerancia_volta_a_ser_o_proximo(self):
+        assert ocorrencia_do_join(em(20, 6), [solo_boss()]) == (
+            "Solo Boss",
+            em(22, 0),
+        )
+
+    def test_antes_do_alvo_nada_muda(self):
+        assert ocorrencia_do_join(em(18, 15), [solo_boss()]) == (
+            "Solo Boss",
+            em(20, 0),
+        )
+
+    def test_o_LEAVE_continua_estritamente_no_futuro(self):
+        """A tolerancia e do `.join` e so dele: D-14 proibe reabrir a fechada."""
+        assert ocorrencia_da_chamada(em(20, 1), [solo_boss()]) == (
+            "Solo Boss",
+            em(22, 0),
+        )
+
+    def test_o_join_de_200003_entra_na_lista_das_2000_e_e_ANUNCIADO(
+        self, registro
+    ):
+        """O cenario da docstring, de ponta a ponta, agora de verdade.
+
+        As 20:00:00 a lista esta vazia: lendo antes de marcar, nenhum marcador
+        e queimado. As 20:00:03 chega o `.join`. O tick de 20:00:04 fecha e
+        anuncia — que e exatamente o que a docstring sempre afirmou acontecer.
+        """
+        eventos = [solo_boss()]
+        assert fechar_ocorrencias(registro, eventos, em(20, 0)) == []
+
+        resposta = responder_join(
+            registro, eventos, datetime(2026, 8, 24, 20, 0, 3), "J4guar"
+        )
+        assert "20:00" in resposta.privado, (
+            "o .join atrasado caiu no boss de duas horas depois: a pessoa acha "
+            "que confirmou o boss que esta comecando"
+        )
+        assert registro.presentes(self.CHAVE_2000) == frozenset({"j4guar"})
+
+        fechados = fechar_ocorrencias(
+            registro, eventos, datetime(2026, 8, 24, 20, 0, 4)
+        )
+        assert [f.nicks for f in fechados] == [("j4guar",)]
+
+
+class TestOQueSeAnunciaVemDaLeituraQueVENCEU:
+    """WR-10: a leitura que decide SE anunciar nao pode decidir O QUE anunciar.
+
+    Com as duas instancias do usuario sobre a mesma pasta, um `.join` gravado
+    entre a leitura e o `fechar` existe em disco e nao apareceria na mensagem —
+    e nunca apareceria, porque o marcador ja foi queimado.
+    """
+
+    CHAVE = "2026-08-24_solo-boss-2000"
+
+    def test_um_join_gravado_entre_a_leitura_e_o_marcador_ainda_aparece(
+        self, registro, monkeypatch
+    ):
+        original = registro.fechar
+
+        def fechar_com_corrida(chave):
+            # A outra instancia grava o `.join` exatamente na janela entre a
+            # leitura e a criacao do marcador.
+            registro.entrar(self.CHAVE, "korzis")
+            return original(chave)
+
+        registro.entrar(self.CHAVE, "kaus")
+        monkeypatch.setattr(registro, "fechar", fechar_com_corrida)
+
+        fechados = fechar_ocorrencias(registro, [solo_boss()], em(20, 0))
+
+        assert [f.nicks for f in fechados] == [("kaus", "korzis")], (
+            "o korzis esta na lista em disco e ausente da lista que a party "
+            "leu — e o marcador ja foi queimado, entao ele nunca vai aparecer"
+        )
+
+    def test_releitura_vazia_nao_apaga_a_lista_que_ia_ser_anunciada(
+        self, registro, monkeypatch
+    ):
+        """O `or presentes`: disco travando bem no instante da releitura."""
+        registro.entrar(self.CHAVE, "kaus")
+        original = registro.fechar
+
+        def fechar_e_travar(chave):
+            ok = original(chave)
+            monkeypatch.setattr(registro, "presentes", lambda _: frozenset())
+            return ok
+
+        monkeypatch.setattr(registro, "fechar", fechar_e_travar)
+
+        fechados = fechar_ocorrencias(registro, [solo_boss()], em(20, 0))
+
+        assert [f.nicks for f in fechados] == [("kaus",)]
 
 
 class TestNomesDosMembros:
@@ -654,6 +824,165 @@ class TestTextoDeFechamento:
         nenhum = texto_de_fechamento(self.UM, sugestao=("kaus", 0))
         assert um.endswith("Sugestao de loot: Kaus (1 loot).")
         assert nenhum.endswith("Sugestao de loot: Kaus (ainda nenhum).")
+
+
+class TestFecharENarrar:
+    """CR-02 e WR-08: a UNICA implementacao da sequencia de fechamento.
+
+    Ela existe por duas razoes que se somam. WR-08: os cinco passos estavam
+    duplicados literalmente entre `sessao` e `__main__`, escrevendo no MESMO
+    `.agenda/` e falando no MESMO grupo — um conserto aplicado de um lado so
+    faria os dois modos do scanner anunciarem coisas diferentes sobre o mesmo
+    boss. CR-02: o conserto que precisava ser aplicado era exatamente este.
+    """
+
+    CHAVE_2000 = "2026-08-24_solo-boss-2000"
+
+    class MembroFalso:
+        def __init__(self, nick):
+            self.nick = nick
+
+    def _loot(self, tmp_path):
+        from l2scanner.loot import RegistroDeLoot
+
+        return RegistroDeLoot(tmp_path / "loot")
+
+    def test_sem_loot_a_lista_fecha_e_sai_sem_sugestao(self, registro):
+        registro.entrar(self.CHAVE_2000, "kaus")
+
+        narrados = fechar_e_narrar(registro, [solo_boss()], em(20, 0))
+
+        assert [t for _, t in narrados] == [
+            "Solo Boss das 20:00 comecando. Confirmaram: Kaus."
+        ]
+
+    def test_lista_vazia_nao_narra_nada(self, registro):
+        assert fechar_e_narrar(registro, [solo_boss()], em(20, 0)) == []
+
+    def test_com_loot_e_sem_dono_deste_boss_a_sugestao_SAI(self, registro, tmp_path):
+        loot = self._loot(tmp_path)
+        registro.entrar(self.CHAVE_2000, "kaus")
+
+        narrados = fechar_e_narrar(registro, [solo_boss()], em(20, 0), (), loot)
+
+        assert narrados[0][1].endswith("Sugestao de loot: Kaus (ainda nenhum).")
+
+    def test_quando_ESTE_boss_ja_tem_dono_a_sugestao_e_CALADA(
+        self, registro, tmp_path
+    ):
+        """CR-02, no ponto exato em que o bot se desmentia.
+
+        O `.loot-Kaus` das 20:00 ja foi consumido e o credito esta em disco. A
+        sugestao calculada depois disso aponta necessariamente para OUTRA
+        pessoa — porque o Kaus acabou de ganhar um loot no placar — e a frase
+        ia colada numa mensagem que fala do boss que esta COMECANDO. Dez
+        minutos antes, o aviso de antecedencia do MESMO boss saiu no MESMO
+        grupo com "Loot: Kaus".
+        """
+        loot = self._loot(tmp_path)
+        loot.registrar("kaus", em(20, 0))
+        registro.entrar(self.CHAVE_2000, "kaus")
+        registro.entrar(self.CHAVE_2000, "j4guar")
+
+        narrados = fechar_e_narrar(registro, [solo_boss()], em(20, 0), (), loot)
+
+        assert narrados[0][1] == (
+            "Solo Boss das 20:00 comecando. Confirmaram: J4guar, Kaus."
+        ), "a mensagem sugeriu um loot que contradiz o dono ja registrado"
+
+    def test_o_dono_de_OUTRO_boss_nao_cala_a_sugestao_deste(
+        self, registro, tmp_path
+    ):
+        """Guarda contra prova vazia: a supressao e por OCORRENCIA, nao global."""
+        loot = self._loot(tmp_path)
+        loot.registrar("kaus", em(18, 0))
+        registro.entrar(self.CHAVE_2000, "kaus")
+        registro.entrar(self.CHAVE_2000, "j4guar")
+
+        narrados = fechar_e_narrar(registro, [solo_boss()], em(20, 0), (), loot)
+
+        assert narrados[0][1].endswith("Sugestao de loot: J4guar (ainda nenhum).")
+
+    def test_um_pegou_mandado_a_mao_tambem_cala_a_sugestao(
+        self, registro, tmp_path
+    ):
+        """O disco sabe o que o retorno de `consumir` nao conta.
+
+        `.pegou` registra dono sem passar por designacao nenhuma, e `consumir`
+        devolve `None` quando a OUTRA instancia venceu a corrida do `pegou_`.
+        Nos dois casos, so a leitura do disco responde certo.
+        """
+        loot = self._loot(tmp_path)
+        loot.registrar("j4guar", em(20, 0))
+        registro.entrar(self.CHAVE_2000, "kaus")
+
+        narrados = fechar_e_narrar(registro, [solo_boss()], em(20, 0), (), loot)
+
+        assert "Sugestao de loot" not in narrados[0][1]
+
+    def test_os_membros_dao_a_grafia_do_config(self, registro):
+        registro.entrar(self.CHAVE_2000, "tiomad")
+
+        narrados = fechar_e_narrar(
+            registro, [solo_boss()], em(20, 0), [self.MembroFalso("TioMad")]
+        )
+
+        assert "TioMad" in narrados[0][1] and "Tiomad" not in narrados[0][1]
+
+    def test_D13_continua_valendo_a_lista_SUGERE_e_nao_manda(self):
+        """Calar a sugestao nao bloqueia nada: `.loot-<nick>` segue obedecendo.
+
+        Lido do codigo: `responder_designacao` nao pode ter ganhado uma recusa
+        por causa deste conserto. Um bloqueio ali transformaria uma
+        conveniencia em obstaculo no pior momento — alguem chegou sem avisar e
+        a party precisa designar agora.
+        """
+        import inspect
+
+        from l2scanner.loot import responder_designacao
+
+        fonte = inspect.getsource(responder_designacao)
+        assert "presenca" in fonte, "o aviso de quem nao confirmou sumiu"
+        assert "designar(" in fonte, "a designacao deixou de ser gravada"
+
+
+class TestUmaImplementacaoSoDoFechamento:
+    """WR-08: os dois modos do scanner nao podem divergir sobre o mesmo boss.
+
+    Lido por AST, e nao por grep: as docstrings desta fase escrevem os nomes
+    das duas funcoes de proposito, ao explicar a restricao.
+    """
+
+    def _chamadas(self, modulo: str, funcao: str) -> set[str]:
+        arvore = ast.parse((RAIZ / "l2scanner" / modulo).read_text(encoding="utf-8"))
+        alvo = next(
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and no.name == funcao
+        )
+        return {
+            no.func.id
+            for no in ast.walk(alvo)
+            if isinstance(no, ast.Call) and isinstance(no.func, ast.Name)
+        }
+
+    @pytest.mark.parametrize(
+        "modulo,funcao",
+        [
+            ("sessao.py", "_processar_agenda"),
+            ("__main__.py", "_fechar_listas_de_presenca"),
+        ],
+    )
+    def test_os_dois_lados_chamam_a_mesma_funcao(self, modulo, funcao):
+        chamadas = self._chamadas(modulo, funcao)
+        assert "fechar_e_narrar" in chamadas, (
+            f"{modulo}:{funcao} montou a propria sequencia de fechamento — "
+            "qualquer conserto a partir daqui precisa ser feito duas vezes"
+        )
+        assert not ({"sugerir_a_vez", "texto_de_fechamento"} & chamadas), (
+            f"{modulo}:{funcao} voltou a decidir sozinho o texto do fechamento"
+        )
 
 
 class TestFormaDoTexto:
