@@ -18,6 +18,7 @@ import cv2
 import pytest
 
 from l2scanner.cliente import (
+    FAIXA_DO_DIALOGO,
     EstadoDoCliente,
     carregar_template,
     casar_dialogo,
@@ -30,6 +31,13 @@ from l2scanner.rastreador import Ajustes, Evento, Rastreador, TipoDeEvento
 from l2scanner.visao import EstadoDaLinha, LeituraDeLinha, Observacao
 
 FIXTURES = Path(__file__).parent / "fixtures" / "cliente"
+FIXTURES_DE_GAMEPLAY = Path(__file__).parent / "fixtures" / "gameplay"
+FAIXA_DE_GAMEPLAY = "faixa_com_inventario.png"
+
+# A janela real do cliente do usuario, de onde a fixture de gameplay foi
+# recortada: altura x largura, na ordem de `ndarray.shape`. O tripwire da
+# geometria refaz a conta da faixa a partir daqui.
+JANELA_MEDIDA = (1392, 1720)
 
 
 class TestTituloDaJanela:
@@ -100,6 +108,107 @@ class TestTemplateDoDialogo:
         assert casar_dialogo(None, None) is None
         estado = estado_do_cliente("Yazalaque - XM Essence", None, None)
         assert estado is EstadoDoCliente.EM_JOGO
+
+
+class TestOTemplateContraGameplayNormal:
+    """O negativo que faltava: o frame contra o qual o scanner roda 99% do tempo.
+
+    Ate hoje o template do dialogo so tinha sido medido contra o positivo real
+    (0.9997) e contra a tela de login (0.5051). Nunca contra a janela do jogo
+    RODANDO NORMAL — que e, justamente, o frame que o scanner ve o dia inteiro.
+    "O risco e baixo porque terreno com textura nao se parece com uma caixa
+    cinza" era INFERENCIA, e a regra do projeto e explicita: nada de limiar no
+    chute.
+
+    MEDIDO em 2026-08-26, n=10 frames de janela inteira 1720x1392, capturados
+    da tela do usuario com o jogo rodando:
+
+        score minimo              0.3068
+        score maximo              0.4662
+        limiar de producao        0.90
+        margem no pior frame      0.4338
+
+    Os 10 frames incluem o pior negativo que o jogo produz naturalmente:
+    INVENTARIO E MERCADO ABERTOS ao mesmo tempo — que sao literalmente caixas
+    cinzas com botoes, a coisa na tela mais parecida com o dialogo. Mesmo esse
+    ficou na METADE do limiar.
+
+    Por que so a FAIXA foi guardada, e nao a janela inteira: 464 KB contra
+    3,6 MB (as fixtures do projeto ficam entre 76 KB e 192 KB), com o score
+    PRESERVADO — 0.4618 na faixa, identico ao da janela inteira, porque a busca
+    de producao ja acontece dentro da faixa. E o recorte cumpre o passo 4 da
+    propria pendencia: o chat, que fica embaixo a esquerda com nomes e
+    mensagens de outros jogadores, cai FORA da faixa central.
+    """
+
+    def test_gameplay_normal_com_inventario_aberto_nao_casa(self):
+        """O pior negativo real fica na metade do limiar. Medido: 0.4618.
+
+        `cv2.matchTemplate` e chamado DIRETO, e nao `casar_dialogo`, porque a
+        fixture JA E a faixa de busca: `casar_dialogo` recortaria uma faixa DA
+        FAIXA e mediria outra regiao (ver o terceiro teste desta classe).
+        """
+        faixa = cv2.imread(str(FIXTURES_DE_GAMEPLAY / FAIXA_DE_GAMEPLAY))
+        assert faixa is not None
+        template = carregar_template()
+        assert template is not None
+
+        pontuacao = float(
+            cv2.matchTemplate(faixa, template, cv2.TM_CCOEFF_NORMED).max()
+        )
+        # O criterio de aceite escrito pela propria pendencia de 2026-08-24.
+        assert pontuacao < 0.70, f"casou {pontuacao:.4f}"
+        # E a folga ate o limiar de producao, que e o que de fato protege.
+        assert 0.90 - pontuacao > 0.40, f"folga de {0.90 - pontuacao:.4f}"
+
+    def test_a_fixture_e_exatamente_a_faixa_de_busca(self):
+        """Tripwire: a medicao acima so vale enquanto a faixa for ESTA.
+
+        Alargar `FAIXA_DO_DIALOGO` sem remedir deixaria o teste anterior verde
+        medindo uma regiao que o scanner nao usa mais — verde MENTINDO. A conta
+        e escrita aqui de proposito, em vez dos numeros prontos: ela e a mesma
+        que `casar_dialogo` faz sobre a janela real.
+        """
+        altura, largura = JANELA_MEDIDA
+        fx0, fy0, fx1, fy1 = FAIXA_DO_DIALOGO
+        esperado = (
+            int(altura * fy1) - int(altura * fy0),
+            int(largura * fx1) - int(largura * fx0),
+        )
+
+        faixa = cv2.imread(str(FIXTURES_DE_GAMEPLAY / FAIXA_DE_GAMEPLAY))
+        assert faixa is not None
+        assert faixa.shape[:2] == esperado, (
+            f"a fixture e {faixa.shape[:2]}, mas FAIXA_DO_DIALOGO sobre "
+            f"{JANELA_MEDIDA} da {esperado} — remedir antes de mexer na faixa"
+        )
+
+    def test_casar_dialogo_sobre_a_faixa_mede_uma_regiao_menor(self):
+        """A armadilha, registrada como teste para ninguem cair nela de novo.
+
+        `casar_dialogo` calcula a faixa A PARTIR do que recebe. Entregar a ele
+        a faixa ja recortada faz ele recortar uma faixa DA FAIXA: as posicoes
+        candidatas viram um SUBCONJUNTO das anteriores, entao o maximo so pode
+        CAIR. Medido: 0.3586 contra 0.4618 do `matchTemplate` direto.
+
+        Por isso a faixa-da-faixa nao serve como medicao — ela travaria um
+        numero otimista por acidente, e o otimismo estaria do lado errado.
+        """
+        faixa = cv2.imread(str(FIXTURES_DE_GAMEPLAY / FAIXA_DE_GAMEPLAY))
+        template = carregar_template()
+
+        direto = float(
+            cv2.matchTemplate(faixa, template, cv2.TM_CCOEFF_NORMED).max()
+        )
+        faixa_da_faixa = casar_dialogo(faixa, template)
+        assert faixa_da_faixa is not None
+
+        assert faixa_da_faixa <= direto, (
+            f"recortar duas vezes mediu MAIS ({faixa_da_faixa:.4f} contra "
+            f"{direto:.4f}) — a conta da faixa mudou"
+        )
+        assert direto < 0.70, f"matchTemplate direto casou {direto:.4f}"
+        assert faixa_da_faixa < 0.70, f"casou {faixa_da_faixa:.4f}"
 
 
 class TestEstadoDoCliente:
