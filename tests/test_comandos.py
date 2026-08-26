@@ -932,6 +932,10 @@ class TestRespondeOndePerguntaram:
         class LeitorFalso:
             ativo = True
             telefones: list[str] = []
+            # `atender_comandos` le `membros` do leitor desde o plano 10-03b —
+            # e o elo que liga os blocos `[[membro]]` do config.toml ao caminho
+            # real. Vazio aqui porque estes testes sao sobre o nivel de DONO.
+            membros: list = []
 
             def ler(self, _):
                 return [
@@ -1004,6 +1008,10 @@ class TestLootNaCostura:
         class LeitorFalso:
             ativo = True
             telefones: list[str] = []
+            # `atender_comandos` le `membros` do leitor desde o plano 10-03b —
+            # e o elo que liga os blocos `[[membro]]` do config.toml ao caminho
+            # real. Vazio aqui porque estes testes sao sobre o nivel de DONO.
+            membros: list = []
 
             def ler(self, _):
                 return [
@@ -1188,6 +1196,10 @@ class TestAjudaNaCostura:
         class LeitorFalso:
             ativo = True
             telefones: list[str] = []
+            # `atender_comandos` le `membros` do leitor desde o plano 10-03b —
+            # e o elo que liga os blocos `[[membro]]` do config.toml ao caminho
+            # real. Vazio aqui porque estes testes sao sobre o nivel de DONO.
+            membros: list = []
 
             def ler(self, _):
                 return [
