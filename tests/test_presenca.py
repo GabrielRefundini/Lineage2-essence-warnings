@@ -619,3 +619,326 @@ class TestSemRelogioProprio:
             if isinstance(no, ast.Attribute) and no.attr == "now"
         ]
         assert achados, "o detector nao acharia nem um datetime.now() literal"
+
+
+# ---------------------------------------------------------------------------
+# A COSTURA: `atender_comandos` e o funil unico por onde toda resposta sai.
+#
+# As pecas abaixo sao de MODULO e nao de classe, de proposito: a tabela de
+# regressao dos comandos antigos e a prova dos ramos novos exercitam a MESMA
+# funcao pelo MESMO caminho. Duas montagens paralelas provariam que cada uma
+# concorda consigo mesma, em vez de provar o despacho.
+# ---------------------------------------------------------------------------
+
+# O telefone da allowlist de DONO. Precisa ser o de dono para que TODOS os
+# ramos sejam alcancaveis num teste so: o nivel de membro (plano 10-01) alcanca
+# exclusivamente `.join` e `.leave`, entao um telefone de membro nao chegaria
+# perto do `.corrigir` nem do `.pegou`.
+DONO = "+5544997077000"
+
+
+class DespachanteQueGrava:
+    """Grava `(texto, categoria, conversa_alvo)` em vez de mandar para a rede.
+
+    O `Despachante` de verdade tem fila e thread; usa-lo aqui obrigaria cada
+    teste a `iniciar()`/`encerrar()` e mediria o TRANSPORTE, que nao e o que
+    esta em jogo. O que esta em jogo e o DESTINO, e o destino e o terceiro
+    argumento desta chamada.
+
+    Truthy de proposito: `atender_comandos` testa `if not despachante`, entao
+    um falso que implementasse `__len__` ou `__bool__` sairia silenciosamente
+    do caminho que ele existe para exercitar.
+    """
+
+    def __init__(self) -> None:
+        self.despachos: list[tuple[str, object, str | None]] = []
+
+    def despachar(self, texto, categoria=None, conversa_alvo=None) -> None:
+        self.despachos.append((texto, categoria, conversa_alvo))
+
+    @property
+    def alvos(self) -> list:
+        """So os destinos, na ordem em que sairam. `None` e o grupo."""
+        return [conversa for _, _, conversa in self.despachos]
+
+    @property
+    def textos(self) -> list:
+        return [texto for texto, _, _ in self.despachos]
+
+
+class LeitorDeUmaMensagem:
+    """Um `LeitorDeComandos` falso que devolve UMA mensagem crua.
+
+    Carrega `telefones` E `membros` porque as duas listas sao o que
+    `atender_comandos` consulta do leitor. Um falso sem `membros` mediria um
+    leitor que nao existe em producao — e `membros` e justamente o elo que liga
+    o nivel de autorizacao do plano 10-01 ao caminho real.
+
+    A mensagem e CRUA (dict como a API do Chatwoot devolve) de proposito: as
+    travas de `comandos_novos` — tipo, nota privada, id repetido, vocabulario e
+    autorizacao — tem de rodar de verdade. Montar `MensagemDeComando` a mao
+    aqui pularia justamente a costura, que e onde os erros deste projeto moram.
+    """
+
+    ativo = True
+
+    def __init__(
+        self,
+        texto: str,
+        *,
+        conversa=None,
+        telefone: str = DONO,
+        membros=(),
+        identificador: int = 4242,
+    ) -> None:
+        self.telefones = [telefone]
+        self.membros = list(membros)
+        self._mensagem = {
+            "id": identificador,
+            "content": texto,
+            "message_type": 0,
+            "private": False,
+            "sender": {"name": "Yazalaque", "phone_number": telefone},
+            "conversation_id": conversa,
+        }
+
+    def ler(self, _monotonico):
+        return [self._mensagem]
+
+
+def eventos_classicos() -> list:
+    """A agenda de ANTES desta fase: ninguem pediu chamada.
+
+    Deliberadamente sem `chamar_minutos_antes`. A tabela de regressao dos
+    comandos antigos nao pode depender de nenhuma peca da lista de presenca —
+    se dependesse, ela deixaria de medir "o que o codigo fazia antes".
+    """
+    return [
+        EventoAgendado(nome="Prime", horarios=((20, 0),), silenciar_minutos=120),
+        EventoAgendado(
+            nome="Solo Boss",
+            horarios=tuple((h, 0) for h in range(0, 24, 2)),
+            avisar_no_horario=False,
+        ),
+    ]
+
+
+def despachos_de(
+    texto: str,
+    tmp_path,
+    *,
+    eventos=None,
+    agora=None,
+    conversa="1",
+    telefone: str = DONO,
+    membros=(),
+    loot=None,
+    registro=None,
+    identificador: int = 4242,
+    rastreador=None,
+) -> DespachanteQueGrava:
+    """Roda `atender_comandos` como o LACO roda, e devolve o que saiu.
+
+    `agora` e `datetime`, `monotonico` e float: os dois relogios de
+    `atender_comandos` nao sao intercambiaveis, e passar um so foi o crash de
+    producao de 2026-08-24 (`TypeError: '>=' not supported between 'timedelta'
+    and 'float'`). Este helper existe, em parte, para que nenhum teste desta
+    fase nasca com aquele erro dentro.
+
+    `registro` e injetavel para o caso de DUAS chamadas sobre o mesmo disco —
+    e o que o `.join` repetido precisa, e um registro novo a cada chamada
+    apagaria justamente a memoria que ele existe para exercitar.
+    """
+    import time
+
+    from l2scanner.__main__ import atender_comandos
+
+    despachante = DespachanteQueGrava()
+    atender_comandos(
+        LeitorDeUmaMensagem(
+            texto,
+            conversa=conversa,
+            telefone=telefone,
+            membros=membros,
+            identificador=identificador,
+        ),
+        registro if registro is not None else RegistroEmDisco(tmp_path / "agenda"),
+        list(eventos) if eventos is not None else eventos_classicos(),
+        despachante,
+        agora if agora is not None else em(20, 30),
+        time.monotonic(),
+        rastreador,
+        loot=loot,
+    )
+    return despachante
+
+
+class TestDestinoDosComandosAntigos:
+    """A tabela dos comandos que ja existiam, e para onde cada um responde.
+
+    ESTA CLASSE FOI ESCRITA E RODADA VERDE ANTES DE O BLOCO DE DESPACHO SER
+    TOCADO, e essa ordem e a razao de ela existir. Um teste escrito depois de
+    uma refatoracao prova que a refatoracao concorda consigo mesma; escrito
+    antes, ele e a rede. O git guarda a prova: o commit desta classe vem antes
+    do commit que generaliza o `__main__.py`, e o diff entre os dois nao a
+    toca.
+
+    O modo de falha que ela existe para pegar e SILENCIOSO — a mensagem chega,
+    no lugar errado — e ja aconteceu neste projeto: `.status` perguntado as
+    23:04:42 na conversa 1 (privado) foi respondido as 23:04:52 na conversa 13
+    (grupo), e o usuario concluiu que nao tinha funcionado.
+
+    O QUE ELA AFIRMA E SO O DESTINO, nunca a redacao inteira de uma mensagem.
+    Amarrar a frase faria a rede quebrar em toda melhoria de texto, e uma rede
+    que grita a toa e uma rede que se aprende a ignorar.
+    """
+
+    # (rotulo, texto digitado, o grupo recebe o eco?)
+    #
+    # `eco_no_grupo=True` significa, hoje, "o grupo recebe o MESMO texto do
+    # privado" — e e isso que os casos abaixo afirmam, comparando os dois.
+    TABELA = [
+        (".cancelar", ".cancelar", True),
+        (".solo", ".solo", True),
+        (".party", ".party", True),
+        (".status", ".status", False),
+        (".help", ".help", False),
+        (".loot-<nick>", ".loot-J4guar", False),
+        (".loot-", ".loot-", False),
+        (".<nick>", ".J4guar", False),
+        (".corrigir-<nick>", ".corrigir-Korzis", False),
+        (".pegou <hora> <nick>", ".pegou 18:00 Korzis", False),
+    ]
+
+    def _loot(self, tmp_path):
+        """Um registro de loot com J4guar ja conhecido.
+
+        `.<nick>` so e reconhecido para nick CONHECIDO — o portao contra o
+        scanner responder lixo a qualquer palavra com ponto. Sem este registro
+        o caso da consulta nao chegaria ao despacho, e o teste passaria
+        provando nada.
+        """
+        from l2scanner.loot import RegistroDeLoot
+
+        loot = RegistroDeLoot(tmp_path / "loot")
+        loot.registrar("J4guar", em(18, 0))
+        return loot
+
+    @pytest.mark.parametrize(
+        "rotulo,texto,eco_no_grupo",
+        TABELA,
+        ids=[linha[0] for linha in TABELA],
+    )
+    def test_destino_de_cada_comando_antigo(
+        self, rotulo, texto, eco_no_grupo, tmp_path
+    ):
+        despachante = despachos_de(texto, tmp_path, loot=self._loot(tmp_path))
+
+        assert despachante.despachos, f"{rotulo} nao respondeu nada"
+        assert despachante.alvos[0] == "1", (
+            f"{rotulo} tinha que responder na conversa de origem; "
+            f"o primeiro despacho foi para {despachante.alvos[0]!r}"
+        )
+
+        if eco_no_grupo:
+            assert despachante.alvos == ["1", None], (
+                f"{rotulo} tinha que responder na origem E avisar o grupo; "
+                f"os destinos foram {despachante.alvos}"
+            )
+            assert despachante.textos[0] == despachante.textos[1], (
+                f"{rotulo} ecoou no grupo com texto DIFERENTE do privado"
+            )
+        else:
+            assert despachante.alvos == ["1"], (
+                f"{rotulo} tinha que responder SO na conversa de origem; "
+                f"os destinos foram {despachante.alvos}"
+            )
+
+    @pytest.mark.parametrize(
+        "rotulo,texto,eco_no_grupo",
+        TABELA,
+        ids=[linha[0] for linha in TABELA],
+    )
+    def test_todo_destino_antigo_atravessa_o_silencio(
+        self, rotulo, texto, eco_no_grupo, tmp_path
+    ):
+        """Resposta de comando e `Categoria.SEMPRE`, sem excecao.
+
+        `Categoria.NORMAL` e cortada no transporte quando ha silencio de
+        TvT/Prime. Uma resposta de comando cortada assim seria a mesma falha
+        silenciosa do destino errado, vestida de outra roupa: quem digitou nao
+        recebe nada e conclui que o bot morreu — justo quando ele esta calado
+        DE PROPOSITO e mais precisaria dizer isso.
+        """
+        from l2scanner.notificador import Categoria
+
+        despachante = despachos_de(texto, tmp_path, loot=self._loot(tmp_path))
+
+        categorias = {categoria for _, categoria, _ in despachante.despachos}
+        assert categorias == {Categoria.SEMPRE}, (
+            f"{rotulo} despachou com categoria {categorias}"
+        )
+
+    def test_a_tabela_cobre_todo_comando_ANTIGO_do_enum(self):
+        """Guarda contra prova vazia: nenhum ramo antigo ficou de fora.
+
+        DERIVADA do enum e nao digitada: `set(Comando)` menos os comandos que
+        esta fase acrescenta (`COMANDOS_DE_MEMBRO` e exatamente `.join` e
+        `.leave`). Um comando novo no enum entra nesta prova sozinho — e se ele
+        nao tiver linha na tabela, este teste diz o NOME dele, em vez de o
+        silencio custar uma regressao de destino.
+        """
+        from l2scanner.comandos import (
+            COMANDOS_DE_MEMBRO,
+            Comando,
+            interpretar,
+            interpretar_dinamico,
+        )
+
+        conhecidos = frozenset({"j4guar", "korzis"})
+        cobertos = set()
+        for _, texto, _ in self.TABELA:
+            comando = interpretar(texto)
+            if comando is None:
+                dinamico = interpretar_dinamico(texto, conhecidos)
+                assert dinamico is not None, f"{texto!r} nao e comando nenhum"
+                comando = dinamico[0]
+            cobertos.add(comando)
+
+        antigos = set(Comando) - COMANDOS_DE_MEMBRO
+        assert antigos, "o conjunto derivado ficou vazio; a prova nao prova nada"
+        faltando = antigos - cobertos
+        assert not faltando, (
+            "comando sem linha na tabela de destino: "
+            + ", ".join(sorted(c.name for c in faltando))
+        )
+
+    def test_sem_conversa_de_origem_a_resposta_cai_no_grupo(self, tmp_path):
+        """Compatibilidade: melhor responder em algum lugar do que em nenhum.
+
+        Mensagem sem `conversation_id` nao deveria acontecer com a API atual,
+        mas o caminho existe desde antes desta fase e a generalizacao do bloco
+        de despacho passa exatamente por ele.
+        """
+        despachante = despachos_de(".status", tmp_path, conversa=None)
+        assert despachante.alvos == [None]
+
+    def test_sem_despachante_nada_levanta(self, tmp_path):
+        """Rodar sem `.env` e um modo suportado — o log continua saindo.
+
+        `atender_comandos` nunca levanta: vigiar a party e o trabalho, ouvir
+        comando e um extra. Este caso passa pelo `if not despachante` que fica
+        DEPOIS do log, e a generalizacao do bloco nao pode perde-lo.
+        """
+        import time
+
+        from l2scanner.__main__ import atender_comandos
+
+        atender_comandos(
+            LeitorDeUmaMensagem(".status", conversa="1"),
+            RegistroEmDisco(tmp_path / "agenda"),
+            eventos_classicos(),
+            None,
+            em(20, 30),
+            time.monotonic(),
+        )
