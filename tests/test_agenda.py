@@ -631,30 +631,84 @@ class TestAgendaRealDoUsuario:
             ("TvT", TipoDeAviso.AGORA, "23:00"),
         ]
 
-    def test_solo_boss_avisa_de_duas_em_duas_horas_so_com_antecedencia(self, agenda):
-        """12 ocorrencias em horario par, UM aviso cada.
+    def test_solo_boss_chama_e_avisa_mas_nunca_fala_no_horario(self, agenda):
+        """12 ocorrencias, DOIS avisos cada — e nenhum deles no horario.
 
-        Com dois avisos cada seriam 24 mensagens por dia — tres vezes o volume
-        de TvT e Prime somados. Por isso `avisar_no_horario = false`.
+        Este teste ja travou em 12. Subiu para 24 por DECISAO (D-01, a chamada
+        de 1h50), nao por acidente: o que ele protege nunca foi o total, foi o
+        `avisar_no_horario = false`. Um aviso de AGORA aqui significaria as 12
+        mensagens da meia-noite as 22h que o usuario desligou de proposito na
+        Fase 6, e nenhuma chamada as compraria de volta.
+
+        As duas contagens sao afirmadas SEPARADAS. Se um dia so uma delas
+        mudar, o total continuaria batendo e o teste nao veria nada.
         """
         saidas = [
             s for s in self._varrer_um_dia(agenda, SEGUNDA) if s[0] == "Solo Boss"
         ]
-        assert len(saidas) == 12
-        assert all(tipo is TipoDeAviso.ANTES for _, tipo, _ in saidas), (
+        assert len(saidas) == 24, "Solo Boss: 12 chamadas + 12 antecedencias"
+
+        assert not [s for s in saidas if s[1] is TipoDeAviso.AGORA], (
             "algum aviso saiu no horario; avisar_no_horario deveria estar false"
         )
-        assert [hora for _, _, hora in saidas] == [
-            f"{h:02d}:50" for h in list(range(1, 24, 2))
-        ]
+
+        antes = [hora for _, tipo, hora in saidas if tipo is TipoDeAviso.ANTES]
+        chamadas = [hora for _, tipo, hora in saidas if tipo is TipoDeAviso.CHAMADA]
+
+        # 10 minutos antes de cada boss par -> sempre HH:50 em hora impar.
+        assert antes == [f"{h:02d}:50" for h in list(range(1, 24, 2))]
+        assert len(antes) == 12
+
+        # 110 minutos antes de cada boss par -> HH:10 em hora PAR, porque 1h50
+        # antes de um boss e dez minutos depois do boss anterior. E essa a
+        # medida de campo inteira, visivel aqui na forma dos horarios.
+        assert chamadas == [f"{h:02d}:10" for h in list(range(0, 24, 2))]
+        assert len(chamadas) == 12
 
     def test_o_volume_diario_total_e_o_esperado(self, agenda):
-        """24 mensagens por dia. Se subir, alguem mexeu no config sem pensar.
+        """36 mensagens por dia. Se subir, alguem mexeu no config sem pensar.
+
+        Era 24. Subiu para 36 por DECISAO (D-01): a chamada de 1h50 do Solo
+        Boss acrescenta 12 perguntas por dia, uma por ocorrencia, e esse custo
+        foi aceito no CONTEXT desta fase junto com a razao do numero.
+
+        A conta, evento por evento, numa segunda:
+
+            TvT               10   5 horarios x (ANTES + AGORA)
+            Prime              2   1 horario  x (ANTES + AGORA), so seg-qui
+            Solo Boss ANTES   12   12 horarios, avisar_no_horario = false
+            Solo Boss CHAMADA 12   12 horarios x chamar_minutos_antes = 110
+            ----------------------------------------------------------------
+            total             36
 
         O grupo do WhatsApp e de pessoas, nao um feed. Este teste existe para
-        um evento novo nao dobrar o volume sem ninguem perceber.
+        um evento novo nao dobrar o volume sem ninguem perceber — e o unico
+        jeito de ele continuar servindo para isso e o numero ser ESCRITO a
+        mao, a partir da conta acima, e nunca colhido da propria execucao. Um
+        alarme calibrado pela saida que ele deveria vigiar so afirma que o
+        codigo faz o que o codigo faz.
         """
-        assert len(self._varrer_um_dia(agenda, SEGUNDA)) == 24
+        assert len(self._varrer_um_dia(agenda, SEGUNDA)) == 36
+
+    def test_tvt_e_prime_ficaram_exatamente_como_estavam(self, agenda):
+        """D-02: a chamada e opt-in, e nem TvT nem Prime pediram.
+
+        A prova aqui e de COMPORTAMENTO, contada na varredura de um dia. Ler
+        `chamar_minutos_antes == 0` no config (o que outro teste ja faz) prova
+        que o arquivo esta certo; isto prova que o motor concorda com ele.
+
+        Se algum dia alguem ligar chamada em TvT, este teste cai antes de as
+        10 mensagens virarem 15 no celular de todo mundo.
+        """
+        saidas = self._varrer_um_dia(agenda, SEGUNDA)
+        tvt = [s for s in saidas if s[0] == "TvT"]
+        prime = [s for s in saidas if s[0] == "Prime"]
+
+        assert len(tvt) == 10, "5 horarios de TvT x 2 avisos, como antes da Fase 10"
+        assert len(prime) == 2, "1 horario de Prime x 2 avisos, como antes da Fase 10"
+        assert not [
+            s for s in tvt + prime if s[1] is TipoDeAviso.CHAMADA
+        ], "TvT ou Prime ganhou chamada; o opt-in de D-02 vazou"
 
     def test_no_sabado_o_prime_nao_aparece(self, agenda):
         from datetime import timedelta
@@ -782,9 +836,18 @@ class TestRegistroEmDisco:
             instante += timedelta(minutes=1)
 
         todos = enviados_por["A"] + enviados_por["B"]
+        # A asserção que mais importa: mesmo com as duas instancias do usuario
+        # varrendo o mesmo minuto, nenhum aviso sai duas vezes. Agora ela cobre
+        # tambem a chave `_chamada`, que e nova em disco.
         assert len(todos) == len(set(todos)), "houve aviso duplicado"
-        # 24 avisos por dia (TvT 10 + Prime 2 + Solo Boss 12), dois dias.
-        assert len(todos) == 48
+        assert any(c.endswith("_chamada") for c in todos), (
+            "nenhuma chamada na varredura; a prova de nao-duplicacao nao "
+            "estaria cobrindo a chave nova"
+        )
+        # 36 avisos por dia (TvT 10 + Prime 2 + Solo Boss 12 ANTES + 12
+        # CHAMADA), dois dias. Era 48; subiu para 72 por DECISAO — a chamada
+        # de 1h50 do D-01 — e nao porque a varredura passou a devolver isso.
+        assert len(todos) == 72
 
     def test_poda_apaga_o_velho_e_preserva_o_de_hoje(self, tmp_path):
         from datetime import date as _date
