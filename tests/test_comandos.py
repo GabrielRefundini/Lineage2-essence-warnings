@@ -11,21 +11,38 @@ sobre o que o scanner se RECUSA a fazer.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
+import pytest
+
+from l2scanner.agenda import AgendaInvalida
 from l2scanner.comandos import (
     _AJUDA,
+    COMANDOS_DE_MEMBRO,
     Comando,
     LeitorDeComandos,
+    Membro,
     chave_da_mensagem,
+    colisoes_de_telefone,
     comandos_novos,
     interpretar,
     interpretar_dinamico,
     texto_de_ajuda,
 )
+from l2scanner.config import ler_membros
 from l2scanner.loot import apelido
 
 # A ordem de exibicao combinada: do que se usa no meio do farm para o meta.
-_FAMILIAS_ESPERADAS = ("Vigilancia", "Silencio", "Loot do Solo Boss", "Ajuda")
+#
+# "Presenca" entra ANTES de "Loot do Solo Boss" porque essa e a ordem do ciclo
+# do boss: primeiro a party diz quem vai, so depois se decide de quem e o loot.
+_FAMILIAS_ESPERADAS = (
+    "Vigilancia",
+    "Silencio",
+    "Presenca",
+    "Loot do Solo Boss",
+    "Ajuda",
+)
 
 
 
@@ -93,6 +110,14 @@ class TestInterpretar:
             Comando.STATUS,
             Comando.SOLO,
             Comando.PARTY,
+            # Entrar e sair da lista de presenca do proximo Solo Boss.
+            # Crescimento de proposito, e de uma natureza que a lista nunca
+            # tinha tido: sao os DOIS UNICOS comandos alcancaveis por um
+            # SEGUNDO nivel de autorizacao — o `[[membro]]` do config.toml.
+            # Todos os outros continuam so para o nivel de dono. Ver
+            # `TestFronteiraDeAutorizacao`.
+            Comando.JOIN,
+            Comando.LEAVE,
             # O controle de loot do Solo Boss. Crescimento DE PROPOSITO:
             # designar quem pega o proximo, e consultar quanto um nick pegou.
             Comando.LOOT_DESIGNAR,
@@ -1262,6 +1287,479 @@ class TestAjudaNaCostura:
             do_numero="554497077000",  # o mesmo numero, sem o nono digito
         )
         assert [alvo for _, alvo in destinos] == ["1"]
+
+
+class TestFronteiraDeAutorizacao:
+    """Os dois niveis, provados nos DOIS sentidos.
+
+    Antes desta fase a autorizacao era global e binaria: um telefone na
+    allowlist podia TUDO, inclusive `.corrigir` e `.pegou`, que reescrevem a
+    estatistica do `.loot/` — pasta que nunca e podada e nao tem backup. Por os
+    telefones dos quatro a oito party-mates naquela lista, so para que
+    pudessem dar `.join`, teria dado a todos eles esse poder.
+
+    Entao a fronteira precisa de prova nas duas direcoes: o que o membro
+    ALCANCA e, muito mais importante, o que ele NAO alcanca. E a segunda
+    metade e DERIVADA do enum, nao digitada — ver os dois tripwires abaixo.
+    """
+
+    # O telefone de dono e o mesmo que os testes existentes ja usam.
+    DONO = "+5544997077000"
+    # O de membro NAO pode colidir com o de dono nos 8 digitos finais, que sao
+    # os unicos comparados: 97077000 contra 12345678.
+    MEMBRO = "+5544912345678"
+    NICK = "Korzis"
+
+    MEMBROS = (Membro(nick="Korzis", telefone="+5544912345678"),)
+    # Um nick conhecido para os comandos dinamicos poderem ser interpretados.
+    CONHECIDOS = frozenset({apelido("J4guar")})
+
+    def _de(self, telefone: str | None, texto: str, id_: int = 9001) -> dict:
+        remetente: dict = {"name": "Ze do Zap"}
+        if telefone is not None:
+            remetente["phone_number"] = telefone
+        return {
+            "id": id_,
+            "content": texto,
+            "message_type": 0,
+            "private": False,
+            "sender": remetente,
+        }
+
+    def _sintaxe(self, comando: Comando) -> str:
+        """A sintaxe que a PROPRIA ajuda anuncia para o comando.
+
+        Sai da tabela `_AJUDA` e nao de um literal aqui: assim a prova usa
+        exatamente o que o bot ensina, e nao uma segunda opiniao do teste.
+        """
+        return _AJUDA[comando].sintaxe.replace("<nick>", "J4guar").replace(
+            "<hora>", "18:00"
+        )
+
+    def _achados(self, telefone: str | None, comando: Comando, **extra):
+        return comandos_novos(
+            [self._de(telefone, self._sintaxe(comando))],
+            set(),
+            extra.pop("telefones", [self.DONO]),
+            nicks_conhecidos=self.CONHECIDOS,
+            membros=extra.pop("membros", self.MEMBROS),
+        )
+
+    def test_o_membro_e_RECUSADO_em_tudo_que_nao_e_dele(self):
+        """O TRIPWIRE DA FRONTEIRA. A lista de recusa e DERIVADA do enum.
+
+        `set(Comando) - COMANDOS_DE_MEMBRO`, nunca digitada. Escrita a mao,
+        o proximo comando destrutivo do projeto nasceria alcancavel por
+        qualquer party-mate e o teste continuaria verde — ninguem descobriria
+        ate alguem apagar a estatistica de um boss pelo WhatsApp.
+
+        Derivada, um `Comando` novo entra nesta prova sozinho e so sai dela
+        quando alguem decidir, por escrito, que ele e de membro.
+        """
+        recusados = set(Comando) - COMANDOS_DE_MEMBRO
+        # Guarda contra a prova VAZIA: se alguem alargar COMANDOS_DE_MEMBRO ate
+        # engolir o enum, o laco abaixo nao roda e o teste passa sem provar
+        # nada. Os dois comandos nomeados aqui sao os que reescrevem historico.
+        assert {Comando.LOOT_CORRIGIR, Comando.LOOT_ATRIBUIR} <= recusados, (
+            "COMANDOS_DE_MEMBRO cresceu ate alcancar comando que reescreve a "
+            "estatistica permanente do .loot/ — isso nunca pode ser de membro"
+        )
+
+        for comando in sorted(recusados, key=lambda c: c.name):
+            achados = self._achados(self.MEMBRO, comando)
+            assert achados == [], (
+                f"um telefone que so esta em [[membro]] alcancou "
+                f"{comando.name} pela sintaxe {self._sintaxe(comando)!r} — a "
+                f"fronteira vazou"
+            )
+
+    def test_o_membro_ALCANCA_o_que_e_dele_e_chega_com_o_nick(self):
+        for comando in sorted(COMANDOS_DE_MEMBRO, key=lambda c: c.name):
+            achados = self._achados(self.MEMBRO, comando)
+            assert [m.comando for m in achados] == [comando], (
+                f"o telefone de membro nao alcancou {comando.name} pela "
+                f"sintaxe {self._sintaxe(comando)!r}"
+            )
+            assert achados[0].nick == self.NICK, (
+                "o nick tem que vir do mapa [[membro]], nunca do sender.name"
+            )
+
+    def test_o_DONO_continua_alcancando_TODO_comando(self):
+        """A aditividade, dita por extenso.
+
+        `test_toda_sintaxe_anunciada_volta_como_o_comando_certo` ja prova isto
+        rodando a tabela de ajuda inteira, mas prova sem `membros` configurado.
+        Este roda a mesma tabela COM o segundo nivel ligado: o dono nao pode
+        perder nada por causa de gente que foi ACRESCENTADA depois dele.
+        """
+        for comando in sorted(Comando, key=lambda c: c.name):
+            achados = self._achados(self.DONO, comando)
+            assert [m.comando for m in achados] == [comando], (
+                f"o telefone de dono deixou de alcancar {comando.name} depois "
+                f"que o nivel de membro passou a existir — o nivel novo e "
+                f"ADITIVO, nunca exclusivo"
+            )
+
+    def test_o_dono_que_nao_e_membro_chega_sem_nick(self):
+        """None, e nao um nick inventado do `sender.name`.
+
+        Quem consome decide o que fazer com isso; o que nao pode acontecer e o
+        nome do contato do WhatsApp virar nick de personagem por omissao.
+        """
+        achados = self._achados(self.DONO, Comando.JOIN)
+        assert achados[0].nick is None
+
+    def test_allowlist_VAZIA_continua_aceitando_qualquer_um(self):
+        """Compatibilidade: quem configurou comandos so por conversa.
+
+        O nivel de membro nao pode ter FECHADO nada que estava aberto. Quem
+        nunca preencheu CHATWOOT_TELEFONES_COMANDO continua exatamente como
+        estava — e o aviso de arranque continua sendo quem torna isso visivel.
+        """
+        for comando in sorted(Comando, key=lambda c: c.name):
+            achados = comandos_novos(
+                [self._de("+5511900000000", self._sintaxe(comando))],
+                set(),
+                [],
+                nicks_conhecidos=self.CONHECIDOS,
+                membros=self.MEMBROS,
+            )
+            assert [m.comando for m in achados] == [comando], comando.name
+
+    def test_telefone_de_lugar_nenhum_nao_alcanca_nada(self):
+        """Nem dono, nem membro, com a allowlist preenchida: zero comandos.
+
+        E o Joao Pedro do "Quero cancelar": um cliente real numa das 22
+        conversas da conta, que nao pode virar operador do scanner.
+        """
+        for comando in sorted(Comando, key=lambda c: c.name):
+            assert self._achados("+5511988887777", comando) == [], comando.name
+
+    def test_remetente_SEM_telefone_e_recusado(self):
+        """A API nem sempre traz `phone_number`. Ausencia nunca e permissao."""
+        for comando in sorted(Comando, key=lambda c: c.name):
+            assert self._achados(None, comando) == [], comando.name
+
+    def test_o_nono_digito_nao_transforma_a_pessoa_em_outra(self):
+        """A base do WhatsApp carrega as duas formas do mesmo numero.
+
+        Medido nesta conta: o usuario se identifica como +5544997077000 e o
+        Chatwoot registra o dono do grupo como 554497077000, sem o 9. Se o
+        nivel de membro comparasse exato, o `.join` sumiria em silencio — o
+        pior modo de falha possivel, porque quem digitou nao recebe erro
+        nenhum e conclui que o bot esta quebrado.
+        """
+        membros = (Membro(nick="Kaus", telefone="+5544997077001"),)
+        achados = comandos_novos(
+            [self._de("554497077001", ".join")],
+            set(),
+            [self.DONO],
+            membros=membros,
+        )
+        assert [m.comando for m in achados] == [Comando.JOIN]
+        assert achados[0].nick == "Kaus"
+
+    def test_o_ECO_DO_BOT_nao_vira_comando(self):
+        """TRAVA 3 contra a fase que faz o bot ESCREVER no grupo.
+
+        Ate agora o bot so falava sobre mortes e horarios. Desta fase em
+        diante ele passa a escrever confirmacoes que se parecem com comandos,
+        e um eco obedecido viraria laco infinito. O controle logo abaixo prova
+        que a recusa vem do `message_type`, e nao de o texto ser inerte.
+        """
+        eco = self._de(self.DONO, ".join")
+        eco["message_type"] = 1  # outgoing: o proprio bot
+        assert comandos_novos([eco], set(), [self.DONO], membros=self.MEMBROS) == []
+
+        entrando = self._de(self.DONO, ".join")
+        assert len(
+            comandos_novos([entrando], set(), [self.DONO], membros=self.MEMBROS)
+        ) == 1, "o controle falhou: o texto sozinho ja nao era comando"
+
+    def test_a_redacao_da_confirmacao_de_grupo_e_inerte(self):
+        """E inerte por DUAS razoes independentes, e as duas valem.
+
+        Como saida do bot, a TRAVA 3 a recusa. Como entrada, a TRAVA 2 a
+        recusa de novo: `interpretar` so olha a PRIMEIRA palavra, e a
+        confirmacao comeca pelo nick. Nenhuma das duas depende da outra.
+        """
+        texto = "Korzis entrou na lista do Solo Boss das 20:00. Mande .join tambem."
+
+        saindo = self._de(self.DONO, texto)
+        saindo["message_type"] = 1
+        assert comandos_novos([saindo], set(), [self.DONO], membros=self.MEMBROS) == []
+
+        voltando = self._de(self.DONO, texto)
+        assert comandos_novos([voltando], set(), [self.DONO], membros=self.MEMBROS) == []
+
+
+class TestMembroNoConfigToml:
+    """O `[[membro]]` sai de um arquivo TOML e chega na decisao de autorizacao.
+
+    A fatia vertical inteira, ponta a ponta: bloco no arquivo -> `ler_membros`
+    -> `comandos_novos`. Sem isto provado de uma ponta a outra, cada metade
+    poderia estar certa sozinha e a costura errada — que e onde os erros deste
+    projeto moram.
+    """
+
+    TELEFONE_DE_MEMBRO = "+5544912345678"
+
+    def _arquivo(self, tmp_path, texto: str):
+        caminho = tmp_path / "config.toml"
+        caminho.write_text(texto, encoding="utf-8")
+        return caminho
+
+    def test_arquivo_ausente_nao_e_erro(self, tmp_path):
+        """Quem nunca declarou membro nenhum continua subindo o scanner."""
+        assert ler_membros(tmp_path / "nao-existe.toml") == []
+
+    def test_dois_blocos_viram_dois_membros_na_ordem_do_arquivo(self, tmp_path):
+        caminho = self._arquivo(
+            tmp_path,
+            '[[membro]]\nnick = "Korzis"\ntelefone = "+5544911112222"\n\n'
+            '[[membro]]\nnick = "J4guar"\ntelefone = "+5544933334444"\n',
+        )
+        membros = ler_membros(caminho)
+        assert [m.nick for m in membros] == ["Korzis", "J4guar"]
+        assert membros[0].telefone == "+5544911112222"
+
+    def test_membro_sem_telefone_derruba_no_arranque_citando_o_nick(self, tmp_path):
+        """A mensagem cita o NICK, nunca o indice do bloco.
+
+        Um telefone faltando nao produz erro nenhum no meio do farm — produz
+        um `.join` que some em silencio. Por isso o erro tem que ser de
+        ARRANQUE, com o usuario olhando para o console.
+        """
+        caminho = self._arquivo(tmp_path, '[[membro]]\nnick = "Korzis"\n')
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_membros(caminho)
+        assert "Korzis" in str(erro.value)
+
+    def test_nick_fora_do_charset_do_jogo_e_recusado(self, tmp_path):
+        """Mesmo `NICK_VALIDO` do `loot.py`: um charset so para os dois lados.
+
+        Um nick aceito aqui e recusado no `.loot-<nick>` faria o registro de
+        presenca e o de loot falarem de pessoas diferentes.
+        """
+        caminho = self._arquivo(
+            tmp_path,
+            '[[membro]]\nnick = "Tio Mad"\ntelefone = "+5544911112222"\n',
+        )
+        with pytest.raises(AgendaInvalida):
+            ler_membros(caminho)
+
+    def test_o_config_toml_do_REPOSITORIO_nao_carrega_telefone_de_ninguem(self):
+        """O arquivo versionado leva so exemplo COMENTADO.
+
+        Telefone de party-mate nao e segredo, mas tambem nao e do repositorio:
+        quem preenche e o usuario, na maquina dele.
+        """
+        raiz = Path(__file__).resolve().parent.parent
+        assert ler_membros(raiz / "config.toml") == []
+
+    def _do_membro(self, id_, texto: str) -> dict:
+        return {
+            "id": id_,
+            "content": texto,
+            "message_type": 0,
+            "private": False,
+            # O `name` e propositalmente DIFERENTE do nick configurado: e assim
+            # que se ve se o nick veio do mapa ou do WhatsApp.
+            "sender": {"name": "Ze do Zap", "phone_number": self.TELEFONE_DE_MEMBRO},
+        }
+
+    def test_o_telefone_do_arquivo_atravessa_o_join(self, tmp_path):
+        caminho = self._arquivo(
+            tmp_path,
+            f'[[membro]]\nnick = "Korzis"\ntelefone = "{self.TELEFONE_DE_MEMBRO}"\n',
+        )
+        achados = comandos_novos(
+            [self._do_membro(1, ".join")],
+            set(),
+            ["+5544997077000"],
+            membros=ler_membros(caminho),
+        )
+        assert [m.comando for m in achados] == [Comando.JOIN]
+        assert achados[0].nick == "Korzis", (
+            "o nick tem que sair do mapa [[membro]], nunca do sender.name"
+        )
+
+    def test_o_mesmo_telefone_PARA_no_corrigir(self, tmp_path):
+        """O ponto inteiro da fase: presenca nao da comando destrutivo."""
+        caminho = self._arquivo(
+            tmp_path,
+            f'[[membro]]\nnick = "Korzis"\ntelefone = "{self.TELEFONE_DE_MEMBRO}"\n',
+        )
+        assert (
+            comandos_novos(
+                [self._do_membro(2, ".corrigir-Kaus")],
+                set(),
+                ["+5544997077000"],
+                nicks_conhecidos=frozenset({apelido("Kaus")}),
+                membros=ler_membros(caminho),
+            )
+            == []
+        )
+
+    def test_telefone_desconhecido_nao_alcanca_nem_o_join(self, tmp_path):
+        caminho = self._arquivo(
+            tmp_path,
+            f'[[membro]]\nnick = "Korzis"\ntelefone = "{self.TELEFONE_DE_MEMBRO}"\n',
+        )
+        de_fora = {
+            "id": 3,
+            "content": ".join",
+            "message_type": 0,
+            "private": False,
+            "sender": {"name": "Joao Pedro", "phone_number": "+5511988887777"},
+        }
+        assert (
+            comandos_novos(
+                [de_fora], set(), ["+5544997077000"], membros=ler_membros(caminho)
+            )
+            == []
+        )
+
+
+class TestColisaoDeTelefone:
+    """A colisao de 8 digitos deixa de ser invisivel.
+
+    O comentario do `DIGITOS_FINAIS_DO_TELEFONE` aceitou a colisao por escrito,
+    e aceitou para um tamanho: "numa allowlist de duas a cinco pessoas isso e
+    aceitavel". O `[[membro]]` acrescenta de quatro a oito telefones a mesma
+    superficie, e o par dono-contra-membro e uma escalada de privilegio que
+    acontece EM SILENCIO — `autorizado_para` pergunta pelo nivel de dono
+    primeiro, e aquele party-mate passa a alcancar `.corrigir` e `.pegou`.
+    """
+
+    def test_dono_contra_membro_e_o_par_perigoso(self):
+        pares = colisoes_de_telefone(
+            ["+5544997077000"],
+            (Membro(nick="Korzis", telefone="+5511997077000"),),
+        )
+        assert pares == [("+5544997077000", "+5511997077000")], (
+            "DDDs diferentes com os mesmos 8 digitos finais: e exatamente o "
+            "caso em que o membro herda o poder do dono sem ninguem ver"
+        )
+
+    def test_membro_contra_membro_tambem_aparece(self):
+        """Nao escala privilegio, mas credita o `.join` de um ao nick do outro."""
+        pares = colisoes_de_telefone(
+            [],
+            (
+                Membro(nick="Korzis", telefone="+5544912345678"),
+                Membro(nick="J4guar", telefone="+5511912345678"),
+            ),
+        )
+        assert pares == [("+5544912345678", "+5511912345678")]
+
+    def test_dono_contra_dono_tambem_aparece(self):
+        pares = colisoes_de_telefone(["+5544912345678", "+5511912345678"])
+        assert pares == [("+5544912345678", "+5511912345678")]
+
+    def test_o_nono_digito_NAO_e_colisao(self):
+        """E a mesma pessoa escrita de dois jeitos — redundancia, nao ambiguidade.
+
+        A base do WhatsApp carrega as duas formas do mesmo numero, entao esta e
+        a configuracao mais provavel do mundo. Gritar aqui treinaria o usuario
+        a ignorar o aviso, que e o unico jeito de estragar um aviso.
+        """
+        assert colisoes_de_telefone(["+5544997077000", "554497077000"]) == []
+        assert (
+            colisoes_de_telefone(
+                ["+5544997077000"],
+                (Membro(nick="Yaza", telefone="554497077000"),),
+            )
+            == []
+        )
+
+    def test_sem_membro_nenhum_e_sem_colisao_a_lista_e_vazia(self):
+        """O arranque de quem nao mexeu em nada continua exatamente como era."""
+        assert colisoes_de_telefone([]) == []
+        assert colisoes_de_telefone(["+5544997077000", "+5511988887777"]) == []
+
+    def test_os_pares_saem_como_foram_CONFIGURADOS(self):
+        """Nao normalizados: o usuario tem que achar as duas linhas no arquivo."""
+        pares = colisoes_de_telefone(
+            ["+55 (44) 99707-7000"],
+            (Membro(nick="Korzis", telefone="+5511997077000"),),
+        )
+        assert pares == [("+55 (44) 99707-7000", "+5511997077000")]
+
+
+class TestArranqueComMembros:
+    """O que o console diz sobre o nivel novo, no arranque.
+
+    Mesmo precedente do aviso COMANDOS ABERTOS que ja estava ali: um estado de
+    permissao nao pode ser descoberto por acidente.
+    """
+
+    def _args(self):
+        import argparse
+
+        return argparse.Namespace(dry_run=False)
+
+    def _config(self, telefones):
+        from l2scanner.notificador import ConfigChatwoot
+
+        return ConfigChatwoot(
+            url="https://chat.exemplo",
+            conta="1",
+            token="t",
+            conversas=["1"],
+            conversas_de_comando=["7"],
+            telefones_de_comando=telefones,
+            etiqueta_de_comando="",
+        )
+
+    def _montar(self, monkeypatch, telefones, membros, caplog):
+        from l2scanner import __main__ as principal
+
+        monkeypatch.setattr(principal, "config_do_chatwoot", lambda: self._config(telefones))
+        monkeypatch.setattr(principal, "ler_membros", lambda: list(membros))
+        with caplog.at_level(logging.INFO):
+            return principal.montar_leitor_de_comandos(self._args())
+
+    def test_os_membros_lidos_chegam_no_leitor(self, monkeypatch, caplog):
+        membros = [Membro(nick="Korzis", telefone="+5544912345678")]
+        leitor = self._montar(monkeypatch, ["+5544997077000"], membros, caplog)
+        assert leitor.membros == membros, (
+            "o [[membro]] lido do arquivo tem que chegar no leitor, senao a "
+            "fronteira existe no papel e nao no scanner"
+        )
+
+    def test_o_arranque_diz_quantos_podem_dar_join(self, monkeypatch, caplog):
+        membros = [
+            Membro(nick="Korzis", telefone="+5544912345678"),
+            Membro(nick="J4guar", telefone="+5544933334444"),
+        ]
+        self._montar(monkeypatch, ["+5544997077000"], membros, caplog)
+        assert "Korzis" in caplog.text and "J4guar" in caplog.text
+        assert ".join" in caplog.text
+
+    def test_a_colisao_dono_contra_membro_GRITA_nomeando_os_dois(
+        self, monkeypatch, caplog
+    ):
+        membros = [Membro(nick="Korzis", telefone="+5511997077000")]
+        leitor = self._montar(monkeypatch, ["+5544997077000"], membros, caplog)
+        avisos = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        texto = "\n".join(r.getMessage() for r in avisos)
+        assert "+5544997077000" in texto and "+5511997077000" in texto
+        assert ".corrigir" in texto, (
+            "o aviso precisa dizer a CONSEQUENCIA, nao so que os numeros sao "
+            "parecidos"
+        )
+        assert leitor is not None, (
+            "uma colisao avisa alto, mas nao derruba o scanner: entre dois "
+            "membros ela nao escala privilegio nenhum"
+        )
+
+    def test_sem_membro_o_arranque_loga_exatamente_como_antes(
+        self, monkeypatch, caplog
+    ):
+        self._montar(monkeypatch, ["+5544997077000"], [], caplog)
+        assert "Presenca:" not in caplog.text
+        assert "TELEFONES AMBIGUOS" not in caplog.text
 
 
 class TestMolduraDoConsole:
