@@ -543,6 +543,65 @@ class RegistroDeLoot:
 # -- texto e decisao (puras: tempo por parametro, sem disco proprio) ---------
 
 
+def sugerir_a_vez(
+    registro: RegistroDeLoot, presentes: frozenset[str]
+) -> tuple[str, int] | None:
+    """De quem, ENTRE OS PRESENTES, deveria ser a vez. `(slug, total)` ou None.
+
+    TRES COISAS QUE PARECEM DETALHE E SAO O DESENHO INTEIRO:
+
+    1. **Ela SUGERE, e nao manda.** A autoridade e o usuario, nao o registro
+       (D-13). Um `.loot-<nick>` de quem nao deu `.join` continua sendo
+       obedecido — ver `responder_designacao`. Bloquear ali transformaria uma
+       conveniencia em obstaculo no pior momento possivel: alguem chegou sem
+       avisar e a party precisa designar agora.
+
+       O corolario disso e o que esta ESCRITO nesta funcao: ela nao grava, nao
+       apaga e nao tem efeito nenhum em disco — le e responde. E por isso que
+       a fase que a trouxe pode encostar no `.loot/`, que NUNCA e podado e nao
+       tem backup, sem colocar meses de estatistica em risco. Um `sugerir` que
+       gravasse qualquer coisa aqui — um cache, um "ja sugeri este boss" —
+       criaria um tipo de arquivo permanente que nenhum comando alcanca
+       depois. E tambem por isso que ela e a ultima peca da fase.
+
+    2. **O desempate e DETERMINISTICO em tres niveis** — total, ultimo loot
+       mais antigo, e slug em ordem alfabetica. Mesma frase do
+       `encaixar_na_agenda` logo abaixo, pela mesma razao: o usuario roda duas
+       instancias sobre a mesma pasta, e duas sugestoes diferentes para o
+       mesmo boss transformariam uma ajuda numa discussao. O segundo nivel nao
+       e enfeite — sem ele o alfabeto decidiria sozinho e o mesmo nick pegaria
+       duas vezes seguidas enquanto o empatado esperaria, que e o rodizio
+       quebrado que o registro existe para consertar.
+
+    3. **`presentes` entra por PARAMETRO, e nao e lido aqui.** `loot.py` nunca
+       importa `comandos`, `sessao` nem `presenca` — a direcao e
+       `presenca -> loot -> agenda` e um ciclo mataria os dois modulos com
+       `ImportError` no arranque. Quem le a lista fechada e quem chama, na
+       borda.
+
+    Um slug que o `.loot/` nunca viu conta como ZERO, sem levantar: e o
+    primeiro boss de alguem, o caso normal, e uma excecao aqui calaria a
+    mensagem de fechamento inteira por causa de um novato.
+    """
+    candidatos = {apelido(nick) for nick in presentes}
+    candidatos.discard("")
+    if not candidatos:
+        return None
+
+    resumos = {slug: registro.resumo(slug) for slug in candidatos}
+    # `datetime.min` para quem nunca pegou: ele ja venceu pelo total, e o
+    # segundo nivel so precisa ser comparavel — nao pode ser `None`.
+    escolhido = min(
+        candidatos,
+        key=lambda slug: (
+            resumos[slug][0],
+            resumos[slug][1] or datetime.min,
+            slug,
+        ),
+    )
+    return (escolhido, resumos[escolhido][0])
+
+
 def descrever_momento(alvo: datetime, agora: datetime) -> str:
     """"hoje as 10:00", "ontem as 22:00", "em 23/08 as 14:00".
 
