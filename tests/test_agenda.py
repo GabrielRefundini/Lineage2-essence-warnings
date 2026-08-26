@@ -584,7 +584,10 @@ class TestAgendaRealDoUsuario:
 
         raiz = Path(__file__).resolve().parent.parent
         texto = (raiz / "config.toml").read_text(encoding="utf-8")
-        cabecalho = texto.split("[[evento]]")[0]
+        # Corta no PRIMEIRO bloco de verdade — que comeca em coluna zero. O
+        # proprio cabecalho escreve '[[evento]]' em prosa, entao um split
+        # sem a quebra de linha cortaria no meio da lista de campos.
+        cabecalho = texto.split(chr(10) + '[[evento]]')[0]
         assert "chamar_minutos_antes" in cabecalho
 
     def _varrer_um_dia(self, agenda, dia):
