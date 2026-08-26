@@ -237,7 +237,8 @@ primeiro e sozinho no roadmap.
 |---|---|---|
 | PRES-03, PRES-04 | 10-01 | Pending |
 | PRES-01, PRES-02 | 10-02 | Pending |
-| PRES-05 a PRES-11, PRES-13, PRES-15 | 10-03 | Pending |
+| PRES-07, PRES-10, PRES-11, PRES-13, PRES-15 | 10-03 | Pending |
+| PRES-05, PRES-06, PRES-08, PRES-09 | 10-03b | Pending |
 | PRES-12 | 10-04 | Pending |
 | PRES-14, PRES-15 | 10-05 | Pending |
 

@@ -247,12 +247,13 @@ Plans:
   5. No horario do boss a lista se fecha e o grupo recebe quem confirmou; a lista fechada alimenta o revezamento de loot existente, de modo que a vez do proximo boss so seja sugerida entre quem estava presente
   6. Tudo isso e demonstravel sem o jogo aberto e sem rede: o tempo entra por parametro, a etiqueta e o mapa telefone->nick entram por dado, e a corrida entre as duas instancias do usuario tem teste proprio — a mesma disciplina que `agenda.py` e `loot.py` ja seguem
 
-**Plans**: 5 plans
+**Plans**: 6 plans
 
 Plans:
 - [ ] 10-01-PLAN.md — A autorizacao em dois niveis, sozinha (PRES-03, PRES-04)
 - [ ] 10-02-PLAN.md — A chamada de 1h50: `TipoDeAviso.CHAMADA` e `chamar_minutos_antes` (PRES-01, PRES-02)
-- [ ] 10-03-PLAN.md — A lista de presenca em disco, a poda consertada e o `.join`/`.leave` (PRES-05 a PRES-11, PRES-13, PRES-15)
+- [ ] 10-03-PLAN.md — A lista de presenca em disco, a poda consertada e as respostas do `.join`/`.leave` (PRES-07, PRES-10, PRES-11, PRES-13, PRES-15)
+- [ ] 10-03b-PLAN.md — Os ramos no despacho e o par de destinos, com rede de regressao para os nove comandos antigos (PRES-05, PRES-06, PRES-08, PRES-09)
 - [ ] 10-04-PLAN.md — O fechamento no horario, no tick e com o jogo fechado (PRES-12)
 - [ ] 10-05-PLAN.md — A lista sugere a vez do loot, sem escrever em `.loot/` (PRES-14, PRES-15)
 
