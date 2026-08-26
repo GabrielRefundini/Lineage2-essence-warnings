@@ -999,11 +999,28 @@ class TestLinhaDesconhecidaNaoRoubaNome:
             eventos.extend(r.observar(self._obs([("Korzis", 1.0), (None, 0.0)]), 10 + i))
 
         mortes = [e.membro for e in eventos if e.tipo is TipoDeEvento.MORREU]
-        assert mortes, "a morte na linha desconhecida precisa ser reportada"
         assert "Korzis" not in mortes, (
             "o Korzis esta VIVO na linha 0; a linha 1 nao pode usar o nome dele"
         )
-        assert mortes == ["Membro 2"]
+        # ATE 2026-08-26 este teste exigia `mortes == ["Membro 2"]`.
+        #
+        # Quando ele nasceu, a propriedade em jogo era uma so: a linha 1 nao
+        # pode pegar emprestado o nome de quem esta vivo noutra linha.
+        # "Membro 2" resolvia isso e era o melhor disponivel na epoca.
+        #
+        # O log de campo mostrou no que "Membro 2" deu em producao: TODO alerta
+        # posicional da sessao era falso — "ficou 1h56 morto", "ficou 51min20s
+        # morto", uma morte numa linha que nao estava na tela no frame
+        # anterior, e 22 eventos em cinco minutos alternando entre dois
+        # pseudo-membros. O mecanismo esta em
+        # `TestLinhaSemIdentidadeNaoMorreNemRessuscita`.
+        #
+        # A propriedade original nao foi abandonada — ela ficou mais forte. O
+        # nome do Korzis continua sem sair, e agora uma POSICAO tambem nao sai.
+        assert mortes == [], (
+            "uma linha sem identidade nao tem sujeito: nem o nome de outro, "
+            f"nem 'Membro N'. Saiu: {mortes}"
+        )
 
     def test_sem_assinaturas_o_nome_por_posicao_ainda_vale(self):
         """Sem identidade visual, o nome por posicao e a unica informacao."""
@@ -1519,4 +1536,360 @@ class TestUmaSaidaRealNaoViraVariosAlertas:
         assert self._saidas(eventos) == [], (
             "a janela perdeu uma linha NAO RECONHECIDA; a unica identidade "
             f"que sumiu junto foi a sua. Anunciados: {self._saidas(eventos)}"
+        )
+
+
+class TestLinhaSemIdentidadeNaoMorreNemRessuscita:
+    """O quinto alarme falso da mesma familia, em 2026-08-26.
+
+    Chegaram no WhatsApp "MEMBRO 1 MORREU" e "MEMBRO 1 FOI RESSUSCITADO
+    (ficou 3min42s morto)" com a party parada e ninguem morrendo.
+
+    Quando o reconhecimento falha, a linha e rastreada sob uma chave PRESA A
+    POSICAO (`#linhaN`). Duas sessoes anteriores desta familia ja fecharam
+    ENTROU e SAIU contra essa chave — porque ela nao e uma pessoa, e o scanner
+    dizendo "nao sei quem esta aqui". Morte e ressurreicao nunca foram
+    fechadas, e sao os dois eventos que restaram.
+
+    Pior: posicao nao tem CONTINUIDADE. O estado de `#linha2` atravessa
+    lacunas inteiras — frames em que a linha foi reconhecida, ou em que a linha
+    nem existia — e o `desde` continua correndo do outro lado. Foi assim que o
+    log real produziu "ficou 1h56 morto" (`logs/scanner.log:13803`), "ficou
+    51min20s morto" e uma morte numa linha que nao estava na tela no frame
+    anterior.
+
+    O que estes testes NAO afirmam: que oscilar o rotulo, sozinho, produz
+    evento. Isso foi medido e e falso — ver
+    `test_rotulo_oscilando_com_hp_intacto_nao_e_evento`.
+    """
+
+    NOMES = ["Korzis", "Kaus", "J4guar", "TioMad"]
+
+    def _obs(self, spec, ui_visivel=True, hp_proprio=None):
+        """`spec` e uma linha por posicao: `(nome_ou_None, hp)`, ou `None` se vazia."""
+        from l2scanner.visao import LeituraDeLinha, Observacao
+
+        linhas = []
+        for i, item in enumerate(spec):
+            if item is None:
+                linhas.append(LeituraDeLinha(i, EstadoDaLinha.VAZIA, None, None))
+                continue
+            nome, hp = item
+            linhas.append(
+                LeituraDeLinha(
+                    i,
+                    EstadoDaLinha.COM_MEMBRO,
+                    hp,
+                    1.0,
+                    nome=nome,
+                    confianca_do_nome=0.98 if nome else 0.0,
+                )
+            )
+        return Observacao(0, ui_visivel, tuple(linhas), hp_proprio=hp_proprio)
+
+    def _rastreador(self, nome_proprio=None):
+        """Como o scanner do usuario roda: com assinaturas visuais gravadas."""
+        from l2scanner.rastreador import Rastreador
+
+        return Rastreador(
+            nomes=list(self.NOMES),
+            assinaturas_configuradas=True,
+            nomes_reservados=set(self.NOMES),
+            nome_proprio=nome_proprio,
+        )
+
+    def _rodar(self, r, spec, vezes, t0, hp_proprio=None):
+        """Alimenta o mesmo quadro N vezes. Devolve (proximo_t, eventos)."""
+        eventos = []
+        t = t0
+        for _ in range(vezes):
+            eventos.extend(r.observar(self._obs(spec, hp_proprio=hp_proprio), t))
+            t += 1.0
+        return t, eventos
+
+    @staticmethod
+    def _nomeados(eventos):
+        return [(e.tipo.value, e.membro, e.segundos_no_estado) for e in eventos]
+
+    def _cheia(self, hp=1.0):
+        """A party inteira reconhecida — o pano de fundo de todo cenario."""
+        return [(n, hp) for n in self.NOMES]
+
+    def _com_linha0_ilegivel(self, hp):
+        return [(None, hp)] + [(n, 1.0) for n in self.NOMES[1:]]
+
+    # ---------------------------------------------------------- REPRODUCAO
+
+    def test_rotulo_oscilando_com_hp_intacto_nao_e_evento(self):
+        """A hipotese obvia, medida e REFUTADA — fica registrada como teste.
+
+        Se um dia alguem "consertar" este bug atacando a oscilacao do rotulo,
+        este teste continua verde e nao ajuda em nada. Ele existe para
+        delimitar o que a causa NAO e: o rotulo oscilar com a barra intacta ja
+        era inofensivo antes da correcao, e precisa continuar sendo depois.
+        """
+        r = self._rastreador()
+        t, _ = self._rodar(r, self._cheia(), 20, 0.0)
+
+        eventos = []
+        for _ in range(6):
+            t, e = self._rodar(r, self._com_linha0_ilegivel(1.0), 8, t)
+            eventos += e
+            t, e = self._rodar(r, self._cheia(), 8, t)
+            eventos += e
+
+        assert eventos == [], (
+            "party parada, HP 100% em toda linha, so o rotulo oscilando: "
+            f"nao pode nascer evento nenhum. Nasceram: {self._nomeados(eventos)}"
+        )
+
+    def test_pseudo_membro_nao_ressuscita_de_uma_morte_de_minutos_atras(self):
+        """O alerta das 08:25:44: "MEMBRO 1 FOI RESSUSCITADO (3min42s morto)".
+
+        A linha 0 fica ilegivel de nome E de barra por alguns frames — o
+        pseudo-membro `#linha0` nasce MORTO, em silencio. O reconhecimento
+        volta e ele passa MINUTOS fora da tela com o estado congelado. Na
+        proxima piscada do rotulo, com a barra cheia, ele "ressuscita" — e o
+        `desde` congelado vira uma duracao inventada.
+        """
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._rastreador()
+        t, _ = self._rodar(r, self._cheia(), 20, 0.0)
+
+        # o inventario cobre a linha 0: nome ilegivel e barra ilegivel
+        t, _ = self._rodar(r, self._com_linha0_ilegivel(0.0), 4, t)
+        # sai de cima: 222 frames (3min42s a 1 Hz) com tudo reconhecido
+        t, _ = self._rodar(r, self._cheia(), 222, t)
+        # volta a cobrir SO o nome: a barra esta cheia o tempo todo
+        t, eventos = self._rodar(r, self._com_linha0_ilegivel(1.0), 8, t)
+
+        ressurreicoes = [e for e in eventos if e.tipo is TipoDeEvento.RESSUSCITOU]
+        assert ressurreicoes == [], (
+            "ninguem morreu e ninguem ressuscitou: a linha 0 so ficou "
+            "ilegivel. Anunciado: "
+            f"{[(e.membro, e.segundos_no_estado) for e in ressurreicoes]}"
+        )
+
+    def test_pseudo_membro_nao_metralha_morte_e_ressurreicao(self):
+        """As 17:05-17:10 do log real: 22 eventos em cinco minutos.
+
+        Quase todos "ficou 5s morto" — que e exatamente
+        `confirmacoes_para_ressurreicao` a 1 Hz. E a assinatura de um contador
+        batendo no limiar, nao de gente morrendo e sendo ressuscitada.
+        """
+        r = self._rastreador()
+        t, _ = self._rodar(r, self._cheia(), 20, 0.0)
+
+        eventos = []
+        for _ in range(4):
+            t, e = self._rodar(r, self._com_linha0_ilegivel(0.0), 4, t)
+            eventos += e
+            t, e = self._rodar(r, self._com_linha0_ilegivel(1.0), 6, t)
+            eventos += e
+
+        assert eventos == [], (
+            "a barra de uma linha SEM identidade oscilando entre 0% e 100% "
+            "nao pode virar uma metralhadora de morte e ressurreicao. "
+            f"Anunciados: {self._nomeados(eventos)}"
+        )
+
+    def test_linha_que_nao_estava_na_tela_nao_morre(self):
+        """O alerta das 14:06:59: "MEMBRO 3 MORREU" com a party de DOIS.
+
+        O `[vigiando]` do frame anterior lista duas linhas. A terceira nao
+        existia. O estado de `#linha2` tinha sobrado de uma aparicao antiga e
+        atravessou a lacuna inteira congelado.
+        """
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._rastreador()
+        dois = [(self.NOMES[0], 1.0), (self.NOMES[1], 1.0), None, None]
+        t, _ = self._rodar(r, dois, 20, 0.0)
+
+        # alguem aparece por instantes na linha 2, sem nome legivel
+        t, _ = self._rodar(r, dois[:2] + [(None, 1.0), None], 4, t)
+        # e some: a party volta a ter duas linhas por um bom tempo
+        t, _ = self._rodar(r, dois, 60, t)
+        # muito depois a linha 2 reaparece com a barra ainda desenhando
+        t, eventos = self._rodar(r, dois[:2] + [(None, 0.0), None], 4, t)
+        t, mais = self._rodar(r, dois[:2] + [(None, 1.0), None], 8, t)
+        eventos += mais
+
+        mortes = [e for e in eventos if e.tipo is TipoDeEvento.MORREU]
+        assert mortes == [], (
+            "a linha 2 nao estava na tela; o estado dela nao pode ter "
+            f"sobrevivido a lacuna. Anunciado: {[e.membro for e in mortes]}"
+        )
+
+    def test_nenhum_alerta_jamais_nomeia_uma_posicao(self):
+        """Propriedade, e nao caso: `Membro N` nunca vai para o WhatsApp.
+
+        O oraculo nao vem de um valor observado — vem do contrato do produto.
+        Um alerta precisa dizer QUEM, para a party saber quem socorrer.
+        "Membro 1" nao e um quem: e o scanner admitindo que nao sabe.
+        """
+        import re
+
+        r = self._rastreador(nome_proprio="Yazalaque")
+        posicional = re.compile(r"^Membro \d+$")
+
+        t, eventos = self._rodar(r, self._cheia(), 20, 0.0, hp_proprio=1.0)
+        roteiro = [
+            (self._com_linha0_ilegivel(0.0), 4),
+            (self._cheia(), 30),
+            (self._com_linha0_ilegivel(1.0), 6),
+            ([(None, 0.0), (None, 1.0), (self.NOMES[2], 1.0), None], 5),
+            (self._cheia(), 12),
+            ([(None, 0.0), (self.NOMES[1], 1.0), None, None], 7),
+            (self._cheia(), 20),
+        ]
+        for spec, vezes in roteiro:
+            t, e = self._rodar(r, spec, vezes, t, hp_proprio=1.0)
+            eventos += e
+
+        nomeando_posicao = [
+            e for e in eventos if e.membro and posicional.match(e.membro)
+        ]
+        assert nomeando_posicao == [], (
+            "alerta nomeando uma POSICAO em vez de uma pessoa: "
+            f"{self._nomeados(nomeando_posicao)}"
+        )
+
+    def test_o_console_nao_mostra_morto_numa_linha_lendo_hp_cheio(self):
+        """O estado zumbi tambem mentia no console, e nao so no WhatsApp.
+
+        Calar o alerta nao basta: enquanto o `#linhaN` sobrevivesse a lacuna,
+        ele voltava do outro lado com o estado velho e o painel mostrava a
+        linha como MORTA lendo 100% de HP — duas afirmacoes contraditorias na
+        mesma linha do `scanner.log`, que e a unica ferramenta de depuracao
+        pos-farm do projeto.
+
+        Este teste e o que prende a segunda metade da correcao. Sem ele,
+        remover "uma posicao nao sobrevive a lacuna" nao quebra nada — medido
+        por mutacao — porque a guarda de evento sozinha esconde o sintoma.
+        """
+        from l2scanner.rastreador import EstadoDoMembro
+
+        r = self._rastreador()
+        t, _ = self._rodar(r, self._cheia(), 20, 0.0)
+
+        # a linha 0 fica ilegivel de nome E de barra: nasce MORTO em silencio
+        t, _ = self._rodar(r, self._com_linha0_ilegivel(0.0), 4, t)
+        # o reconhecimento volta e fica minutos assim — a lacuna
+        t, _ = self._rodar(r, self._cheia(), 222, t)
+        # volta a cobrir so o nome, com a barra CHEIA
+        t, _ = self._rodar(r, self._com_linha0_ilegivel(1.0), 3, t)
+
+        assert r.hp_de(0) == 1.0
+        assert r.estado_de(0) is not EstadoDoMembro.MORTO, (
+            "a linha 0 esta lendo 100% de HP; o painel nao pode chama-la de "
+            f"morta. Mostrou: {r.estado_de(0).value}"
+        )
+
+    # ------------------------------------------------- O CUSTO DO REMEDIO
+    #
+    # A correcao nao pode virar um scanner que deixa de avisar morte de
+    # verdade. A morte real acontece com a party window visivel e o nome
+    # legivel — os testes daqui para baixo guardam exatamente esse caminho, e
+    # precisam passar ANTES e DEPOIS da correcao.
+
+    def test_morte_real_de_membro_reconhecido_continua_avisando(self):
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._rastreador()
+        t, _ = self._rodar(r, self._cheia(), 20, 0.0)
+
+        morrendo = [(self.NOMES[0], 0.0)] + [(n, 1.0) for n in self.NOMES[1:]]
+        t, eventos = self._rodar(r, morrendo, 5, t)
+
+        mortes = [e for e in eventos if e.tipo is TipoDeEvento.MORREU]
+        assert [e.membro for e in mortes] == ["Korzis"], (
+            "a morte real do Korzis precisa sair, e com o nome dele. "
+            f"Saiu: {self._nomeados(eventos)}"
+        )
+
+    def test_ressurreicao_real_de_membro_reconhecido_continua_avisando(self):
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._rastreador()
+        t, _ = self._rodar(r, self._cheia(), 20, 0.0)
+        morrendo = [(self.NOMES[0], 0.0)] + [(n, 1.0) for n in self.NOMES[1:]]
+        t, _ = self._rodar(r, morrendo, 5, t)
+        t, eventos = self._rodar(r, self._cheia(), 8, t)
+
+        voltas = [e for e in eventos if e.tipo is TipoDeEvento.RESSUSCITOU]
+        assert [e.membro for e in voltas] == ["Korzis"]
+
+    def test_morte_real_sobrevive_a_piscada_do_reconhecimento(self):
+        """O caso que mais importa: morre de verdade E o nome pisca.
+
+        Se a correcao tratasse "linha nao reconhecida" como "congela tudo",
+        este e o teste que quebraria — e seria a correcao apagando a razao de
+        o produto existir.
+        """
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._rastreador()
+        t, _ = self._rodar(r, self._cheia(), 20, 0.0)
+
+        morrendo = [(self.NOMES[0], 0.0)] + [(n, 1.0) for n in self.NOMES[1:]]
+        ilegivel = [(None, 0.0)] + [(n, 1.0) for n in self.NOMES[1:]]
+
+        eventos = []
+        for _ in range(4):
+            t, e = self._rodar(r, morrendo, 1, t)
+            eventos += e
+            t, e = self._rodar(r, ilegivel, 1, t)
+            eventos += e
+
+        mortes = [e for e in eventos if e.tipo is TipoDeEvento.MORREU]
+        assert [e.membro for e in mortes] == ["Korzis"], (
+            "o Korzis morreu de verdade; o reconhecimento piscar no meio nao "
+            f"pode calar o alerta. Saiu: {self._nomeados(eventos)}"
+        )
+
+    def test_sua_propria_morte_continua_avisando(self):
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._rastreador(nome_proprio="Yazalaque")
+        t, _ = self._rodar(r, self._cheia(), 20, 0.0, hp_proprio=1.0)
+        t, eventos = self._rodar(r, self._cheia(), 5, t, hp_proprio=0.0)
+
+        mortes = [e for e in eventos if e.tipo is TipoDeEvento.MORREU]
+        assert [e.membro for e in mortes] == ["Yazalaque"]
+
+    def test_saida_real_continua_avisando(self):
+        from l2scanner.rastreador import TipoDeEvento
+
+        r = self._rastreador()
+        t, _ = self._rodar(r, self._cheia(), 20, 0.0)
+        sem_kaus = [
+            (self.NOMES[0], 1.0),
+            (self.NOMES[2], 1.0),
+            (self.NOMES[3], 1.0),
+            None,
+        ]
+        t, eventos = self._rodar(r, sem_kaus, 8, t)
+
+        saidas = [e for e in eventos if e.tipo is TipoDeEvento.SAIU]
+        assert [e.membro for e in saidas] == ["Kaus"]
+
+    def test_sem_assinaturas_a_posicao_ainda_e_identidade(self):
+        """Modo legado: sem assinatura gravada, a posicao e tudo que existe.
+
+        Ali `Membro N` nem chega a aparecer — `nome_de` devolve o nome
+        configurado para a posicao. A guarda nao pode alcancar esse modo, senao
+        desliga a deteccao de morte inteira de quem nunca calibrou assinatura.
+        """
+        from l2scanner.rastreador import Rastreador, TipoDeEvento
+
+        r = Rastreador(nomes=list(self.NOMES))
+        t, _ = self._rodar(r, [(None, 1.0)] * 4, 20, 0.0)
+        t, eventos = self._rodar(r, [(None, 0.0)] + [(None, 1.0)] * 3, 5, t)
+
+        mortes = [e for e in eventos if e.tipo is TipoDeEvento.MORREU]
+        assert [e.membro for e in mortes] == ["Korzis"], (
+            "sem assinaturas, a lista por posicao e a unica identidade que "
+            f"existe e precisa continuar valendo. Saiu: {self._nomeados(eventos)}"
         )

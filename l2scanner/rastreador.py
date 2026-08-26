@@ -6,7 +6,7 @@ testaveis em fracao de milissegundo — e e a diferenca entre um projeto com um
 teste de caminho feliz e um com cobertura dos casos raros que a ferramenta
 existe para pegar.
 
-QUATRO PROPRIEDADES QUE SAO DE CORRETUDE, NAO DE GOSTO:
+SEIS PROPRIEDADES QUE SAO DE CORRETUDE, NAO DE GOSTO:
 
 1. **O estado e guardado POR PESSOA, nunca por posicao de linha.** A party
    window reordena: quando alguem sai, os outros sobem, e o lider pode ir para
@@ -36,6 +36,16 @@ QUATRO PROPRIEDADES QUE SAO DE CORRETUDE, NAO DE GOSTO:
    saida de todo mundo cujo reconhecimento estivesse falhando: aconteceu as
    10:17:44 de 2026-08-25, tres alertas no mesmo segundo, dois com o nome
    errado, para uma janela que caiu de 4 para 3 linhas.
+
+6. **UMA POSICAO NAO E UM SUJEITO.** A chave `#linhaN` nasce quando o
+   reconhecimento falha; ela nao nomeia ninguem, so diz "estou vendo esta
+   linha e nao sei quem esta nela". Nenhum evento sai em nome dela, e o estado
+   dela nao sobrevive a uma lacuna — quem ocupar a linha 2 depois nao tem
+   relacao com quem a ocupava antes. Sem as duas regras o scanner anunciava
+   "MEMBRO 1 MORREU" e ressurreicoes de "1h56 morto" para pseudo-membros que
+   nunca existiram, e chegou a matar uma linha que nao estava na tela no frame
+   anterior. Entrada e saida ja tinham sido fechadas contra essa chave em duas
+   sessoes anteriores; morte e ressurreicao eram o que faltava.
 """
 
 from __future__ import annotations
@@ -374,6 +384,23 @@ class Rastreador:
     def _nome_exibido(self, identidade: str) -> str:
         """Nome que vai no alerta. Nunca a chave interna."""
         return self._rotulo.get(identidade, identidade)
+
+    def _e_so_uma_posicao(self, identidade: str) -> bool:
+        """Esta chave e um LUGAR na tela, e nao uma pessoa?
+
+        `#linhaN` nasce quando o reconhecimento falha. Ela nao identifica
+        ninguem — e o scanner dizendo "estou vendo esta linha e nao faco ideia
+        de quem esta nela". Anunciar qualquer coisa em nome dela e anunciar um
+        evento sem sujeito.
+
+        A pergunta so faz sentido quando ha assinaturas gravadas. Sem elas o
+        projeto esta no modo antigo, onde a POSICAO e a unica identidade que
+        existe e `nome_de` devolve um nome de gente de verdade — e ali a chave
+        posicional precisa continuar valendo, senao a deteccao de morte some
+        para quem nunca calibrou assinatura. E a mesma fronteira que `_rotular`
+        ja usa para decidir entre "Membro N" e o nome da lista.
+        """
+        return self.assinaturas_configuradas and identidade.startswith("#linha")
 
     def _rotular(self, linha: LeituraDeLinha, identidade: str) -> str:
         """Como esta linha deve ser CHAMADA num alerta.
@@ -1016,13 +1043,18 @@ class Rastreador:
                         interno.estado = EstadoDoMembro.MORTO
                         interno.desde = agora
                         interno.contador_morte = 0
-                        eventos.append(
-                            Evento(
-                                tipo=TipoDeEvento.MORREU,
-                                momento=agora,
-                                membro=self._nome_exibido(identidade),
+                        # O estado avanca; o ALERTA e que nao sai. Assim o
+                        # console continua mostrando a linha como morta (ela
+                        # esta mesmo lendo 0%) sem que o WhatsApp receba a
+                        # morte de um sujeito que nao existe.
+                        if not self._e_so_uma_posicao(identidade):
+                            eventos.append(
+                                Evento(
+                                    tipo=TipoDeEvento.MORREU,
+                                    momento=agora,
+                                    membro=self._nome_exibido(identidade),
+                                )
                             )
-                        )
                 else:
                     interno.contador_morte = 0
 
@@ -1038,18 +1070,41 @@ class Rastreador:
                         interno.estado = EstadoDoMembro.VIVO
                         interno.desde = agora
                         interno.contador_ressurreicao = 0
-                        eventos.append(
-                            Evento(
-                                tipo=TipoDeEvento.RESSUSCITOU,
-                                momento=agora,
-                                membro=self._nome_exibido(identidade),
-                                segundos_no_estado=tempo_morto,
+                        if not self._e_so_uma_posicao(identidade):
+                            eventos.append(
+                                Evento(
+                                    tipo=TipoDeEvento.RESSUSCITOU,
+                                    momento=agora,
+                                    membro=self._nome_exibido(identidade),
+                                    segundos_no_estado=tempo_morto,
+                                )
                             )
-                        )
                 else:
                     interno.contador_ressurreicao = 0
 
         self._ultima_contagem_estavel = linhas_agora
+
+        # UMA POSICAO NAO SOBREVIVE A UMA LACUNA.
+        #
+        # Para uma pessoa, sumir da tela e informacao que vale guardar: ela
+        # pode ter saido, e o estado dela precisa esperar por ela. Para uma
+        # POSICAO nao vale nada — quem ocupar a linha 2 depois da lacuna nao
+        # tem relacao nenhuma com quem a ocupava antes, e a lacuna acontece
+        # justamente quando o reconhecimento volta a funcionar (a chave vira o
+        # nome) ou quando a linha deixa de existir.
+        #
+        # Guardar esse estado e o que fabricava duracoes impossiveis: o
+        # `#linhaN` ficava MORTO atravessando a lacuna com o `desde` correndo,
+        # e do outro lado anunciava "ficou 1h56 morto" (scanner.log 16:03:28),
+        # "51min20s", "53min31s". E o mesmo defeito de forma do
+        # `linhas_quando_visto` que esta familia ja pagou uma vez: um retrato
+        # que para no tempo enquanto o mundo anda.
+        if self.assinaturas_configuradas:
+            self._membros = {
+                ident: interno
+                for ident, interno in self._membros.items()
+                if ident in presentes or not self._e_so_uma_posicao(ident)
+            }
 
         # O retrato de quem estava na tela NESTE frame. E o que faz a proxima
         # volta saber distinguir "acabou de sumir" de "sumiu ha muito tempo".
