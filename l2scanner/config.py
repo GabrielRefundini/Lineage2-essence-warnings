@@ -17,6 +17,13 @@ from .agenda import (
     AgendaInvalida,
     EventoAgendado,
 )
+
+# `Membro` nasce no `comandos.py` e nao aqui por causa da direcao das
+# importacoes, que ja e fixa no pacote: `config -> comandos -> loot -> agenda`.
+# Definir `Membro` neste arquivo obrigaria `comandos` a importar `config`, e o
+# ciclo fecharia no primeiro uso.
+from .comandos import Membro, so_digitos
+from .loot import NICK_VALIDO
 from .notificador import ConfigChatwoot
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -226,3 +233,85 @@ def _evento_de_dict(bruto: dict, indice: int) -> EventoAgendado:
         avisar_no_horario=no_horario,
         silenciar_minutos=silenciar,
     )
+
+
+# ---------------------------------------------------------------------------
+# Os party-mates que podem dar `.join` e `.leave` (config.toml, [[membro]])
+#
+# MORA AQUI, E NAO NO .env, E A ASSIMETRIA COM O `CHATWOOT_TELEFONES_COMANDO`
+# E PROPOSITAL. Aquele telefone mora no `.env` porque acompanha o token do
+# Chatwoot, e o `.env` e o arquivo que ninguem abre sem motivo. O telefone de
+# um party-mate nao e segredo nenhum: ele ja esta na agenda de todo mundo do
+# grupo. O que ele precisa e de um arquivo feito para ser aberto e editado a
+# mao quando alguem entra ou sai da party — e esse arquivo e o config.toml,
+# que ainda por cima aceita comentario explicando o que cada campo faz.
+# ---------------------------------------------------------------------------
+
+
+def ler_membros(caminho: Path | None = None) -> list[Membro]:
+    """Le os party-mates do config.toml.
+
+    Mesma disciplina de `ler_agenda`, logo acima, e pelas mesmas razoes.
+
+    ARQUIVO AUSENTE NAO E ERRO: quem nunca criou o config.toml, ou nunca
+    declarou um `[[membro]]`, fica com a lista vazia e o scanner continua
+    subindo com o nivel de dono funcionando como sempre funcionou.
+
+    ARQUIVO PRESENTE E MAL FORMADO E ERRO DE ARRANQUE. Aqui isso pesa mais que
+    na agenda: um telefone com erro de digitacao nao produz mensagem de erro
+    nenhuma no meio do farm — ele produz um `.join` que some em silencio, e
+    quem digitou conclui que o bot esta quebrado.
+
+    Reusa `AgendaInvalida` em vez de criar excecao propria de proposito: ela ja
+    E a excecao de "o config.toml nao faz sentido", ja e capturada onde o
+    arranque quer capturar, e ja derruba o scanner com o usuario olhando para o
+    console. Uma segunda classe duplicaria esse tratamento sem ganhar nada.
+    """
+    caminho = caminho or ARQUIVO_CONFIG
+    if not caminho.exists():
+        return []
+
+    try:
+        with caminho.open("rb") as arquivo:
+            dados = tomllib.load(arquivo)
+    except tomllib.TOMLDecodeError as erro:
+        raise AgendaInvalida(f"{caminho.name} nao e um TOML valido: {erro}") from erro
+
+    return [_membro_de_dict(bruto, i) for i, bruto in enumerate(dados.get("membro", []))]
+
+
+def _membro_de_dict(bruto: dict, indice: int) -> Membro:
+    """Valida um bloco [[membro]] e diz exatamente o que esta errado.
+
+    Mesmo padrao de `onde` do `_evento_de_dict`: cita o NICK sempre que ele
+    existe, porque "o segundo [[membro]] esta errado" faz o usuario contar
+    blocos e "o membro 'Korzis' esta sem telefone" ele conserta em cinco
+    segundos.
+
+    O nick passa pelo mesmo `NICK_VALIDO` que o `loot.py` usa para designar
+    quem pega o loot. Um charset so para os dois lados, senao um nick aceito
+    aqui seria recusado no `.loot-<nick>` e o registro de presenca e o de loot
+    falariam de pessoas diferentes.
+    """
+    onde = f"membro '{bruto['nick']}'" if bruto.get("nick") else f"[[membro]] #{indice + 1}"
+
+    nick = str(bruto.get("nick", "")).strip()
+    if not nick:
+        raise AgendaInvalida(f"{onde}: falta o campo 'nick'.")
+    if not NICK_VALIDO.fullmatch(nick):
+        raise AgendaInvalida(
+            f"{onde}: nick '{nick}' nao serve. Use de 2 a 16 letras ou numeros, "
+            "sem espaco e sem acento — o mesmo nick que aparece no jogo."
+        )
+
+    telefone = str(bruto.get("telefone", "")).strip()
+    if not telefone:
+        raise AgendaInvalida(
+            f"{onde}: falta o campo 'telefone'. Exemplo: telefone = \"+5544999998888\""
+        )
+    if not so_digitos(telefone):
+        raise AgendaInvalida(
+            f"{onde}: telefone '{telefone}' nao tem digito nenhum."
+        )
+
+    return Membro(nick=nick, telefone=telefone)

@@ -11,7 +11,11 @@ sobre o que o scanner se RECUSA a fazer.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
+import pytest
+
+from l2scanner.agenda import AgendaInvalida
 from l2scanner.comandos import (
     _AJUDA,
     Comando,
@@ -22,6 +26,7 @@ from l2scanner.comandos import (
     interpretar_dinamico,
     texto_de_ajuda,
 )
+from l2scanner.config import ler_membros
 from l2scanner.loot import apelido
 
 # A ordem de exibicao combinada: do que se usa no meio do farm para o meta.
@@ -93,6 +98,14 @@ class TestInterpretar:
             Comando.STATUS,
             Comando.SOLO,
             Comando.PARTY,
+            # Entrar e sair da lista de presenca do proximo Solo Boss.
+            # Crescimento de proposito, e de uma natureza que a lista nunca
+            # tinha tido: sao os DOIS UNICOS comandos alcancaveis por um
+            # SEGUNDO nivel de autorizacao — o `[[membro]]` do config.toml.
+            # Todos os outros continuam so para o nivel de dono. Ver
+            # `TestFronteiraDeAutorizacao`.
+            Comando.JOIN,
+            Comando.LEAVE,
             # O controle de loot do Solo Boss. Crescimento DE PROPOSITO:
             # designar quem pega o proximo, e consultar quanto um nick pegou.
             Comando.LOOT_DESIGNAR,
@@ -1262,6 +1275,134 @@ class TestAjudaNaCostura:
             do_numero="554497077000",  # o mesmo numero, sem o nono digito
         )
         assert [alvo for _, alvo in destinos] == ["1"]
+
+
+class TestMembroNoConfigToml:
+    """O `[[membro]]` sai de um arquivo TOML e chega na decisao de autorizacao.
+
+    A fatia vertical inteira, ponta a ponta: bloco no arquivo -> `ler_membros`
+    -> `comandos_novos`. Sem isto provado de uma ponta a outra, cada metade
+    poderia estar certa sozinha e a costura errada — que e onde os erros deste
+    projeto moram.
+    """
+
+    TELEFONE_DE_MEMBRO = "+5544912345678"
+
+    def _arquivo(self, tmp_path, texto: str):
+        caminho = tmp_path / "config.toml"
+        caminho.write_text(texto, encoding="utf-8")
+        return caminho
+
+    def test_arquivo_ausente_nao_e_erro(self, tmp_path):
+        """Quem nunca declarou membro nenhum continua subindo o scanner."""
+        assert ler_membros(tmp_path / "nao-existe.toml") == []
+
+    def test_dois_blocos_viram_dois_membros_na_ordem_do_arquivo(self, tmp_path):
+        caminho = self._arquivo(
+            tmp_path,
+            '[[membro]]\nnick = "Korzis"\ntelefone = "+5544911112222"\n\n'
+            '[[membro]]\nnick = "J4guar"\ntelefone = "+5544933334444"\n',
+        )
+        membros = ler_membros(caminho)
+        assert [m.nick for m in membros] == ["Korzis", "J4guar"]
+        assert membros[0].telefone == "+5544911112222"
+
+    def test_membro_sem_telefone_derruba_no_arranque_citando_o_nick(self, tmp_path):
+        """A mensagem cita o NICK, nunca o indice do bloco.
+
+        Um telefone faltando nao produz erro nenhum no meio do farm — produz
+        um `.join` que some em silencio. Por isso o erro tem que ser de
+        ARRANQUE, com o usuario olhando para o console.
+        """
+        caminho = self._arquivo(tmp_path, '[[membro]]\nnick = "Korzis"\n')
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_membros(caminho)
+        assert "Korzis" in str(erro.value)
+
+    def test_nick_fora_do_charset_do_jogo_e_recusado(self, tmp_path):
+        """Mesmo `NICK_VALIDO` do `loot.py`: um charset so para os dois lados.
+
+        Um nick aceito aqui e recusado no `.loot-<nick>` faria o registro de
+        presenca e o de loot falarem de pessoas diferentes.
+        """
+        caminho = self._arquivo(
+            tmp_path,
+            '[[membro]]\nnick = "Tio Mad"\ntelefone = "+5544911112222"\n',
+        )
+        with pytest.raises(AgendaInvalida):
+            ler_membros(caminho)
+
+    def test_o_config_toml_do_REPOSITORIO_nao_carrega_telefone_de_ninguem(self):
+        """O arquivo versionado leva so exemplo COMENTADO.
+
+        Telefone de party-mate nao e segredo, mas tambem nao e do repositorio:
+        quem preenche e o usuario, na maquina dele.
+        """
+        raiz = Path(__file__).resolve().parent.parent
+        assert ler_membros(raiz / "config.toml") == []
+
+    def _do_membro(self, id_, texto: str) -> dict:
+        return {
+            "id": id_,
+            "content": texto,
+            "message_type": 0,
+            "private": False,
+            # O `name` e propositalmente DIFERENTE do nick configurado: e assim
+            # que se ve se o nick veio do mapa ou do WhatsApp.
+            "sender": {"name": "Ze do Zap", "phone_number": self.TELEFONE_DE_MEMBRO},
+        }
+
+    def test_o_telefone_do_arquivo_atravessa_o_join(self, tmp_path):
+        caminho = self._arquivo(
+            tmp_path,
+            f'[[membro]]\nnick = "Korzis"\ntelefone = "{self.TELEFONE_DE_MEMBRO}"\n',
+        )
+        achados = comandos_novos(
+            [self._do_membro(1, ".join")],
+            set(),
+            ["+5544997077000"],
+            membros=ler_membros(caminho),
+        )
+        assert [m.comando for m in achados] == [Comando.JOIN]
+        assert achados[0].nick == "Korzis", (
+            "o nick tem que sair do mapa [[membro]], nunca do sender.name"
+        )
+
+    def test_o_mesmo_telefone_PARA_no_corrigir(self, tmp_path):
+        """O ponto inteiro da fase: presenca nao da comando destrutivo."""
+        caminho = self._arquivo(
+            tmp_path,
+            f'[[membro]]\nnick = "Korzis"\ntelefone = "{self.TELEFONE_DE_MEMBRO}"\n',
+        )
+        assert (
+            comandos_novos(
+                [self._do_membro(2, ".corrigir-Kaus")],
+                set(),
+                ["+5544997077000"],
+                nicks_conhecidos=frozenset({apelido("Kaus")}),
+                membros=ler_membros(caminho),
+            )
+            == []
+        )
+
+    def test_telefone_desconhecido_nao_alcanca_nem_o_join(self, tmp_path):
+        caminho = self._arquivo(
+            tmp_path,
+            f'[[membro]]\nnick = "Korzis"\ntelefone = "{self.TELEFONE_DE_MEMBRO}"\n',
+        )
+        de_fora = {
+            "id": 3,
+            "content": ".join",
+            "message_type": 0,
+            "private": False,
+            "sender": {"name": "Joao Pedro", "phone_number": "+5511988887777"},
+        }
+        assert (
+            comandos_novos(
+                [de_fora], set(), ["+5544997077000"], membros=ler_membros(caminho)
+            )
+            == []
+        )
 
 
 class TestMolduraDoConsole:

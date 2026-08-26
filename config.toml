@@ -53,3 +53,36 @@ horarios = [
 avisar_minutos_antes = 10
 avisar_no_horario = false
 silenciar_minutos = 0
+
+# ---------------------------------------------------------------------------
+# Quem pode dar .join e .leave — os [[membro]] da party
+#
+# Cada bloco [[membro]] liga um telefone do WhatsApp a um nick do jogo. Quem
+# estiver aqui pode mandar SO ISTO no scanner:
+#
+#   .join  (.entrar)   entra na lista do proximo Solo Boss
+#   .leave (.sair)     sai da lista
+#
+# E MAIS NADA. Um [[membro]] NAO alcanca .cancelar, .solo, .party, .status,
+# nem nenhum comando de loot — em especial .corrigir e .pegou, que reescrevem
+# a estatistica de quem pegou o que e nao tem como voltar atras. Esses
+# continuam so para os numeros de CHATWOOT_TELEFONES_COMANDO, no .env.
+#
+# O nick e o do JOGO, e e ele que aparece na lista de presenca. O nome que o
+# WhatsApp mostra nao serve: ele e escrito pelo dono do telefone e muda quando
+# a pessoa quer.
+#
+# Telefone com ou sem o 9, com ou sem +55, tanto faz — a comparacao e pelos
+# ultimos 8 digitos. Justamente por isso, NAO ponha dois numeros que terminem
+# nos mesmos 8 digitos: o scanner avisa no arranque quando isso acontece.
+#
+# Descomente e troque pelos seus. O arquivo do repositorio nao carrega
+# telefone de ninguem.
+#
+# [[membro]]
+# nick = "Korzis"
+# telefone = "+5544999998888"
+#
+# [[membro]]
+# nick = "J4guar"
+# telefone = "+5544977776666"

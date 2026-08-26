@@ -23,6 +23,24 @@ E UMA QUARTA, contra repeticao: cada mensagem so e obedecida uma vez, por id.
 O registro e o mesmo `.agenda/`, entao vale entre reinicios e entre as duas
 instancias do usuario.
 
+E UMA QUINTA, sobre QUEM manda: a allowlist de telefone
+(`CHATWOOT_TELEFONES_COMANDO`), que vale ate dentro de um grupo, onde a
+allowlist de conversa sozinha liberaria todo mundo.
+
+**E A QUINTA TEM DOIS NIVEIS.** Ela era global e binaria: um telefone na
+allowlist podia TUDO, inclusive `.corrigir` e `.pegou`, que reescrevem a
+estatistica permanente do `.loot/` — pasta que nunca e podada e nao tem
+backup. Quando a party ganhou `.join` e `.leave`, por os telefones dos quatro
+a oito party-mates naquela lista teria dado a todos eles esse poder, de carona
+numa funcionalidade de presenca. Entao:
+
+- **Dono** (`CHATWOOT_TELEFONES_COMANDO`, no `.env`): alcanca TODO comando do
+  enum. Avaliado primeiro, e ADITIVO — nada aqui foi tirado dele.
+- **Membro** (`[[membro]]` no `config.toml`, nick + telefone): alcanca
+  EXCLUSIVAMENTE o que estiver em `COMANDOS_DE_MEMBRO`.
+
+Ver `autorizado_para`, onde a ordem das duas perguntas e a decisao inteira.
+
 NOTA DE CAMPO (2026-08-24): o grupo do usuario NAO entrega mensagens de entrada
 ao Chatwoot — a ponte Baileys vem com ingestao de grupo desligada. Conversas
 1-a-1 entregam normalmente. Por isso a conversa de comandos e configuravel
@@ -34,6 +52,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
@@ -82,6 +101,18 @@ class Comando(Enum):
     SOLO = "solo"
     PARTY = "party"
 
+    # Entrar e sair da lista de presenca do proximo Solo Boss. Sao os dois
+    # PRIMEIROS comandos alcancaveis por um SEGUNDO nivel de autorizacao: o
+    # telefone de um party-mate declarado em `[[membro]]` no config.toml chega
+    # ate estes dois e para neles.
+    #
+    # E e por isso que este enum passa a precisar do `COMANDOS_DE_MEMBRO` logo
+    # abaixo. Sem um conjunto explicito, "o que um party-mate alcanca" seria
+    # uma regra espalhada por ifs, e uma fronteira de autorizacao que so da
+    # para conferir lendo o arquivo inteiro nao e uma fronteira.
+    JOIN = "join"
+    LEAVE = "leave"
+
     # O controle de loot do Solo Boss. Sao os dois primeiros comandos com
     # ARGUMENTO (o nick), e por isso nao moram no _VOCABULARIO — quem os
     # reconhece e `interpretar_dinamico`.
@@ -121,6 +152,19 @@ class Comando(Enum):
     AJUDA = "ajuda"
 
 
+# O que o SEGUNDO nivel de autorizacao alcanca — e nada alem disto.
+#
+# LISTA DE INCLUSAO, NUNCA DE EXCLUSAO, e a diferenca nao e estetica. Escrita
+# como exclusao (`set(Comando) - {LOOT_CORRIGIR, LOOT_ATRIBUIR}`), o proximo
+# comando destrutivo do projeto NASCERIA alcancavel por qualquer party-mate, e
+# so seria contido se quem o escreveu lembrasse de vir aqui excluir. Escrita
+# como inclusao, ele nasce FORA do alcance e ninguem precisa lembrar de nada.
+#
+# O teste da fronteira deriva a lista de RECUSA daqui — `set(Comando) -
+# COMANDOS_DE_MEMBRO` — entao a prova cresce sozinha quando o enum crescer.
+COMANDOS_DE_MEMBRO: frozenset[Comando] = frozenset({Comando.JOIN, Comando.LEAVE})
+
+
 # As formas escritas que valem para cada comando. Varias por comando porque
 # ninguem lembra a sintaxe exata no meio de um farm.
 _VOCABULARIO: dict[str, Comando] = {
@@ -135,6 +179,21 @@ _VOCABULARIO: dict[str, Comando] = {
     "party": Comando.PARTY,
     "pt": Comando.PARTY,
     "grupo": Comando.PARTY,
+    # `.join` e `.leave` nao tem ARGUMENTO, entao moram aqui e nao em
+    # `interpretar_dinamico` — mesma razao de `.solo` e `.party`. E estar neste
+    # dicionario ja os protege de virar consulta de nick: o ramo `.{nick}`
+    # recusa por nome tudo que esta aqui.
+    #
+    # O PRECO, ACEITO E DOCUMENTADO, e o mesmo de `_PALAVRAS_DE_CANCELAMENTO`:
+    # cada palavra registrada aqui e um personagem que deixa de ser consultavel
+    # por `.<nick>`. Um char chamado "Sair" nao responde mais a `.sair`. E
+    # exatamente por isso que a lista de apelidos e CURTA — duas formas por
+    # comando, a inglesa que a party ja usa em jogo e a portuguesa que a mao
+    # digita sozinha.
+    "join": Comando.JOIN,
+    "entrar": Comando.JOIN,
+    "leave": Comando.LEAVE,
+    "sair": Comando.LEAVE,
     "help": Comando.AJUDA,
     "ajuda": Comando.AJUDA,
     "comandos": Comando.AJUDA,
@@ -188,6 +247,21 @@ _AJUDA: dict[Comando, LinhaDeAjuda] = {
     ),
     Comando.CANCELAR_SILENCIO: LinhaDeAjuda(
         "Silencio", ".cancelar", "Tira o silencio de TvT/Prime que estiver rolando"
+    ),
+    # A familia Presenca vem ANTES de "Loot do Solo Boss" porque essa e a ordem
+    # do ciclo do boss: primeiro a party diz quem vai, so depois se decide de
+    # quem e o loot. A ordem de insercao deste dict E a ordem da resposta.
+    Comando.JOIN: LinhaDeAjuda(
+        "Presenca",
+        ".join",
+        "Entro na lista do proximo Solo Boss",
+        (".entrar",),
+    ),
+    Comando.LEAVE: LinhaDeAjuda(
+        "Presenca",
+        ".leave",
+        "Saio da lista do proximo Solo Boss",
+        (".sair",),
     ),
     Comando.LOOT_DESIGNAR: LinhaDeAjuda(
         "Loot do Solo Boss", ".loot-<nick>", "Marca quem pega o loot do proximo boss"
@@ -262,6 +336,42 @@ class MensagemDeComando:
     # no caso do `.pegou`, reler a gramatica — e trabalho de quem consome.
     argumento: str | None = None
 
+    # O nick do JOGO de quem mandou, quando o telefone dele esta declarado em
+    # `[[membro]]` no config.toml. None quando nao esta — e None e o caso
+    # NORMAL do dono do scanner, que costuma estar so em
+    # CHATWOOT_TELEFONES_COMANDO.
+    #
+    # Deliberadamente separado do `autor` logo acima: aquele e o `sender.name`
+    # do Chatwoot, escrito por quem e dono do telefone, e serve ao log. Este e
+    # o nome do PERSONAGEM, e e o unico dos dois que pode ir para uma lista de
+    # presenca. Ver a docstring de `Membro`.
+    nick: str | None = None
+
+
+@dataclass(frozen=True)
+class Membro:
+    """Um party-mate que pode entrar e sair da lista de presenca.
+
+    O CAMPO `nick` E A RAZAO DESTA CLASSE EXISTIR. O Chatwoot entrega um
+    `sender.name` junto de cada mensagem e seria de graca usa-lo — mas aquilo
+    e o nome do CONTATO, escrito pelo dono do telefone, e nao tem relacao
+    nenhuma com o nick do personagem no jogo. Ele muda quando a pessoa troca o
+    proprio nome no WhatsApp, vem vazio quando o contato nunca foi nomeado e
+    vem com emoji quando a pessoa quis. O nick do jogo, esse, esta escrito no
+    config.toml pela mesma mao que calibrou o scanner.
+
+    Mesma disciplina que a deteccao de tela segue desde a Fase 3: nome sempre
+    da configuracao, nunca lido de fora.
+
+    Mora NESTE arquivo, e nao no `config.py`, por causa da direcao das
+    importacoes: `config` importa `comandos`, e o contrario fecharia um ciclo
+    no primeiro uso. A docstring do topo deste arquivo e sobre a superficie de
+    seguranca, que e exatamente do que esta classe trata.
+    """
+
+    nick: str
+    telefone: str
+
 
 def so_digitos(telefone: str | None) -> str:
     """Descarta tudo que nao e digito: +, espaco, parentese, traco."""
@@ -297,6 +407,57 @@ def autor_autorizado(remetente: dict, telefones: list[str]) -> bool:
         return True
     numero = remetente.get("phone_number")
     return any(telefone_equivalente(numero, permitido) for permitido in telefones)
+
+
+def nick_do_membro(remetente: dict, membros: Sequence[Membro]) -> str | None:
+    """Qual party-mate configurado mandou isto? None quando nenhum.
+
+    Compara com `telefone_equivalente`, E ISSO NAO E DETALHE DE ESTILO. Uma
+    segunda implementacao do corte de 8 digitos aqui divergiria da primeira no
+    primeiro ajuste, e as duas travas passariam a discordar sobre quem e quem —
+    em silencio, que e o pior modo de falha possivel para uma trava.
+    """
+    numero = remetente.get("phone_number")
+    for membro in membros:
+        if telefone_equivalente(numero, membro.telefone):
+            return membro.nick
+    return None
+
+
+def autorizado_para(
+    comando: Comando,
+    remetente: dict,
+    telefones: list[str],
+    membros: Sequence[Membro] = (),
+) -> bool:
+    """Quem mandou pode mandar ISTO?
+
+    A ORDEM DESTAS DUAS PERGUNTAS E A DECISAO INTEIRA DA FRONTEIRA.
+
+    O nivel de DONO (`CHATWOOT_TELEFONES_COMANDO`) e avaliado PRIMEIRO e e
+    ADITIVO: quem esta nele continua alcancando TODO comando do enum, inclusive
+    `JOIN` e `LEAVE`. O nivel de membro ACRESCENTA gente a uma superficie
+    pequena; ele nunca TIRA nada de ninguem.
+
+    Inverter esta ordem — ou restringir `JOIN` ao nivel de membro — quebra
+    `test_toda_sintaxe_anunciada_volta_como_o_comando_certo`, que roda a tabela
+    `_AJUDA` INTEIRA pelo caminho real de leitura usando o telefone de dono e
+    sem `[[membro]]` nenhum configurado. Quando isso acontecer, o teste esta
+    certo e o codigo esta errado: o dono do scanner nao pode deixar de alcancar
+    um comando so porque aquele comando ganhou um segundo publico.
+
+    O nivel de MEMBRO (`[[membro]]` no config.toml) so e consultado depois, e
+    so para o que estiver em `COMANDOS_DE_MEMBRO`. Um party-mate nao alcanca
+    `.corrigir` nem `.pegou`, que reescrevem a estatistica do `.loot/` — pasta
+    que nunca e podada e nao tem backup. Era exatamente esse poder que por os
+    quatro a oito telefones da party na allowlist de dono teria dado a todos
+    eles, so para que pudessem dar `.join`.
+    """
+    if autor_autorizado(remetente, telefones):
+        return True
+    if comando not in COMANDOS_DE_MEMBRO:
+        return False
+    return nick_do_membro(remetente, membros) is not None
 
 
 def interpretar(texto: str | None) -> Comando | None:
@@ -465,6 +626,7 @@ def comandos_novos(
     ja_obedecidos: set[str],
     telefones: list[str] | None = None,
     nicks_conhecidos: frozenset[str] = frozenset(),
+    membros: Sequence[Membro] = (),
 ) -> list[MensagemDeComando]:
     """Filtra o que veio da API e devolve so o que deve ser obedecido.
 
@@ -496,10 +658,14 @@ def comandos_novos(
                 continue
             comando, argumento = dinamico
 
-        # TRAVA 5: quem mandou pode mandar? Vale ate dentro de um grupo, onde a
-        # allowlist de conversa sozinha liberaria todo mundo.
+        # TRAVA 5: quem mandou pode mandar ISTO? Vale ate dentro de um grupo,
+        # onde a allowlist de conversa sozinha liberaria todo mundo.
+        #
+        # A pergunta passou a ser por COMANDO, e nao mais so por pessoa, sem
+        # precisar mudar de lugar: esta trava ja rodava DEPOIS da
+        # interpretacao, entao o comando ja e conhecido neste ponto.
         remetente = bruta.get("sender") or {}
-        if not autor_autorizado(remetente, telefones or []):
+        if not autorizado_para(comando, remetente, telefones or [], membros):
             continue
         achados.append(
             MensagemDeComando(
@@ -509,6 +675,11 @@ def comandos_novos(
                 texto=str(bruta.get("content", "")),
                 conversa=bruta.get("conversation_id"),
                 argumento=argumento,
+                # O nick sai do mapa `[[membro]]`, NUNCA do `sender.name` que
+                # esta tres linhas acima alimentando o `autor`. Ver a docstring
+                # de `Membro`: o nome do contato e escrito pelo dono do
+                # telefone, e o nick do jogo nao.
+                nick=nick_do_membro(remetente, membros),
             )
         )
 
@@ -543,6 +714,7 @@ class LeitorDeComandos:
         user_agent: str = "",
         telefones: list[str] | None = None,
         etiqueta: str = "",
+        membros: Sequence[Membro] = (),
     ) -> None:
         self._url = url.rstrip("/")
         self._conta = conta
@@ -551,6 +723,11 @@ class LeitorDeComandos:
         self._intervalo = segundos_entre_leituras
         self._user_agent = user_agent
         self.telefones = list(telefones or [])
+        # Os party-mates do `[[membro]]`, guardados ao lado dos telefones de
+        # dono porque os dois juntos SAO a resposta de "quem pode mandar no
+        # scanner". Quem le esta classe precisa ver os dois niveis no mesmo
+        # lugar, nunca um deles escondido noutro modulo.
+        self.membros = list(membros)
         # Etiqueta que transforma uma conversa em canal de comando. Redescoberta
         # a cada leitura de proposito: e o que faz marcar/desmarcar no painel do
         # Chatwoot valer NA HORA, sem editar arquivo e sem reiniciar o scanner.
