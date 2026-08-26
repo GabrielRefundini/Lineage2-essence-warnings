@@ -18,8 +18,10 @@ import pytest
 from l2scanner.agenda import AgendaInvalida
 from l2scanner.comandos import (
     _AJUDA,
+    COMANDOS_DE_MEMBRO,
     Comando,
     LeitorDeComandos,
+    Membro,
     chave_da_mensagem,
     comandos_novos,
     interpretar,
@@ -30,7 +32,16 @@ from l2scanner.config import ler_membros
 from l2scanner.loot import apelido
 
 # A ordem de exibicao combinada: do que se usa no meio do farm para o meta.
-_FAMILIAS_ESPERADAS = ("Vigilancia", "Silencio", "Loot do Solo Boss", "Ajuda")
+#
+# "Presenca" entra ANTES de "Loot do Solo Boss" porque essa e a ordem do ciclo
+# do boss: primeiro a party diz quem vai, so depois se decide de quem e o loot.
+_FAMILIAS_ESPERADAS = (
+    "Vigilancia",
+    "Silencio",
+    "Presenca",
+    "Loot do Solo Boss",
+    "Ajuda",
+)
 
 
 
@@ -1275,6 +1286,210 @@ class TestAjudaNaCostura:
             do_numero="554497077000",  # o mesmo numero, sem o nono digito
         )
         assert [alvo for _, alvo in destinos] == ["1"]
+
+
+class TestFronteiraDeAutorizacao:
+    """Os dois niveis, provados nos DOIS sentidos.
+
+    Antes desta fase a autorizacao era global e binaria: um telefone na
+    allowlist podia TUDO, inclusive `.corrigir` e `.pegou`, que reescrevem a
+    estatistica do `.loot/` — pasta que nunca e podada e nao tem backup. Por os
+    telefones dos quatro a oito party-mates naquela lista, so para que
+    pudessem dar `.join`, teria dado a todos eles esse poder.
+
+    Entao a fronteira precisa de prova nas duas direcoes: o que o membro
+    ALCANCA e, muito mais importante, o que ele NAO alcanca. E a segunda
+    metade e DERIVADA do enum, nao digitada — ver os dois tripwires abaixo.
+    """
+
+    # O telefone de dono e o mesmo que os testes existentes ja usam.
+    DONO = "+5544997077000"
+    # O de membro NAO pode colidir com o de dono nos 8 digitos finais, que sao
+    # os unicos comparados: 97077000 contra 12345678.
+    MEMBRO = "+5544912345678"
+    NICK = "Korzis"
+
+    MEMBROS = (Membro(nick="Korzis", telefone="+5544912345678"),)
+    # Um nick conhecido para os comandos dinamicos poderem ser interpretados.
+    CONHECIDOS = frozenset({apelido("J4guar")})
+
+    def _de(self, telefone: str | None, texto: str, id_: int = 9001) -> dict:
+        remetente: dict = {"name": "Ze do Zap"}
+        if telefone is not None:
+            remetente["phone_number"] = telefone
+        return {
+            "id": id_,
+            "content": texto,
+            "message_type": 0,
+            "private": False,
+            "sender": remetente,
+        }
+
+    def _sintaxe(self, comando: Comando) -> str:
+        """A sintaxe que a PROPRIA ajuda anuncia para o comando.
+
+        Sai da tabela `_AJUDA` e nao de um literal aqui: assim a prova usa
+        exatamente o que o bot ensina, e nao uma segunda opiniao do teste.
+        """
+        return _AJUDA[comando].sintaxe.replace("<nick>", "J4guar").replace(
+            "<hora>", "18:00"
+        )
+
+    def _achados(self, telefone: str | None, comando: Comando, **extra):
+        return comandos_novos(
+            [self._de(telefone, self._sintaxe(comando))],
+            set(),
+            extra.pop("telefones", [self.DONO]),
+            nicks_conhecidos=self.CONHECIDOS,
+            membros=extra.pop("membros", self.MEMBROS),
+        )
+
+    def test_o_membro_e_RECUSADO_em_tudo_que_nao_e_dele(self):
+        """O TRIPWIRE DA FRONTEIRA. A lista de recusa e DERIVADA do enum.
+
+        `set(Comando) - COMANDOS_DE_MEMBRO`, nunca digitada. Escrita a mao,
+        o proximo comando destrutivo do projeto nasceria alcancavel por
+        qualquer party-mate e o teste continuaria verde — ninguem descobriria
+        ate alguem apagar a estatistica de um boss pelo WhatsApp.
+
+        Derivada, um `Comando` novo entra nesta prova sozinho e so sai dela
+        quando alguem decidir, por escrito, que ele e de membro.
+        """
+        recusados = set(Comando) - COMANDOS_DE_MEMBRO
+        # Guarda contra a prova VAZIA: se alguem alargar COMANDOS_DE_MEMBRO ate
+        # engolir o enum, o laco abaixo nao roda e o teste passa sem provar
+        # nada. Os dois comandos nomeados aqui sao os que reescrevem historico.
+        assert {Comando.LOOT_CORRIGIR, Comando.LOOT_ATRIBUIR} <= recusados, (
+            "COMANDOS_DE_MEMBRO cresceu ate alcancar comando que reescreve a "
+            "estatistica permanente do .loot/ — isso nunca pode ser de membro"
+        )
+
+        for comando in sorted(recusados, key=lambda c: c.name):
+            achados = self._achados(self.MEMBRO, comando)
+            assert achados == [], (
+                f"um telefone que so esta em [[membro]] alcancou "
+                f"{comando.name} pela sintaxe {self._sintaxe(comando)!r} — a "
+                f"fronteira vazou"
+            )
+
+    def test_o_membro_ALCANCA_o_que_e_dele_e_chega_com_o_nick(self):
+        for comando in sorted(COMANDOS_DE_MEMBRO, key=lambda c: c.name):
+            achados = self._achados(self.MEMBRO, comando)
+            assert [m.comando for m in achados] == [comando], (
+                f"o telefone de membro nao alcancou {comando.name} pela "
+                f"sintaxe {self._sintaxe(comando)!r}"
+            )
+            assert achados[0].nick == self.NICK, (
+                "o nick tem que vir do mapa [[membro]], nunca do sender.name"
+            )
+
+    def test_o_DONO_continua_alcancando_TODO_comando(self):
+        """A aditividade, dita por extenso.
+
+        `test_toda_sintaxe_anunciada_volta_como_o_comando_certo` ja prova isto
+        rodando a tabela de ajuda inteira, mas prova sem `membros` configurado.
+        Este roda a mesma tabela COM o segundo nivel ligado: o dono nao pode
+        perder nada por causa de gente que foi ACRESCENTADA depois dele.
+        """
+        for comando in sorted(Comando, key=lambda c: c.name):
+            achados = self._achados(self.DONO, comando)
+            assert [m.comando for m in achados] == [comando], (
+                f"o telefone de dono deixou de alcancar {comando.name} depois "
+                f"que o nivel de membro passou a existir — o nivel novo e "
+                f"ADITIVO, nunca exclusivo"
+            )
+
+    def test_o_dono_que_nao_e_membro_chega_sem_nick(self):
+        """None, e nao um nick inventado do `sender.name`.
+
+        Quem consome decide o que fazer com isso; o que nao pode acontecer e o
+        nome do contato do WhatsApp virar nick de personagem por omissao.
+        """
+        achados = self._achados(self.DONO, Comando.JOIN)
+        assert achados[0].nick is None
+
+    def test_allowlist_VAZIA_continua_aceitando_qualquer_um(self):
+        """Compatibilidade: quem configurou comandos so por conversa.
+
+        O nivel de membro nao pode ter FECHADO nada que estava aberto. Quem
+        nunca preencheu CHATWOOT_TELEFONES_COMANDO continua exatamente como
+        estava — e o aviso de arranque continua sendo quem torna isso visivel.
+        """
+        for comando in sorted(Comando, key=lambda c: c.name):
+            achados = comandos_novos(
+                [self._de("+5511900000000", self._sintaxe(comando))],
+                set(),
+                [],
+                nicks_conhecidos=self.CONHECIDOS,
+                membros=self.MEMBROS,
+            )
+            assert [m.comando for m in achados] == [comando], comando.name
+
+    def test_telefone_de_lugar_nenhum_nao_alcanca_nada(self):
+        """Nem dono, nem membro, com a allowlist preenchida: zero comandos.
+
+        E o Joao Pedro do "Quero cancelar": um cliente real numa das 22
+        conversas da conta, que nao pode virar operador do scanner.
+        """
+        for comando in sorted(Comando, key=lambda c: c.name):
+            assert self._achados("+5511988887777", comando) == [], comando.name
+
+    def test_remetente_SEM_telefone_e_recusado(self):
+        """A API nem sempre traz `phone_number`. Ausencia nunca e permissao."""
+        for comando in sorted(Comando, key=lambda c: c.name):
+            assert self._achados(None, comando) == [], comando.name
+
+    def test_o_nono_digito_nao_transforma_a_pessoa_em_outra(self):
+        """A base do WhatsApp carrega as duas formas do mesmo numero.
+
+        Medido nesta conta: o usuario se identifica como +5544997077000 e o
+        Chatwoot registra o dono do grupo como 554497077000, sem o 9. Se o
+        nivel de membro comparasse exato, o `.join` sumiria em silencio — o
+        pior modo de falha possivel, porque quem digitou nao recebe erro
+        nenhum e conclui que o bot esta quebrado.
+        """
+        membros = (Membro(nick="Kaus", telefone="+5544997077001"),)
+        achados = comandos_novos(
+            [self._de("554497077001", ".join")],
+            set(),
+            [self.DONO],
+            membros=membros,
+        )
+        assert [m.comando for m in achados] == [Comando.JOIN]
+        assert achados[0].nick == "Kaus"
+
+    def test_o_ECO_DO_BOT_nao_vira_comando(self):
+        """TRAVA 3 contra a fase que faz o bot ESCREVER no grupo.
+
+        Ate agora o bot so falava sobre mortes e horarios. Desta fase em
+        diante ele passa a escrever confirmacoes que se parecem com comandos,
+        e um eco obedecido viraria laco infinito. O controle logo abaixo prova
+        que a recusa vem do `message_type`, e nao de o texto ser inerte.
+        """
+        eco = self._de(self.DONO, ".join")
+        eco["message_type"] = 1  # outgoing: o proprio bot
+        assert comandos_novos([eco], set(), [self.DONO], membros=self.MEMBROS) == []
+
+        entrando = self._de(self.DONO, ".join")
+        assert len(
+            comandos_novos([entrando], set(), [self.DONO], membros=self.MEMBROS)
+        ) == 1, "o controle falhou: o texto sozinho ja nao era comando"
+
+    def test_a_redacao_da_confirmacao_de_grupo_e_inerte(self):
+        """E inerte por DUAS razoes independentes, e as duas valem.
+
+        Como saida do bot, a TRAVA 3 a recusa. Como entrada, a TRAVA 2 a
+        recusa de novo: `interpretar` so olha a PRIMEIRA palavra, e a
+        confirmacao comeca pelo nick. Nenhuma das duas depende da outra.
+        """
+        texto = "Korzis entrou na lista do Solo Boss das 20:00. Mande .join tambem."
+
+        saindo = self._de(self.DONO, texto)
+        saindo["message_type"] = 1
+        assert comandos_novos([saindo], set(), [self.DONO], membros=self.MEMBROS) == []
+
+        voltando = self._de(self.DONO, texto)
+        assert comandos_novos([voltando], set(), [self.DONO], membros=self.MEMBROS) == []
 
 
 class TestMembroNoConfigToml:
