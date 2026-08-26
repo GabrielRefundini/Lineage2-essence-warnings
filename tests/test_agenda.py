@@ -880,6 +880,269 @@ class TestRegistroEmDisco:
         RegistroEmDisco(alvo)
         assert alvo.is_dir()
 
+    def test_competicao_de_verdade_com_threads_no_entrar(self, tmp_path):
+        """A MESMA corrida do `marcar`, agora sobre a lista de presenca.
+
+        E o teste que prova PRES-10 e PRES-15 de uma vez: as duas instancias do
+        usuario (Yazalaque e Faerlina) leem a MESMA conversa do Chatwoot e veem
+        o MESMO `.join` no mesmo tick. Se as duas recebessem "criado", o grupo
+        receberia duas confirmacoes de que o J4guar entrou — que e exatamente o
+        volume de mensagem que fez o usuario desligar `avisar_no_horario` no
+        Solo Boss.
+
+        Dezesseis threads em vez de duas porque uma implementacao com janela
+        entre o read e o write (um "le a pasta, checa, cria") passa no teste
+        sequencial e so cai aqui.
+        """
+        import threading
+
+        from l2scanner.agenda import RegistroEmDisco
+
+        chave = "2026-08-24_solo-boss-2000"
+        criados = []
+        trava = threading.Lock()
+        largada = threading.Event()
+
+        def tentar():
+            registro = RegistroEmDisco(tmp_path)
+            largada.wait()
+            if registro.entrar(chave, "j4guar") == "criado":
+                with trava:
+                    criados.append(1)
+
+        threads = [threading.Thread(target=tentar) for _ in range(16)]
+        for t in threads:
+            t.start()
+        largada.set()
+        for t in threads:
+            t.join()
+
+        assert len(criados) == 1, (
+            f"{len(criados)} confirmacoes chegariam ao grupo pelo mesmo .join"
+        )
+
+
+class TestListaDePresencaEmDisco:
+    """O namespace `presenca_` no `.agenda/` — quem entrou, quem saiu.
+
+    A lista mora aqui e nao numa pasta propria porque ela MORRE quando o boss
+    passa: a poda de 3 dias, que seria fatal para a estatistica do `.loot/`, e
+    exatamente o que a lista de presenca quer. E a atomicidade entre as duas
+    instancias, que e o problema dificil, ja estava escrita nesta classe.
+    """
+
+    CHAVE = "2026-08-24_solo-boss-2000"
+
+    def registro(self, pasta):
+        from l2scanner.agenda import RegistroEmDisco
+
+        return RegistroEmDisco(pasta)
+
+    def test_o_primeiro_join_cria_e_o_segundo_ja_existia(self, tmp_path):
+        """O tri-estado E a decisao de produto do D-08.
+
+        `ja_existia` nao e detalhe de implementacao vazando: e a unica coisa
+        que distingue "acabou de entrar" (anuncia no grupo) de "ja estava na
+        lista" (responde so no privado). Um booleano aqui obrigaria o `.join`
+        repetido a repetir no grupo, ou a calar nos dois lugares.
+        """
+        registro = self.registro(tmp_path)
+        assert registro.entrar(self.CHAVE, "j4guar") == "criado"
+        assert registro.entrar(self.CHAVE, "j4guar") == "ja_existia"
+
+    def test_duas_instancias_no_mesmo_instante_so_uma_cria(self, tmp_path):
+        registro_a = self.registro(tmp_path)
+        registro_b = self.registro(tmp_path)
+        assert [
+            registro_a.entrar(self.CHAVE, "kaus"),
+            registro_b.entrar(self.CHAVE, "kaus"),
+        ] == ["criado", "ja_existia"]
+
+    def test_pasta_inalcancavel_devolve_falhou_e_nunca_criado(self, tmp_path):
+        """Disco falhando NAO pode virar "criado".
+
+        Aqui a regra e a oposta a do `marcar`: anunciar no grupo uma entrada
+        que nao foi gravada faria a lista fechar sem essa pessoa, e ela
+        chegaria no boss confiando num registro que nao a guarda. Preferir a
+        repeticao ao silencio — a regra dos avisos — seria errado.
+        """
+        pasta = tmp_path / "some"
+        registro = self.registro(pasta)
+        # A pasta some por baixo: disco removido, sincronizador apagando,
+        # permissao mudando. O que importa e o os.open falhar com OSError.
+        pasta.rmdir()
+
+        assert registro.entrar(self.CHAVE, "korzis") == "falhou"
+
+    def test_presentes_devolve_so_os_slugs_daquela_ocorrencia(self, tmp_path):
+        registro = self.registro(tmp_path)
+        registro.entrar(self.CHAVE, "j4guar")
+        registro.entrar(self.CHAVE, "kaus")
+        assert registro.presentes(self.CHAVE) == frozenset({"j4guar", "kaus"})
+
+    def test_uma_ocorrencia_nao_vaza_para_a_outra(self, tmp_path):
+        """O boss das 20:00 e o das 22:00 sao listas diferentes.
+
+        Os dois nomes de arquivo compartilham quase todo o prefixo
+        (`presenca_2026-08-24_solo-boss-`), entao um filtro descuidado juntaria
+        as duas listas e o grupo veria, as 22:00, a lista das 20:00.
+        """
+        registro = self.registro(tmp_path)
+        registro.entrar("2026-08-24_solo-boss-2000", "j4guar")
+        registro.entrar("2026-08-24_solo-boss-2200", "kaus")
+
+        assert registro.presentes("2026-08-24_solo-boss-2000") == frozenset({"j4guar"})
+        assert registro.presentes("2026-08-24_solo-boss-2200") == frozenset({"kaus"})
+
+    def test_presentes_ignora_nome_malformado_sem_levantar(self, tmp_path):
+        """A pasta e compartilhada e duravel: lixo nao vira excecao no farm."""
+        registro = self.registro(tmp_path)
+        (tmp_path / "presenca_lixo").touch()
+        (tmp_path / "presenca_").touch()
+        registro.entrar(self.CHAVE, "j4guar")
+
+        assert registro.presentes(self.CHAVE) == frozenset({"j4guar"})
+
+    def test_presentes_de_ocorrencia_sem_ninguem_e_vazio(self, tmp_path):
+        assert self.registro(tmp_path).presentes(self.CHAVE) == frozenset()
+
+    def test_sair_diz_se_removeu_e_e_idempotente(self, tmp_path):
+        registro = self.registro(tmp_path)
+        registro.entrar(self.CHAVE, "j4guar")
+
+        assert registro.sair(self.CHAVE, "j4guar") is True
+        assert registro.sair(self.CHAVE, "j4guar") is False
+        assert registro.presentes(self.CHAVE) == frozenset()
+
+    def test_sair_de_quem_nunca_entrou_nao_levanta(self, tmp_path):
+        assert self.registro(tmp_path).sair(self.CHAVE, "ninguem") is False
+
+    def test_entrar_de_novo_depois_de_sair_volta_a_criar(self, tmp_path):
+        """`.leave` seguido de `.join` e arrependimento, nao erro."""
+        registro = self.registro(tmp_path)
+        registro.entrar(self.CHAVE, "kaus")
+        registro.sair(self.CHAVE, "kaus")
+        assert registro.entrar(self.CHAVE, "kaus") == "criado"
+
+    def test_fechar_e_do_primeiro_chamador_so(self, tmp_path):
+        """O fechamento e um ANUNCIO, entao a regra e a do `marcar`.
+
+        Com as duas instancias vivas, exatamente uma anuncia a lista fechada no
+        grupo. A outra ve `False` e cala.
+        """
+        registro_a = self.registro(tmp_path)
+        registro_b = self.registro(tmp_path)
+        assert registro_a.fechar(self.CHAVE) is True
+        assert registro_b.fechar(self.CHAVE) is False
+
+    def test_fechar_uma_ocorrencia_nao_fecha_a_outra(self, tmp_path):
+        registro = self.registro(tmp_path)
+        assert registro.fechar("2026-08-24_solo-boss-2000") is True
+        assert registro.fechar("2026-08-24_solo-boss-2200") is True
+
+    def test_o_slug_com_separador_de_caminho_nao_escapa_da_pasta(self, tmp_path):
+        """T-10-12: travessia de caminho pelo nick.
+
+        Duas barreiras independentes ja protegem isto — `NICK_VALIDO` na
+        leitura do `[[membro]]` e o `apelido()`, que reduz a `[a-z0-9-]`. Este
+        teste prova a segunda: o que chega ao disco fica DENTRO da pasta.
+        """
+        from l2scanner.loot import apelido
+
+        registro = self.registro(tmp_path)
+        registro.entrar(self.CHAVE, apelido("..\\..\\evil"))
+
+        criados = [c for c in tmp_path.iterdir() if c.name.startswith("presenca_")]
+        assert len(criados) == 1
+        assert criados[0].parent == tmp_path
+        assert not (tmp_path.parent / "evil").exists()
+
+
+class TestPodaAlcancaTodosOsPrefixos:
+    """A poda de 3 dias tem que alcancar TODO namespace da pasta.
+
+    Ate esta fase ela retirava UM prefixo (`cancelado_`) antes de ler a data;
+    qualquer marcador de outro namespace caia no `except ValueError` e ficava
+    em disco PARA SEMPRE. Isso contradiz frontalmente o D-11 ("a poda de 3 dias
+    e CORRETA aqui: a lista morre quando o boss passa") — sem o conserto, a
+    lista de presenca seria o unico registro do projeto a crescer sem limite
+    sem ninguem ter decidido isso.
+
+    Um teste POR PREFIXO, e nao um so com tres arquivos: um laco quebrado em UM
+    dos prefixos tem que dizer QUAL.
+    """
+
+    @pytest.mark.parametrize(
+        "prefixo,sufixo",
+        [
+            ("cancelado_", ""),
+            ("presenca_", "_j4guar"),
+            ("fechado_", ""),
+            ("", "_agora"),
+        ],
+        ids=["cancelado", "presenca", "fechado", "aviso-sem-prefixo"],
+    )
+    def test_o_velho_morre_e_o_de_hoje_sobrevive(self, tmp_path, prefixo, sufixo):
+        from datetime import date as _date
+
+        from l2scanner.agenda import RegistroEmDisco
+
+        registro = RegistroEmDisco(tmp_path)
+        velho = f"{prefixo}2026-08-20_solo-boss-2000{sufixo}"
+        novo = f"{prefixo}2026-08-24_solo-boss-2000{sufixo}"
+        (tmp_path / velho).touch()
+        (tmp_path / novo).touch()
+
+        apagados = registro.podar(hoje=_date(2026, 8, 24))
+
+        assert apagados == 1, f"a poda nao alcancou o prefixo {prefixo!r}"
+        assert registro.enviados() == {novo}
+
+    def test_a_poda_do_arranque_ja_limpa_presenca_velha(self, tmp_path):
+        """`__init__` chama `podar()` — e ali que a limpeza acontece de fato.
+
+        Sem esta prova o conserto seria teorico: ninguem chama `podar` a mao no
+        laco do scanner.
+        """
+        from datetime import date as _date
+        from datetime import timedelta as _timedelta
+
+        from l2scanner.agenda import RegistroEmDisco
+
+        antiga = _date.today() - _timedelta(days=10)
+        (tmp_path / f"presenca_{antiga.isoformat()}_solo-boss-2000_kaus").touch()
+
+        registro = RegistroEmDisco(tmp_path)
+
+        assert registro.enviados() == set()
+
+    def test_arquivo_sem_prefixo_conhecido_continua_intocado(self, tmp_path):
+        from datetime import date as _date
+
+        from l2scanner.agenda import RegistroEmDisco
+
+        (tmp_path / "leiame.txt").write_text("nao me apague", encoding="utf-8")
+        (tmp_path / "comando_998877").touch()
+        registro = RegistroEmDisco(tmp_path)
+
+        registro.podar(hoje=_date(2030, 1, 1))
+
+        assert (tmp_path / "leiame.txt").exists()
+        # Os marcadores `comando_<id>` do `chave_da_mensagem` tambem sobrevivem
+        # — nao por decisao, mas porque nao ha data no nome deles. Esta linha
+        # registra o fato observado; resolve-lo e outro desenho e outra fase.
+        assert (tmp_path / "comando_998877").exists()
+
+    def test_as_assinaturas_antigas_nao_mudaram(self, tmp_path):
+        """Nenhum chamador de `marcar`/`cancelar`/`cancelados` foi tocado."""
+        from l2scanner.agenda import RegistroEmDisco
+
+        registro = RegistroEmDisco(tmp_path)
+        assert registro.marcar("2026-08-24_tvt-1500_agora") is True
+        assert registro.cancelar("2026-08-24_prime-2000") is True
+        assert registro.cancelados() == {"2026-08-24_prime-2000"}
+        assert "2026-08-24_tvt-1500_agora" in registro.enviados()
+
 
 class TestModoAgendaSemJogo:
     """AGEN-05 / OPER-09: o aviso vem do relogio, nao da tela.
