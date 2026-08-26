@@ -23,20 +23,29 @@ resposta em vez de eco:
 from __future__ import annotations
 
 import ast
+import logging
 import unicodedata
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from l2scanner.agenda import TODOS_OS_DIAS, EventoAgendado, RegistroEmDisco
+from l2scanner.agenda import (
+    TODOS_OS_DIAS,
+    EventoAgendado,
+    RegistroEmDisco,
+    chave_da_ocorrencia,
+)
 from l2scanner.presenca import (
+    Fechamento,
     RespostaDePresenca,
+    fechar_ocorrencias,
     nomes_dos_membros,
     ocorrencia_da_chamada,
     ocorrencia_recem_fechada,
     responder_join,
     responder_leave,
+    texto_de_fechamento,
 )
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -419,6 +428,208 @@ class TestNomesDosMembros:
         assert nomes_dos_membros([]) == {}
 
 
+class TestFechamentoDaLista:
+    """D-12: no horario do boss a lista fecha e a party fica sabendo quem vai.
+
+    TRES PROPRIEDADES, E AS TRES SAO DECISAO DE PRODUTO:
+
+    1. **Zero confirmacao produz ZERO mensagem.** O Solo Boss e doze
+       ocorrencias por dia; um fechamento que falasse "ninguem confirmou" doze
+       vezes seria exatamente o volume que fez o usuario desligar
+       `avisar_no_horario` neste evento. O piso e silencio.
+
+    2. **O fechamento NAO passa por `avisar_no_horario`.** O evento de teste
+       aqui tem o campo em `False`, como o `config.toml` real do usuario — e
+       fecha do mesmo jeito. Amarrar o fechamento ao aviso de AGORA obrigaria
+       o usuario a religar o aviso que ele desligou de proposito.
+
+    3. **Le a lista ANTES de marcar, e isso tem teste proprio.** Marcar
+       primeiro queimaria o marcador num tick de lista vazia, e um `.join`
+       entregue tres segundos depois do alvo — dentro da tolerancia — nunca
+       viraria mensagem. A garantia contra duplicata nao se perde: o `fechar`
+       continua sendo a linha que decide quem fala.
+    """
+
+    def test_fecha_com_a_lista_cheia_e_devolve_todo_mundo(self, registro):
+        chave = chave_da_ocorrencia("Solo Boss", em(20, 0))
+        registro.entrar(chave, "j4guar")
+        registro.entrar(chave, "tiomad")
+
+        fechados = fechar_ocorrencias(registro, [solo_boss()], em(20, 0))
+
+        assert len(fechados) == 1
+        assert fechados[0].evento == "Solo Boss"
+        assert fechados[0].alvo == em(20, 0)
+        assert fechados[0].nicks == ("j4guar", "tiomad")
+
+    def test_a_segunda_instancia_do_usuario_nao_fecha_de_novo(self, tmp_path):
+        """Yazalaque e Faerlina dividem o `.agenda/`. Exatamente uma anuncia.
+
+        E o mesmo `O_CREAT|O_EXCL` do `marcar`, alcancado pelo `fechar`: sem
+        ele o grupo receberia a lista em dobro toda vez que o boss nascesse.
+        """
+        yazalaque = RegistroEmDisco(tmp_path)
+        faerlina = RegistroEmDisco(tmp_path)
+        yazalaque.entrar(chave_da_ocorrencia("Solo Boss", em(20, 0)), "kaus")
+
+        primeiro = fechar_ocorrencias(yazalaque, [solo_boss()], em(20, 0))
+        segundo = fechar_ocorrencias(faerlina, [solo_boss()], em(20, 0))
+
+        assert len(primeiro) == 1
+        assert segundo == [], "as duas instancias anunciaram a mesma lista"
+
+    def test_dois_ticks_seguidos_fecham_uma_vez_so(self, registro):
+        """A 1 Hz, a janela de 5 minutos tem ~300 ticks. Um deles fala."""
+        registro.entrar(chave_da_ocorrencia("Solo Boss", em(20, 0)), "kaus")
+        eventos = [solo_boss()]
+
+        assert len(fechar_ocorrencias(registro, eventos, em(20, 0))) == 1
+        assert fechar_ocorrencias(registro, eventos, em(20, 1)) == []
+
+    def test_lista_vazia_nao_fecha_nem_escreve_nada_em_disco(
+        self, registro, tmp_path
+    ):
+        """D-12 na sua forma mais literal: zero joins, zero de tudo.
+
+        A comparacao e do CONTEUDO DA PASTA, e nao so do retorno: um
+        `fechar_ocorrencias` que devolvesse lista vazia mas gravasse o marcador
+        passaria na afirmacao sobre o retorno e quebraria o teste seguinte.
+        """
+        antes = sorted(caminho.name for caminho in tmp_path.iterdir())
+
+        fechados = fechar_ocorrencias(registro, [solo_boss()], em(20, 0))
+
+        assert fechados == []
+        assert sorted(c.name for c in tmp_path.iterdir()) == antes
+
+    def test_join_entregue_depois_do_alvo_ainda_vira_fechamento(self, registro):
+        """A PROVA DA ORDEM. Sem ler antes de marcar, este teste falha.
+
+        O caso e real: o `.join` sai do celular as 19:59:58 e a ponte do
+        Chatwoot so o entrega no tick de 20:00:03. Ainda esta dentro da
+        tolerancia de 5 minutos, entao ele conta.
+        """
+        eventos = [solo_boss()]
+        chave = chave_da_ocorrencia("Solo Boss", em(20, 0))
+
+        assert fechar_ocorrencias(registro, eventos, em(20, 0)) == []
+
+        registro.entrar(chave, "korzis")
+
+        fechados = fechar_ocorrencias(
+            registro, eventos, datetime(2026, 8, 24, 20, 0, 4)
+        )
+        assert [f.nicks for f in fechados] == [("korzis",)], (
+            "o marcador foi queimado cedo demais: o tick de lista vazia fechou "
+            "a ocorrencia, e o .join entregue tres segundos depois nunca virou "
+            "mensagem nenhuma"
+        )
+
+    def test_antes_do_alvo_nao_fecha(self, registro):
+        registro.entrar(chave_da_ocorrencia("Solo Boss", em(20, 0)), "kaus")
+        assert fechar_ocorrencias(registro, [solo_boss()], em(19, 59)) == []
+
+    def test_fora_da_tolerancia_nao_fecha(self, registro):
+        """20:06 ja passou dos 5 minutos: quem nao fechou, perdeu a vez.
+
+        Nao e desperdicio — e o que impede o scanner que subiu as 21:30 de
+        anunciar, no meio do farm, a lista de um boss que ja acabou.
+        """
+        registro.entrar(chave_da_ocorrencia("Solo Boss", em(20, 0)), "kaus")
+        assert fechar_ocorrencias(registro, [solo_boss()], em(20, 6)) == []
+
+    def test_evento_sem_chamada_nunca_fecha(self, registro):
+        """TvT nao tem lista, entao nao tem o que fechar."""
+        tvt = sem_chamada()
+        registro.entrar(chave_da_ocorrencia("TvT", em(15, 0)), "kaus")
+        assert fechar_ocorrencias(registro, [tvt], em(15, 0)) == []
+
+    def test_avisar_no_horario_desligado_fecha_do_mesmo_jeito(self, registro):
+        """O config REAL do usuario: `avisar_no_horario = false` no Solo Boss.
+
+        O fechamento nao passa por `avisos_devidos`, e por isso o usuario nao
+        precisa religar o aviso de AGORA — que ele desligou por causa das doze
+        ocorrencias diarias — para ganhar a lista fechada (D-12).
+        """
+        evento = solo_boss(avisar_no_horario=False)
+        assert evento.avisar_no_horario is False
+        registro.entrar(chave_da_ocorrencia("Solo Boss", em(20, 0)), "j4guar")
+
+        fechados = fechar_ocorrencias(registro, [evento], em(20, 0))
+        assert [f.nicks for f in fechados] == [("j4guar",)]
+
+    def test_a_lista_das_2000_nao_arrasta_a_das_2200(self, registro):
+        """Os dois horarios do mesmo evento sao ocorrencias separadas."""
+        registro.entrar(chave_da_ocorrencia("Solo Boss", em(20, 0)), "j4guar")
+        registro.entrar(chave_da_ocorrencia("Solo Boss", em(22, 0)), "tiomad")
+
+        fechados = fechar_ocorrencias(registro, [solo_boss()], em(20, 0))
+        assert [f.nicks for f in fechados] == [("j4guar",)]
+
+    def test_a_virada_da_meia_noite_fecha_a_lista_de_ontem(self, registro):
+        """Um boss as 23:58 ainda esta recem-nascido as 00:02 do dia seguinte.
+
+        A varredura inclui ONTEM pelo mesmo motivo de `silencio_ativo` — sem
+        isso a lista de todo boss que nasce nos ultimos minutos do dia morreria
+        sem ser anunciada. Os dois minutos aqui nao sao folga: a tolerancia e
+        de 5, entao 23:58 e o ultimo horario cheio cuja janela atravessa a
+        meia-noite de verdade.
+        """
+        evento = solo_boss(horarios=((23, 58),))
+        registro.entrar(
+            chave_da_ocorrencia("Solo Boss", em(23, 58, dia=24)), "kaus"
+        )
+
+        fechados = fechar_ocorrencias(registro, [evento], em(0, 2, dia=25))
+        assert [f.alvo for f in fechados] == [em(23, 58, dia=24)]
+
+    def test_o_fechamento_e_imutavel(self):
+        """Estruturado e congelado, pelo mesmo motivo de `Aviso.chave` ser."""
+        fechamento = Fechamento(evento="Solo Boss", alvo=em(20, 0), nicks=("kaus",))
+        with pytest.raises(Exception):
+            fechamento.evento = "TvT"
+
+
+class TestTextoDeFechamento:
+    """A redacao da lista fechada — e o parametro que nasce ignorado."""
+
+    UM = Fechamento(evento="Solo Boss", alvo=em(20, 0), nicks=("j4guar", "tiomad"))
+
+    def test_cita_o_evento_o_horario_e_os_nicks(self):
+        texto = texto_de_fechamento(self.UM)
+        assert "Solo Boss" in texto
+        assert "20:00" in texto
+        assert "J4guar" in texto
+        assert "TioMad" not in texto  # sem mapa, cai no `exibir` do slug
+
+    def test_com_o_mapa_sai_a_grafia_do_config(self):
+        """D-10: o disco guarda `tiomad`, mas a party le `TioMad`."""
+        nomes = {"j4guar": "J4guar", "tiomad": "TioMad"}
+        texto = texto_de_fechamento(self.UM, nomes=nomes)
+        assert "TioMad" in texto
+        assert "Tiomad" not in texto
+
+    def test_sem_o_mapa_cai_no_exibir_do_slug(self):
+        """O recurso nao DEPENDE do mapa — sem ele a lista sai assim mesmo."""
+        texto = texto_de_fechamento(self.UM, nomes=None)
+        assert "Tiomad" in texto
+
+    def test_slug_fora_do_mapa_ainda_aparece(self):
+        """Um party-mate sem bloco `[[membro]]` nao pode sumir da lista."""
+        texto = texto_de_fechamento(self.UM, nomes={"j4guar": "J4guar"})
+        assert "J4guar" in texto and "Tiomad" in texto
+
+    def test_sugestao_none_nao_acrescenta_nada(self):
+        assert texto_de_fechamento(self.UM) == texto_de_fechamento(
+            self.UM, sugestao=None
+        )
+
+    def test_sugestao_preenchida_entra_no_fim(self):
+        """Nasce declarada e ignorada nesta fase — quem a preenche e o 10-05."""
+        texto = texto_de_fechamento(self.UM, sugestao="Sugestao de loot: Kaus.")
+        assert texto.endswith("Sugestao de loot: Kaus.")
+
+
 class TestFormaDoTexto:
     """Toda frase que o bot produz, junta, contra as regras do projeto.
 
@@ -457,6 +668,16 @@ class TestFormaDoTexto:
         registro_morto = RegistroEmDisco(pasta_morta)
         pasta_morta.rmdir()
         frases.append(responder_join(registro_morto, eventos, em(18, 15), "Kaus").privado)
+
+        # A lista fechada passa pelas MESMAS regras: ela sai pelo mesmo
+        # despachante, para o mesmo grupo, e uma frase acentuada no meio le
+        # como colada de outro lugar.
+        frases.append(
+            texto_de_fechamento(
+                Fechamento(evento="Solo Boss", alvo=em(20, 0), nicks=("tiomad",)),
+                nomes={"tiomad": "TioMad"},
+            )
+        )
 
         return frases
 
@@ -1146,6 +1367,165 @@ class TestDespachoDoJoinEDoLeave:
             em(19, 0),
             time.monotonic(),
         )
+
+
+class TestFechamentoComOJogoFechado:
+    """O `--so-agenda` tambem fecha a lista — e e ele que faz o recurso valer.
+
+    E a MESMA razao pela qual AGEN-05 existe: quem mais precisa saber quem vai
+    no boss e justamente quem nao esta online. Um fechamento que so acontecesse
+    no laco principal so falaria para quem ja esta com o jogo aberto — e essa
+    pessoa esta olhando a party na tela.
+
+    DIFERENCA DELIBERADA EM RELACAO AO CONSUMO DE LOOT, que no mesmo laco e
+    "SO LOG, sem WhatsApp": a lista fechada VAI para o grupo. Ela e o desfecho
+    da pergunta que a chamada fez 1h50 antes, e deixa-la so no console deixaria
+    a party sem a resposta. O volume nao e o mesmo problema porque zero
+    confirmacoes produz zero mensagem (D-12): o piso e silencio, e nao doze
+    mensagens por dia.
+    """
+
+    def _registro_com(self, tmp_path, *nicks):
+        registro = RegistroEmDisco(tmp_path / "agenda")
+        chave = chave_da_ocorrencia("Solo Boss", em(20, 0))
+        for nick in nicks:
+            registro.entrar(chave, nick)
+        return registro
+
+    def test_lista_cheia_produz_exatamente_um_despacho_no_grupo(self, tmp_path):
+        from l2scanner.__main__ import _fechar_listas_de_presenca
+        from l2scanner.notificador import Categoria
+
+        despachante = DespachanteQueGrava()
+        fechados = _fechar_listas_de_presenca(
+            self._registro_com(tmp_path, "j4guar", "tiomad"),
+            [solo_boss()],
+            em(20, 0),
+            (),
+            despachante,
+        )
+
+        assert len(fechados) == 1
+        assert len(despachante.despachos) == 1
+        (texto, categoria, conversa) = despachante.despachos[0]
+        assert "Solo Boss" in texto
+        assert "J4guar" in texto
+        assert categoria is Categoria.SEMPRE
+        assert conversa is None, "a lista sai nas conversas de AVISO (T-10-17)"
+
+    def test_lista_vazia_produz_zero_despacho_e_zero_log(self, tmp_path, caplog):
+        """D-12 no laco: o boss nasce, ninguem confirmou, e o bot nao fala."""
+        from l2scanner.__main__ import _fechar_listas_de_presenca
+
+        despachante = DespachanteQueGrava()
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            fechados = _fechar_listas_de_presenca(
+                RegistroEmDisco(tmp_path / "agenda"),
+                [solo_boss()],
+                em(20, 0),
+                (),
+                despachante,
+            )
+
+        assert fechados == []
+        assert despachante.despachos == []
+        assert not [r for r in caplog.records if "Solo Boss" in r.getMessage()]
+
+    def test_sem_despachante_o_fechamento_ainda_aparece_no_log(
+        self, tmp_path, caplog
+    ):
+        """Quem roda sem `.env` e sem `--dry-run` nao pode perder a mensagem.
+
+        E a mesma separacao que o laco ja faz com o encerramento de silencio:
+        loga SEMPRE, despacha se houver para onde.
+        """
+        from l2scanner.__main__ import _fechar_listas_de_presenca
+
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            fechados = _fechar_listas_de_presenca(
+                self._registro_com(tmp_path, "kaus"),
+                [solo_boss()],
+                em(20, 0),
+                (),
+                None,
+            )
+
+        assert len(fechados) == 1
+        assert [r for r in caplog.records if "Kaus" in r.getMessage()]
+
+    def test_os_membros_dao_a_grafia_do_config_tambem_aqui(self, tmp_path):
+        """D-10 nao pode valer so no laco principal."""
+        from l2scanner.__main__ import _fechar_listas_de_presenca
+
+        class MembroFalso:
+            def __init__(self, nick):
+                self.nick = nick
+
+        despachante = DespachanteQueGrava()
+        _fechar_listas_de_presenca(
+            self._registro_com(tmp_path, "tiomad"),
+            [solo_boss()],
+            em(20, 0),
+            [MembroFalso("TioMad")],
+            despachante,
+        )
+
+        (texto, _, _) = despachante.despachos[0]
+        assert "TioMad" in texto and "Tiomad" not in texto
+
+    def test_duas_voltas_do_laco_fecham_uma_vez_so(self, tmp_path):
+        """O `fechar` E a decisao de despachar, aqui como no tick (T-10-16)."""
+        from l2scanner.__main__ import _fechar_listas_de_presenca
+
+        registro = self._registro_com(tmp_path, "kaus")
+        despachante = DespachanteQueGrava()
+        for minuto in (0, 1):
+            _fechar_listas_de_presenca(
+                registro, [solo_boss()], em(20, minuto), (), despachante
+            )
+
+        assert len(despachante.despachos) == 1
+
+    def test_o_laco_da_agenda_chama_o_fechamento(self):
+        """Lido por AST: a funcao pode existir e nunca ser chamada.
+
+        E o modo de falha mais caro desta fase — codigo com teste verde que o
+        laco nunca alcanca, exatamente o que `TestOEloDoNivelDeMembro` abaixo
+        descreve sobre o nivel de membro.
+        """
+        arvore = ast.parse(
+            (RAIZ / "l2scanner" / "__main__.py").read_text(encoding="utf-8")
+        )
+        laco = next(
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.FunctionDef) and no.name == "laco_da_agenda"
+        )
+        chamadas = [
+            no
+            for no in ast.walk(laco)
+            if isinstance(no, ast.Call)
+            and getattr(no.func, "id", None) == "_fechar_listas_de_presenca"
+        ]
+        assert chamadas, "laco_da_agenda nunca fecha a lista de presenca"
+
+    def test_a_sessao_do_laco_principal_recebe_membros(self):
+        """Sem isto o mapa existe, tem teste verde, e a lista sai em slug."""
+        arvore = ast.parse(
+            (RAIZ / "l2scanner" / "__main__.py").read_text(encoding="utf-8")
+        )
+        chamadas = [
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.Call) and getattr(no.func, "id", None) == "Sessao"
+        ]
+        assert chamadas, "ninguem constroi a Sessao"
+        for chamada in chamadas:
+            nomes = {palavra.arg for palavra in chamada.keywords}
+            assert "membros" in nomes, (
+                "a Sessao e construida sem `membros`: a lista fechada sairia "
+                "com a caixa do slug mesmo com os blocos [[membro]] no config"
+            )
 
 
 class TestOEloDoNivelDeMembro:

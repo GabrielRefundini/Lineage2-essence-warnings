@@ -45,6 +45,7 @@ from .console import moldurar
 from .frames import Frame, SaudeDoFrame
 from .loot import Designacao, nick_para_o_aviso
 from .notificador import Categoria
+from .presenca import fechar_ocorrencias, nomes_dos_membros, texto_de_fechamento
 from .rastreador import Evento
 from .visao import EstadoDaLinha, Observacao, extrair
 
@@ -80,6 +81,16 @@ class ResultadoDoTick:
     # estrutura, e a redacao muda toda vez que alguem a melhora.
     avisos_de_manutencao: list = field(default_factory=list)
 
+    # As listas de presenca que ESTE tick fechou (`presenca.Fechamento`).
+    # Estruturado, e nao so texto, pelo mesmo motivo de `despachos` existir: o
+    # teste precisa afirmar QUEM confirmou e de QUAL ocorrencia, e casar isso
+    # com a frase quebraria na primeira melhoria de redacao.
+    #
+    # LISTA VAZIA E O ESTADO NORMAL, e nao um erro: o boss nasce doze vezes por
+    # dia e na maioria delas ninguem mandou `.join`. Zero confirmacoes produz
+    # zero mensagem (D-12).
+    presencas_fechadas: list = field(default_factory=list)
+
     # A extração falhou e o tick não concluiu nada sobre a party.
     falhou_ao_analisar: bool = False
 
@@ -105,6 +116,7 @@ class Sessao:
         ao_registrar=None,
         loot=None,
         manutencao=None,
+        membros=(),
     ) -> None:
         self.cal = cal
         self.rastreador = rastreador
@@ -122,6 +134,12 @@ class Sessao:
         # razao: sem as bindings de OCR ou sem regiao calibrada o recurso se
         # desliga inteiro e nada mais no tick muda.
         self.manutencao = manutencao
+        # Os `[[membro]]` do config.toml, so para a lista fechada sair com a
+        # grafia que o usuario escreveu (D-10). Default vazio pela mesma razao
+        # do `loot`: toda chamada existente continua valida, e sem o mapa o
+        # tick simplesmente exibe a lista com a caixa do slug — cosmetico, e
+        # nunca mudo.
+        self.membros = membros
         # Chamado a cada mensagem despachada. A casca usa para logar; o teste
         # usa para nada — ele lê o `ResultadoDoTick`.
         self._ao_registrar = ao_registrar or (lambda *_: None)
@@ -280,6 +298,33 @@ class Sessao:
         # alvo — mas fixa-la torna o tick deterministico para o teste.
         if self.loot:
             resultado.loot_consumado = self.loot.consumir(agora)
+
+        # E o fechamento por ULTIMO, pela mesma razao que o loot vem depois dos
+        # avisos: a ordem e indiferente no relogio, mas fixa-la torna o tick
+        # deterministico. A posicao especifica nao e arbitraria — no plano
+        # 10-05 o fechamento passa a depender do que o consumo de loot acabou
+        # de registrar, entao ele tem que enxergar o disco ja atualizado.
+        #
+        # NAO passa por `avisos_devidos` (D-12): o Solo Boss do usuario tem
+        # `avisar_no_horario = false`, e pendurar o fechamento no aviso de
+        # AGORA o obrigaria a religar as doze mensagens diarias que desligou.
+        fechados = fechar_ocorrencias(self.registro, self.eventos_agendados, agora)
+        nomes = nomes_dos_membros(self.membros) if fechados else {}
+        for fechamento in fechados:
+            resultado.presencas_fechadas.append(fechamento)
+            texto = texto_de_fechamento(fechamento, nomes)
+            resultado.avisos.append(texto)
+            # CRU no resultado, MOLDURADO no despacho — a mesma separacao de
+            # tres linhas acima.
+            #
+            # `Categoria.SEMPRE` e nao `NORMAL`: a lista fechada e organizacao
+            # de party, e nao alerta de morte. Silencia-la dentro de uma janela
+            # de Prime esconderia justamente a mensagem que diz quem esta indo.
+            self._despachar(
+                moldurar(texto, agora.strftime("%H:%M")),
+                Categoria.SEMPRE,
+                resultado=resultado,
+            )
 
 
     def _processar_manutencao(

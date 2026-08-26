@@ -101,18 +101,18 @@ def ocorrencia_da_chamada(
     return proxima_ocorrencia(agora, _com_chamada(eventos))
 
 
-def ocorrencia_recem_fechada(
+def ocorrencias_na_janela(
     agora: datetime, eventos: list[EventoAgendado]
-) -> tuple[str, datetime] | None:
-    """A ocorrencia que acabou de comecar, se houver uma. None fora da janela.
+) -> list[tuple[str, datetime]]:
+    """As ocorrencias com chamada que comecaram ha pouco. Vazia fora da janela.
 
     DECIDE PELO TEMPO, E NAO PELO MARCADOR `fechado_` EM DISCO — e essa e a
-    predicao certa, nao uma aproximacao. Amarrar a recusa ao marcador faria a
-    resposta depender de o tick ter rodado, que e detalhe de implementacao que
-    quem digita nao enxerga. Caso concreto: scanner fora do ar as 20:00 e
-    subindo as 20:03; um `.leave` as 20:02 nao seria recusado, cairia na
-    ocorrencia das 22:00 e responderia "voce nao estava na lista" — confuso e
-    errado. A janela recusa certo nos dois estados.
+    predicao certa, nao uma aproximacao. Amarrar a decisao ao marcador faria
+    ela depender de o tick ter rodado, que e detalhe de implementacao que quem
+    digita nao enxerga. Caso concreto: scanner fora do ar as 20:00 e subindo as
+    20:03; um `.leave` as 20:02 nao seria recusado, cairia na ocorrencia das
+    22:00 e responderia "voce nao estava na lista" — confuso e errado. A janela
+    responde certo nos dois estados.
 
     Ontem entra na varredura pelo mesmo motivo que faz `silencio_ativo` varrer:
     um boss as 23:50 ainda esta recem-comecado as 00:02 do dia seguinte.
@@ -120,20 +120,36 @@ def ocorrencia_recem_fechada(
     Reusa `TOLERANCIA_MINUTOS` em vez de criar constante nova porque e a MESMA
     propriedade do laco respondendo a mesma pergunta — quanto tempo depois do
     alvo isto ainda e "agora".
+
+    Devolve LISTA e nao um so, porque os dois leitores querem coisas
+    diferentes: o `.leave` quer a mais recente (uma recusa), e o fechamento
+    quer TODAS (um scanner que voltou do ar as 20:04 pode ter duas listas por
+    anunciar se dois eventos com chamada nasceram juntos). Ordenada pelo alvo
+    para o fechamento sair sempre na mesma ordem no teste.
     """
     tolerancia = timedelta(minutes=TOLERANCIA_MINUTOS)
-    achado: tuple[str, datetime] | None = None
+    achados: list[tuple[str, datetime]] = []
     hoje = agora.date()
 
     for deslocamento in (-1, 0):
         dia = hoje + timedelta(days=deslocamento)
         for evento in _com_chamada(eventos):
             for alvo in ocorrencias_do_dia(evento, dia):
-                if not (alvo <= agora < alvo + tolerancia):
-                    continue
-                if achado is None or alvo > achado[1]:
-                    achado = (evento.nome, alvo)
-    return achado
+                if alvo <= agora < alvo + tolerancia:
+                    achados.append((evento.nome, alvo))
+    return sorted(achados, key=lambda par: par[1])
+
+
+def ocorrencia_recem_fechada(
+    agora: datetime, eventos: list[EventoAgendado]
+) -> tuple[str, datetime] | None:
+    """A ocorrencia que acabou de comecar, se houver uma. None fora da janela.
+
+    A MAIS RECENTE entre as da janela: com duas ocorrencias vivas ao mesmo
+    tempo, quem manda `.leave` esta falando da que acabou de nascer.
+    """
+    achados = ocorrencias_na_janela(agora, eventos)
+    return achados[-1] if achados else None
 
 
 def _hora(alvo: datetime) -> str:
@@ -284,6 +300,110 @@ def responder_leave(
     return RespostaDePresenca(
         privado=f"Voce nao estava na lista do {nome} das {hora}."
     )
+
+
+@dataclass(frozen=True)
+class Fechamento:
+    """A lista de UMA ocorrencia, no instante em que ela virou historico.
+
+    ESTRUTURADO, E NUNCA O TEXTO — pelo mesmo motivo que `Aviso.chave` e
+    estruturada e que `ResultadoDoTick` existe: o teste afirma estrutura, e a
+    redacao muda toda semana. Um `fechar_ocorrencias` que devolvesse string
+    obrigaria todo teste desta fase a casar frase, e a primeira melhoria de
+    redacao quebraria dez testes que nao falam de redacao nenhuma.
+
+    `nicks` guarda SLUGS, que e o que o disco tem. A grafia do `config.toml`
+    entra so na hora de escrever a frase, por `texto_de_fechamento(nomes=...)`
+    — a mesma separacao entre o que se guarda e o que se mostra que `apelido`
+    e `exibir` ja fazem no loot. Ordenado para o teste poder afirmar.
+    """
+
+    evento: str
+    alvo: datetime
+    nicks: tuple[str, ...]
+
+
+def fechar_ocorrencias(
+    registro: RegistroEmDisco,
+    eventos: list[EventoAgendado],
+    agora: datetime,
+) -> list[Fechamento]:
+    """As listas que ESTE processo fechou agora. Vazia quando nao ha o que dizer.
+
+    LE OS PRESENTES ANTES DE MARCAR, E A ORDEM E A DECISAO CENTRAL DESTA
+    FUNCAO. O `RegistroEmDisco.fechar` e um `marcar`, e a docstring do `marcar`
+    diz que a decisao de despachar tem que ser ELE, nunca uma checagem
+    anterior. Isso continua verdade aqui — mas D-12 acrescenta uma segunda
+    regra: zero confirmacoes produz ZERO mensagem.
+
+    Marcar primeiro satisfaria a primeira regra e quebraria a segunda num caso
+    concreto: as 20:00:00 a lista esta vazia, o tick marca a ocorrencia como
+    fechada e cala (nao havia quem anunciar); as 20:00:03 chega o `.join` que
+    saiu do celular as 19:59:58 e a ponte do Chatwoot demorou a entregar; o
+    tick de 20:00:04 encontra a ocorrencia JA fechada e essa pessoa nunca vira
+    mensagem. O marcador teria sido queimado por um tick que nao falou nada.
+
+    Lendo antes, um tick de lista vazia simplesmente nao toca em disco, e o
+    primeiro tick que enxergar alguem — a qualquer momento dentro da tolerancia
+    de 5 minutos — fecha e anuncia.
+
+    A GARANTIA CONTRA DUPLICATA NAO SE PERDE. O `fechar` continua sendo a linha
+    que decide quem fala: com as duas instancias do usuario (Yazalaque e
+    Faerlina) sobre a mesma pasta, o `O_CREAT|O_EXCL` deixa exatamente uma
+    criar o marcador, e so ela produz o `Fechamento`. A que perdeu devolve
+    lista vazia e cala.
+
+    NAO PASSA POR `avisos_devidos`, de proposito (D-12). O Solo Boss do usuario
+    tem `avisar_no_horario = false` — foram as doze ocorrencias diarias que o
+    fizeram desligar o aviso de AGORA — e amarrar o fechamento ao aviso
+    obrigaria ele a religar justamente o volume que rejeitou. O unico criterio
+    e `chamar_minutos_antes > 0`, o mesmo que criou a lista.
+    """
+    fechados: list[Fechamento] = []
+    for nome, alvo in ocorrencias_na_janela(agora, eventos):
+        chave = chave_da_ocorrencia(nome, alvo)
+        presentes = registro.presentes(chave)
+        if not presentes:
+            continue
+        if not registro.fechar(chave):
+            continue
+        fechados.append(
+            Fechamento(evento=nome, alvo=alvo, nicks=tuple(sorted(presentes)))
+        )
+    return fechados
+
+
+def texto_de_fechamento(
+    fechamento: Fechamento,
+    nomes: dict[str, str] | None = None,
+    sugestao: str | None = None,
+) -> str:
+    """A lista fechada como a party a le no grupo.
+
+    O `nomes` e o mapa slug -> nick de `nomes_dos_membros`, e existe por D-10:
+    o disco guarda `tiomad` e a party reconhece `TioMad`. Quem nao estiver no
+    mapa — um party-mate sem bloco `[[membro]]` — nao pode SUMIR da lista, e
+    por isso cai em `exibir(slug)` em vez de ser filtrado.
+
+    `sugestao` NASCE DECLARADA E IGNORADA por quem chama nesta fase. Nao e
+    codigo morto, e o mesmo precedente literal de
+    `EventoAgendado.silenciar_minutos`, que nasceu na Fase 6 lido e ignorado
+    para a Fase 7 usar sem o usuario ter que reeditar o `config.toml`. Quem a
+    preenche e o plano 10-05, o unico que pode encostar no `loot.py`.
+
+    A funcao so FORMATA — quem decide SE ha sugestao e o chamador. Mesmo
+    idioma de `texto_do_aviso(aviso, loot)`, em que a agenda nao conhece
+    designacao nenhuma.
+    """
+    mapa = nomes or {}
+    lista = ", ".join(mapa.get(slug, exibir(slug)) for slug in fechamento.nicks)
+    texto = (
+        f"{fechamento.evento} das {_hora(fechamento.alvo)} comecando. "
+        f"Confirmaram: {lista}."
+    )
+    if sugestao:
+        texto += f" {sugestao}"
+    return texto
 
 
 def nomes_dos_membros(membros: Iterable[object]) -> dict[str, str]:
