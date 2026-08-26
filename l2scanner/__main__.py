@@ -43,7 +43,12 @@ from .agenda import (  # noqa: E402
     texto_de_encerramento,
     texto_do_aviso,
 )
-from .config import ConfigAusente, config_do_chatwoot, ler_agenda  # noqa: E402
+from .config import (  # noqa: E402
+    ConfigAusente,
+    config_do_chatwoot,
+    ler_agenda,
+    ler_membros,
+)
 from .captura_janela import (  # noqa: E402
     JanelaNaoEncontrada,
     JanelaSource,
@@ -53,6 +58,7 @@ from .comandos import (  # noqa: E402
     Comando,
     LeitorDeComandos,
     chave_da_mensagem,
+    colisoes_de_telefone,
     comandos_novos,
     texto_de_ajuda,
 )
@@ -468,6 +474,13 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
     if not (config.conversas_de_comando or config.etiqueta_de_comando):
         return None
 
+    # O SEGUNDO nivel de autorizacao. Vem do config.toml e nao do .env porque
+    # telefone de party-mate nao e segredo — ver o comentario de `ler_membros`.
+    # Um bloco `[[membro]]` mal escrito levanta `AgendaInvalida` e derruba o
+    # scanner AQUI, com o usuario olhando para o console, que e a unica hora em
+    # que ele consegue consertar.
+    membros = ler_membros()
+
     leitor = LeitorDeComandos(
         url=config.url,
         conta=config.conta,
@@ -476,6 +489,7 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
         telefones=config.telefones_de_comando,
         etiqueta=config.etiqueta_de_comando,
         user_agent=USER_AGENT,
+        membros=membros,
     )
 
     onde = []
@@ -494,12 +508,41 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
         )
         log.warning(
             "Para restringir, ponha o seu numero em CHATWOOT_TELEFONES_COMANDO "
-            "no .env."
+            "no .env. Para dar so .join/.leave aos party-mates, use os blocos "
+            "[[membro]] do config.toml."
         )
     else:
         log.info(
             "Comandos aceitos so de %d numero(s) autorizado(s).",
             len(config.telefones_de_comando),
+        )
+
+    # Mesmo motivo do aviso COMANDOS ABERTOS logo acima: quem pode mandar no
+    # scanner nao pode ser um estado que se descobre por acidente. Aqui isso
+    # vale para o nivel novo — quantos party-mates ganharam .join e .leave.
+    if membros:
+        log.info(
+            "Presenca: %d party-mate(s) podem dar .join/.leave (%s). Nenhum "
+            "deles alcanca comando de loot.",
+            len(membros),
+            ", ".join(m.nick for m in membros),
+        )
+
+    for primeiro, segundo in colisoes_de_telefone(config.telefones_de_comando, membros):
+        # NAO derruba o scanner, e a proporcao e deliberada: uma colisao entre
+        # dois MEMBROS nao escala privilegio nenhum, e recusar a subir por
+        # causa dela deixaria o usuario sem vigia por um erro de digitacao. Um
+        # aviso alto, nomeando as duas linhas, e o que ele consegue consertar.
+        log.warning(
+            "TELEFONES AMBIGUOS: '%s' e '%s' terminam nos mesmos 8 digitos e o "
+            "scanner nao consegue distinguir os dois.",
+            primeiro,
+            segundo,
+        )
+        log.warning(
+            "Se um deles for de CHATWOOT_TELEFONES_COMANDO e o outro de um "
+            "[[membro]], aquele party-mate alcanca TODOS os comandos, "
+            "inclusive .corrigir e .pegou. Troque um dos dois."
         )
     return leitor
 

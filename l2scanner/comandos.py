@@ -460,6 +460,79 @@ def autorizado_para(
     return nick_do_membro(remetente, membros) is not None
 
 
+def _forma_canonica(telefone: str | None) -> str:
+    """O numero sem o nono digito brasileiro, para dizer se sao a MESMA pessoa.
+
+    Nao substitui `telefone_equivalente` e nem serve para autorizar nada — ela
+    responde outra pergunta. `telefone_equivalente` pergunta "estes dois casam
+    pela regra que o scanner usa?"; esta pergunta "estes dois sao a mesma
+    pessoa escrita de dois jeitos?".
+
+    Celular brasileiro completo tem 13 digitos: 55 + DDD + 9 + os oito. Tirar
+    esse 9 devolve a forma de 12 que o Chatwoot as vezes registra, e as duas
+    passam a ser literalmente o mesmo texto.
+    """
+    digitos = so_digitos(telefone)
+    if len(digitos) == 13 and digitos.startswith("55") and digitos[4] == "9":
+        return digitos[:4] + digitos[5:]
+    return digitos
+
+
+def _mesma_pessoa(a: str | None, b: str | None) -> bool:
+    """Os dois textos sao o MESMO numero, so escrito diferente?
+
+    Um sufixo do outro, depois de tirar o nono digito: cobre o `+55`, o DDD
+    omitido e o 9 que a base do WhatsApp carrega nas duas formas. Serve para
+    NAO gritar colisao quando o usuario escreveu o proprio numero de duas
+    maneiras — isso e redundancia, nao ambiguidade.
+    """
+    ca, cb = _forma_canonica(a), _forma_canonica(b)
+    if not ca or not cb:
+        return False
+    curto, longo = (ca, cb) if len(ca) <= len(cb) else (cb, ca)
+    return longo.endswith(curto)
+
+
+def colisoes_de_telefone(
+    telefones: list[str], membros: Sequence[Membro] = ()
+) -> list[tuple[str, str]]:
+    """Pares de entradas configuradas que o scanner nao consegue distinguir.
+
+    O comentario do `DIGITOS_FINAIS_DO_TELEFONE` aceitou a colisao por escrito,
+    e aceitou para um tamanho: "numa allowlist de duas a cinco pessoas isso e
+    aceitavel". O `[[membro]]` acrescenta de quatro a oito telefones a mesma
+    superficie comparada, e nesse tamanho a colisao deixa de ser teorica.
+
+    SAO TRES TIPOS DE PAR, E SO UM DELES E PERIGOSO:
+
+    - dono contra dono: dois numeros do mesmo nivel. Redundancia, nada muda.
+    - membro contra membro: o `.join` de um pode ser creditado ao nick do
+      outro. Errado, visivel, e ninguem ganha poder nenhum.
+    - **dono contra membro: ESCALADA DE PRIVILEGIO, E SILENCIOSA.**
+      `autorizado_para` pergunta pelo nivel de dono primeiro, entao aquele
+      party-mate passa a alcancar `.corrigir` e `.pegou` — que reescrevem a
+      estatistica do `.loot/` — sem que nada no sistema diga uma palavra.
+
+    Funcao PURA e de ordem DETERMINISTICA: os telefones de dono na ordem do
+    `.env`, depois os membros na ordem do config.toml, e os pares na ordem dos
+    indices. Cada par sai com os dois textos COMO FORAM CONFIGURADOS, e nao
+    normalizados, para o usuario achar as duas linhas nos arquivos dele.
+    """
+    entradas = [str(t) for t in telefones] + [m.telefone for m in membros]
+
+    pares: list[tuple[str, str]] = []
+    for i, primeiro in enumerate(entradas):
+        for segundo in entradas[i + 1 :]:
+            if not telefone_equivalente(primeiro, segundo):
+                continue
+            # O mesmo numero escrito de dois jeitos nao e colisao: e o usuario
+            # tendo posto o proprio celular com e sem o 9, ou com e sem o +55.
+            if _mesma_pessoa(primeiro, segundo):
+                continue
+            pares.append((primeiro, segundo))
+    return pares
+
+
 def interpretar(texto: str | None) -> Comando | None:
     """Que comando este texto pede? None quando nao pede nenhum.
 

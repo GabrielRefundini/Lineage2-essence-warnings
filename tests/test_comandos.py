@@ -23,6 +23,7 @@ from l2scanner.comandos import (
     LeitorDeComandos,
     Membro,
     chave_da_mensagem,
+    colisoes_de_telefone,
     comandos_novos,
     interpretar,
     interpretar_dinamico,
@@ -1618,6 +1619,147 @@ class TestMembroNoConfigToml:
             )
             == []
         )
+
+
+class TestColisaoDeTelefone:
+    """A colisao de 8 digitos deixa de ser invisivel.
+
+    O comentario do `DIGITOS_FINAIS_DO_TELEFONE` aceitou a colisao por escrito,
+    e aceitou para um tamanho: "numa allowlist de duas a cinco pessoas isso e
+    aceitavel". O `[[membro]]` acrescenta de quatro a oito telefones a mesma
+    superficie, e o par dono-contra-membro e uma escalada de privilegio que
+    acontece EM SILENCIO — `autorizado_para` pergunta pelo nivel de dono
+    primeiro, e aquele party-mate passa a alcancar `.corrigir` e `.pegou`.
+    """
+
+    def test_dono_contra_membro_e_o_par_perigoso(self):
+        pares = colisoes_de_telefone(
+            ["+5544997077000"],
+            (Membro(nick="Korzis", telefone="+5511997077000"),),
+        )
+        assert pares == [("+5544997077000", "+5511997077000")], (
+            "DDDs diferentes com os mesmos 8 digitos finais: e exatamente o "
+            "caso em que o membro herda o poder do dono sem ninguem ver"
+        )
+
+    def test_membro_contra_membro_tambem_aparece(self):
+        """Nao escala privilegio, mas credita o `.join` de um ao nick do outro."""
+        pares = colisoes_de_telefone(
+            [],
+            (
+                Membro(nick="Korzis", telefone="+5544912345678"),
+                Membro(nick="J4guar", telefone="+5511912345678"),
+            ),
+        )
+        assert pares == [("+5544912345678", "+5511912345678")]
+
+    def test_dono_contra_dono_tambem_aparece(self):
+        pares = colisoes_de_telefone(["+5544912345678", "+5511912345678"])
+        assert pares == [("+5544912345678", "+5511912345678")]
+
+    def test_o_nono_digito_NAO_e_colisao(self):
+        """E a mesma pessoa escrita de dois jeitos — redundancia, nao ambiguidade.
+
+        A base do WhatsApp carrega as duas formas do mesmo numero, entao esta e
+        a configuracao mais provavel do mundo. Gritar aqui treinaria o usuario
+        a ignorar o aviso, que e o unico jeito de estragar um aviso.
+        """
+        assert colisoes_de_telefone(["+5544997077000", "554497077000"]) == []
+        assert (
+            colisoes_de_telefone(
+                ["+5544997077000"],
+                (Membro(nick="Yaza", telefone="554497077000"),),
+            )
+            == []
+        )
+
+    def test_sem_membro_nenhum_e_sem_colisao_a_lista_e_vazia(self):
+        """O arranque de quem nao mexeu em nada continua exatamente como era."""
+        assert colisoes_de_telefone([]) == []
+        assert colisoes_de_telefone(["+5544997077000", "+5511988887777"]) == []
+
+    def test_os_pares_saem_como_foram_CONFIGURADOS(self):
+        """Nao normalizados: o usuario tem que achar as duas linhas no arquivo."""
+        pares = colisoes_de_telefone(
+            ["+55 (44) 99707-7000"],
+            (Membro(nick="Korzis", telefone="+5511997077000"),),
+        )
+        assert pares == [("+55 (44) 99707-7000", "+5511997077000")]
+
+
+class TestArranqueComMembros:
+    """O que o console diz sobre o nivel novo, no arranque.
+
+    Mesmo precedente do aviso COMANDOS ABERTOS que ja estava ali: um estado de
+    permissao nao pode ser descoberto por acidente.
+    """
+
+    def _args(self):
+        import argparse
+
+        return argparse.Namespace(dry_run=False)
+
+    def _config(self, telefones):
+        from l2scanner.notificador import ConfigChatwoot
+
+        return ConfigChatwoot(
+            url="https://chat.exemplo",
+            conta="1",
+            token="t",
+            conversas=["1"],
+            conversas_de_comando=["7"],
+            telefones_de_comando=telefones,
+            etiqueta_de_comando="",
+        )
+
+    def _montar(self, monkeypatch, telefones, membros, caplog):
+        from l2scanner import __main__ as principal
+
+        monkeypatch.setattr(principal, "config_do_chatwoot", lambda: self._config(telefones))
+        monkeypatch.setattr(principal, "ler_membros", lambda: list(membros))
+        with caplog.at_level(logging.INFO):
+            return principal.montar_leitor_de_comandos(self._args())
+
+    def test_os_membros_lidos_chegam_no_leitor(self, monkeypatch, caplog):
+        membros = [Membro(nick="Korzis", telefone="+5544912345678")]
+        leitor = self._montar(monkeypatch, ["+5544997077000"], membros, caplog)
+        assert leitor.membros == membros, (
+            "o [[membro]] lido do arquivo tem que chegar no leitor, senao a "
+            "fronteira existe no papel e nao no scanner"
+        )
+
+    def test_o_arranque_diz_quantos_podem_dar_join(self, monkeypatch, caplog):
+        membros = [
+            Membro(nick="Korzis", telefone="+5544912345678"),
+            Membro(nick="J4guar", telefone="+5544933334444"),
+        ]
+        self._montar(monkeypatch, ["+5544997077000"], membros, caplog)
+        assert "Korzis" in caplog.text and "J4guar" in caplog.text
+        assert ".join" in caplog.text
+
+    def test_a_colisao_dono_contra_membro_GRITA_nomeando_os_dois(
+        self, monkeypatch, caplog
+    ):
+        membros = [Membro(nick="Korzis", telefone="+5511997077000")]
+        leitor = self._montar(monkeypatch, ["+5544997077000"], membros, caplog)
+        avisos = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        texto = "\n".join(r.getMessage() for r in avisos)
+        assert "+5544997077000" in texto and "+5511997077000" in texto
+        assert ".corrigir" in texto, (
+            "o aviso precisa dizer a CONSEQUENCIA, nao so que os numeros sao "
+            "parecidos"
+        )
+        assert leitor is not None, (
+            "uma colisao avisa alto, mas nao derruba o scanner: entre dois "
+            "membros ela nao escala privilegio nenhum"
+        )
+
+    def test_sem_membro_o_arranque_loga_exatamente_como_antes(
+        self, monkeypatch, caplog
+    ):
+        self._montar(monkeypatch, ["+5544997077000"], [], caplog)
+        assert "Presenca:" not in caplog.text
+        assert "TELEFONES AMBIGUOS" not in caplog.text
 
 
 class TestMolduraDoConsole:
