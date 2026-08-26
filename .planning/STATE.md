@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 current_phase: 9
 current_phase_name: todas implementadas
 status: milestone-v2-definido
-stopped_at: "Quick 260825-pik concluida: o .pegou registra loot de boss que ja passou"
-last_updated: "2026-08-25T21:59:11.765Z"
+stopped_at: "Quick 260825-t1n concluida: o .help responde com a lista de comandos, derivada do enum"
+last_updated: "2026-08-26T00:14:36.964Z"
 last_activity: 2026-08-25
-last_activity_desc: "Quick 260825-pik: `.pegou <hora> <nick>`, registrar loot de boss que ja passou"
-state_head: ffbc815478eaf02c607f1264d9622cd34a68fe5b
+last_activity_desc: "Quick 260825-t1n: `.help` com a lista de comandos derivada do enum, com tripwire"
+state_head: ee86740d8e3f183a3c25c2d471204ec6374234b5
 progress:
   total_phases: 9
-  completed_phases: 9
+  completed_phases: 0
   total_plans: 3
-  completed_plans: 3
-  percent: 100
+  completed_plans: 2
+  percent: 0
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-08-24)
 
 Phase: 9 de 9 — todas implementadas
 Status: Código completo, 338 testes. Nenhum bug conhecido em aberto. O que falta é VALIDAÇÃO EM CAMPO, não implementação: a última milha (morte real -> mensagem no WhatsApp na mesma sessão) e ver a agenda/silêncio funcionando num TvT de verdade. A cegueira recorrente teve a causa encontrada e tratada na Fase 5 (era manutenção do servidor).
-Last activity: 2026-08-25 — Quick 260825-psq: o OCR de manutenção corrigido contra a fonte real do jogo
+Last activity: 2026-08-25 — Quick 260825-t1n: `.help` responde com a lista de comandos, derivada do enum
 
 Progress: [██████████] 100% (9 de 9 fases)
 
@@ -140,6 +140,7 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 
 | Data | Tarefa | Resultado |
 |------|--------|-----------|
+| 2026-08-25 | [comando-help](quick/260825-t1n-comando-help-listando-todos-os-comandos-/260825-t1n-SUMMARY.md) | `.help` (e `.ajuda`, `.comandos`, `.?`) responde com **a lista de todos os comandos** direto no WhatsApp — e a lista **não é escrita à mão**: ela é derivada de uma tabela chaveada pelo enum `Comando`, com um **tripwire** (`set(_AJUDA) == set(Comando)`) que quebra a suíte no dia em que alguém acrescentar um comando sem documentá-lo. O tripwire foi provado por **mutação** — um membro descartável no enum fez o teste falhar dizendo o nome dele. A tabela é chaveada pelo ENUM e não pelo `_VOCABULARIO` porque os cinco comandos dinâmicos (`.loot-<nick>`, `.<nick>`, `.corrigir-`, `.pegou`) não moram no vocabulário. Cada sintaxe anunciada volta pelo `comandos_novos` REAL, com as cinco travas ligadas, como o comando que a ajuda promete. Pegou um defeito de passagem: `destacar` moldurava a resposta no log e a conta de largura de `moldurar` roda sobre a string inteira — as dezenove linhas sairiam no `scanner.log` com uma borda de **725 caracteres** (medido). Resposta só na conversa de origem, sem portão novo (as cinco travas já bastam). 730 → 746 testes. `.solo` e `.party` finalmente entraram na tabela do README — o mesmo envelhecimento que o tripwire agora previne do lado do bot. |
 | 2026-08-25 | [corrigir-o-ocr-contra-a-fonte-real](quick/260825-psq-corrigir-o-ocr-de-manutencao-contra-a-fo/260825-psq-SUMMARY.md) | **O aviso de manutenção entregue horas antes estava quebrado contra a fonte real do jogo.** Medido no screenshot real: o OCR lia o banner mas embaralhava "minutes", e o parser concluía **26 segundos** onde faltavam **40 minutos e 26 segundos** — erro plausível, e o consenso temporal não pegava, porque duas leituras do mesmo método concordam no mesmo erro sistemático. Correções: conversão para cinza; **guarda estrutural** (unidade de minutos presente sem número extraível ⇒ leitura descartada, nunca "só os segundos"); tolerância às formas embaralhadas reais (`40ninutes`, `nin es`); e **acordo entre duas escalas** (2× detecção + 3× conferência) sobre o mesmo frame, que é o que pega erro de método. O screenshot virou fixture no repo — única amostra da fonte do jogo. 683 → 730 testes. Lição: a medição de escala do plano foi REFUTADA na execução (1× não lê os dígitos); o executor parou no checkpoint em vez de assumir, senão o recurso gravaria desacordo a cada 5 s e nunca avisaria. |
 | 2026-08-25 | [pegou-horario-nick](quick/260825-pik-adicionar-comando-pegou-horario-nick-par/260825-pik-SUMMARY.md) | `.pegou 18:00 Korzis` registra quem pegou o loot de um Solo Boss que **já passou**, mesmo quando ninguém tinha marcado nada — o caso que era impossível por construção, porque um `pegou_*` só nascia de designação prévia e o `.corrigir` só alcança o registro mais recente. O horário digitado é **encaixado** numa ocorrência real da agenda (tolerância 30 min) e o registro usa o horário do boss: `18h20` grava o das 18:00, e `19:00` — ambíguo entre 18:00 e 20:00 — recusa e diz quais horários existem, porque registro órfão numa pasta sem poda é permanente. Sem data, resolve para a ocorrência mais recente que já passou (às 2h, "18:00" é ontem) e a resposta **sempre diz o dia** de volta. As quatro linhas que podiam destruir dado foram conferidas por MUTAÇÃO; uma delas sobreviveu e virou teste novo (o boss que ainda não nasceu não pode ser encaixado). 683 → 715 testes. |
 | 2026-08-25 | [aviso-de-manutencao-do-servidor](quick/260825-onz-aviso-de-manutencao-do-servidor-lendo-o-/260825-onz-SUMMARY.md) | O scanner passou a ler o banner "Server Maintence" do jogo por OCR do Windows (`winrt-Windows.Media.Ocr`, zero instalador) e avisar o grupo duas vezes: ao aparecer o anúncio, com o tempo como está na tela, e quando faltam 5 minutos. **Âncora no relógio**: a contagem é lida da tela uma vez e o resto sai do relógio ancorado, então o aviso de 5 min sobrevive a cegueira, alt-tab ou banner coberto. **Consenso de duas leituras** antes de anunciar, senão um dígito comido pelo OCR anunciaria "faltam 4 minutos" quando faltam 40. Sem os bindings, o recurso se desliga e o arranque avisa alto — nunca derruba o scanner. 598 → 683 testes. Risco aberto: a precisão do OCR na FONTE DO JOGO não foi provada; `--testar-manutencao` existe para o usuário validar sozinho na próxima manutenção real. |
@@ -161,8 +162,8 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 
 ## Session Continuity
 
-Last session: 2026-08-25T21:59:00.896Z
-Stopped at: Quick 260825-pik concluida: o .pegou registra loot de boss que ja passou
+Last session: 2026-08-26T00:14:35.713Z
+Stopped at: Quick 260825-t1n concluida: o .help responde com a lista de comandos, derivada do enum
 lida como saída de party, arranque cego lido como entrada em party). 226 testes.
 Commits 589ac84 e 7bb43f0. Sessão em `.planning/debug/resolved/alarme-falso-no-arranque.md`.
 **O bot precisa ser reiniciado para carregar as correções.**
@@ -172,3 +173,5 @@ Resume file: None
 
 - [Phase 4]: [loot]: O horario do `.pegou` e ENCAIXADO numa ocorrencia real do Solo Boss (tolerancia 30 min) e o registro usa o horario da ocorrencia, nunca o digitado. Sem boss por perto o comando recusa e lista os horarios — a pasta .loot/ nunca e podada, entao um registro orfao seria permanente e inalcancavel.
 - [Phase 4]: [loot]: Data sem ano resolve para a leitura de calendario MAIS PROXIMA de agora, e so entao precisa ter passado. Em janeiro "30/12" e dezembro passado; em agosto o mesmo "30/12" recusa em vez de gravar oito meses atras. Recuar sempre para o ano anterior gravaria estado permanente por um dedo escorregado.
+- [Phase 9]: [comandos]: O texto da ajuda e DERIVADO de uma tabela chaveada pelo enum Comando, com tripwire set(_AJUDA) == set(Comando). Cinco comandos nasceram em um dia; ajuda escrita a mao envelheceria antes do fim da semana, e ajuda desatualizada ensina sintaxe que nao funciona. O tripwire foi provado por MUTACAO, nao por leitura.
+- [Phase 9]: [console]: Resposta com quebra de linha nunca e moldurada. moldurar faz max(LARGURA, len(miolo) + len(carimbo)) sobre a string INTEIRA, entao a ajuda de dezenove linhas sairia no log com uma borda de 725 caracteres — medido. A regra vale pela FORMA do texto, nao pelo comando de origem.
