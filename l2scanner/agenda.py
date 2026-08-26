@@ -336,11 +336,24 @@ class RegistroEmDisco:
     com hora. Tentador e errado — exigiria casar o TEXTO da mensagem para saber
     o que cada linha era, e o texto e exatamente a parte que muda quando alguem
     melhora a redacao. Registro de intencao precisa de chave estruturada.
+
+    E `simulando`, QUE E O AVESSO DE TUDO ISSO: um processo em `--dry-run` nao
+    vai despachar nada, entao ele nao pode entrar na disputa pelo marcador de
+    quem VAI. O registro e que sabe que esta simulando — nunca cada chamador.
+    Ver `marcar`, que explica o incidente de campo que obrigou isto.
     """
 
-    def __init__(self, pasta: Path) -> None:
+    def __init__(self, pasta: Path, simulando: bool = False) -> None:
         self._pasta = pasta
-        self._pasta.mkdir(parents=True, exist_ok=True)
+        self._simulando = simulando
+        # Em simulacao nao cria a pasta e nao poda. As duas coisas mexem no
+        # disco COMPARTILHADO com o scanner de verdade — e `podar` chega a
+        # APAGAR marcador dele —, o que seria o mesmo efeito colateral que
+        # `marcar` acabou de fechar, entrando pela porta dos fundos. Nada em
+        # modo simulacao precisa da pasta: `enviados()` ja devolve vazio
+        # quando ela nao existe.
+        if not simulando:
+            self._pasta.mkdir(parents=True, exist_ok=True)
         # O TETO DO "PREFERIR O DUPLICADO AO PERDIDO", em memoria e so para o
         # fechamento de lista. Ver `fechar`, que explica por que ele existe.
         self._fechamentos_desta_execucao: set[str] = set()
@@ -363,7 +376,37 @@ class RegistroEmDisco:
 
         Aqui mora a garantia. A decisao de despachar tem que ser esta chamada,
         nunca uma checagem anterior.
+
+        EM MODO SIMULACAO DEVOLVE True SEM ENCOSTAR NO DISCO. Isso nao e "nao
+        faz nada": e FINGIR QUE GANHOU, para o aviso aparecer no console — que
+        e o produto inteiro do `--dry-run` — sem tirar a vez de quem vai mesmo
+        falar no grupo.
+
+        POR QUE, MEDIDO EM CAMPO. 2026-08-26, 19:30: uma simulacao
+        (`--so-agenda --dry-run`) rodava ao lado do scanner de verdade do
+        usuario e as duas disputaram `2026-08-26_tvt-1930_agora`. O arquivo foi
+        criado as 19:30:00.629 e o `outbox.jsonl` registra o envio real no
+        mesmo instante — a instancia REAL ganhou por milissegundos e o aviso
+        saiu. Foi sorte: tivesse a simulacao ganhado, ela receberia True, a
+        real receberia False, e o lembrete de TvT NUNCA teria sido enviado —
+        sem erro, sem log, sem nada. O modo que existe justamente para nao ter
+        efeito colateral era o unico capaz de APAGAR um aviso.
+
+        A DECISAO MORA AQUI, E NAO NOS CHAMADORES. Sao quatro `marcar` hoje
+        (dois no laco principal, um no `--so-agenda`, um no fechamento de
+        lista); um `if dry_run` em cada resolveria os quatro de hoje e
+        garantiria que o quinto nascesse errado — a mesma forma do defeito de
+        poda que `_PREFIXOS_CONHECIDOS` acabou de consertar. Com a decisao no
+        registro, `cancelar` e `fechar` herdam sem saber que isto existe.
+
+        `entrar` e `sair` NAO passam por aqui e continuam escrevendo de
+        proposito: so sao alcancadas por comando, e em `--dry-run`
+        `montar_leitor_de_comandos` devolve `None` na primeira linha. Nao ha
+        caminho que as chame simulando, e inventar semantica para um caminho
+        morto seria pior do que a lacuna.
         """
+        if self._simulando:
+            return True
         alvo = self._pasta / chave
         try:
             descritor = os.open(alvo, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -515,7 +558,15 @@ class RegistroEmDisco:
         o prefixo, porque tanto `Aviso.chave` quanto `chave_da_ocorrencia`
         comecam pela data; e essa propriedade compartilhada que deixa uma unica
         regra de poda servir os quatro.
+
+        EM MODO SIMULACAO NAO PODA NADA. Esta e a unica funcao da classe que
+        APAGA arquivo, e ela roda no construtor: sem esta guarda, o simples ato
+        de subir um `--dry-run` ao lado do scanner de verdade apagaria marcador
+        dele. O `return 0` fica AQUI e nao no `__init__` pela mesma razao que a
+        guarda de `marcar` nao ficou nos chamadores.
         """
+        if self._simulando:
+            return 0
         hoje = hoje or date.today()
         limite = hoje - timedelta(days=DIAS_DE_MARCADOR)
         apagados = 0

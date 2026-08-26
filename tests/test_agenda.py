@@ -923,6 +923,130 @@ class TestRegistroEmDisco:
         )
 
 
+class TestRegistroSimulando:
+    """O `--dry-run` nao pode roubar a vez da instancia de verdade.
+
+    2026-08-26, 19:30. Uma simulacao (`--so-agenda --dry-run`) rodava ao mesmo
+    tempo que o scanner de verdade do usuario, e as duas disputaram o marcador
+    `.agenda/2026-08-26_tvt-1930_agora`. A instancia REAL ganhou a corrida do
+    `O_EXCL` por milissegundos e o aviso do TvT saiu.
+
+    Foi sorte. Se a simulacao tivesse ganhado, `marcar` teria devolvido True
+    para ela e False para a real, e o aviso das 19:30 NUNCA teria sido enviado
+    — sem erro, sem log, sem nada. O modo que existe justamente para nao ter
+    efeito colateral era o unico capaz de APAGAR um aviso.
+
+    O conserto nao esta no `marcar`: o `O_CREAT|O_EXCL` continua sendo a
+    garantia entre as duas instancias do usuario (Yazalaque e Faerlina), e a
+    docstring dele exige que a decisao de despachar seja aquela chamada. O
+    conserto e nao deixar um processo que NAO vai despachar entrar na disputa.
+    """
+
+    CHAVE = "2026-08-26_tvt-1930_agora"
+
+    def _retrato(self, pasta):
+        """O conteudo da pasta. Os marcadores sao arquivos vazios: o nome e tudo."""
+        return sorted(caminho.name for caminho in pasta.iterdir())
+
+    def test_o_simulando_nao_cria_nem_apaga_um_arquivo(self, tmp_path):
+        """`--dry-run` promete nao ter efeito colateral. Aqui o disco prova.
+
+        `cancelar` e `fechar` entram junto de proposito: os dois passam pelo
+        `marcar` e herdam o comportamento sem saber que ele existe. E essa
+        heranca que faz um quinto sitio futuro nascer certo.
+        """
+        from l2scanner.agenda import RegistroEmDisco
+
+        real = RegistroEmDisco(tmp_path)
+        real.marcar("2026-08-26_prime-2000_antes")
+        antes = self._retrato(tmp_path)
+
+        simulando = RegistroEmDisco(tmp_path, simulando=True)
+
+        assert simulando.marcar(self.CHAVE) is True
+        assert simulando.cancelar("2026-08-26_prime-2000") is True
+        assert simulando.fechar("2026-08-26_solo-boss-2000") is True
+
+        assert self._retrato(tmp_path) == antes, (
+            "a simulacao gravou na .agenda/ compartilhada com o scanner real"
+        )
+
+    def test_o_simulando_nao_rouba_a_vez_do_real(self, tmp_path):
+        """O incidente das 19:30, agora com a simulacao ganhando a corrida.
+
+        Este e o teste que falha sem o conserto, e a linha que ele quebra e
+        exatamente o aviso de TvT que a party nao teria recebido.
+        """
+        from l2scanner.agenda import RegistroEmDisco
+
+        simulando = RegistroEmDisco(tmp_path, simulando=True)
+        real = RegistroEmDisco(tmp_path)
+
+        assert simulando.marcar(self.CHAVE) is True, (
+            "a simulacao precisa se comportar como vencedora para o aviso "
+            "aparecer no console, que e o ponto inteiro do --dry-run"
+        )
+        assert real.marcar(self.CHAVE) is True, (
+            "a simulacao queimou o marcador: o aviso das 19:30 nao sairia"
+        )
+
+    def test_enviados_do_simulando_le_o_disco_de_verdade(self, tmp_path):
+        """Uma simulacao cega mentiria sobre o que teria acontecido.
+
+        Se `enviados()` tambem ficasse inerte, o `--dry-run` mostraria no
+        console avisos que a instancia real ja tinha enviado ha horas. O modo
+        serve para prever o que vai sair, nao para inventar.
+        """
+        from l2scanner.agenda import RegistroEmDisco
+
+        real = RegistroEmDisco(tmp_path)
+        real.marcar(self.CHAVE)
+
+        simulando = RegistroEmDisco(tmp_path, simulando=True)
+
+        assert self.CHAVE in simulando.enviados()
+
+    def test_o_simulando_nao_poda(self, tmp_path):
+        """`podar` APAGA arquivo, e roda no construtor.
+
+        Sem isto, o simples ato de SUBIR uma simulacao ao lado do scanner de
+        verdade apagaria marcador dele — o mesmo efeito colateral que esta
+        correcao existe para eliminar, entrando pela porta dos fundos.
+        """
+        from datetime import date as _date
+
+        from l2scanner.agenda import RegistroEmDisco
+
+        antigo = "2000-01-01_tvt-1500_agora"
+        RegistroEmDisco(tmp_path).marcar(antigo)
+
+        simulando = RegistroEmDisco(tmp_path, simulando=True)
+        assert (tmp_path / antigo).exists(), (
+            "o construtor da simulacao podou a pasta compartilhada"
+        )
+
+        assert simulando.podar(hoje=_date(2026, 8, 26)) == 0
+        assert (tmp_path / antigo).exists()
+
+    def test_o_simulando_nao_cria_nem_a_pasta(self, tmp_path):
+        """Nada gravado quer dizer nada, nem o `.agenda/` que faltava.
+
+        Quem roda a simulacao numa maquina que nunca subiu o scanner nao deve
+        deixar rastro nenhum — e nada em modo simulacao precisa da pasta:
+        `enviados()` ja devolve vazio quando ela nao existe.
+        """
+        from l2scanner.agenda import RegistroEmDisco
+
+        alvo = tmp_path / "agenda-que-nao-existe"
+
+        simulando = RegistroEmDisco(alvo, simulando=True)
+
+        assert not alvo.exists()
+        assert simulando.enviados() == set()
+        assert simulando.marcar(self.CHAVE) is True
+        assert not alvo.exists()
+
+
 class TestListaDePresencaEmDisco:
     """O namespace `presenca_` no `.agenda/` — quem entrou, quem saiu.
 
