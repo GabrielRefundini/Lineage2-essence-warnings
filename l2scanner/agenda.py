@@ -284,6 +284,30 @@ DIAS_DE_MARCADOR = 3
 # e o compartilhamento entre instancias valem para os dois de graca.
 PREFIXO_CANCELADO = "cancelado_"
 
+# Prefixo dos marcadores de PRESENCA — um arquivo vazio por pessoa por
+# ocorrencia. O nome completo e `presenca_<chave-da-ocorrencia>_<slug>`.
+PREFIXO_PRESENCA = "presenca_"
+
+# Prefixo do marcador de FECHAMENTO da lista: `fechado_<chave-da-ocorrencia>`.
+# Um por ocorrencia, escrito quando o boss nasce e a lista vira historico.
+PREFIXO_FECHADO = "fechado_"
+
+# Todo namespace que a poda sabe desmontar.
+#
+# CONSERTA UM DEFEITO REAL: ate esta fase a poda retirava UM prefixo
+# (`cancelado_`) antes de ler a data. Todo marcador de qualquer outro namespace
+# caia no `except ValueError` de `date.fromisoformat` e ficava em disco PARA
+# SEMPRE — o oposto exato do que a lista de presenca quer, porque ela existe
+# para morrer quando o boss passa. Um prefixo novo tem que entrar AQUI, ou
+# nasce imortal em silencio.
+#
+# FATO OBSERVADO, deliberadamente NAO consertado aqui: os marcadores
+# `comando_<id>` (o `chave_da_mensagem` da leitura de comandos) tambem nunca
+# sao podados — mas por outro motivo, o de nao existir data nenhuma no nome
+# deles. Resolve-los pede um segundo criterio de idade (mtime, ou id
+# monotonico), que e outro desenho e outra fase.
+_PREFIXOS_CONHECIDOS = (PREFIXO_CANCELADO, PREFIXO_PRESENCA, PREFIXO_FECHADO)
+
 
 class RegistroEmDisco:
     """Quais avisos ja sairam — a prova de restart E de duas instancias.
@@ -367,10 +391,105 @@ class RegistroEmDisco:
             if nome.startswith(PREFIXO_CANCELADO)
         }
 
+    # -- a lista de presenca ------------------------------------------------
+
+    def entrar(self, chave_da_ocorrencia: str, slug: str) -> str:
+        """Poe alguem na lista. Tri-estado: criado | ja_existia | falhou.
+
+        O TRI-ESTADO E O ANALOGO DO `RegistroDeLoot._criar`, NAO DO `marcar`
+        LOGO ACIMA — e a diferenca e de produto, nao de estilo.
+
+        `ja_existia` e informacao que o usuario final ENXERGA: e a unica coisa
+        que distingue "acabou de entrar" (confirma no grupo) de "ja estava na
+        lista" (responde so no privado, e cala no grupo). Sem ela, um `.join`
+        repetido ou repetiria a confirmacao para a party inteira — o volume de
+        mensagem que fez o usuario desligar `avisar_no_horario` no Solo Boss —
+        ou calaria nos dois lugares, e quem digitou nao saberia se chegou.
+
+        `"falhou"` nao pode virar sucesso. O `marcar` colapsa OSError em True
+        porque, para um ANUNCIO, o duplicado e melhor que o perdido: a party
+        ignora uma repeticao, mas nao adivinha um TvT que ninguem falou. Aqui a
+        regra e a inversa, e pelo mesmo raciocinio aplicado a outro fato:
+        anunciar no grupo uma entrada que o disco nao guardou faria a lista
+        fechar SEM essa pessoa, e ela chegaria no boss confiando num registro
+        que nao a tem. Melhor pedir para repetir o comando.
+
+        O `slug` ja chega reduzido a `[a-z0-9-]` por `loot.apelido` — e a
+        segunda das duas barreiras que impedem um nick de virar travessia de
+        caminho (a primeira e `NICK_VALIDO`, na leitura do `[[membro]]`).
+        """
+        nome = f"{PREFIXO_PRESENCA}{chave_da_ocorrencia}_{slug}"
+        try:
+            descritor = os.open(
+                self._pasta / nome, os.O_CREAT | os.O_EXCL | os.O_WRONLY
+            )
+        except FileExistsError:
+            return "ja_existia"
+        except OSError:
+            return "falhou"
+        os.close(descritor)
+        return "criado"
+
+    def sair(self, chave_da_ocorrencia: str, slug: str) -> bool:
+        """Tira alguem da lista. True se havia algo para tirar.
+
+        Idempotente e sem levantar, com a mesma exposicao deliberada de
+        `RegistroDeLoot.cancelar`: um disco travado no meio do farm nao pode
+        virar excecao no laco. Um `.leave` que nao conseguiu apagar responde
+        "voce nao estava na lista", que e menos ruim do que derrubar o scanner
+        — e o proximo tick tenta de novo se o disco voltar.
+        """
+        alvo = self._pasta / f"{PREFIXO_PRESENCA}{chave_da_ocorrencia}_{slug}"
+        try:
+            existia = alvo.exists()
+            alvo.unlink(missing_ok=True)
+        except OSError:
+            return False
+        return existia
+
+    def presentes(self, chave_da_ocorrencia: str) -> frozenset[str]:
+        """Os slugs de quem esta na lista DESTA ocorrencia.
+
+        O `rpartition` no ultimo `_` e a mesma leitura defensiva de
+        `loot.registros()`: a pasta e compartilhada e duravel, entao um nome
+        malformado que caia nela e PULADO, nunca levantado.
+
+        A comparacao e pela chave INTEIRA, e nao por `startswith`. O boss das
+        20:00 e o das 22:00 geram nomes que compartilham quase todo o prefixo
+        (`presenca_2026-08-24_solo-boss-`); um filtro por prefixo juntaria as
+        duas listas e o grupo veria, as 22:00, quem tinha entrado para as 20:00.
+        """
+        achados: set[str] = set()
+        for nome in self.enviados():
+            if not nome.startswith(PREFIXO_PRESENCA):
+                continue
+            chave, _, slug = nome[len(PREFIXO_PRESENCA) :].rpartition("_")
+            if not slug or chave != chave_da_ocorrencia:
+                continue
+            achados.add(slug)
+        return frozenset(achados)
+
+    def fechar(self, chave_da_ocorrencia: str) -> bool:
+        """Fecha a lista desta ocorrencia. True se ESTE processo fechou.
+
+        Aqui o `marcar` E o analogo certo, ao contrario do `entrar` acima: o
+        fechamento e um ANUNCIO ("a lista do boss das 20:00 e esta"), e a regra
+        dos anuncios deste projeto e preferir o duplicado ao perdido. Com as
+        duas instancias vivas, exatamente uma fala no grupo.
+        """
+        return self.marcar(PREFIXO_FECHADO + chave_da_ocorrencia)
+
     def podar(self, hoje: date | None = None) -> int:
         """Apaga marcadores velhos. Devolve quantos foram apagados.
 
         Sem isto a pasta cresce para sempre — devagar, mas para sempre.
+
+        A DATA E LIDA DO INICIO DO NOME, depois de retirar QUALQUER prefixo
+        conhecido — ver `_PREFIXOS_CONHECIDOS` e o defeito que a tupla
+        conserta. Todo namespace desta pasta comeca por `YYYY-MM-DD` logo apos
+        o prefixo, porque tanto `Aviso.chave` quanto `chave_da_ocorrencia`
+        comecam pela data; e essa propriedade compartilhada que deixa uma unica
+        regra de poda servir os quatro.
         """
         hoje = hoje or date.today()
         limite = hoje - timedelta(days=DIAS_DE_MARCADOR)
@@ -381,8 +500,10 @@ class RegistroEmDisco:
             return 0
         for caminho in nomes:
             nome = caminho.name
-            if nome.startswith(PREFIXO_CANCELADO):
-                nome = nome[len(PREFIXO_CANCELADO) :]
+            for prefixo in _PREFIXOS_CONHECIDOS:
+                if nome.startswith(prefixo):
+                    nome = nome[len(prefixo) :]
+                    break
             try:
                 dia = date.fromisoformat(nome.split("_", 1)[0])
             except (ValueError, IndexError):
