@@ -92,8 +92,11 @@ from .notificador import (  # noqa: E402
 )
 from .presenca import (  # noqa: E402
     RespostaDePresenca,
+    fechar_ocorrencias,
+    nomes_dos_membros,
     responder_join,
     responder_leave,
+    texto_de_fechamento,
 )
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
@@ -895,6 +898,42 @@ def comando_cancelar_silencio(args: argparse.Namespace) -> int:
     return 0
 
 
+def _fechar_listas_de_presenca(
+    registro, eventos, agora, membros, despachante
+) -> list:
+    """Fecha as listas que venceram e conta ao grupo quem confirmou (D-12).
+
+    EXTRAIDA DO CORPO DO LACO de proposito. O `--so-agenda` esta em 19-20% de
+    cobertura — foi onde os tres warnings do code review moravam — e um
+    fechamento escrito la dentro nasceria sem teste nenhum, justamente no modo
+    que faz este recurso valer. Fora do laco, ele e exercitavel sem relogio,
+    sem rede e sem jogo.
+
+    DIFERENCA DELIBERADA EM RELACAO AO CONSUMO DE LOOT LOGO ACIMA no laco, que
+    e "SO LOG, sem WhatsApp": a lista fechada VAI para o grupo. Ela e o
+    desfecho da pergunta que a chamada fez la 1h50 antes, e deixa-la so no
+    console deixaria a party sem a resposta. O volume nao e o mesmo problema,
+    porque zero confirmacoes produz zero mensagem: o piso e silencio, e nao
+    doze mensagens por dia.
+
+    LOGA SEMPRE, DESPACHA SE HOUVER PARA ONDE — a mesma separacao que o laco ja
+    faz com o encerramento de silencio, pela razao ja escrita ali: quem roda
+    sem `.env` e sem `--dry-run` perdia a mensagem ate no console.
+    """
+    fechados = fechar_ocorrencias(registro, eventos, agora)
+    nomes = nomes_dos_membros(membros) if fechados else {}
+    hora = agora.strftime("%H:%M")
+    for fechamento in fechados:
+        texto = texto_de_fechamento(fechamento, nomes)
+        log.info(destacar(texto, hora=hora))
+        if despachante:
+            # A MESMA moldura do console vai para o celular, e `SEMPRE`: a
+            # lista fechada e organizacao de party, nao alerta de morte, e
+            # silencia-la dentro do Prime esconderia quem esta indo.
+            despachante.despachar(moldurar(texto, hora), Categoria.SEMPRE)
+    return fechados
+
+
 def laco_da_agenda(args: argparse.Namespace) -> int:
     """So o relogio. Sem jogo, sem calibracao, sem captura, sem rastreador.
 
@@ -981,6 +1020,21 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
                         f"{exibir(consumida.nick)}"
                     )
                 )
+
+            # E entao a lista de presenca, na MESMA ordem do tick: depois do
+            # consumo de loot, porque no plano 10-05 o fechamento passa a
+            # depender do que o consumo acabou de registrar.
+            #
+            # Este e o laco que faz o recurso valer com o jogo FECHADO, que e a
+            # mesma razao pela qual AGEN-05 existe: quem mais precisa saber
+            # quem vai no boss e justamente quem nao esta online.
+            _fechar_listas_de_presenca(
+                registro,
+                eventos,
+                agora,
+                leitor.membros if leitor else (),
+                despachante,
+            )
 
             # De hora em hora, repetir qual e o proximo. Um scanner que nao diz
             # quando vai falar de novo e indistinguivel de um scanner travado.
@@ -1348,6 +1402,11 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         ao_registrar=_registrar_evento_no_console,
         loot=registro_de_loot,
         manutencao=vigia_manutencao,
+        # Os `[[membro]]` chegam ate a lista fechada por AQUI. Sem esta linha o
+        # mapa `nomes_dos_membros` existe, tem teste verde, e a lista sai com a
+        # caixa do slug — o mesmo modo de falha que deixou o nivel de membro
+        # inalcancavel no plano 10-01.
+        membros=leitor_de_comandos.membros if leitor_de_comandos else (),
     )
 
     ultimo_status = 0.0

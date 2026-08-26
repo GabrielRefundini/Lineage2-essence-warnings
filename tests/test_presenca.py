@@ -23,6 +23,7 @@ resposta em vez de eco:
 from __future__ import annotations
 
 import ast
+import logging
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -1366,6 +1367,165 @@ class TestDespachoDoJoinEDoLeave:
             em(19, 0),
             time.monotonic(),
         )
+
+
+class TestFechamentoComOJogoFechado:
+    """O `--so-agenda` tambem fecha a lista — e e ele que faz o recurso valer.
+
+    E a MESMA razao pela qual AGEN-05 existe: quem mais precisa saber quem vai
+    no boss e justamente quem nao esta online. Um fechamento que so acontecesse
+    no laco principal so falaria para quem ja esta com o jogo aberto — e essa
+    pessoa esta olhando a party na tela.
+
+    DIFERENCA DELIBERADA EM RELACAO AO CONSUMO DE LOOT, que no mesmo laco e
+    "SO LOG, sem WhatsApp": a lista fechada VAI para o grupo. Ela e o desfecho
+    da pergunta que a chamada fez 1h50 antes, e deixa-la so no console deixaria
+    a party sem a resposta. O volume nao e o mesmo problema porque zero
+    confirmacoes produz zero mensagem (D-12): o piso e silencio, e nao doze
+    mensagens por dia.
+    """
+
+    def _registro_com(self, tmp_path, *nicks):
+        registro = RegistroEmDisco(tmp_path / "agenda")
+        chave = chave_da_ocorrencia("Solo Boss", em(20, 0))
+        for nick in nicks:
+            registro.entrar(chave, nick)
+        return registro
+
+    def test_lista_cheia_produz_exatamente_um_despacho_no_grupo(self, tmp_path):
+        from l2scanner.__main__ import _fechar_listas_de_presenca
+        from l2scanner.notificador import Categoria
+
+        despachante = DespachanteQueGrava()
+        fechados = _fechar_listas_de_presenca(
+            self._registro_com(tmp_path, "j4guar", "tiomad"),
+            [solo_boss()],
+            em(20, 0),
+            (),
+            despachante,
+        )
+
+        assert len(fechados) == 1
+        assert len(despachante.despachos) == 1
+        (texto, categoria, conversa) = despachante.despachos[0]
+        assert "Solo Boss" in texto
+        assert "J4guar" in texto
+        assert categoria is Categoria.SEMPRE
+        assert conversa is None, "a lista sai nas conversas de AVISO (T-10-17)"
+
+    def test_lista_vazia_produz_zero_despacho_e_zero_log(self, tmp_path, caplog):
+        """D-12 no laco: o boss nasce, ninguem confirmou, e o bot nao fala."""
+        from l2scanner.__main__ import _fechar_listas_de_presenca
+
+        despachante = DespachanteQueGrava()
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            fechados = _fechar_listas_de_presenca(
+                RegistroEmDisco(tmp_path / "agenda"),
+                [solo_boss()],
+                em(20, 0),
+                (),
+                despachante,
+            )
+
+        assert fechados == []
+        assert despachante.despachos == []
+        assert not [r for r in caplog.records if "Solo Boss" in r.getMessage()]
+
+    def test_sem_despachante_o_fechamento_ainda_aparece_no_log(
+        self, tmp_path, caplog
+    ):
+        """Quem roda sem `.env` e sem `--dry-run` nao pode perder a mensagem.
+
+        E a mesma separacao que o laco ja faz com o encerramento de silencio:
+        loga SEMPRE, despacha se houver para onde.
+        """
+        from l2scanner.__main__ import _fechar_listas_de_presenca
+
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            fechados = _fechar_listas_de_presenca(
+                self._registro_com(tmp_path, "kaus"),
+                [solo_boss()],
+                em(20, 0),
+                (),
+                None,
+            )
+
+        assert len(fechados) == 1
+        assert [r for r in caplog.records if "Kaus" in r.getMessage()]
+
+    def test_os_membros_dao_a_grafia_do_config_tambem_aqui(self, tmp_path):
+        """D-10 nao pode valer so no laco principal."""
+        from l2scanner.__main__ import _fechar_listas_de_presenca
+
+        class MembroFalso:
+            def __init__(self, nick):
+                self.nick = nick
+
+        despachante = DespachanteQueGrava()
+        _fechar_listas_de_presenca(
+            self._registro_com(tmp_path, "tiomad"),
+            [solo_boss()],
+            em(20, 0),
+            [MembroFalso("TioMad")],
+            despachante,
+        )
+
+        (texto, _, _) = despachante.despachos[0]
+        assert "TioMad" in texto and "Tiomad" not in texto
+
+    def test_duas_voltas_do_laco_fecham_uma_vez_so(self, tmp_path):
+        """O `fechar` E a decisao de despachar, aqui como no tick (T-10-16)."""
+        from l2scanner.__main__ import _fechar_listas_de_presenca
+
+        registro = self._registro_com(tmp_path, "kaus")
+        despachante = DespachanteQueGrava()
+        for minuto in (0, 1):
+            _fechar_listas_de_presenca(
+                registro, [solo_boss()], em(20, minuto), (), despachante
+            )
+
+        assert len(despachante.despachos) == 1
+
+    def test_o_laco_da_agenda_chama_o_fechamento(self):
+        """Lido por AST: a funcao pode existir e nunca ser chamada.
+
+        E o modo de falha mais caro desta fase — codigo com teste verde que o
+        laco nunca alcanca, exatamente o que `TestOEloDoNivelDeMembro` abaixo
+        descreve sobre o nivel de membro.
+        """
+        arvore = ast.parse(
+            (RAIZ / "l2scanner" / "__main__.py").read_text(encoding="utf-8")
+        )
+        laco = next(
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.FunctionDef) and no.name == "laco_da_agenda"
+        )
+        chamadas = [
+            no
+            for no in ast.walk(laco)
+            if isinstance(no, ast.Call)
+            and getattr(no.func, "id", None) == "_fechar_listas_de_presenca"
+        ]
+        assert chamadas, "laco_da_agenda nunca fecha a lista de presenca"
+
+    def test_a_sessao_do_laco_principal_recebe_membros(self):
+        """Sem isto o mapa existe, tem teste verde, e a lista sai em slug."""
+        arvore = ast.parse(
+            (RAIZ / "l2scanner" / "__main__.py").read_text(encoding="utf-8")
+        )
+        chamadas = [
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.Call) and getattr(no.func, "id", None) == "Sessao"
+        ]
+        assert chamadas, "ninguem constroi a Sessao"
+        for chamada in chamadas:
+            nomes = {palavra.arg for palavra in chamada.keywords}
+            assert "membros" in nomes, (
+                "a Sessao e construida sem `membros`: a lista fechada sairia "
+                "com a caixa do slug mesmo com os blocos [[membro]] no config"
+            )
 
 
 class TestOEloDoNivelDeMembro:
