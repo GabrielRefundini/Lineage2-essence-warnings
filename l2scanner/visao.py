@@ -186,8 +186,45 @@ def _tem_contraste_de_icone(
 DESVIO_MINIMO_DA_BARRA_PROPRIA = 3.0
 
 
+# Brilho minimo da MOLDURA para um recorte da barra propria valer como LEGIVEL.
+#
+# Medido nas fixtures reais em tests/fixtures/barra_propria/, com moldura =
+# menor media de cinza entre coluna 0, coluna -1, linha 0 e linha -1:
+#
+#   coberta pelo inventario : 48.00  48.92  28.00  29.00   -> pior 48.92
+#   livre                   : 86.42 nas quatro
+#   quase vazia (proxy real): 78.73                        -> pior livre/vazia
+#
+# Vao de 29.8 pontos, sem zona cinzenta. Da tela ao vivo do usuario (45 livres
+# + 9 cobertas) a faixa e a mesma: livre 73.7-86.4, coberta 28.0-48.9.
+#
+# O limiar fica no PE da faixa, e nao no meio dela (63.8), de proposito: a parte
+# vazia da barra mostra o TERRENO, e o proxy foi medido sobre grama. Em masmorra
+# escura o terreno pode escurecer, e errar para baixo aqui significa declarar
+# ilegivel uma barra vazia DE VERDADE — morte real suprimida, o pior desfecho
+# deste projeto. Ver a pendencia
+# .planning/todos/pending/2026-08-26-a-moldura-da-barra-propria-em-terreno-escuro.md
+BRILHO_MINIMO_DA_MOLDURA_PROPRIA = 60.0
+
+
+def _moldura_da_barra_propria(recorte: np.ndarray) -> float:
+    """Quao clara e a borda mais escura do recorte da sua barra.
+
+    Menor media de cinza entre as quatro bordas — coluna 0, coluna -1, linha 0
+    e linha -1. A MENOR, e nao a media das quatro: o inventario pode cobrir so
+    um lado da barra, e uma media diluiria justamente o lado coberto.
+    """
+    cinza = cv2.cvtColor(recorte, cv2.COLOR_BGR2GRAY)
+    return min(
+        float(cinza[:, 0].mean()),
+        float(cinza[:, -1].mean()),
+        float(cinza[0, :].mean()),
+        float(cinza[-1, :].mean()),
+    )
+
+
 def barra_propria_legivel(recorte: np.ndarray | None) -> bool:
-    """O recorte da sua barra e uma barra, ou e lixo?
+    """O recorte da sua barra e uma barra, ou e lixo — ou esta COBERTO?
 
     `medir_barra` devolve 0.0 tanto para "HP zerado" quanto para um recorte
     preto, e essa confusao ja produziu um alarme falso de verdade: as 18:19 de
@@ -196,11 +233,44 @@ def barra_propria_legivel(recorte: np.ndarray | None) -> bool:
 
     Uma barra de verdade tem ESTRUTURA — moldura, borda, terreno atras da parte
     vazia — cheia ou vazia. Lixo nao tem.
+
+    Dois portoes EM SERIE, porque nenhum dos dois sozinho basta:
+
+    1. CONTRASTE (desvio-padrao). Rejeita o degenerado: recorte preto, uniforme,
+       captura falhando, janela minimizada.
+
+    2. MOLDURA. Rejeita o recorte COBERTO por outra janela do jogo. O portao de
+       contraste NAO pega esse caso e isso esta medido: a grade do inventario da
+       desvio 36.54 em `coberta_0.png`, MAIOR que os 35.47 de `livre_0.png` —
+       qualquer limiar de desvio que rejeite a coberta rejeita tambem a livre.
+       Custo do buraco: 27 mortes falsas + 27 ressurreicoes falsas no
+       `logs/scanner.log` real, mais que todos os alertas de party somados.
+
+    O contraste continua aqui, e nao foi substituido: `np.full((8,120,3), 60)`
+    da moldura exatamente 60.00 e passaria no portao novo — so segue rejeitado
+    porque o portao de desvio nao saiu do lugar.
+
+    POLARIDADE INVERTIDA em relacao a `_bordas_da_barra_intactas`, e isto
+    precisa estar escrito ou o proximo leitor "conserta" o sinal e reabre o
+    defeito:
+
+      * a barra da PARTY rejeita borda CLARA demais, porque olha a coluna
+        imediatamente FORA da barra, onde o jogo desenha uma linha ESCURA de
+        chrome;
+      * a barra PROPRIA rejeita moldura ESCURA demais, porque a regiao calibrada
+        nao tem margem sobrando — as quatro bordas do recorte caem DENTRO do
+        campo da barra (medido em `livre_0.png`: 89.6% do recorte casa a mascara
+        vermelha, e as quatro bordas tem preenchimento). O campo da barra e
+        CLARO: pelo vermelho quando cheia, pelo TERRENO que aparece atras quando
+        vazia. O painel do inventario, ao contrario, e um overlay ESCURO.
     """
     if recorte is None or recorte.size == 0:
         return False
     cinza = cv2.cvtColor(recorte, cv2.COLOR_BGR2GRAY)
-    return float(cinza.std()) >= DESVIO_MINIMO_DA_BARRA_PROPRIA
+    return (
+        float(cinza.std()) >= DESVIO_MINIMO_DA_BARRA_PROPRIA
+        and _moldura_da_barra_propria(recorte) >= BRILHO_MINIMO_DA_MOLDURA_PROPRIA
+    )
 
 
 def _bordas_da_barra_intactas(
