@@ -744,11 +744,17 @@ class TestDesignacaoComListaDePresenca:
         """Estar na lista das 12:00 nao vale para a designacao das 10:00.
 
         O `chave_da_ocorrencia` compara a ocorrencia INTEIRA pelo mesmo motivo
-        que `RegistroEmDisco.presentes` nao usa `startswith`: as duas listas
-        do mesmo dia compartilham quase todo o prefixo, e junta-las faria o
-        bot afirmar presenca em um boss que a pessoa nao confirmou.
+        que `RegistroEmDisco.presentes` nao usa `startswith`: as duas listas do
+        mesmo dia compartilham quase todo o prefixo, e junta-las faria o bot
+        afirmar presenca num boss que a pessoa nao confirmou.
+
+        A lista das 10:00 precisa ter ALGUEM para o teste valer: com ela vazia
+        o silencio viria da regra de "lista vazia nao tem opiniao", e nao da
+        chave — e o teste passaria sem provar nada sobre a chave.
         """
-        agenda = self._agenda_com_lista(tmp_path, 12, "fantasma")
+        agenda = self._agenda_com_lista(tmp_path, 10, "kaus")
+        chave_das_doze = chave_da_ocorrencia("Solo Boss", em(12, 0))
+        agenda.entrar(chave_das_doze, "fantasma")
         loot = RegistroDeLoot(tmp_path / "loot")
 
         resposta = responder_designacao(

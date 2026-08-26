@@ -41,6 +41,7 @@ from .agenda import (
     Aviso,
     EventoAgendado,
     TipoDeAviso,
+    chave_da_ocorrencia,
     ocorrencias_do_dia,
     proxima_ocorrencia,
 )
@@ -863,11 +864,24 @@ def responder_designacao(
     eventos: list[EventoAgendado],
     agora: datetime,
     nick: str,
+    presenca=None,
 ) -> str:
     """Obedece o `.loot-<nick>`: grava a designacao e confirma o horario.
 
     Sem Solo Boss na agenda (ou sem ocorrencia futura), NADA e gravado — uma
     designacao sem alvo seria um registro que nunca consome e nunca some.
+
+    `presenca` e o `RegistroEmDisco` da agenda, por PARAMETRO e duck-typed: so
+    precisa de `.presentes(chave)`. `loot.py` nao importa `presenca.py` (a
+    direcao e `presenca -> loot -> agenda`, e um ciclo mataria os dois no
+    arranque), e nao precisa — quem tem a lista e quem chama.
+
+    O QUE ELE FAZ E UM AVISO, E NUNCA UMA RECUSA (D-13). Designar alguem que
+    nao deu `.join` GRAVA do mesmo jeito e a resposta so ACRESCENTA a
+    informacao — exatamente o precedente do `" (Era do {...}.)"` logo abaixo.
+    A autoridade e o usuario, e nao o registro: um bloqueio aqui viraria
+    obstaculo no pior momento possivel, quando alguem chegou sem avisar e a
+    party precisa designar com o boss nascendo.
     """
     evento = next((e for e in eventos if eh_solo_boss(e.nome)), None)
     proximo = proxima_ocorrencia(agora, [evento]) if evento is not None else None
@@ -893,6 +907,23 @@ def responder_designacao(
         and apelido(anterior.nick) != apelido(nick)
     ):
         resposta += f" (Era do {exibir(anterior.nick)}.)"
+
+    # DEPOIS DE GRAVAR, e a ordem e o desenho: o `designar` acima ja aconteceu
+    # e nada abaixo pode desfaze-lo. Consultar a lista antes convidaria, na
+    # primeira manutencao, um `return` de recusa no meio — e a party perderia
+    # a designacao justamente quando mais precisa dela.
+    #
+    # LISTA VAZIA NAO PRODUZ SUFIXO NENHUM: ninguem confirmou nada ainda, e
+    # ela nao tem o que dizer. E o caso normal do `.loot-<nick>` mandado antes
+    # da chamada das 1h50, quando a party combina o revezamento no comeco do
+    # farm — avisar ali seria ruido sobre uma lista que nem existe.
+    if presenca is not None:
+        presentes = presenca.presentes(chave_da_ocorrencia(nome_do_evento, alvo))
+        if presentes and apelido(nick) not in presentes:
+            resposta += (
+                f" ({exibir(nick)} nao esta na lista de presenca deste boss, "
+                "mas anotei.)"
+            )
     return resposta
 
 
