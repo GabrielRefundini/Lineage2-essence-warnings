@@ -166,7 +166,7 @@ class TestChamada:
         de_novo = avisos_devidos(em(18, 10), [self.chamavel()], {primeiro[0].chave})
         assert de_novo == []
 
-    def test_o_mecanismo_nao_conhece_o_nome_de_evento_nenhum(self):
+    def test_o_mecanismo_e_generico_e_nao_conhece_nome_de_evento_nenhum(self):
         """D-03 afirmado por COMPORTAMENTO, nao por grep no arquivo.
 
         Um grep contra `agenda.py` nasceria falhando: o arquivo cita "Solo
