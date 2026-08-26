@@ -243,15 +243,15 @@ Plans:
   1. A 1h50 do proximo Solo Boss — dez minutos depois do anterior, quando a party ainda esta reunida — chega no grupo uma pergunta com o horario do proximo boss; o aviso de 10 minutos antes continua existindo, porque ele serve a outra coisa (parar o farm e se deslocar)
   2. Um membro manda `.join` no privado do bot e o grupo recebe a confirmacao com o NICK dele — nao com o nome do contato do WhatsApp — e um `.join` repetido nao vira uma segunda mensagem no grupo
   3. Quem desistiu manda `.leave` e sai da lista; o grupo fica sabendo, e um `.leave` de quem nunca deu `.join` responde isso em vez de anunciar coisa nenhuma
-  4. Quem pode dar `.join` e definido por ETIQUETA da conversa no Chatwoot (`CP`), nao por lista de ids no `.env`: por o membro na party e etiquetar a conversa dele, sem editar arquivo nenhum e sem reiniciar o scanner — e uma conversa sem a etiqueta continua sendo ignorada em silencio, como as 22 conversas de clientes reais que a conta ja tem
+  4. Um membro da party consegue dar `.join` do privado dele sem ganhar junto o poder de `.cancelar`, `.loot-<nick>` ou `.corrigir`: a autorizacao passa a ter DOIS niveis, e o de membro alcanca so os comandos da lista de presenca. A descoberta da conversa segue pela etiqueta `CP` que o `LeitorDeComandos` ja implementa
   5. No horario do boss a lista se fecha e o grupo recebe quem confirmou; a lista fechada alimenta o revezamento de loot existente, de modo que a vez do proximo boss so seja sugerida entre quem estava presente
   6. Tudo isso e demonstravel sem o jogo aberto e sem rede: o tempo entra por parametro, a etiqueta e o mapa telefone->nick entram por dado, e a corrida entre as duas instancias do usuario tem teste proprio — a mesma disciplina que `agenda.py` e `loot.py` ja seguem
 
 **Plans**: TBD
 
-**Ordem interna**: a autorizacao por etiqueta vem PRIMEIRO e sozinha. Ela troca o formato do polling (hoje le ids conhecidos de conversa; passara a descobrir conversas pela etiqueta) e e a unica parte da fase que mexe numa trava de seguranca — misturar isso com a feature esconderia o risco no meio do recurso. So depois nasce a lista de presenca, e a integracao com `loot.py` e a ULTIMA, porque e a unica que escreve em estatistica que nunca e podada.
+**CORRECAO (2026-08-26)**: a descoberta de conversa por etiqueta JA EXISTE — `LeitorDeComandos(etiqueta=...)` e `_por_etiqueta()` em `comandos.py`, ligados por `CHATWOOT_ETIQUETA_COMANDO` no `.env`, redescobrindo a cada leitura. Nao ha polling novo a construir. O que falta e outra coisa: a trava de QUEM (`autor_autorizado`) e global hoje, entao por o telefone de um membro nela daria a ele todos os comandos, inclusive os destrutivos.
 
-**Aberto para o /gsd-plan-phase**: (a) a API do Chatwoot filtra conversas por label em `GET /conversations`? Se nao filtrar, a descoberta custa uma varredura e a cadencia precisa ser repensada; (b) a lista de presenca e pasta propria (como `.loot/`, sem poda) ou marcador em `.agenda/` (com poda de 3 dias)? A lista expira sozinha quando o boss passa, o que aponta para `.agenda/` — mas se ela alimentar estatistica de loot, aponta para o contrario.
+**Ordem interna**: o nivel de autorizacao vem PRIMEIRO e sozinho — e a unica parte da fase que mexe numa trava de seguranca, e misturar isso com a feature esconderia o risco no meio do recurso. Depois nasce a chamada (o aviso de 1h50) e a lista de presenca. A integracao com `loot.py` e a ULTIMA, porque e a unica que toca estatistica que nunca e podada.
 
 ---
 *Roadmap created: 2026-08-24*
