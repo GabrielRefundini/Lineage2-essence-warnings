@@ -80,6 +80,122 @@ class TestAvisosDevidos:
         assert [a.tipo for a in devidos] == [TipoDeAviso.AGORA]
 
 
+class TestChamada:
+    """O terceiro tipo de aviso: a pergunta "quem vai?", bem antes do evento.
+
+    Ela NAO substitui o aviso de 10 minutos — serve a outra acao. O de
+    antecedencia manda parar o farm e se deslocar; a chamada pede uma DECISAO,
+    e por isso tem que vencer enquanto a decisao ainda cabe.
+
+    Com o Solo Boss de duas em duas horas, `chamar_minutos_antes = 110` e dez
+    minutos DEPOIS do boss anterior: o unico instante do ciclo em que a party
+    ainda esta reunida e ainda esta olhando o WhatsApp. Por isso os testes
+    daqui usam 110 e um alvo as 20:00 — sao os numeros de campo, nao numeros
+    escolhidos para a aritmetica ficar redonda.
+    """
+
+    def chamavel(self, **kwargs) -> EventoAgendado:
+        padroes = dict(horarios=((20, 0),), chamar_minutos_antes=110)
+        padroes.update(kwargs)
+        return evento(**padroes)
+
+    def test_o_campo_nasce_desligado(self):
+        """0 == desligado, o mesmo idioma de `silenciar_minutos`.
+
+        E o que mantem TvT e Prime intocados sem ninguem precisar lembrar de
+        excluir os dois: o opt-in e por INCLUSAO.
+        """
+        assert evento().chamar_minutos_antes == 0
+
+    def test_a_chamada_vence_no_minuto_configurado(self):
+        devidos = avisos_devidos(em(18, 10), [self.chamavel()], set())
+        assert [a.tipo for a in devidos] == [TipoDeAviso.CHAMADA]
+        assert devidos[0].alvo == em(20, 0)
+        assert devidos[0].devido_em == em(18, 10)
+
+    def test_um_minuto_antes_ainda_nao_saiu(self):
+        assert avisos_devidos(em(18, 9), [self.chamavel()], set()) == []
+
+    def test_fora_da_tolerancia_a_chamada_nao_ressuscita(self):
+        """18:16 esta 6 minutos depois do vencimento; a tolerancia e 5.
+
+        Uma chamada atrasada e pior que nenhuma: pergunta "quem vai" de um boss
+        para o qual ja nao da mais tempo de se organizar.
+        """
+        assert avisos_devidos(em(18, 16), [self.chamavel()], set()) == []
+
+    def test_o_mesmo_evento_continua_avisando_dez_minutos_antes(self):
+        """A chamada ACRESCENTA um aviso; nao troca o que ja existia."""
+        devidos = avisos_devidos(em(19, 50), [self.chamavel()], set())
+        assert [a.tipo for a in devidos] == [TipoDeAviso.ANTES]
+
+    def test_sem_o_campo_o_dia_inteiro_nao_produz_chamada_nenhuma(self):
+        from datetime import timedelta
+
+        enviados: set[str] = set()
+        tipos = set()
+        instante = SEGUNDA
+        for _ in range(24 * 60):
+            for aviso in avisos_devidos(instante, [evento()], enviados):
+                enviados.add(aviso.chave)
+                tipos.add(aviso.tipo)
+            instante += timedelta(minutes=1)
+        # A igualdade (e nao um `not in`) tambem prova que a varredura nao
+        # ficou vazia: uma prova vazia passaria sem provar nada.
+        assert tipos == {TipoDeAviso.ANTES, TipoDeAviso.AGORA}
+
+    def test_a_chamada_sai_sozinha_quando_a_antecedencia_esta_desligada(self):
+        """As guardas de opt-in nao interferem uma na outra."""
+        from datetime import timedelta
+
+        so_chamada = self.chamavel(avisar_minutos_antes=0, avisar_no_horario=False)
+        enviados: set[str] = set()
+        tipos = []
+        instante = SEGUNDA
+        for _ in range(24 * 60):
+            for aviso in avisos_devidos(instante, [so_chamada], enviados):
+                enviados.add(aviso.chave)
+                tipos.append(aviso.tipo)
+            instante += timedelta(minutes=1)
+        assert tipos == [TipoDeAviso.CHAMADA]
+
+    def test_ja_enviada_nao_repete(self):
+        """A chave `_chamada` suprime igual as outras duas."""
+        primeiro = avisos_devidos(em(18, 10), [self.chamavel()], set())
+        assert len(primeiro) == 1
+        de_novo = avisos_devidos(em(18, 10), [self.chamavel()], {primeiro[0].chave})
+        assert de_novo == []
+
+    def test_o_mecanismo_nao_conhece_o_nome_de_evento_nenhum(self):
+        """D-03 afirmado por COMPORTAMENTO, nao por grep no arquivo.
+
+        Um grep contra `agenda.py` nasceria falhando: o arquivo cita "Solo
+        Boss" num comentario de volume desde a Fase 6. O que importa nao e a
+        palavra estar ausente do texto — e um evento com nome inventado receber
+        exatamente o mesmo tratamento.
+        """
+        raid = self.chamavel(
+            nome="Raid Qualquer", horarios=((12, 0),), chamar_minutos_antes=30
+        )
+        devidos = avisos_devidos(em(11, 30), [raid], set())
+        assert [a.tipo for a in devidos] == [TipoDeAviso.CHAMADA]
+        assert "Raid Qualquer" in texto_do_aviso(devidos[0])
+
+    def test_empate_de_vencimento_tem_ordem_deterministica(self):
+        """O desempate do `sort` e `tipo.value` alfabetico.
+
+        `"agora" < "antes" < "chamada"` — e por isso que trocar o VALOR do
+        membro do enum mudaria a ordem de saida, alem de invalidar marcador ja
+        em disco. O valor e escolhido uma vez e nao muda.
+        """
+        alfa = self.chamavel(
+            nome="Alfa", avisar_minutos_antes=0, avisar_no_horario=False
+        )  # chamada devida as 18:10
+        beta = evento(nome="Beta", horarios=((18, 10),), avisar_minutos_antes=0)
+        devidos = avisos_devidos(em(18, 10), [alfa, beta], set())
+        assert [a.tipo for a in devidos] == [TipoDeAviso.AGORA, TipoDeAviso.CHAMADA]
+
+
 class TestDiasDaSemana:
     @pytest.mark.parametrize("deslocamento", range(7))
     def test_evento_de_todo_dia_dispara_nos_sete(self, deslocamento):
@@ -172,6 +288,24 @@ class TestChaveDoAviso:
         assert " " not in aviso.chave
 
 
+    def test_a_chave_da_chamada_e_inedita_e_nao_invalida_marcador_nenhum(self):
+        """A razao inteira de D-01 ser um TIPO novo e nao uma lista.
+
+        `chave` ja carrega `tipo.value`, entao o marcador da chamada nasce
+        distinto sem uma linha de codigo — e nenhum `_antes` ou `_agora` ja
+        gravado em `.agenda/` muda de significado.
+        """
+        alvo = em(20, 0)
+        chamada = Aviso("Solo Boss", TipoDeAviso.CHAMADA, alvo, em(18, 10))
+        assert chamada.chave == "2026-08-24_solo-boss-2000_chamada"
+
+        antes = Aviso("Solo Boss", TipoDeAviso.ANTES, alvo, em(19, 50)).chave
+        agora = Aviso("Solo Boss", TipoDeAviso.AGORA, alvo, alvo).chave
+        assert len({chamada.chave, antes, agora}) == 3
+        assert antes == "2026-08-24_solo-boss-2000_antes"
+        assert agora == "2026-08-24_solo-boss-2000_agora"
+
+
 class TestTextoDoAviso:
     def test_antes_e_agora_dizem_coisas_diferentes(self):
         alvo = em(21, 50)
@@ -208,6 +342,55 @@ class TestTextoDoAviso:
         alvo = em(10, 0)
         aviso = Aviso("Solo Boss", TipoDeAviso.AGORA, alvo, alvo)
         assert "Loot" not in texto_do_aviso(aviso, loot="J4guar")
+
+
+    def test_a_chamada_pergunta_quem_vai_e_manda_responder_no_privado(self):
+        """O privado nao foi escolha de desenho: e imposicao.
+
+        A ponte Baileys desta conta vem com ingestao de grupo desligada
+        (medido 2026-08-24: os 11 grupos nao entregam entrada, so as conversas
+        1-a-1). Uma chamada que nao diz onde responder colhe resposta no grupo,
+        que o bot nunca le.
+        """
+        aviso = Aviso("Solo Boss", TipoDeAviso.CHAMADA, em(20, 0), em(18, 10))
+        texto = texto_do_aviso(aviso)
+        assert "Solo Boss" in texto
+        assert "20:00" in texto
+        assert ".join" in texto
+        assert "privado" in texto.lower()
+
+    def test_a_chamada_nao_repete_nenhum_dos_dois_textos_de_hoje(self):
+        """Tres acoes diferentes, tres textos diferentes.
+
+        Repetir a frase treinaria a party a ignorar as tres.
+        """
+        alvo = em(20, 0)
+        chamada = texto_do_aviso(
+            Aviso("Solo Boss", TipoDeAviso.CHAMADA, alvo, em(18, 10))
+        )
+        antes = texto_do_aviso(Aviso("Solo Boss", TipoDeAviso.ANTES, alvo, em(19, 50)))
+        agora = texto_do_aviso(Aviso("Solo Boss", TipoDeAviso.AGORA, alvo, alvo))
+        assert len({chamada, antes, agora}) == 3
+
+    def test_a_chamada_nunca_carrega_a_linha_de_loot(self):
+        """`loot` so entra na ANTECEDENCIA — a chamada e sobre ir, nao sobre pegar."""
+        aviso = Aviso("Solo Boss", TipoDeAviso.CHAMADA, em(20, 0), em(18, 10))
+        assert "Loot" not in texto_do_aviso(aviso, loot="J4guar")
+
+    def test_os_textos_de_ANTES_e_AGORA_sao_byte_a_byte_os_de_hoje(self):
+        """Regressao dura: o tipo novo nao pode ter encostado nos dois antigos."""
+        alvo = em(20, 0)
+        antes = Aviso("Solo Boss", TipoDeAviso.ANTES, alvo, em(19, 50))
+        agora = Aviso("Solo Boss", TipoDeAviso.AGORA, alvo, alvo)
+        assert texto_do_aviso(antes) == (
+            "Solo Boss comeca em 10 minutos, as 20:00. "
+            "Hora de voltar para a cidade e se preparar."
+        )
+        assert texto_do_aviso(antes, loot="J4guar") == (
+            "Solo Boss comeca em 10 minutos, as 20:00. "
+            "Hora de voltar para a cidade e se preparar. Loot: J4guar."
+        )
+        assert texto_do_aviso(agora) == "Solo Boss comecou agora, as 20:00."
 
 
 class TestLerAgenda:
