@@ -13,10 +13,15 @@
 #   horarios              lista em "HH:MM", 24 horas
 #   dias                  seg ter qua qui sex sab dom (fora = todo dia)
 #   avisar_minutos_antes  quanto antes mandar o primeiro aviso
+#   chamar_minutos_antes  quanto antes perguntar no grupo quem vai (0 = nunca)
 #   silenciar_minutos     quanto tempo calar os alertas depois que comeca
 #
-# Cada evento gera DOIS avisos: um `avisar_minutos_antes` do horario (para
-# parar o farm e se deslocar) e outro no horario (dizendo que comecou).
+# Cada evento gera ATE TRES avisos:
+#
+#   1. `chamar_minutos_antes` do horario: "quem vai?" — so se voce pedir,
+#      apagando ou zerando a linha o evento nunca chama ninguem;
+#   2. `avisar_minutos_antes` do horario: para parar o farm e se deslocar;
+#   3. no horario: dizendo que comecou (`avisar_no_horario = false` desliga).
 
 [[evento]]
 nome = "TvT"
@@ -40,6 +45,12 @@ silenciar_minutos = 120
 # por dia; com dois avisos cada seriam 24 mensagens no grupo, tres vezes o
 # volume de TvT e Prime somados. Se quiser os dois avisos, troque para true.
 #
+# 110 minutos de chamada NAO e um numero solto: com o boss de duas em duas
+# horas, 1h50 antes cai dez minutos DEPOIS do boss anterior — o unico momento
+# do ciclo em que a party ainda esta reunida e ainda esta olhando o WhatsApp.
+# Isso soma 12 mensagens por dia no grupo, uma por ocorrencia. Se nao valer a
+# pena, apague a linha `chamar_minutos_antes` e nada mais muda.
+#
 # Nao silencia nada: boss solo nao enche a party de mortes como um TvT.
 #
 # Se os avisos de madrugada incomodarem, e so apagar os horarios da lista —
@@ -52,6 +63,7 @@ horarios = [
 ]
 avisar_minutos_antes = 10
 avisar_no_horario = false
+chamar_minutos_antes = 110
 silenciar_minutos = 0
 
 # ---------------------------------------------------------------------------

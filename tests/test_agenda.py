@@ -80,6 +80,122 @@ class TestAvisosDevidos:
         assert [a.tipo for a in devidos] == [TipoDeAviso.AGORA]
 
 
+class TestChamada:
+    """O terceiro tipo de aviso: a pergunta "quem vai?", bem antes do evento.
+
+    Ela NAO substitui o aviso de 10 minutos — serve a outra acao. O de
+    antecedencia manda parar o farm e se deslocar; a chamada pede uma DECISAO,
+    e por isso tem que vencer enquanto a decisao ainda cabe.
+
+    Com o Solo Boss de duas em duas horas, `chamar_minutos_antes = 110` e dez
+    minutos DEPOIS do boss anterior: o unico instante do ciclo em que a party
+    ainda esta reunida e ainda esta olhando o WhatsApp. Por isso os testes
+    daqui usam 110 e um alvo as 20:00 — sao os numeros de campo, nao numeros
+    escolhidos para a aritmetica ficar redonda.
+    """
+
+    def chamavel(self, **kwargs) -> EventoAgendado:
+        padroes = dict(horarios=((20, 0),), chamar_minutos_antes=110)
+        padroes.update(kwargs)
+        return evento(**padroes)
+
+    def test_o_campo_nasce_desligado(self):
+        """0 == desligado, o mesmo idioma de `silenciar_minutos`.
+
+        E o que mantem TvT e Prime intocados sem ninguem precisar lembrar de
+        excluir os dois: o opt-in e por INCLUSAO.
+        """
+        assert evento().chamar_minutos_antes == 0
+
+    def test_a_chamada_vence_no_minuto_configurado(self):
+        devidos = avisos_devidos(em(18, 10), [self.chamavel()], set())
+        assert [a.tipo for a in devidos] == [TipoDeAviso.CHAMADA]
+        assert devidos[0].alvo == em(20, 0)
+        assert devidos[0].devido_em == em(18, 10)
+
+    def test_um_minuto_antes_ainda_nao_saiu(self):
+        assert avisos_devidos(em(18, 9), [self.chamavel()], set()) == []
+
+    def test_fora_da_tolerancia_a_chamada_nao_ressuscita(self):
+        """18:16 esta 6 minutos depois do vencimento; a tolerancia e 5.
+
+        Uma chamada atrasada e pior que nenhuma: pergunta "quem vai" de um boss
+        para o qual ja nao da mais tempo de se organizar.
+        """
+        assert avisos_devidos(em(18, 16), [self.chamavel()], set()) == []
+
+    def test_o_mesmo_evento_continua_avisando_dez_minutos_antes(self):
+        """A chamada ACRESCENTA um aviso; nao troca o que ja existia."""
+        devidos = avisos_devidos(em(19, 50), [self.chamavel()], set())
+        assert [a.tipo for a in devidos] == [TipoDeAviso.ANTES]
+
+    def test_sem_o_campo_o_dia_inteiro_nao_produz_chamada_nenhuma(self):
+        from datetime import timedelta
+
+        enviados: set[str] = set()
+        tipos = set()
+        instante = SEGUNDA
+        for _ in range(24 * 60):
+            for aviso in avisos_devidos(instante, [evento()], enviados):
+                enviados.add(aviso.chave)
+                tipos.add(aviso.tipo)
+            instante += timedelta(minutes=1)
+        # A igualdade (e nao um `not in`) tambem prova que a varredura nao
+        # ficou vazia: uma prova vazia passaria sem provar nada.
+        assert tipos == {TipoDeAviso.ANTES, TipoDeAviso.AGORA}
+
+    def test_a_chamada_sai_sozinha_quando_a_antecedencia_esta_desligada(self):
+        """As guardas de opt-in nao interferem uma na outra."""
+        from datetime import timedelta
+
+        so_chamada = self.chamavel(avisar_minutos_antes=0, avisar_no_horario=False)
+        enviados: set[str] = set()
+        tipos = []
+        instante = SEGUNDA
+        for _ in range(24 * 60):
+            for aviso in avisos_devidos(instante, [so_chamada], enviados):
+                enviados.add(aviso.chave)
+                tipos.append(aviso.tipo)
+            instante += timedelta(minutes=1)
+        assert tipos == [TipoDeAviso.CHAMADA]
+
+    def test_ja_enviada_nao_repete(self):
+        """A chave `_chamada` suprime igual as outras duas."""
+        primeiro = avisos_devidos(em(18, 10), [self.chamavel()], set())
+        assert len(primeiro) == 1
+        de_novo = avisos_devidos(em(18, 10), [self.chamavel()], {primeiro[0].chave})
+        assert de_novo == []
+
+    def test_o_mecanismo_e_generico_e_nao_conhece_nome_de_evento_nenhum(self):
+        """D-03 afirmado por COMPORTAMENTO, nao por grep no arquivo.
+
+        Um grep contra `agenda.py` nasceria falhando: o arquivo cita "Solo
+        Boss" num comentario de volume desde a Fase 6. O que importa nao e a
+        palavra estar ausente do texto — e um evento com nome inventado receber
+        exatamente o mesmo tratamento.
+        """
+        raid = self.chamavel(
+            nome="Raid Qualquer", horarios=((12, 0),), chamar_minutos_antes=30
+        )
+        devidos = avisos_devidos(em(11, 30), [raid], set())
+        assert [a.tipo for a in devidos] == [TipoDeAviso.CHAMADA]
+        assert "Raid Qualquer" in texto_do_aviso(devidos[0])
+
+    def test_empate_de_vencimento_tem_ordem_deterministica(self):
+        """O desempate do `sort` e `tipo.value` alfabetico.
+
+        `"agora" < "antes" < "chamada"` — e por isso que trocar o VALOR do
+        membro do enum mudaria a ordem de saida, alem de invalidar marcador ja
+        em disco. O valor e escolhido uma vez e nao muda.
+        """
+        alfa = self.chamavel(
+            nome="Alfa", avisar_minutos_antes=0, avisar_no_horario=False
+        )  # chamada devida as 18:10
+        beta = evento(nome="Beta", horarios=((18, 10),), avisar_minutos_antes=0)
+        devidos = avisos_devidos(em(18, 10), [alfa, beta], set())
+        assert [a.tipo for a in devidos] == [TipoDeAviso.AGORA, TipoDeAviso.CHAMADA]
+
+
 class TestDiasDaSemana:
     @pytest.mark.parametrize("deslocamento", range(7))
     def test_evento_de_todo_dia_dispara_nos_sete(self, deslocamento):
@@ -172,6 +288,24 @@ class TestChaveDoAviso:
         assert " " not in aviso.chave
 
 
+    def test_a_chave_da_chamada_e_inedita_e_nao_invalida_marcador_nenhum(self):
+        """A razao inteira de D-01 ser um TIPO novo e nao uma lista.
+
+        `chave` ja carrega `tipo.value`, entao o marcador da chamada nasce
+        distinto sem uma linha de codigo — e nenhum `_antes` ou `_agora` ja
+        gravado em `.agenda/` muda de significado.
+        """
+        alvo = em(20, 0)
+        chamada = Aviso("Solo Boss", TipoDeAviso.CHAMADA, alvo, em(18, 10))
+        assert chamada.chave == "2026-08-24_solo-boss-2000_chamada"
+
+        antes = Aviso("Solo Boss", TipoDeAviso.ANTES, alvo, em(19, 50)).chave
+        agora = Aviso("Solo Boss", TipoDeAviso.AGORA, alvo, alvo).chave
+        assert len({chamada.chave, antes, agora}) == 3
+        assert antes == "2026-08-24_solo-boss-2000_antes"
+        assert agora == "2026-08-24_solo-boss-2000_agora"
+
+
 class TestTextoDoAviso:
     def test_antes_e_agora_dizem_coisas_diferentes(self):
         alvo = em(21, 50)
@@ -208,6 +342,55 @@ class TestTextoDoAviso:
         alvo = em(10, 0)
         aviso = Aviso("Solo Boss", TipoDeAviso.AGORA, alvo, alvo)
         assert "Loot" not in texto_do_aviso(aviso, loot="J4guar")
+
+
+    def test_a_chamada_pergunta_quem_vai_e_manda_responder_no_privado(self):
+        """O privado nao foi escolha de desenho: e imposicao.
+
+        A ponte Baileys desta conta vem com ingestao de grupo desligada
+        (medido 2026-08-24: os 11 grupos nao entregam entrada, so as conversas
+        1-a-1). Uma chamada que nao diz onde responder colhe resposta no grupo,
+        que o bot nunca le.
+        """
+        aviso = Aviso("Solo Boss", TipoDeAviso.CHAMADA, em(20, 0), em(18, 10))
+        texto = texto_do_aviso(aviso)
+        assert "Solo Boss" in texto
+        assert "20:00" in texto
+        assert ".join" in texto
+        assert "privado" in texto.lower()
+
+    def test_a_chamada_nao_repete_nenhum_dos_dois_textos_de_hoje(self):
+        """Tres acoes diferentes, tres textos diferentes.
+
+        Repetir a frase treinaria a party a ignorar as tres.
+        """
+        alvo = em(20, 0)
+        chamada = texto_do_aviso(
+            Aviso("Solo Boss", TipoDeAviso.CHAMADA, alvo, em(18, 10))
+        )
+        antes = texto_do_aviso(Aviso("Solo Boss", TipoDeAviso.ANTES, alvo, em(19, 50)))
+        agora = texto_do_aviso(Aviso("Solo Boss", TipoDeAviso.AGORA, alvo, alvo))
+        assert len({chamada, antes, agora}) == 3
+
+    def test_a_chamada_nunca_carrega_a_linha_de_loot(self):
+        """`loot` so entra na ANTECEDENCIA — a chamada e sobre ir, nao sobre pegar."""
+        aviso = Aviso("Solo Boss", TipoDeAviso.CHAMADA, em(20, 0), em(18, 10))
+        assert "Loot" not in texto_do_aviso(aviso, loot="J4guar")
+
+    def test_os_textos_de_ANTES_e_AGORA_sao_byte_a_byte_os_de_hoje(self):
+        """Regressao dura: o tipo novo nao pode ter encostado nos dois antigos."""
+        alvo = em(20, 0)
+        antes = Aviso("Solo Boss", TipoDeAviso.ANTES, alvo, em(19, 50))
+        agora = Aviso("Solo Boss", TipoDeAviso.AGORA, alvo, alvo)
+        assert texto_do_aviso(antes) == (
+            "Solo Boss comeca em 10 minutos, as 20:00. "
+            "Hora de voltar para a cidade e se preparar."
+        )
+        assert texto_do_aviso(antes, loot="J4guar") == (
+            "Solo Boss comeca em 10 minutos, as 20:00. "
+            "Hora de voltar para a cidade e se preparar. Loot: J4guar."
+        )
+        assert texto_do_aviso(agora) == "Solo Boss comecou agora, as 20:00."
 
 
 class TestLerAgenda:
@@ -289,6 +472,59 @@ class TestLerAgenda:
         assert "TOML" in str(erro.value)
 
 
+class TestChamarMinutosAntesNoToml:
+    """O campo que liga a chamada, lido e validado no ARRANQUE.
+
+    O usuario nao edita codigo: ele edita uma linha do config.toml. Entao o
+    numero errado tem que derrubar o scanner enquanto ele esta olhando para o
+    console — nunca as 2h da manha, calado, com a party achando que vai ser
+    chamada.
+    """
+
+    def escrever(self, tmp_path, linha=""):
+        caminho = tmp_path / "config.toml"
+        caminho.write_text(
+            '[[evento]]\nnome = "Solo Boss"\nhorarios = ["20:00"]\n' + linha,
+            encoding="utf-8",
+        )
+        return caminho
+
+    def test_o_numero_do_toml_chega_no_evento(self, tmp_path):
+        caminho = self.escrever(tmp_path, "chamar_minutos_antes = 110\n")
+        assert ler_agenda(caminho)[0].chamar_minutos_antes == 110
+
+    def test_campo_ausente_vira_zero(self, tmp_path):
+        """Ausente e o estado de TvT e Prime — e nao pode ser erro."""
+        assert ler_agenda(self.escrever(tmp_path))[0].chamar_minutos_antes == 0
+
+    @pytest.mark.parametrize(
+        "valor",
+        ["-1", '"110"', "true", "1.5"],
+        ids=["negativo", "texto", "booleano", "fracionario"],
+    )
+    def test_valor_sem_sentido_derruba_o_arranque_citando_o_evento(
+        self, tmp_path, valor
+    ):
+        """`true` esta nesta lista de proposito.
+
+        `isinstance(True, int)` e verdadeiro em Python, entao uma validacao
+        copiada sem pensar aceitaria `chamar_minutos_antes = true` e trataria
+        como "chamar 1 minuto antes" — uma chamada inutil, entregue todo dia,
+        sem nenhuma mensagem de erro. A validacao de `avisar_minutos_antes` tem
+        exatamente esse buraco hoje; esta nao pode herda-lo.
+        """
+        caminho = self.escrever(tmp_path, f"chamar_minutos_antes = {valor}\n")
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_agenda(caminho)
+        assert "chamar_minutos_antes" in str(erro.value)
+        assert "Solo Boss" in str(erro.value), "a mensagem tem que citar o NOME"
+
+    def test_zero_explicito_e_valido_e_significa_desligado(self, tmp_path):
+        """Escrever `= 0` e a forma de desligar sem apagar a linha."""
+        caminho = self.escrever(tmp_path, "chamar_minutos_antes = 0\n")
+        assert ler_agenda(caminho)[0].chamar_minutos_antes == 0
+
+
 class TestAgendaRealDoUsuario:
     """O `config.toml` versionado, exatamente como ele esta no repositorio.
 
@@ -327,6 +563,32 @@ class TestAgendaRealDoUsuario:
         por_nome = {e.nome: e for e in agenda}
         assert por_nome["TvT"].silenciar_minutos == 15
         assert por_nome["Prime"].silenciar_minutos == 120
+
+    def test_so_o_solo_boss_tem_chamada_no_arquivo_do_repositorio(self, agenda):
+        """D-02: o opt-in e por evento, e hoje so um evento pediu.
+
+        TvT e Prime nao mudam de comportamento em nada nesta fase. Se algum dia
+        alguem quiser chamada neles, e uma linha no config.toml — e uma decisao
+        de volume de mensagem, que este teste obriga a tomar de proposito.
+        """
+        por_nome = {e.nome: e for e in agenda}
+        assert por_nome["Solo Boss"].chamar_minutos_antes == 110
+        assert por_nome["TvT"].chamar_minutos_antes == 0
+        assert por_nome["Prime"].chamar_minutos_antes == 0
+
+    def test_o_cabecalho_do_arquivo_documenta_o_campo(self):
+        """Um campo que existe e nao esta na lista de campos e uma mentira por
+        omissao: quem le o arquivo conclui que a chamada nao da para desligar.
+        """
+        from pathlib import Path
+
+        raiz = Path(__file__).resolve().parent.parent
+        texto = (raiz / "config.toml").read_text(encoding="utf-8")
+        # Corta no PRIMEIRO bloco de verdade — que comeca em coluna zero. O
+        # proprio cabecalho escreve '[[evento]]' em prosa, entao um split
+        # sem a quebra de linha cortaria no meio da lista de campos.
+        cabecalho = texto.split(chr(10) + '[[evento]]')[0]
+        assert "chamar_minutos_antes" in cabecalho
 
     def _varrer_um_dia(self, agenda, dia):
         """Todos os avisos de um dia, minuto a minuto."""
@@ -369,30 +631,84 @@ class TestAgendaRealDoUsuario:
             ("TvT", TipoDeAviso.AGORA, "23:00"),
         ]
 
-    def test_solo_boss_avisa_de_duas_em_duas_horas_so_com_antecedencia(self, agenda):
-        """12 ocorrencias em horario par, UM aviso cada.
+    def test_solo_boss_chama_e_avisa_mas_nunca_fala_no_horario(self, agenda):
+        """12 ocorrencias, DOIS avisos cada — e nenhum deles no horario.
 
-        Com dois avisos cada seriam 24 mensagens por dia — tres vezes o volume
-        de TvT e Prime somados. Por isso `avisar_no_horario = false`.
+        Este teste ja travou em 12. Subiu para 24 por DECISAO (D-01, a chamada
+        de 1h50), nao por acidente: o que ele protege nunca foi o total, foi o
+        `avisar_no_horario = false`. Um aviso de AGORA aqui significaria as 12
+        mensagens da meia-noite as 22h que o usuario desligou de proposito na
+        Fase 6, e nenhuma chamada as compraria de volta.
+
+        As duas contagens sao afirmadas SEPARADAS. Se um dia so uma delas
+        mudar, o total continuaria batendo e o teste nao veria nada.
         """
         saidas = [
             s for s in self._varrer_um_dia(agenda, SEGUNDA) if s[0] == "Solo Boss"
         ]
-        assert len(saidas) == 12
-        assert all(tipo is TipoDeAviso.ANTES for _, tipo, _ in saidas), (
+        assert len(saidas) == 24, "Solo Boss: 12 chamadas + 12 antecedencias"
+
+        assert not [s for s in saidas if s[1] is TipoDeAviso.AGORA], (
             "algum aviso saiu no horario; avisar_no_horario deveria estar false"
         )
-        assert [hora for _, _, hora in saidas] == [
-            f"{h:02d}:50" for h in list(range(1, 24, 2))
-        ]
+
+        antes = [hora for _, tipo, hora in saidas if tipo is TipoDeAviso.ANTES]
+        chamadas = [hora for _, tipo, hora in saidas if tipo is TipoDeAviso.CHAMADA]
+
+        # 10 minutos antes de cada boss par -> sempre HH:50 em hora impar.
+        assert antes == [f"{h:02d}:50" for h in list(range(1, 24, 2))]
+        assert len(antes) == 12
+
+        # 110 minutos antes de cada boss par -> HH:10 em hora PAR, porque 1h50
+        # antes de um boss e dez minutos depois do boss anterior. E essa a
+        # medida de campo inteira, visivel aqui na forma dos horarios.
+        assert chamadas == [f"{h:02d}:10" for h in list(range(0, 24, 2))]
+        assert len(chamadas) == 12
 
     def test_o_volume_diario_total_e_o_esperado(self, agenda):
-        """24 mensagens por dia. Se subir, alguem mexeu no config sem pensar.
+        """36 mensagens por dia. Se subir, alguem mexeu no config sem pensar.
+
+        Era 24. Subiu para 36 por DECISAO (D-01): a chamada de 1h50 do Solo
+        Boss acrescenta 12 perguntas por dia, uma por ocorrencia, e esse custo
+        foi aceito no CONTEXT desta fase junto com a razao do numero.
+
+        A conta, evento por evento, numa segunda:
+
+            TvT               10   5 horarios x (ANTES + AGORA)
+            Prime              2   1 horario  x (ANTES + AGORA), so seg-qui
+            Solo Boss ANTES   12   12 horarios, avisar_no_horario = false
+            Solo Boss CHAMADA 12   12 horarios x chamar_minutos_antes = 110
+            ----------------------------------------------------------------
+            total             36
 
         O grupo do WhatsApp e de pessoas, nao um feed. Este teste existe para
-        um evento novo nao dobrar o volume sem ninguem perceber.
+        um evento novo nao dobrar o volume sem ninguem perceber — e o unico
+        jeito de ele continuar servindo para isso e o numero ser ESCRITO a
+        mao, a partir da conta acima, e nunca colhido da propria execucao. Um
+        alarme calibrado pela saida que ele deveria vigiar so afirma que o
+        codigo faz o que o codigo faz.
         """
-        assert len(self._varrer_um_dia(agenda, SEGUNDA)) == 24
+        assert len(self._varrer_um_dia(agenda, SEGUNDA)) == 36
+
+    def test_tvt_e_prime_ficaram_exatamente_como_estavam(self, agenda):
+        """D-02: a chamada e opt-in, e nem TvT nem Prime pediram.
+
+        A prova aqui e de COMPORTAMENTO, contada na varredura de um dia. Ler
+        `chamar_minutos_antes == 0` no config (o que outro teste ja faz) prova
+        que o arquivo esta certo; isto prova que o motor concorda com ele.
+
+        Se algum dia alguem ligar chamada em TvT, este teste cai antes de as
+        10 mensagens virarem 15 no celular de todo mundo.
+        """
+        saidas = self._varrer_um_dia(agenda, SEGUNDA)
+        tvt = [s for s in saidas if s[0] == "TvT"]
+        prime = [s for s in saidas if s[0] == "Prime"]
+
+        assert len(tvt) == 10, "5 horarios de TvT x 2 avisos, como antes da Fase 10"
+        assert len(prime) == 2, "1 horario de Prime x 2 avisos, como antes da Fase 10"
+        assert not [
+            s for s in tvt + prime if s[1] is TipoDeAviso.CHAMADA
+        ], "TvT ou Prime ganhou chamada; o opt-in de D-02 vazou"
 
     def test_no_sabado_o_prime_nao_aparece(self, agenda):
         from datetime import timedelta
@@ -520,9 +836,18 @@ class TestRegistroEmDisco:
             instante += timedelta(minutes=1)
 
         todos = enviados_por["A"] + enviados_por["B"]
+        # A asserção que mais importa: mesmo com as duas instancias do usuario
+        # varrendo o mesmo minuto, nenhum aviso sai duas vezes. Agora ela cobre
+        # tambem a chave `_chamada`, que e nova em disco.
         assert len(todos) == len(set(todos)), "houve aviso duplicado"
-        # 24 avisos por dia (TvT 10 + Prime 2 + Solo Boss 12), dois dias.
-        assert len(todos) == 48
+        assert any(c.endswith("_chamada") for c in todos), (
+            "nenhuma chamada na varredura; a prova de nao-duplicacao nao "
+            "estaria cobrindo a chave nova"
+        )
+        # 36 avisos por dia (TvT 10 + Prime 2 + Solo Boss 12 ANTES + 12
+        # CHAMADA), dois dias. Era 48; subiu para 72 por DECISAO — a chamada
+        # de 1h50 do D-01 — e nao porque a varredura passou a devolver isso.
+        assert len(todos) == 72
 
     def test_poda_apaga_o_velho_e_preserva_o_de_hoje(self, tmp_path):
         from datetime import date as _date

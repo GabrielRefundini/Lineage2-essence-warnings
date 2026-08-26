@@ -219,6 +219,23 @@ def _evento_de_dict(bruto: dict, indice: int) -> EventoAgendado:
             f"{onde}: 'avisar_no_horario' precisa ser true ou false."
         )
 
+    # Booleano rejeitado EXPLICITAMENTE, e isso e a diferenca deliberada em
+    # relacao ao bloco de `avisar_minutos_antes` logo acima.
+    #
+    # `isinstance(True, int)` e verdadeiro em Python. Sem esta linha,
+    # `chamar_minutos_antes = true` — a confusao mais provavel, porque o campo
+    # irmao `avisar_no_horario` E booleano — passaria como "chamar 1 minuto
+    # antes": uma chamada inutil, entregue 12 vezes por dia, sem um unico erro
+    # no console. O campo antigo carrega esse buraco e nao e consertado aqui:
+    # mudar o comportamento de um campo que o usuario ja usa nao pertence a
+    # esta fase.
+    chamar = bruto.get("chamar_minutos_antes", 0)
+    if isinstance(chamar, bool) or not isinstance(chamar, int) or chamar < 0:
+        raise AgendaInvalida(
+            f"{onde}: 'chamar_minutos_antes' precisa ser um numero inteiro >= 0 "
+            f"(use 0 ou apague a linha para nao chamar ninguem)."
+        )
+
     silenciar = bruto.get("silenciar_minutos", 0)
     if not isinstance(silenciar, int) or silenciar < 0:
         raise AgendaInvalida(
@@ -231,6 +248,7 @@ def _evento_de_dict(bruto: dict, indice: int) -> EventoAgendado:
         dias=frozenset(dias),
         avisar_minutos_antes=antes,
         avisar_no_horario=no_horario,
+        chamar_minutos_antes=chamar,
         silenciar_minutos=silenciar,
     )
 
