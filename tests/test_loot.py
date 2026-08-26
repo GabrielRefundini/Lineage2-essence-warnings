@@ -24,7 +24,13 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from l2scanner.agenda import Aviso, EventoAgendado, TipoDeAviso
+from l2scanner.agenda import (
+    Aviso,
+    EventoAgendado,
+    RegistroEmDisco,
+    TipoDeAviso,
+    chave_da_ocorrencia,
+)
 from l2scanner.loot import (
     Designacao,
     RegistroDeLoot,
@@ -38,7 +44,9 @@ from l2scanner.loot import (
     responder_consulta,
     responder_correcao,
     responder_designacao,
+    sugerir_a_vez,
 )
+from l2scanner.presenca import fechar_ocorrencias, texto_de_fechamento
 
 SEGUNDA = datetime(2026, 8, 25)
 
@@ -212,6 +220,196 @@ class TestNicksConhecidos:
         registro = RegistroDeLoot(tmp_path)
         registro.registrar("Kaus", em(10, 0))
         assert "kaus" in registro.nicks_conhecidos()
+
+
+class TestSugerirAVez:
+    """Entre quem confirmou presenca, de quem deveria ser a vez do proximo loot.
+
+    A funcao SUGERE e nao manda (D-13). Ela nao grava, nao apaga e nao tem
+    efeito nenhum na pasta sem poda — e por isso que ela pode existir dentro do
+    `loot.py` sem colocar meses de estatistica em risco.
+    """
+
+    def _com_loots(self, pasta, **quantos):
+        """Monta o estado pelo METODO PUBLICO, e nao escrevendo arquivo a mao.
+
+        Mesmo idioma de `TestResumo` e `TestNicksConhecidos`: se um dia o nome
+        do arquivo mudar, estes testes continuam valendo por serem sobre
+        comportamento e nao sobre formato.
+        """
+        registro = RegistroDeLoot(pasta)
+        passo = 0
+        for nick, total in quantos.items():
+            for _ in range(total):
+                registro.registrar(
+                    nick, em((passo * 2) % 24, 0, dia=25 + (passo * 2) // 24)
+                )
+                passo += 1
+        return registro
+
+    def test_escolhe_quem_pegou_menos(self, tmp_path):
+        """Tres presentes com 0, 2 e 5 loots: a vez e de quem tem 0."""
+        registro = self._com_loots(tmp_path, kaus=2, j4guar=5)
+
+        assert sugerir_a_vez(
+            registro, frozenset({"tiomad", "kaus", "j4guar"})
+        ) == ("tiomad", 0)
+
+    def test_empate_no_total_desempata_pelo_ultimo_mais_antigo(self, tmp_path):
+        """Um loot cada: vai quem pegou o dele ha mais tempo.
+
+        Sem este nivel o desempate cairia direto no alfabeto, e o `Kaus`
+        pegaria duas vezes seguidas enquanto o `TioMad` do mesmo total
+        esperaria — que e exatamente o rodizio quebrado que a party quer
+        evitar.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("tiomad", em(10, 0, dia=23))
+        registro.registrar("kaus", em(10, 0, dia=25))
+
+        assert sugerir_a_vez(registro, frozenset({"tiomad", "kaus"})) == (
+            "tiomad",
+            1,
+        )
+
+    def test_empate_total_desempata_pelo_alfabeto_e_e_ESTAVEL(self, tmp_path):
+        """T-10-19: duas instancias, duas chamadas, o MESMO nome.
+
+        O usuario roda Yazalaque e Faerlina lado a lado. Uma sugestao que
+        variasse por instancia transformaria a ajuda em discussao — e e a
+        mesma razao pela qual `encaixar_na_agenda` desempata por regra fixa e
+        nao pelo que a pasta devolver primeiro.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        registro.registrar("tiomad", em(10, 0))
+        registro.registrar("kaus", em(10, 0))
+
+        presentes = frozenset({"tiomad", "kaus"})
+        primeira = sugerir_a_vez(registro, presentes)
+        segunda = sugerir_a_vez(RegistroDeLoot(tmp_path), presentes)
+
+        assert primeira == ("kaus", 1)
+        assert primeira == segunda
+
+    def test_presentes_vazio_devolve_None(self, tmp_path):
+        """Uma lista vazia nao tem opiniao sobre de quem e a vez."""
+        registro = self._com_loots(tmp_path, kaus=2)
+        assert sugerir_a_vez(registro, frozenset()) is None
+
+    def test_quem_nunca_pegou_ganha_de_quem_ja_pegou(self, tmp_path):
+        registro = self._com_loots(tmp_path, kaus=1)
+        assert sugerir_a_vez(registro, frozenset({"kaus", "novato"})) == (
+            "novato",
+            0,
+        )
+
+    def test_slug_que_nao_existe_na_pasta_e_zero_sem_levantar(self, tmp_path):
+        """O primeiro boss de alguem e o caso NORMAL, e nao um erro.
+
+        A lista de presenca mora no `.agenda/` e o `.loot/` pode nunca ter
+        visto aquele nick. Levantar aqui calaria a mensagem de fechamento
+        inteira — a party perderia a lista por causa de um novato.
+        """
+        registro = RegistroDeLoot(tmp_path)
+        assert sugerir_a_vez(registro, frozenset({"desconhecido"})) == (
+            "desconhecido",
+            0,
+        )
+
+    def test_ninguem_de_fora_da_lista_e_sugerido(self, tmp_path):
+        """O `fantasma` tem zero loots e mesmo assim nao pode ser nomeado.
+
+        E o coracao do recurso: a sugestao sai de DENTRO de quem confirmou.
+        """
+        registro = self._com_loots(tmp_path, kaus=3)
+        registro.registrar("fantasma", em(10, 0))
+
+        escolhido = sugerir_a_vez(registro, frozenset({"kaus"}))
+
+        assert escolhido == ("kaus", 3)
+
+    def test_devolve_o_total_junto_com_o_slug(self, tmp_path):
+        """O total entra na mensagem: sugerir sem dizer por que nao convence."""
+        registro = self._com_loots(tmp_path, kaus=2)
+        assert sugerir_a_vez(registro, frozenset({"kaus"})) == ("kaus", 2)
+
+    def test_nao_escreve_NADA_na_pasta_sem_poda(self, tmp_path):
+        """T-10-08, afirmado por estado e nao por leitura de codigo.
+
+        O `.loot/` nunca e podado e nao tem backup. Esta fase inteira
+        atravessa a pasta em modo somente leitura, e a unica prova que
+        envelhece bem e comparar o conteudo antes e depois.
+        """
+        registro = self._com_loots(tmp_path, kaus=2, j4guar=1)
+        antes = sorted(p.name for p in tmp_path.iterdir())
+
+        sugerir_a_vez(registro, frozenset({"kaus", "j4guar", "tiomad"}))
+
+        assert sorted(p.name for p in tmp_path.iterdir()) == antes
+
+    def test_maiuscula_no_presente_nao_cria_pessoa_nova(self, tmp_path):
+        """A lista guarda slug, mas se um dia chegar `Kaus` ele e o mesmo."""
+        registro = self._com_loots(tmp_path, kaus=2)
+        assert sugerir_a_vez(registro, frozenset({"Kaus"})) == ("kaus", 2)
+
+
+class TestNenhumTipoDeArquivoNovoNaPastaDeLoot:
+    """O ciclo inteiro da fase, e a pasta sem poda sai como entrou (T-10-08).
+
+    Este e o teste mais importante do plano e o mais chato de escrever, e as
+    duas coisas tem a mesma causa: ele nao afirma um retorno, afirma um ESTADO.
+    Um `sugerir_a_vez` que gravasse um cache, um contador de sugestoes ou um
+    marcador de "ja sugeri este boss" passaria em todos os testes acima e
+    criaria, na pasta que nunca e podada e nao tem backup, um tipo de arquivo
+    que nenhum comando alcanca depois.
+    """
+
+    FAMILIAS_DE_HOJE = frozenset({"pegou_", "nick_", "proximo.json"})
+    SOLO = EventoAgendado(
+        nome="Solo Boss",
+        horarios=tuple((h, 0) for h in range(0, 24, 2)),
+        avisar_no_horario=False,
+        chamar_minutos_antes=110,
+    )
+
+    def _familia(self, nome: str) -> str:
+        for prefixo in sorted(self.FAMILIAS_DE_HOJE):
+            if nome.startswith(prefixo):
+                return prefixo
+        return f"DESCONHECIDA:{nome}"
+
+    def test_o_ciclo_completo_nao_inventa_tipo_de_arquivo(self, tmp_path):
+        """Designar, consumir, encher a lista, fechar e sugerir."""
+        pasta_loot = tmp_path / "loot"
+        pasta_agenda = tmp_path / "agenda"
+        loot = RegistroDeLoot(pasta_loot)
+        agenda = RegistroEmDisco(pasta_agenda)
+        alvo = em(20, 0)
+        chave = chave_da_ocorrencia("Solo Boss", alvo)
+
+        loot.designar("Kaus", alvo, em(18, 10))
+        loot.consumir(em(20, 0))
+        for nick in ("kaus", "j4guar", "tiomad"):
+            agenda.entrar(chave, nick)
+
+        fechados = fechar_ocorrencias(agenda, [self.SOLO], em(20, 1))
+        assert len(fechados) == 1
+        sugestao = sugerir_a_vez(loot, frozenset(fechados[0].nicks))
+        assert sugestao is not None
+        texto_de_fechamento(fechados[0], None, sugestao)
+
+        familias = {self._familia(p.name) for p in pasta_loot.iterdir()}
+        assert familias <= self.FAMILIAS_DE_HOJE, familias
+
+    def test_a_prova_pega_de_verdade_uma_familia_nova(self, tmp_path):
+        """Guarda contra prova vazia: o classificador acha o que deveria."""
+        pasta_loot = tmp_path / "loot"
+        RegistroDeLoot(pasta_loot)
+        (pasta_loot / "sugestao_2026-08-25-2000").touch()
+
+        familias = {self._familia(p.name) for p in pasta_loot.iterdir()}
+
+        assert not familias <= self.FAMILIAS_DE_HOJE
 
 
 class TestDesignacao:
