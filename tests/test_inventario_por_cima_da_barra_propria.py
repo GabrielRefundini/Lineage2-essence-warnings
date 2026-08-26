@@ -39,7 +39,13 @@ import pytest
 from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
-from l2scanner.visao import extrair
+from l2scanner.visao import (
+    BRILHO_MINIMO_DA_MOLDURA_PROPRIA,
+    DESVIO_MINIMO_DA_BARRA_PROPRIA,
+    _moldura_da_barra_propria,
+    barra_propria_legivel,
+    extrair,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "barra_propria"
 CALIBRACAO = (
@@ -183,3 +189,111 @@ class TestAMorteDeVerdadeContinuaSaindo:
             "o scanner ficou mudo na morte — vigiar sem avisar e pior que "
             "nao vigiar"
         )
+
+
+class TestAsOitoFixturesReaisNosDoisSentidos:
+    """A regressao permanente das amostras que o usuario capturou da tela dele.
+
+    Uma assercao por arquivo, com o nome do arquivo na mensagem: quando isto
+    quebrar daqui a seis meses, o que importa saber e QUAL recorte mudou de
+    veredito, nao que "alguma fixture falhou".
+    """
+
+    @pytest.mark.parametrize("rotulo", COBERTAS)
+    def test_coberta_pelo_inventario_e_ILEGIVEL(self, rotulo):
+        """Moldura medida: 48.00, 48.92, 28.00, 29.00 — todas abaixo de 60."""
+        assert not barra_propria_legivel(recorte(rotulo)), (
+            f"{rotulo}.png: a barra coberta pelo inventario voltou a ser lida "
+            f"como barra — e dai sai 'YAZALAQUE MORREU' com ele vivo"
+        )
+
+    @pytest.mark.parametrize("rotulo", LIVRES)
+    def test_livre_e_LEGIVEL(self, rotulo):
+        """Moldura medida: 86.42 nas quatro — 26 pontos acima do limiar."""
+        assert barra_propria_legivel(recorte(rotulo)), (
+            f"{rotulo}.png: a barra LIVRE foi declarada ilegivel — o scanner "
+            f"parou de vigiar o proprio personagem sem reclamar"
+        )
+
+    def test_a_barra_quase_vazia_real_e_LEGIVEL(self):
+        """O proxy de barra vazia, e a razao de ele ser a barra de MP.
+
+        NENHUMA amostra de HP proprio alinhada e de HP baixo: as 8 fixtures, as
+        4 `*__hp_proprio*.png` e todos os frames de janela em `recordings/`
+        estao a 100%. O que existe e a barra de MP do MESMO widget — mesma
+        largura, mesmo chrome — a 170/2567 (6.6%) em
+        `recordings/agora_janela.png`.
+
+        Medido nesse recorte: moldura 78.73, desvio 31.71, e `medir_barra` com
+        os limiares de HP le 0.0% (nao ha vermelho nenhum ali). Ou seja: uma
+        barra praticamente vazia deste widget continua CLARA, porque o vazio
+        mostra o terreno. O portao de moldura nao suprime a leitura de zero.
+        """
+        assert barra_propria_legivel(recorte(QUASE_VAZIA)), (
+            "uma barra REAL quase vazia caiu no portao de moldura — o remedio "
+            "virou o defeito, e morte real deixa de ser anunciada"
+        )
+
+
+class TestOTripwireDoDesvioPadrao:
+    """Contra quem olhar o codigo daqui a um ano e achar o desvio suficiente.
+
+    O portao de moldura parece redundante ao lado do de contraste. Nao e, e a
+    prova esta nas proprias fixtures: a coberta tem MAIS contraste que a livre.
+    """
+
+    def test_o_desvio_SOZINHO_deixaria_a_coberta_passar(self):
+        """Medido: coberta_0 da 36.54 e livre_0 da 35.47.
+
+        A coberta pelo inventario tem contraste MAIOR que a livre. Qualquer
+        limiar de desvio que rejeite uma rejeita a outra — nao existe numero
+        que separe. Este teste afirma as duas coisas ao mesmo tempo: que o
+        portao de desvio isolado aprovaria a coberta, e que o portao completo a
+        rejeita.
+        """
+        coberta = cv2.cvtColor(recorte("coberta_0"), cv2.COLOR_BGR2GRAY)
+        livre = cv2.cvtColor(recorte("livre_0"), cv2.COLOR_BGR2GRAY)
+
+        assert float(coberta.std()) > float(livre.std()), (
+            "as fixtures mudaram: o desvio da coberta era MAIOR que o da livre, "
+            "e e por isso que o portao de moldura precisa existir"
+        )
+        assert float(coberta.std()) >= DESVIO_MINIMO_DA_BARRA_PROPRIA, (
+            "o portao de desvio sozinho aprovava a coberta — se isto deixou de "
+            "valer, o tripwire perdeu o sentido e precisa ser remedido"
+        )
+        assert not barra_propria_legivel(recorte("coberta_0")), (
+            "alguem apagou o portao de moldura achando que o desvio bastava"
+        )
+
+    def test_o_portao_de_desvio_continua_no_lugar(self):
+        """E o segundo motivo de os dois rodarem EM SERIE, tambem medido.
+
+        `np.full((8,120,3), 60)` — que `tests/test_modo_solo.py` afirma ILEGIVEL
+        desde o modo solo — da moldura exatamente 60.00 e PASSA no portao de
+        moldura (o limiar e `>=`). Ele so continua rejeitado porque o portao de
+        desvio nao saiu do lugar. Apagar o desvio reabre um buraco medido.
+        """
+        uniforme = np.full((8, 120, 3), 60, dtype=np.uint8)
+
+        assert _moldura_da_barra_propria(uniforme) == 60.0
+        assert _moldura_da_barra_propria(uniforme) >= BRILHO_MINIMO_DA_MOLDURA_PROPRIA, (
+            "o limiar subiu acima de 60 e esta armadilha deixou de existir: "
+            "reveja a medicao antes de mexer no portao de desvio"
+        )
+        assert not barra_propria_legivel(uniforme), (
+            "um recorte uniforme passou: o portao de desvio foi removido e a "
+            "moldura sozinha nao pega o degenerado"
+        )
+
+    def test_o_ruido_texturizado_segue_LEGIVEL(self):
+        """A outra ponta: o portao novo nao pode rejeitar o que ja era aceito.
+
+        O recorte de `rng(7)` que `test_o_discriminador_e_contraste_e_nao_saturacao`
+        usa da moldura 120.33 — bem acima do limiar, como deve.
+        """
+        gerador = np.random.default_rng(7)
+        texturizado = np.repeat(
+            gerador.integers(0, 255, (8, 120, 1), dtype=np.uint8), 3, axis=2
+        )
+        assert barra_propria_legivel(texturizado)
