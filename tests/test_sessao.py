@@ -18,7 +18,11 @@ import cv2
 import numpy as np
 import pytest
 
-from l2scanner.agenda import EventoAgendado, RegistroEmDisco
+from l2scanner.agenda import (
+    EventoAgendado,
+    RegistroEmDisco,
+    chave_da_ocorrencia,
+)
 from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.notificador import Categoria
@@ -68,6 +72,7 @@ def nova_sessao(
     despachante=None,
     loot=None,
     manutencao=None,
+    membros=(),
 ):
     return Sessao(
         cal=calibracao,
@@ -78,6 +83,7 @@ def nova_sessao(
         despachante=despachante,
         loot=loot,
         manutencao=manutencao,
+        membros=membros,
     )
 
 
@@ -449,6 +455,178 @@ class TestFimDoSilencio:
         for i in range(10):
             avisos.extend(s.tick(frame_real, momento=quando.timestamp() + i).avisos)
         assert len([a for a in avisos if "encerrado" in a]) == 1
+
+
+class TestPresencaNoTick:
+    """A lista do Solo Boss fechando dentro do laco principal (D-12).
+
+    O EVENTO DE TESTE E O CONFIG REAL DO USUARIO: `avisar_no_horario=False`,
+    como em `TestLootNoTick`, agora tambem com `chamar_minutos_antes`. Nao e
+    detalhe de fixture — e a prova de que o fechamento NAO se pendura no aviso
+    de AGORA. Se ele se pendurasse, o usuario teria que religar as doze
+    mensagens diarias que desligou de proposito para ganhar a lista.
+
+    E o piso e SILENCIO: sem ninguem confirmado, o tick nao produz aviso,
+    despacho nem fechamento.
+    """
+
+    SOLO = EventoAgendado(
+        nome="Solo Boss",
+        horarios=((10, 0), (12, 0)),
+        avisar_no_horario=False,
+        chamar_minutos_antes=110,
+    )
+
+    class MembroFalso:
+        """Qualquer objeto com `.nick` serve — `presenca` nao importa `comandos`."""
+
+        def __init__(self, nick):
+            self.nick = nick
+
+    def _com_lista(self, sessao, hora=10, *nicks):
+        chave = chave_da_ocorrencia("Solo Boss", SEGUNDA.replace(hour=hora))
+        for nick in nicks:
+            sessao.registro.entrar(chave, nick)
+
+    def test_o_tick_do_horario_fecha_a_lista(self, calibracao, frame_real, tmp_path):
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO])
+        self._com_lista(s, 10, "j4guar", "tiomad")
+
+        r = s.tick(frame_real, momento=em(10, 0))
+
+        assert len(r.presencas_fechadas) == 1
+        fechamento = r.presencas_fechadas[0]
+        assert fechamento.evento == "Solo Boss"
+        assert fechamento.alvo == SEGUNDA.replace(hour=10)
+        assert fechamento.nicks == ("j4guar", "tiomad")
+
+    def test_o_evento_de_teste_tem_o_aviso_de_agora_DESLIGADO(self):
+        """Guarda contra prova vazia: sem isto o teste acima nao prova D-12.
+
+        Um dia alguem "conserta" o fixture ligando `avisar_no_horario` e o
+        fechamento passaria a sair de carona no aviso de AGORA sem ninguem
+        notar — que e exatamente o acoplamento que D-12 proibe.
+        """
+        assert self.SOLO.avisar_no_horario is False
+
+    def test_o_console_recebe_o_texto_CRU_e_o_whatsapp_a_moldura(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """A mesma separacao do aviso de agenda tres linhas acima no arquivo.
+
+        Quem imprime o console monta a propria moldura a partir de `avisos`;
+        moldurar nos dois lugares poria um bloco dentro do outro na tela.
+        """
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO])
+        self._com_lista(s, 10, "j4guar")
+
+        r = s.tick(frame_real, momento=em(10, 0))
+
+        assert r.avisos, "o fechamento nao chegou ao console"
+        assert "\n" not in r.avisos[-1], "o console recebe o texto CRU"
+        assert "Solo Boss" in r.avisos[-1]
+        assert "J4guar" in r.avisos[-1]
+
+        (texto, categoria, conversa) = r.despachos[-1]
+        linhas = texto.split("\n")
+        assert len(linhas) == 3, f"esperava borda/texto/borda, veio {texto!r}"
+        assert set(linhas[0]) == {"*"} and linhas[0] == linhas[2]
+        assert linhas[1].endswith("  [10:00]"), "carimbo da hora do envio"
+        assert categoria is Categoria.SEMPRE, (
+            "a lista fechada e organizacao de party, nao alerta de morte: "
+            "silencia-la dentro do Prime esconderia quem esta indo"
+        )
+        assert conversa is None, (
+            "a lista tem que sair nas conversas de AVISO, e nunca numa "
+            "conversa de comando (T-10-17)"
+        )
+
+    def test_zero_confirmacoes_produz_ZERO_de_tudo(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """D-12 dentro do tick: o piso do Solo Boss e silencio, nao 12/dia."""
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO])
+
+        r = s.tick(frame_real, momento=em(10, 0))
+
+        assert r.presencas_fechadas == []
+        assert r.avisos == []
+        assert r.despachos == []
+
+    def test_dois_ticks_dentro_da_janela_fecham_uma_vez_so(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """A 1 Hz seriam ~300 mensagens por ocorrencia sem o marcador (T-10-16)."""
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO])
+        self._com_lista(s, 10, "kaus")
+
+        primeiro = s.tick(frame_real, momento=em(10, 0))
+        segundo = s.tick(frame_real, momento=em(10, 1))
+
+        assert len(primeiro.presencas_fechadas) == 1
+        assert segundo.presencas_fechadas == []
+        assert segundo.avisos == []
+        assert segundo.despachos == []
+
+    def test_com_membros_a_lista_sai_com_a_grafia_do_config(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """D-10: o disco guarda `tiomad` e a party reconhece `TioMad`."""
+        s = nova_sessao(
+            calibracao,
+            tmp_path,
+            eventos=[self.SOLO],
+            membros=[self.MembroFalso("TioMad")],
+        )
+        self._com_lista(s, 10, "tiomad")
+
+        r = s.tick(frame_real, momento=em(10, 0))
+
+        assert "TioMad" in r.avisos[-1]
+        assert "Tiomad" not in r.avisos[-1]
+
+    def test_sem_membros_a_lista_sai_com_a_caixa_do_slug(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """O recurso NAO depende do mapa para funcionar.
+
+        Sem nenhum bloco `[[membro]]` no config a lista ainda fecha e ainda
+        sai — so com a caixa do slug. Deixar o fechamento inteiro em pe por
+        falta do mapa seria trocar um defeito cosmetico por um mudo.
+        """
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO])
+        self._com_lista(s, 10, "tiomad")
+
+        r = s.tick(frame_real, momento=em(10, 0))
+
+        assert r.presencas_fechadas
+        assert "Tiomad" in r.avisos[-1]
+
+    def test_a_sessao_sem_o_parametro_novo_continua_valida(
+        self, calibracao, tmp_path
+    ):
+        """Default vazio, como o `loot=None` ja fez — nada existente muda."""
+        s = Sessao(
+            cal=calibracao,
+            rastreador=Rastreador(nomes=list(calibracao.nomes)),
+            eventos_agendados=[],
+            registro=RegistroEmDisco(tmp_path),
+            silencio=SilencioFalso(),
+        )
+        assert s.membros == ()
+
+    def test_evento_sem_chamada_nunca_fecha_no_tick(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """TvT nao tem lista, entao o tick das 10:00 nao inventa uma."""
+        tvt = EventoAgendado(nome="TvT", horarios=((10, 0),))
+        s = nova_sessao(calibracao, tmp_path, eventos=[tvt])
+        s.registro.entrar(
+            chave_da_ocorrencia("TvT", SEGUNDA.replace(hour=10)), "kaus"
+        )
+
+        r = s.tick(frame_real, momento=em(10, 0))
+        assert r.presencas_fechadas == []
 
 
 class TestLootNoTick:
