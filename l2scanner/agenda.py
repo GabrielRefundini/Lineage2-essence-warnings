@@ -71,6 +71,13 @@ class TipoDeAviso(Enum):
     ANTES = "antes"
     AGORA = "agora"
 
+    # A pergunta "quem vai?", bem antes do evento.
+    #
+    # O VALOR entra na `Aviso.chave` e vira nome de arquivo em `.agenda/`:
+    # foi escolhido uma vez e nao muda. Troca-lo faria todo marcador ja
+    # gravado deixar de casar, e a party receberia a chamada de novo.
+    CHAMADA = "chamada"
+
 
 @dataclass(frozen=True)
 class EventoAgendado:
@@ -88,6 +95,19 @@ class EventoAgendado:
     # mensagens no grupo — mais do que TvT e Prime somados, tres vezes. Para
     # esses, o lembrete de antecedencia basta: quem ia, ja se preparou.
     avisar_no_horario: bool = True
+
+    # Quanto tempo ANTES do evento perguntar no grupo quem vai.
+    #
+    # `0` desliga, o mesmo idioma de `silenciar_minutos` abaixo: um evento
+    # so ganha chamada se o config.toml pedir, entao um evento novo nasce
+    # calado sem ninguem precisar lembrar de exclui-lo.
+    #
+    # O 110 do Solo Boss nao e um numero solto. Com o boss de duas em duas
+    # horas, 1h50 antes cai dez minutos DEPOIS do boss anterior: o unico
+    # instante do ciclo em que a party ainda esta reunida e ainda esta
+    # olhando o WhatsApp. Perguntar mais cedo pega gente dispersa;
+    # perguntar mais tarde ja nao da tempo de ninguem se organizar.
+    chamar_minutos_antes: int = 0
 
     # Quanto tempo o scanner deve calar depois que o evento comeca. Lido aqui e
     # IGNORADO nesta fase — quem usa e a Fase 7. Mora no esquema desde ja para
@@ -166,9 +186,17 @@ def avisos_devidos(
                         alvo - timedelta(minutes=evento.avisar_minutos_antes),
                     ),
                     (TipoDeAviso.AGORA, alvo),
+                    (
+                        TipoDeAviso.CHAMADA,
+                        alvo - timedelta(minutes=evento.chamar_minutos_antes),
+                    ),
                 ]
                 for tipo, devido_em in candidatos:
                     if tipo is TipoDeAviso.AGORA and not evento.avisar_no_horario:
+                        continue
+                    if evento.chamar_minutos_antes <= 0 and tipo is TipoDeAviso.CHAMADA:
+                        # Chamada desligada: e o default, e e o que mantem
+                        # todo evento que nao pediu exatamente como estava.
                         continue
                     if evento.avisar_minutos_antes <= 0 and tipo is TipoDeAviso.ANTES:
                         # Antecedencia zero: o aviso "antes" coincidiria com o
@@ -217,6 +245,10 @@ def texto_do_aviso(aviso: Aviso, loot: str | None = None) -> str:
     para dizer que comecou. Textos diferentes porque servem a acoes diferentes
     — repetir a mesma frase duas vezes treinaria a party a ignorar as duas.
 
+    A CHAMADA serve a uma terceira acao, anterior as duas: decidir SE vai.
+    Ela vence cedo o bastante para a resposta ainda mudar alguma coisa, e por
+    isso tambem nao pode repetir o texto das outras duas.
+
     `loot` e o nick de quem pega o loot desta ocorrencia, e so entra no aviso
     de ANTECEDENCIA. A agenda nao conhece designacao nenhuma: quem decide SE
     ha loot e o chamador, a agenda so formata — mesma linha do console nao
@@ -232,6 +264,16 @@ def texto_do_aviso(aviso: Aviso, loot: str | None = None) -> str:
         if loot:
             texto += f" Loot: {loot}."
         return texto
+    if aviso.tipo is TipoDeAviso.CHAMADA:
+        # "no PRIVADO" nao e gentileza: a ponte Baileys desta conta vem com
+        # ingestao de grupo desligada (medido 2026-08-24 — os 11 grupos nao
+        # entregam entrada, so as conversas 1-a-1). Uma chamada que nao diz
+        # onde responder colhe resposta num lugar que o bot nunca le.
+        return (
+            f"{aviso.evento} as {hora}. Quem vai? "
+            f"Mande .join no PRIVADO do bot para entrar na lista, "
+            f"ou .leave para sair. Aqui no grupo o bot nao le comando."
+        )
     return f"{aviso.evento} comecou agora, as {hora}."
 
 
