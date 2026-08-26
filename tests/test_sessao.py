@@ -73,12 +73,13 @@ def nova_sessao(
     loot=None,
     manutencao=None,
     membros=(),
+    registro=None,
 ):
     return Sessao(
         cal=calibracao,
         rastreador=Rastreador(nomes=list(calibracao.nomes)),
         eventos_agendados=list(eventos),
-        registro=RegistroEmDisco(tmp_path),
+        registro=registro if registro is not None else RegistroEmDisco(tmp_path),
         silencio=silencio or SilencioFalso(),
         despachante=despachante,
         loot=loot,
@@ -1088,3 +1089,80 @@ class TestManutencaoNoTick:
         for texto, categoria, _ in despachos:
             assert categoria is Categoria.SEMPRE
             assert texto.split("\n")[0].strip("*") == ""
+
+
+class TestSimulacaoNoLacoPrincipal:
+    """O `--dry-run` visto do tick: o aviso sai, o disco fica intacto.
+
+    O incidente de 2026-08-26 19:30 foi no `--so-agenda`, mas o laco principal
+    chama o MESMO `marcar` duas vezes (os avisos da agenda e o banner de
+    manutencao) sobre a MESMA pasta `.agenda/`. Um usuario com o jogo aberto e
+    uma simulacao ao lado corria o mesmo risco.
+
+    `sessao.py` nao conhece `dry_run` e nao deve conhecer: quem sabe que esta
+    simulando e o registro que ela recebe pronto. E o que faz um sitio futuro
+    de `marcar` nascer certo sem ninguem lembrar da regra.
+    """
+
+    QUANDO = datetime(2026, 8, 26, 19, 30).timestamp()
+    MARCADOR = "2026-08-26_tvt-1930_agora"
+
+    def _tvt(self):
+        return EventoAgendado(nome="TvT", horarios=((19, 30),))
+
+    def test_um_tick_simulado_avisa_e_nao_deixa_marcador(
+        self, calibracao, frame_real, tmp_path
+    ):
+        pasta = tmp_path / "agenda"
+        s = nova_sessao(
+            calibracao,
+            tmp_path,
+            eventos=[self._tvt()],
+            registro=RegistroEmDisco(pasta, simulando=True),
+        )
+
+        r = s.tick(frame_real, momento=self.QUANDO)
+
+        assert any("TvT" in aviso for aviso in r.avisos), (
+            "o aviso nao apareceu no resultado do tick; o console ficaria mudo"
+        )
+        assert not pasta.exists(), "a simulacao gravou na .agenda/ compartilhada"
+
+    def test_depois_do_tick_simulado_a_instancia_real_ainda_avisa(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """A pergunta que o incidente fez: o scanner de verdade ainda fala?"""
+        pasta = tmp_path / "agenda"
+        s = nova_sessao(
+            calibracao,
+            tmp_path,
+            eventos=[self._tvt()],
+            registro=RegistroEmDisco(pasta, simulando=True),
+        )
+        s.tick(frame_real, momento=self.QUANDO)
+
+        assert RegistroEmDisco(pasta).marcar(self.MARCADOR) is True, (
+            "o --dry-run queimou o marcador: o aviso das 19:30 nao sairia"
+        )
+
+    def test_a_prova_nao_e_vazia_sem_simulacao_o_marcador_aparece(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """Guarda contra teste vazio: fora da simulacao o tick GRAVA.
+
+        Sem isto, um tick que nunca chegasse ao aviso deixaria a pasta limpa e
+        os dois testes acima passariam sem provar nada.
+        """
+        pasta = tmp_path / "agenda"
+        s = nova_sessao(
+            calibracao,
+            tmp_path,
+            eventos=[self._tvt()],
+            registro=RegistroEmDisco(pasta),
+        )
+
+        s.tick(frame_real, momento=self.QUANDO)
+
+        assert (pasta / self.MARCADOR).exists(), (
+            "o tick nao alcancou o aviso; os testes de simulacao seriam vazios"
+        )

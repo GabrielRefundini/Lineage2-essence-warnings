@@ -1047,6 +1047,175 @@ class TestRegistroSimulando:
         assert not alvo.exists()
 
 
+class TestSimulacaoNoLacoDaAgenda:
+    """A regra provada no laco que a usa, e nao so na classe.
+
+    O incidente de 2026-08-26 19:30 aconteceu no `--so-agenda`, que era o modo
+    de menor cobertura do projeto. Uma guarda com teste de unidade verde e uma
+    guarda que o laco pode simplesmente nunca receber — foi assim que os tres
+    bugs de producao do mesmo dia passaram por 420 testes verdes.
+    """
+
+    QUANDO = datetime(2026, 8, 26, 19, 30)
+    MARCADOR = "2026-08-26_tvt-1930_agora"
+
+    def _tick(self, monkeypatch, tmp_path, eventos, dry_run=True):
+        """Uma unica volta do `laco_da_agenda`, com o relogio parado."""
+        import argparse
+
+        from l2scanner import __main__ as principal
+
+        class RelogioParado:
+            def __init__(self, quando):
+                self._quando = quando
+
+            def agora(self):
+                return self._quando
+
+        pasta = tmp_path / ".agenda"
+        monkeypatch.setattr(principal, "PASTA_AGENDA", pasta)
+        monkeypatch.setattr(principal, "PASTA_LOOT", tmp_path / ".loot")
+        monkeypatch.setattr(principal, "ler_agenda", lambda *a, **k: list(eventos))
+        # O relogio de verdade pergunta a hora ao Chatwoot. Sem isto o teste
+        # dependeria do .env do usuario e da rede.
+        monkeypatch.setattr(
+            principal, "montar_relogio", lambda *a, **k: RelogioParado(self.QUANDO)
+        )
+        if not dry_run:
+            # Fora da simulacao os dois montadores leem o .env. Aqui o que
+            # esta em julgamento e o disco, nao a entrega.
+            monkeypatch.setattr(principal, "montar_despachante", lambda *a, **k: None)
+            monkeypatch.setattr(
+                principal, "montar_leitor_de_comandos", lambda *a, **k: None
+            )
+
+        def uma_volta_so(_segundos):
+            # O laco so sai por KeyboardInterrupt, e ele ja trata e devolve 0.
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(principal.time, "sleep", uma_volta_so)
+
+        args = argparse.Namespace(dry_run=dry_run, intervalo=0)
+        return principal.laco_da_agenda(args), pasta
+
+    def _tvt(self):
+        return EventoAgendado(nome="TvT", horarios=((19, 30),))
+
+    def test_um_tick_em_simulacao_avisa_no_console_e_nao_grava(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        """As duas metades do `--dry-run`: o aviso sai, o disco fica intacto."""
+        import logging
+
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            codigo, pasta = self._tick(monkeypatch, tmp_path, [self._tvt()])
+
+        assert codigo == 0
+        assert "TvT" in caplog.text, "o aviso nao apareceu no console"
+        assert not pasta.exists(), "a simulacao gravou na .agenda/ compartilhada"
+
+    def test_depois_do_tick_simulado_a_instancia_real_ainda_avisa(
+        self, monkeypatch, tmp_path
+    ):
+        """O incidente das 19:30 atravessado pelo laco inteiro.
+
+        E a pergunta que importa: depois que a simulacao rodou, o scanner de
+        verdade ainda consegue anunciar o TvT?
+        """
+        from l2scanner.agenda import RegistroEmDisco
+
+        _, pasta = self._tick(monkeypatch, tmp_path, [self._tvt()])
+
+        assert RegistroEmDisco(pasta).marcar(self.MARCADOR) is True, (
+            "o --dry-run queimou o marcador: o aviso das 19:30 nao sairia"
+        )
+
+    def test_a_prova_nao_e_vazia_o_mesmo_tick_sem_simulacao_grava(
+        self, monkeypatch, tmp_path
+    ):
+        """Guarda contra teste vazio.
+
+        Se o tick nunca chegasse ao aviso, os dois testes acima passariam sem
+        provar nada — a pasta ficaria limpa por nao ter acontecido nada.
+        """
+        _, pasta = self._tick(monkeypatch, tmp_path, [self._tvt()], dry_run=False)
+
+        assert (pasta / self.MARCADOR).exists(), (
+            "o tick nao alcancou o aviso; os testes de simulacao seriam vazios"
+        )
+
+
+class TestOndeMoraAGuardaDeSimulacao:
+    """A guarda mora no REGISTRO. Um `if dry_run` perto de um `marcar` e o bug.
+
+    Sao quatro `marcar` hoje. Espalhar a checagem resolveria os quatro e faria
+    o quinto nascer errado — a mesma forma do defeito de poda que
+    `_PREFIXOS_CONHECIDOS` consertou e da recusa derivada de `set(Comando)`.
+    """
+
+    def _fonte(self, arquivo):
+        import pathlib
+
+        raiz = pathlib.Path(__file__).resolve().parent.parent
+        return (raiz / "l2scanner" / arquivo).read_text(encoding="utf-8")
+
+    def test_a_sessao_nao_conhece_dry_run(self):
+        """O laco principal recebe um registro que ja sabe; ele nao precisa saber.
+
+        Grep e proposital aqui, ao contrario dos portoes de AST do projeto: a
+        exigencia e que a PALAVRA nao apareca em `sessao.py` de forma alguma,
+        nem em comentario. E o sinal mais barato de que a correcao foi feita no
+        lugar certo.
+        """
+        assert "dry_run" not in self._fonte("sessao.py"), (
+            "sessao.py voltou a conhecer o conceito de simulacao"
+        )
+
+    def test_os_dois_lacos_constroem_o_registro_com_simulando(self):
+        """O elo que faz a guarda chegar ate os quatro sitios.
+
+        Lido por AST e nao por grep: as docstrings desta correcao escrevem
+        `simulando` varias vezes, e uma busca textual daria positivo na propria
+        documentacao que a restricao existe para proteger.
+        """
+        import ast
+
+        arvore = ast.parse(self._fonte("__main__.py"))
+        for laco in ("laco_da_agenda", "laco_principal"):
+            funcao = next(
+                no
+                for no in ast.walk(arvore)
+                if isinstance(no, ast.FunctionDef) and no.name == laco
+            )
+            construcoes = [
+                no
+                for no in ast.walk(funcao)
+                if isinstance(no, ast.Call)
+                and getattr(no.func, "id", None) == "RegistroEmDisco"
+            ]
+            assert construcoes, f"{laco} nao constroi um RegistroEmDisco"
+            for chamada in construcoes:
+                nomes = {palavra.arg for palavra in chamada.keywords}
+                assert "simulando" in nomes, (
+                    f"{laco} monta o registro sem `simulando`: um --dry-run "
+                    "voltaria a disputar marcador com o scanner de verdade"
+                )
+
+    def test_a_frase_do_console_fala_do_disco(self):
+        """Ela prometia so "nada e enviado", e por isso era meia verdade.
+
+        Quem lesse a frase antiga concluiria que rodar um `--dry-run` ao lado
+        do scanner de verdade era seguro — e era exatamente o que quase apagou
+        o aviso de TvT das 19:30.
+        """
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        fonte = inspect.getsource(principal.montar_despachante)
+        assert ".agenda/" in fonte, "a frase de simulacao nao menciona o disco"
+
+
 class TestListaDePresencaEmDisco:
     """O namespace `presenca_` no `.agenda/` — quem entrou, quem saiu.
 
