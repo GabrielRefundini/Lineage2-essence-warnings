@@ -174,12 +174,28 @@ class TestOcorrenciaRecemFechada:
         assert ocorrencia_recem_fechada(em(20, 5), [solo_boss()]) is None
 
     def test_a_virada_da_meia_noite_e_varrida(self):
-        """Um boss as 23:50 continua recem-fechado as 00:02 do dia seguinte."""
-        tardio = solo_boss(horarios=((23, 50),))
+        """Um boss as 23:59 continua recem-fechado as 00:02 do dia seguinte.
+
+        Dois minutos depois do alvo, mas do OUTRO LADO da meia-noite: uma
+        varredura que olhasse so `agora.date()` acharia o boss das 23:59 de
+        HOJE (que ainda nem aconteceu) e devolveria None. E o mesmo motivo pelo
+        qual `silencio_ativo` varre ontem.
+        """
+        tardio = solo_boss(horarios=((23, 59),))
         assert ocorrencia_recem_fechada(em(0, 2, dia=25), [tardio]) == (
             "Solo Boss",
-            em(23, 50, dia=24),
+            em(23, 59, dia=24),
         )
+
+    def test_doze_minutos_depois_do_alvo_ja_passou_da_tolerancia(self):
+        """A varredura de ontem nao afrouxa a janela: ela so a alcanca.
+
+        Este teste existe porque a primeira versao do teste da meia-noite usava
+        23:50 contra 00:02 e falhou — corretamente, porque sao doze minutos.
+        A borda ficou registrada em vez de apagada.
+        """
+        tardio = solo_boss(horarios=((23, 50),))
+        assert ocorrencia_recem_fechada(em(0, 2, dia=25), [tardio]) is None
 
     def test_evento_sem_chamada_nunca_esta_recem_fechado(self):
         """TvT das 15:00 as 15:01 nao tem lista para fechar."""
