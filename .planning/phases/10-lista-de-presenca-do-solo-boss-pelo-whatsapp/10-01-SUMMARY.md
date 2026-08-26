@@ -247,6 +247,16 @@ Pronto para os planos 10-02 a 10-05. O que eles herdam:
 
 Sem blockers.
 
+## Self-Check: PASSED
+
+- Arquivos afirmados existem: `l2scanner/comandos.py`, `l2scanner/config.py`, `l2scanner/__main__.py`, `config.toml`, `tests/test_comandos.py`, `10-01-SUMMARY.md`.
+- Commits afirmados existem: `68e7573`, `de05321`, `520cade`, `789a0a8`.
+- `python -m pytest tests/ -q` -> **811 passed, 2 skipped** (linha de base 785; os 2 skips sao pre-existentes).
+- `python -c "import l2scanner.__main__"` -> ok (prova de que `config -> comandos` nao fechou ciclo).
+- `python -m ruff check` sobre os arquivos alterados -> limpo.
+- `git diff --stat` nao toca nenhum arquivo de dependencia.
+- `STATE.md` e `ROADMAP.md` NAO foram modificados — o orquestrador e o dono dessas escritas.
+
 ---
 *Phase: 10-lista-de-presenca-do-solo-boss-pelo-whatsapp*
 *Completed: 2026-08-26*
