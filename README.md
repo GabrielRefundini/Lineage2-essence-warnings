@@ -288,13 +288,22 @@ Comandos, sempre com ponto na frente:
 
 | Comando | O que faz |
 |---|---|
+| `.help` | Responde com esta mesma lista, direto no WhatsApp |
 | `.cancelar` | Tira o silêncio de TvT/Prime que estiver rolando |
 | `.status` | Diz se está vigiando ou calado, e qual o próximo evento |
+| `.solo` | Vigia só o seu personagem e para de reclamar de party ausente |
+| `.party` | Volta a vigiar a party inteira |
 | `.loot-<nick>` | Marca quem pega o loot do próximo Solo Boss |
 | `.loot-` | Desmarca (o aviso volta a sair sem nome) |
 | `.<nick>` | Quantos loots o char já pegou, e quando foi o último |
 | `.corrigir-<nick>` | Troca o dono do último loot já registrado |
 | `.pegou <hora> <nick>` | Registra quem pegou o loot de um boss que já passou, mesmo sem ter sido marcado antes |
+
+Também valem `.ajuda`, `.comandos` e `.?` no lugar de `.help` — quem está no
+jogo pergunta pelo WhatsApp e recebe a lista sem sair da tela. **Essa lista é
+gerada a partir do próprio código**, não escrita à mão: um comando novo que
+não seja documentado quebra a suíte de testes de propósito, porque ajuda
+desatualizada é pior que ajuda nenhuma (ela ensina sintaxe que não funciona).
 
 **Quando usar `.pegou` e quando usar `.corrigir`.** O `.corrigir-Korzis` é o
 atalho para o boss que *acabou de passar*: ele não aceita horário, e por isso

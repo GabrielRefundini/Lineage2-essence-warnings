@@ -10,6 +10,8 @@ sobre o que o scanner se RECUSA a fazer.
 
 from __future__ import annotations
 
+import logging
+
 from l2scanner.comandos import (
     _AJUDA,
     Comando,
@@ -24,6 +26,19 @@ from l2scanner.loot import apelido
 
 # A ordem de exibicao combinada: do que se usa no meio do farm para o meta.
 _FAMILIAS_ESPERADAS = ("Vigilancia", "Silencio", "Loot do Solo Boss", "Ajuda")
+
+
+
+def _tem_borda(texto: str) -> bool:
+    """Alguma linha e uma borda de moldura — feita so de asteriscos?
+
+    E como se afirma "isto NAO passou por `console.moldurar`" sem depender do
+    tamanho da borda, que muda com o comprimento do texto.
+    """
+    return any(
+        despido and set(despido) == {"*"}
+        for despido in (linha.strip() for linha in texto.splitlines())
+    )
 
 
 def msg(id_, texto, tipo=0, autor="Yazalaque", private=False):
@@ -1120,3 +1135,165 @@ class TestLootNaCostura:
 
         assert destinos, "o comando morreu em silencio"
         assert "Nao consigo mexer no loot agora." in destinos[0][0]
+
+
+class TestAjudaNaCostura:
+    """O `.help` pelo caminho que o LACO usa, e nos DOIS destinos.
+
+    A ajuda nao ganha portao proprio nem etiqueta nova: ela atravessa as cinco
+    travas que todo comando ja atravessa. E ela nao e moldurada em lugar
+    nenhum — nem no celular nem no console —, porque `moldurar` casa a largura
+    da borda com a linha mais longa e o texto tem dezenove linhas.
+    """
+
+    TELEFONE = "+5544997077000"
+
+    def _atender(self, tmp_path, texto, conversa="1", telefones=(), do_numero=None):
+        import time
+        from datetime import datetime
+
+        from l2scanner.__main__ import atender_comandos
+        from l2scanner.agenda import EventoAgendado, RegistroEmDisco
+        from l2scanner.notificador import Despachante, NotificadorEmMemoria
+
+        remetente = {"name": "Yazalaque"}
+        if do_numero:
+            remetente["phone_number"] = do_numero
+
+        class LeitorFalso:
+            ativo = True
+            telefones: list[str] = []
+
+            def ler(self, _):
+                return [
+                    {
+                        "id": 5150,
+                        "content": texto,
+                        "message_type": 0,
+                        "private": False,
+                        "sender": remetente,
+                        "conversation_id": conversa,
+                    }
+                ]
+
+        leitor = LeitorFalso()
+        leitor.telefones = list(telefones)
+
+        notificador = NotificadorEmMemoria()
+        despachante = Despachante(notificador)
+        eventos = [
+            EventoAgendado(nome="Prime", horarios=((20, 0),), silenciar_minutos=120)
+        ]
+        atender_comandos(
+            leitor,
+            RegistroEmDisco(tmp_path),
+            eventos,
+            despachante,
+            datetime(2026, 8, 25, 20, 30),
+            time.monotonic(),
+        )
+        despachante.iniciar()
+        despachante.encerrar()
+        return notificador.destinos
+
+    def test_responde_SO_na_conversa_de_origem(self, tmp_path):
+        """Pergunta pessoal, mesmo racional ja escrito no ramo do `.status`.
+
+        Ecoar a lista inteira no grupo seria ruido para quem nao perguntou.
+        """
+        destinos = self._atender(tmp_path, ".help")
+        assert destinos, "nao respondeu nada"
+        assert [alvo for _, alvo in destinos] == ["1"], (
+            "a ajuda vazou para o grupo"
+        )
+
+    def test_o_que_e_despachado_e_a_tabela_INTEIRA(self, tmp_path):
+        """A costura entrega o produto de `texto_de_ajuda()`, nao um resumo."""
+        (despachado, _), = self._atender(tmp_path, ".help")
+        for comando, linha in _AJUDA.items():
+            assert linha.sintaxe in despachado, (
+                f"{comando.name} nao chegou no WhatsApp"
+            )
+
+    def test_a_ajuda_chega_no_celular_SEM_moldura(self, tmp_path):
+        """D-04: dezenove linhas dentro de uma moldura quebram feio na tela."""
+        (despachado, _), = self._atender(tmp_path, ".help")
+        assert not _tem_borda(despachado), (
+            f"a ajuda saiu moldurada no WhatsApp:\n{despachado}"
+        )
+
+    def test_a_ajuda_no_LOG_tambem_sai_sem_moldura(self, tmp_path, caplog):
+        """O segundo destino, e o que estava DEFEITUOSO.
+
+        `atender_comandos` registrava `destacar(resposta)`, e `destacar` chama
+        `moldurar`, cuja largura e `max(LARGURA, len(miolo) + len(carimbo))`
+        sobre a string INTEIRA — com as quebras de linha dentro. Uma resposta
+        de varias linhas saia no console e no `scanner.log` com uma borda de
+        centenas de asteriscos.
+        """
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            self._atender(tmp_path, ".help")
+        registrado = "\n".join(r.getMessage() for r in caplog.records)
+        assert ".status" in registrado, "a resposta nem chegou no log"
+        assert not _tem_borda(registrado), (
+            f"a ajuda saiu moldurada no console:\n{registrado}"
+        )
+
+    def test_telefone_FORA_da_allowlist_e_ignorado(self, tmp_path):
+        """D-07: a ajuda nao tem portao proprio — usa os cinco que ja existem.
+
+        A lista de comandos e um mapa da superficie de ataque; quem nao passa
+        na allowlist nunca a recebe, exatamente como em qualquer outro comando.
+        """
+        destinos = self._atender(
+            tmp_path,
+            ".help",
+            telefones=[self.TELEFONE],
+            do_numero="+48608297919",
+        )
+        assert destinos == [], "um estranho recebeu a lista de comandos"
+
+    def test_o_dono_na_allowlist_continua_recebendo(self, tmp_path):
+        """O contraponto do teste acima: a trava trava o estranho, nao todos."""
+        destinos = self._atender(
+            tmp_path,
+            ".help",
+            telefones=[self.TELEFONE],
+            do_numero="554497077000",  # o mesmo numero, sem o nono digito
+        )
+        assert [alvo for _, alvo in destinos] == ["1"]
+
+
+class TestMolduraDoConsole:
+    """A regra da moldura no console, como funcao pura.
+
+    Uma regra so para os dois destinos, e nao um caso especial para o `.help`:
+    qualquer resposta de varias linhas que aparecer depois ja nasce certa.
+    """
+
+    def test_resposta_de_uma_linha_continua_moldurada(self):
+        from l2scanner.__main__ import _para_o_console
+
+        saida = _para_o_console("KORZIS MORREU")
+        assert _tem_borda(saida), (
+            "a moldura do console sumiu para o caso de uma linha — ela existe "
+            "para o evento nao se perder no meio do log"
+        )
+
+    def test_resposta_de_varias_linhas_sai_CRUA(self):
+        from l2scanner.__main__ import _para_o_console
+
+        texto = "primeira linha\nsegunda linha\nterceira"
+        assert _para_o_console(texto) == texto
+
+    def test_a_conta_de_moldurar_e_o_motivo(self):
+        """Nao e questao de gosto: e a largura que explode.
+
+        `moldurar` faz `max(LARGURA, len(miolo) + len(carimbo))` sobre a
+        string inteira. Este teste mede o estrago que o desvio evita.
+        """
+        from l2scanner.console import LARGURA, moldurar
+
+        emoldurado = moldurar(texto_de_ajuda(), "20:30")
+        mais_larga = max(len(linha) for linha in emoldurado.splitlines())
+        assert mais_larga > 5 * LARGURA

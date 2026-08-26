@@ -54,6 +54,7 @@ from .comandos import (  # noqa: E402
     LeitorDeComandos,
     chave_da_mensagem,
     comandos_novos,
+    texto_de_ajuda,
 )
 from .console import destacar, moldurar  # noqa: E402
 from .loot import (  # noqa: E402
@@ -503,6 +504,24 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
     return leitor
 
 
+def _para_o_console(resposta: str) -> str:
+    """A resposta como ela deve aparecer no console e no `scanner.log`.
+
+    UMA RESPOSTA DE VARIAS LINHAS NAO PODE SER MOLDURADA. `moldurar` monta
+    `largura = max(LARGURA, len(miolo) + len(carimbo))` sobre a string
+    INTEIRA, com as quebras de linha dentro dela: um texto de dezenove linhas
+    vira uma borda de centenas de asteriscos no console e no `scanner.log`, e
+    a borda desalinhada parece defeito e rouba a atencao do que importa.
+
+    E a mesma razao de D-04 do lado do WhatsApp, aplicada ao SEGUNDO destino.
+    Uma regra so para os dois, e nao um caso especial para o `.help` — assim a
+    proxima resposta de varias linhas ja nasce certa.
+    """
+    if "\n" in resposta:
+        return resposta
+    return destacar(resposta)
+
+
 def atender_comandos(
     leitor,
     registro,
@@ -615,6 +634,13 @@ def atender_comandos(
             # digitou, para conferir na hora que acertou o boss, e e por isso
             # que ela precisa chegar onde a pergunta foi feita.
             avisar_o_grupo = False
+        elif pedido.comando is Comando.AJUDA:
+            resposta = texto_de_ajuda()
+            # Pergunta pessoal, mesmo racional ja escrito no ramo do `.status`
+            # — e aqui ele pesa mais: sao dezenove linhas. Ecoar a lista
+            # inteira no grupo seria despejar um mural de comandos no celular
+            # de quem nao perguntou nada.
+            avisar_o_grupo = False
         elif pedido.comando is Comando.LOOT_CONSULTA:
             if loot is None:
                 resposta = "Nao consigo mexer no loot agora."
@@ -625,7 +651,7 @@ def atender_comandos(
         else:
             continue
 
-        log.info(destacar(resposta))
+        log.info(_para_o_console(resposta))
         if not despachante:
             continue
 
