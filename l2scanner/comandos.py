@@ -113,6 +113,13 @@ class Comando(Enum):
     # isso que os dois comandos coexistem em vez de um substituir o outro.
     LOOT_ATRIBUIR = "loot_atribuir"
 
+    # O UNICO comando que nao muda estado nenhum, e o unico cujo conteudo e
+    # DERIVADO dos outros: ele le a tabela `_AJUDA` e devolve o que os demais
+    # membros deste enum dizem sobre si mesmos. Por isso ele e o unico que
+    # ganha um teste-tripwire — crescer o enum sem crescer a tabela quebra a
+    # suite de proposito.
+    AJUDA = "ajuda"
+
 
 # As formas escritas que valem para cada comando. Varias por comando porque
 # ninguem lembra a sintaxe exata no meio de um farm.
@@ -128,7 +135,112 @@ _VOCABULARIO: dict[str, Comando] = {
     "party": Comando.PARTY,
     "pt": Comando.PARTY,
     "grupo": Comando.PARTY,
+    "help": Comando.AJUDA,
+    "ajuda": Comando.AJUDA,
+    "comandos": Comando.AJUDA,
+    # `.?` cabe sem gambiarra: `interpretar` faz uma CONSULTA de dicionario,
+    # nao uma validacao de charset, entao "?" atravessa os dois `replace`
+    # intacto. E como ele nao casa `_NICK_VALIDO`, nao existe colisao com o
+    # ramo de consulta por nick — verificado antes de entrar aqui.
+    "?": Comando.AJUDA,
 }
+
+
+@dataclass(frozen=True)
+class LinhaDeAjuda:
+    """O que a ajuda sabe dizer sobre UM comando."""
+
+    familia: str
+    sintaxe: str
+    descricao: str
+    apelidos: tuple[str, ...] = ()
+
+
+# A ajuda, DERIVADA e nao escrita a mao.
+#
+# O projeto ganhou CINCO comandos em UM dia (`.loot-`, `.<nick>`,
+# `.loot-cancelar`, `.corrigir`, `.pegou`). Um texto de ajuda escrito a mao
+# estaria desatualizado antes do fim da semana — e ajuda desatualizada e PIOR
+# que ajuda nenhuma: ela ensina sintaxe que NAO FUNCIONA, e quem digitou
+# conclui que o bot esta quebrado. Por isso existe esta tabela, e por isso
+# existe o tripwire em `tests/test_comandos.py` afirmando
+# `set(_AJUDA) == set(Comando)`: comando novo sem ajuda quebra a suite.
+#
+# A CHAVE E O ENUM, E NAO O `_VOCABULARIO`, e a razao e concreta: os comandos
+# dinamicos (`.loot-<nick>`, `.loot-`, `.<nick>`, `.corrigir-<nick>`,
+# `.pegou <hora> <nick>`) NAO moram no vocabulario — quem os reconhece e
+# `interpretar_dinamico`. Um tripwire contra o vocabulario nao os enxergaria,
+# e sao justamente eles os cinco que nasceram no mesmo dia.
+#
+# A ORDEM DE INSERCAO E A ORDEM DA RESPOSTA (dict preserva ordem): uma fonte
+# so para a tabela e para o texto, em vez de duas listas para divergirem.
+_AJUDA: dict[Comando, LinhaDeAjuda] = {
+    Comando.STATUS: LinhaDeAjuda(
+        "Vigilancia",
+        ".status",
+        "Digo se estou vigiando ou calado, e qual o proximo evento",
+    ),
+    Comando.SOLO: LinhaDeAjuda(
+        "Vigilancia", ".solo", "Vigio so o seu personagem e paro de reclamar de party"
+    ),
+    Comando.PARTY: LinhaDeAjuda(
+        "Vigilancia", ".party", "Volto a vigiar a party inteira", (".pt",)
+    ),
+    Comando.CANCELAR_SILENCIO: LinhaDeAjuda(
+        "Silencio", ".cancelar", "Tira o silencio de TvT/Prime que estiver rolando"
+    ),
+    Comando.LOOT_DESIGNAR: LinhaDeAjuda(
+        "Loot do Solo Boss", ".loot-<nick>", "Marca quem pega o loot do proximo boss"
+    ),
+    Comando.LOOT_CANCELAR: LinhaDeAjuda(
+        "Loot do Solo Boss", ".loot-", "Desmarca: o proximo boss volta a ser de ninguem"
+    ),
+    Comando.LOOT_CONSULTA: LinhaDeAjuda(
+        "Loot do Solo Boss",
+        ".<nick>",
+        "Quantos loots o char ja pegou, e quando foi o ultimo",
+    ),
+    Comando.LOOT_CORRIGIR: LinhaDeAjuda(
+        "Loot do Solo Boss",
+        ".corrigir-<nick>",
+        "Troca o dono do ultimo loot ja registrado",
+    ),
+    Comando.LOOT_ATRIBUIR: LinhaDeAjuda(
+        "Loot do Solo Boss",
+        ".pegou <hora> <nick>",
+        "Registra loot de um boss que ja passou (ex.: 18:00 Korzis)",
+    ),
+    Comando.AJUDA: LinhaDeAjuda(
+        "Ajuda", ".help", "Esta lista", (".ajuda", ".comandos")
+    ),
+}
+
+
+def texto_de_ajuda() -> str:
+    """A lista de comandos, montada a partir do `_AJUDA`.
+
+    NUNCA escrever esta lista a mao. Cinco comandos nasceram num dia so; uma
+    ajuda escrita a mao envelheceria antes do fim da semana, e ajuda
+    desatualizada e pior que ajuda nenhuma — ela ensina sintaxe que nao
+    funciona.
+
+    Sem moldura, sem ANSI e sem `rich`: este texto vai para o CELULAR. A
+    `console.moldurar` casa a largura da borda com a linha mais longa, e sao
+    dezenove linhas aqui — a moldura viraria uma parede de asteriscos na tela
+    do telefone. Ver D-04.
+    """
+    linhas = ["Comandos do scanner — sempre com ponto na frente:"]
+    familia_atual = ""
+    for entrada in _AJUDA.values():
+        if entrada.familia != familia_atual:
+            familia_atual = entrada.familia
+            linhas.append("")
+            linhas.append(f"{familia_atual}:")
+        sintaxe = entrada.sintaxe
+        if entrada.apelidos:
+            sintaxe += " (" + ", ".join(entrada.apelidos) + ")"
+        linhas.append(f"  {sintaxe} — {entrada.descricao}")
+    return "\n".join(linhas)
 
 
 @dataclass(frozen=True)

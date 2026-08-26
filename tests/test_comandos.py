@@ -11,13 +11,19 @@ sobre o que o scanner se RECUSA a fazer.
 from __future__ import annotations
 
 from l2scanner.comandos import (
+    _AJUDA,
     Comando,
     LeitorDeComandos,
     chave_da_mensagem,
     comandos_novos,
     interpretar,
     interpretar_dinamico,
+    texto_de_ajuda,
 )
+from l2scanner.loot import apelido
+
+# A ordem de exibicao combinada: do que se usa no meio do farm para o meta.
+_FAMILIAS_ESPERADAS = ("Vigilancia", "Silencio", "Loot do Solo Boss", "Ajuda")
 
 
 def msg(id_, texto, tipo=0, autor="Yazalaque", private=False):
@@ -92,6 +98,11 @@ class TestInterpretar:
             # contrapeso e outro, e proprio dele — o horario tem que encaixar
             # numa ocorrencia real do Solo Boss, e a resposta sempre diz o dia.
             Comando.LOOT_ATRIBUIR,
+            # E a ajuda. Ela nao muda estado nenhum — o estrago possivel dela
+            # e outro: a lista de comandos e um mapa da superficie de ataque.
+            # Por isso ela sai pelas MESMAS cinco travas dos outros e so na
+            # conversa de origem, sem eco no grupo. Ver `TestAjuda`.
+            Comando.AJUDA,
         }
 
     def test_as_formas_do_modo_solo(self):
@@ -103,6 +114,118 @@ class TestInterpretar:
     def test_falar_de_solo_sem_ponto_nao_liga_nada(self):
         for texto in ("vou jogar solo", "solo", "party amanha"):
             assert interpretar(texto) is None, texto
+
+
+class TestAjuda:
+    """A ajuda que nao pode envelhecer.
+
+    O projeto ganhou CINCO comandos em UM dia (`.loot-`, `.<nick>`,
+    `.loot-cancelar`, `.corrigir`, `.pegou`). Uma ajuda escrita a mao estaria
+    desatualizada antes do fim da semana — e ajuda desatualizada e PIOR que
+    ajuda nenhuma, porque ensina sintaxe que NAO FUNCIONA e faz quem digitou
+    concluir que o bot esta quebrado.
+
+    Por isso o texto e DERIVADO da tabela `_AJUDA`, e por isso o tripwire
+    abaixo existe: sem ele a tabela seria so mais um literal para esquecer.
+    """
+
+    # O telefone da allowlist. O round-trip precisa atravessar as CINCO travas
+    # reais, e a quinta delas e esta — um round-trip que desligasse a allowlist
+    # estaria provando um caminho que nao existe em producao.
+    TELEFONE = "+5544997077000"
+
+    def _mensagem(self, texto: str) -> dict:
+        return {
+            "id": 4242,
+            "content": texto,
+            "message_type": 0,
+            "private": False,
+            "sender": {"name": "Yazalaque", "phone_number": self.TELEFONE},
+        }
+
+    def test_todo_comando_tem_linha_na_tabela_de_ajuda(self):
+        """O TRIPWIRE. Comando novo sem ajuda QUEBRA a suite, de proposito.
+
+        Chaveado pelo ENUM e nao pelo `_VOCABULARIO` porque os comandos
+        dinamicos (`.loot-<nick>`, `.<nick>`, `.corrigir-<nick>`, `.pegou`)
+        nao moram no vocabulario — eles vivem em `interpretar_dinamico`, e um
+        tripwire contra o vocabulario nao os enxergaria.
+        """
+        faltando = set(Comando) - set(_AJUDA)
+        assert not faltando, (
+            "comando novo sem entrada na tabela de ajuda: "
+            + ", ".join(sorted(c.name for c in faltando))
+        )
+        sobrando = set(_AJUDA) - set(Comando)
+        assert not sobrando, (
+            "a tabela de ajuda documenta comando que nao existe mais: "
+            + ", ".join(sorted(c.name for c in sobrando))
+        )
+
+    def test_toda_sintaxe_anunciada_volta_como_o_comando_certo(self):
+        """A ajuda nao tem como ensinar sintaxe que nao funciona.
+
+        Cada sintaxe da tabela e passada pelo CAMINHO REAL de leitura
+        (`comandos_novos` -> `interpretar` -> `interpretar_dinamico`), com as
+        cinco travas ligadas. Um parser paralelo montado aqui no teste provaria
+        a coisa errada: provaria que o teste concorda consigo mesmo.
+        """
+        conhecidos = frozenset({apelido("J4guar")})
+        for esperado, linha in _AJUDA.items():
+            texto = linha.sintaxe.replace("<nick>", "J4guar").replace(
+                "<hora>", "18:00"
+            )
+            achados = comandos_novos(
+                [self._mensagem(texto)],
+                set(),
+                [self.TELEFONE],
+                nicks_conhecidos=conhecidos,
+            )
+            assert [m.comando for m in achados] == [esperado], (
+                f"a ajuda anuncia {texto!r} para {esperado.name}, mas o "
+                f"caminho real devolveu {[m.comando for m in achados]}"
+            )
+
+    def test_o_texto_cita_todas_as_sintaxes(self):
+        """Pega o caso em que uma familia inteira deixa de ser emitida.
+
+        O tripwire acima garante que a LINHA existe na tabela; so este garante
+        que ela chegou no texto.
+        """
+        texto = texto_de_ajuda()
+        for comando, linha in _AJUDA.items():
+            assert linha.sintaxe in texto, (
+                f"{comando.name} tem linha na tabela mas sumiu do texto"
+            )
+
+    def test_as_familias_saem_na_ordem_combinada(self):
+        """Vigilancia, silencio, loot, ajuda — do mais usado ao meta."""
+        texto = texto_de_ajuda()
+        posicoes = [texto.index(f) for f in _FAMILIAS_ESPERADAS]
+        assert posicoes == sorted(posicoes), (
+            f"as familias sairam fora de ordem: {_FAMILIAS_ESPERADAS}"
+        )
+
+    def test_as_formas_escritas_da_ajuda(self):
+        for forma in (".help", ".ajuda", ".comandos", ".HELP", ".?"):
+            assert interpretar(forma) is Comando.AJUDA, forma
+
+    def test_ajuda_sem_ponto_NAO_e_comando(self):
+        """A ajuda nao escapa da regra do prefixo so por ser inofensiva."""
+        for texto in ("help", "ajuda", "me ajuda ai", "quais os comandos"):
+            assert interpretar(texto) is None, texto
+
+    def test_a_ajuda_nao_sai_moldurada(self):
+        """Guarda de D-04 no proprio produtor do texto.
+
+        `moldurar` tem largura casada com a linha mais longa; com onze linhas
+        a borda viraria uma parede de asteriscos no celular.
+        """
+        for linha in texto_de_ajuda().splitlines():
+            despido = linha.strip()
+            assert not (despido and set(despido) == {"*"}), (
+                f"a ajuda saiu moldurada: {linha!r}"
+            )
 
 
 class TestInterpretarDinamico:
