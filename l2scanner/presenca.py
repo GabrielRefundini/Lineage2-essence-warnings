@@ -376,7 +376,7 @@ def fechar_ocorrencias(
 def texto_de_fechamento(
     fechamento: Fechamento,
     nomes: dict[str, str] | None = None,
-    sugestao: str | None = None,
+    sugestao: tuple[str, int] | None = None,
 ) -> str:
     """A lista fechada como a party a le no grupo.
 
@@ -385,15 +385,21 @@ def texto_de_fechamento(
     mapa — um party-mate sem bloco `[[membro]]` — nao pode SUMIR da lista, e
     por isso cai em `exibir(slug)` em vez de ser filtrado.
 
-    `sugestao` NASCE DECLARADA E IGNORADA por quem chama nesta fase. Nao e
-    codigo morto, e o mesmo precedente literal de
-    `EventoAgendado.silenciar_minutos`, que nasceu na Fase 6 lido e ignorado
-    para a Fase 7 usar sem o usuario ter que reeditar o `config.toml`. Quem a
-    preenche e o plano 10-05, o unico que pode encostar no `loot.py`.
+    `sugestao` e o par `(slug, total_de_loots)` que `loot.sugerir_a_vez`
+    devolve, e QUEM O PREENCHE E O CHAMADOR — `sessao._processar_agenda` e
+    `__main__._fechar_listas_de_presenca`. Ele nasceu declarado e ignorado no
+    plano 10-04 (precedente literal: `EventoAgendado.silenciar_minutos`, da
+    Fase 6) e o plano 10-05 o ligou.
 
     A funcao so FORMATA — quem decide SE ha sugestao e o chamador. Mesmo
     idioma de `texto_do_aviso(aviso, loot)`, em que a agenda nao conhece
-    designacao nenhuma.
+    designacao nenhuma. E e por isso que `presenca.py` continua sem importar
+    `loot.sugerir_a_vez`: aqui chega um par de valores, nunca um registro.
+
+    `None` produz a mensagem EXATA do plano 10-04. Nao e tolerancia
+    decorativa: e o caso de quem roda com `loot=None`, e perder a lista
+    fechada — que e o desfecho da chamada feita 1h50 antes — por falta de uma
+    estatistica opcional seria trocar a mensagem que importa pela que enfeita.
     """
     mapa = nomes or {}
     lista = ", ".join(mapa.get(slug, exibir(slug)) for slug in fechamento.nicks)
@@ -401,8 +407,15 @@ def texto_de_fechamento(
         f"{fechamento.evento} das {_hora(fechamento.alvo)} comecando. "
         f"Confirmaram: {lista}."
     )
-    if sugestao:
-        texto += f" {sugestao}"
+    if sugestao is not None:
+        slug, total = sugestao
+        # "1 loots" e "0 loots" leem como bug, e esta e a linha que a party vai
+        # discutir em voz alta — ela nao pode ser a que parece quebrada.
+        if total == 0:
+            quanto = "ainda nenhum"
+        else:
+            quanto = f"{total} loot" + ("" if total == 1 else "s")
+        texto += f" Sugestao de loot: {mapa.get(slug, exibir(slug))} ({quanto})."
     return texto
 
 

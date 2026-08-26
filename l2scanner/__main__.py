@@ -72,6 +72,7 @@ from .loot import (  # noqa: E402
     responder_consulta,
     responder_correcao,
     responder_designacao,
+    sugerir_a_vez,
 )
 from . import ocr  # noqa: E402
 from .frames import MssSource, Regiao, ReplaySource, SaudeDoFrame  # noqa: E402
@@ -648,8 +649,15 @@ def atender_comandos(
             if loot is None:
                 resposta = "Nao consigo mexer no loot agora."
             else:
+                # `presenca=registro` e o `RegistroEmDisco` da agenda, que ja
+                # chega aqui nos DOIS lacos. Ele so ACRESCENTA um aviso quando
+                # o designado nao confirmou presenca — nunca recusa (D-13).
                 resposta = responder_designacao(
-                    loot, eventos_agendados, agora, pedido.argumento
+                    loot,
+                    eventos_agendados,
+                    agora,
+                    pedido.argumento,
+                    presenca=registro,
                 )
             # O grupo vai ficar sabendo pelo proprio aviso de antecedencia,
             # que sai com "Loot: X" no fim. Ecoar agora seria dizer a mesma
@@ -899,7 +907,7 @@ def comando_cancelar_silencio(args: argparse.Namespace) -> int:
 
 
 def _fechar_listas_de_presenca(
-    registro, eventos, agora, membros, despachante
+    registro, eventos, agora, membros, despachante, loot=None
 ) -> list:
     """Fecha as listas que venceram e conta ao grupo quem confirmou (D-12).
 
@@ -919,12 +927,22 @@ def _fechar_listas_de_presenca(
     LOGA SEMPRE, DESPACHA SE HOUVER PARA ONDE — a mesma separacao que o laco ja
     faz com o encerramento de silencio, pela razao ja escrita ali: quem roda
     sem `.env` e sem `--dry-run` perdia a mensagem ate no console.
+
+    O `loot` e OPCIONAL e default `None`: sem ele a lista fecha e sai igual ao
+    plano 10-04, so sem a sugestao. Quem roda `--so-agenda` e justamente quem
+    esta longe do jogo, e perder a lista fechada por falta de uma estatistica
+    de conveniencia seria o pior negocio possivel.
     """
     fechados = fechar_ocorrencias(registro, eventos, agora)
     nomes = nomes_dos_membros(membros) if fechados else {}
     hora = agora.strftime("%H:%M")
     for fechamento in fechados:
-        texto = texto_de_fechamento(fechamento, nomes)
+        # A leitura da lista acontece AQUI, na borda: `loot.py` recebe os
+        # presentes por parametro e nunca importa `presenca`.
+        sugestao = (
+            sugerir_a_vez(loot, frozenset(fechamento.nicks)) if loot else None
+        )
+        texto = texto_de_fechamento(fechamento, nomes, sugestao)
         log.info(destacar(texto, hora=hora))
         if despachante:
             # A MESMA moldura do console vai para o celular, e `SEMPRE`: a
@@ -1034,6 +1052,7 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
                 agora,
                 leitor.membros if leitor else (),
                 despachante,
+                loot=registro_de_loot,
             )
 
             # De hora em hora, repetir qual e o proximo. Um scanner que nao diz
