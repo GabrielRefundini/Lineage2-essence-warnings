@@ -80,13 +80,24 @@ silenciar_minutos = 0
 # a estatistica de quem pegou o que e nao tem como voltar atras. Esses
 # continuam so para os numeros de CHATWOOT_TELEFONES_COMANDO, no .env.
 #
+# ATENCAO: isso vale enquanto CHATWOOT_TELEFONES_COMANDO tiver pelo menos um
+# numero. Com a variavel VAZIA, o scanner aceita comando de QUALQUER remetente
+# das conversas configuradas — membro ou nao — e ai nao ha contencao nenhuma,
+# inclusive para .corrigir e .pegou. O arranque grita quando esta nesse estado.
+#
 # O nick e o do JOGO, e e ele que aparece na lista de presenca. O nome que o
 # WhatsApp mostra nao serve: ele e escrito pelo dono do telefone e muda quando
 # a pessoa quer.
 #
+# Dois [[membro]] nao podem ter o mesmo nick: a lista de presenca e indexada
+# por ele, e os dois dividiriam a mesma vaga. O arranque recusa.
+#
 # Telefone com ou sem o 9, com ou sem +55, tanto faz — a comparacao e pelos
-# ultimos 8 digitos. Justamente por isso, NAO ponha dois numeros que terminem
-# nos mesmos 8 digitos: o scanner avisa no arranque quando isso acontece.
+# ultimos 8 digitos, e o numero precisa ter pelo menos esses 8. Justamente por
+# isso, NAO ponha dois numeros que terminem nos mesmos 8 digitos. Se um deles
+# for de CHATWOOT_TELEFONES_COMANDO e o outro de um [[membro]], aquele
+# party-mate alcancaria TODOS os comandos — entao o scanner NAO SOBE ate voce
+# desambiguar. Entre dois numeros do mesmo nivel ele so avisa alto.
 #
 # Descomente e troque pelos seus. O arquivo do repositorio nao carrega
 # telefone de ninguem.
