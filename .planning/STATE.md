@@ -63,6 +63,11 @@ O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado.
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 10 added (2026-08-26): Lista de presenca do Solo Boss pelo WhatsApp — aviso 1h50 antes, `.join`/`.leave` no privado, autorizacao por etiqueta `CP` do Chatwoot, lista fechada no horario alimentando o revezamento de loot. Abre o milestone v3.
+- Correcao de indice (2026-08-26): Phases 8 e 9 existiam em "Phase Details" mas nunca entraram na lista de fases do topo do ROADMAP. Restauradas.
+
 ### Aprendizados extraídos
 
 | Fase | Arquivo | D / L / P / S |

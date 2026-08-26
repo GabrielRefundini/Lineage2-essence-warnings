@@ -23,6 +23,12 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 6: A agenda como fonte de eventos** - Lembrete de TvT e Prime nos horários certos, com o jogo fechado
 - [x] **Phase 7: Silenciamento por janela de evento** - Durante o evento o scanner cala, porque toda morte é verdadeira e nenhuma é notícia
+- [x] **Phase 8: Cancelar o silenciamento pelo WhatsApp** - O silêncio deixa de ser irrevogável: o grupo desliga por comando
+- [x] **Phase 9: Tornar o laço principal testável** - O laço principal passa a caber num teste, sem jogo e sem rede
+
+**Milestone v3 — Lista de presença do Solo Boss** (definido 2026-08-26)
+
+- [ ] **Phase 10: Lista de presença do Solo Boss pelo WhatsApp** - O scanner pergunta quem vai, cada um responde `.join` no privado, e a lista se fecha no horário
 
 ## Phase Details
 
@@ -226,6 +232,26 @@ Plans:
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 9 to break down)
+
+### Phase 10: Lista de presenca do Solo Boss pelo WhatsApp
+
+**Goal**: A party sabe com uma hora e cinquenta de antecedencia quem vai no proximo Solo Boss, sem ninguem perguntar de boca — o scanner pergunta no grupo, cada um responde `.join` no privado, e a lista se fecha sozinha no horario
+**Requirements**: TBD (derivar em /gsd-plan-phase)
+**Depends on**: Phase 9
+**Success Criteria** (what must be TRUE):
+
+  1. A 1h50 do proximo Solo Boss — dez minutos depois do anterior, quando a party ainda esta reunida — chega no grupo uma pergunta com o horario do proximo boss; o aviso de 10 minutos antes continua existindo, porque ele serve a outra coisa (parar o farm e se deslocar)
+  2. Um membro manda `.join` no privado do bot e o grupo recebe a confirmacao com o NICK dele — nao com o nome do contato do WhatsApp — e um `.join` repetido nao vira uma segunda mensagem no grupo
+  3. Quem desistiu manda `.leave` e sai da lista; o grupo fica sabendo, e um `.leave` de quem nunca deu `.join` responde isso em vez de anunciar coisa nenhuma
+  4. Quem pode dar `.join` e definido por ETIQUETA da conversa no Chatwoot (`CP`), nao por lista de ids no `.env`: por o membro na party e etiquetar a conversa dele, sem editar arquivo nenhum e sem reiniciar o scanner — e uma conversa sem a etiqueta continua sendo ignorada em silencio, como as 22 conversas de clientes reais que a conta ja tem
+  5. No horario do boss a lista se fecha e o grupo recebe quem confirmou; a lista fechada alimenta o revezamento de loot existente, de modo que a vez do proximo boss so seja sugerida entre quem estava presente
+  6. Tudo isso e demonstravel sem o jogo aberto e sem rede: o tempo entra por parametro, a etiqueta e o mapa telefone->nick entram por dado, e a corrida entre as duas instancias do usuario tem teste proprio — a mesma disciplina que `agenda.py` e `loot.py` ja seguem
+
+**Plans**: TBD
+
+**Ordem interna**: a autorizacao por etiqueta vem PRIMEIRO e sozinha. Ela troca o formato do polling (hoje le ids conhecidos de conversa; passara a descobrir conversas pela etiqueta) e e a unica parte da fase que mexe numa trava de seguranca — misturar isso com a feature esconderia o risco no meio do recurso. So depois nasce a lista de presenca, e a integracao com `loot.py` e a ULTIMA, porque e a unica que escreve em estatistica que nunca e podada.
+
+**Aberto para o /gsd-plan-phase**: (a) a API do Chatwoot filtra conversas por label em `GET /conversations`? Se nao filtrar, a descoberta custa uma varredura e a cadencia precisa ser repensada; (b) a lista de presenca e pasta propria (como `.loot/`, sem poda) ou marcador em `.agenda/` (com poda de 3 dias)? A lista expira sozinha quando o boss passa, o que aponta para `.agenda/` — mas se ela alimentar estatistica de loot, aponta para o contrario.
 
 ---
 *Roadmap created: 2026-08-24*
