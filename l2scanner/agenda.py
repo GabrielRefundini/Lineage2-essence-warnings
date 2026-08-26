@@ -341,6 +341,9 @@ class RegistroEmDisco:
     def __init__(self, pasta: Path) -> None:
         self._pasta = pasta
         self._pasta.mkdir(parents=True, exist_ok=True)
+        # O TETO DO "PREFERIR O DUPLICADO AO PERDIDO", em memoria e so para o
+        # fechamento de lista. Ver `fechar`, que explica por que ele existe.
+        self._fechamentos_desta_execucao: set[str] = set()
         self.podar()
 
     def enviados(self) -> set[str]:
@@ -476,8 +479,30 @@ class RegistroEmDisco:
         fechamento e um ANUNCIO ("a lista do boss das 20:00 e esta"), e a regra
         dos anuncios deste projeto e preferir o duplicado ao perdido. Com as
         duas instancias vivas, exatamente uma fala no grupo.
+
+        MAS "DUPLICADO" TEM QUE TER TETO, E ESTE E O UNICO LUGAR DA PASTA ONDE
+        ELE NAO TINHA. `marcar` devolve True em `OSError` — disco cheio,
+        permissao, pasta em rede — de proposito. Com a `.agenda/` legivel e NAO
+        gravavel, `presentes()` continua devolvendo a lista, `marcar` continua
+        levantando e devolvendo True, e `fechar_ocorrencias` produz um
+        `Fechamento` A CADA TICK durante os 5 minutos de tolerancia. A 1 Hz sao
+        ~300 mensagens identicas no grupo por ocorrencia — o oposto exato da
+        disciplina de volume que fez o usuario desligar `avisar_no_horario`.
+
+        O teto e um `set` em memoria, e nao um marcador novo em disco: o disco
+        e justamente o recurso que falhou. Ele NAO enfraquece a garantia entre
+        as duas instancias (essa continua sendo o `O_CREAT|O_EXCL`) — ele so
+        impede que UM processo anuncie a MESMA ocorrencia duas vezes. Um
+        restart reanuncia, e isso e o certo: o marcador em disco nao existe, e
+        preferir o duplicado ao perdido continua valendo uma vez por execucao.
         """
-        return self.marcar(PREFIXO_FECHADO + chave_da_ocorrencia)
+        chave = PREFIXO_FECHADO + chave_da_ocorrencia
+        if chave in self._fechamentos_desta_execucao:
+            return False
+        if not self.marcar(chave):
+            return False
+        self._fechamentos_desta_execucao.add(chave)
+        return True
 
     def podar(self, hoje: date | None = None) -> int:
         """Apaga marcadores velhos. Devolve quantos foram apagados.
