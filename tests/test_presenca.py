@@ -1132,10 +1132,19 @@ class TestDirecaoDeImportacao:
         proibidos = {"comandos", "sessao", "__main__"} & importados
         assert not proibidos, f"presenca.py importa {proibidos}"
 
-    def test_loot_nunca_importa_presenca(self):
-        """No plano 10-05 quem precisa da lista no loot a recebe por PARAMETRO."""
+    def test_loot_nunca_importa_presenca_comandos_nem_sessao(self):
+        """No plano 10-05 quem precisa da lista no loot a recebe por PARAMETRO.
+
+        Os TRES nomes, e nao so `presenca`. O fim da docstring do `loot.py`
+        proibe os tres desde a Fase 8 — mas ate aqui `comandos` e `sessao`
+        eram proibidos so por escrito, e regra que vive em docstring e
+        cumprida ate o dia em que alguem tem pressa. O verificador da Fase 10
+        media exatamente esta lacuna: o must-have afirmava os tres, o portao
+        guardava um.
+        """
         importados = _modulos_importados(RAIZ / "l2scanner" / "loot.py")
-        assert "presenca" not in importados
+        proibidos = {"presenca", "comandos", "sessao", "__main__"} & importados
+        assert not proibidos, f"loot.py importa {proibidos}"
 
     def test_agenda_nao_importa_nenhum_dos_dois(self):
         """A agenda e a base: ela nao conhece nem loot nem presenca."""

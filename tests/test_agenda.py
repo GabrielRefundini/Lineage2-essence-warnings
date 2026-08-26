@@ -12,6 +12,7 @@ from datetime import datetime
 
 import pytest
 
+from l2scanner import agenda
 from l2scanner.agenda import (
     TODOS_OS_DIAS,
     AgendaInvalida,
@@ -1121,6 +1122,29 @@ class TestPodaAlcancaTodosOsPrefixos:
     Um teste POR PREFIXO, e nao um so com tres arquivos: um laco quebrado em UM
     dos prefixos tem que dizer QUAL.
     """
+
+    def test_a_lista_de_prefixos_conhecidos_nao_deixa_ninguem_de_fora(self):
+        """Todo `PREFIXO_*` do modulo tem que estar em `_PREFIXOS_CONHECIDOS`.
+
+        O `parametrize` abaixo e escrito A MAO, e por isso um `PREFIXO_X`
+        acrescentado numa fase futura nasceria IMORTAL sem quebrar teste
+        nenhum — o mesmo defeito que esta classe existe para consertar,
+        reaparecendo por outra porta.
+
+        E exatamente a armadilha que `COMANDOS_DE_MEMBRO` evitou de proposito
+        no plano 10-01 derivando a recusa de `set(Comando)` em vez de listar.
+        Aqui a derivacao e por introspecao do modulo: prefixo novo sem entrada
+        na tupla quebra ESTE teste, nomeando-o.
+        """
+        declarados = {
+            valor
+            for nome, valor in vars(agenda).items()
+            if nome.startswith("PREFIXO_") and isinstance(valor, str)
+        }
+        esquecidos = declarados - set(agenda._PREFIXOS_CONHECIDOS)
+        assert not esquecidos, (
+            f"prefixo(s) fora de _PREFIXOS_CONHECIDOS, logo imortais: {esquecidos}"
+        )
 
     @pytest.mark.parametrize(
         "prefixo,sufixo",
