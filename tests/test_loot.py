@@ -636,6 +636,184 @@ class TestResponderDesignacao:
         assert registro.designacao() is None
 
 
+class TestDesignacaoComListaDePresenca:
+    """D-13: a lista SUGERE, e o `.loot-<nick>` continua sendo a ultima palavra.
+
+    A propriedade que estes testes existem para travar nao e o texto do aviso —
+    e que NENHUM caminho aqui devolve recusa. A autoridade e o usuario, nao o
+    registro. Um bloqueio transformaria uma conveniencia em obstaculo no pior
+    momento possivel: alguem chegou sem avisar e a party precisa designar
+    agora, com o boss nascendo.
+
+    `presenca` chega por PARAMETRO e e duck-typed — so precisa de
+    `.presentes(chave)`. `loot.py` nao importa `presenca.py` e nao vai
+    importar: a direcao e `presenca -> loot -> agenda`.
+    """
+
+    SOLO = EventoAgendado(
+        nome="Solo Boss",
+        horarios=tuple((h, 0) for h in range(0, 24, 2)),
+        avisar_no_horario=False,
+        chamar_minutos_antes=110,
+    )
+
+    def _agenda_com_lista(self, tmp_path, hora=10, *nicks, pasta="agenda"):
+        agenda = RegistroEmDisco(tmp_path / pasta)
+        chave = chave_da_ocorrencia("Solo Boss", em(hora, 0))
+        for nick in nicks:
+            agenda.entrar(chave, nick)
+        return agenda
+
+    def test_quem_esta_na_lista_recebe_a_resposta_DE_SEMPRE(self, tmp_path):
+        """Nenhum sufixo novo para o caso comum — o bot nao vira tagarela."""
+        agenda = self._agenda_com_lista(tmp_path, 10, "j4guar", "kaus")
+
+        com = responder_designacao(
+            RegistroDeLoot(tmp_path / "a"),
+            [self.SOLO],
+            em(9, 5),
+            "j4guar",
+            presenca=agenda,
+        )
+        sem = responder_designacao(
+            RegistroDeLoot(tmp_path / "b"), [self.SOLO], em(9, 5), "j4guar"
+        )
+
+        assert com == sem
+
+    def test_quem_NAO_joinou_e_GRAVADO_e_so_leva_o_aviso(self, tmp_path):
+        """O coracao de D-13, e a razao de o aviso vir DEPOIS da gravacao.
+
+        A ordem no fonte importa: grava primeiro, consulta a lista depois. Uma
+        consulta que acontecesse antes convidaria, na primeira manutencao, um
+        `return` de recusa no meio — e a party perderia a designacao no
+        momento em que mais precisa dela.
+        """
+        agenda = self._agenda_com_lista(tmp_path, 10, "j4guar")
+        loot = RegistroDeLoot(tmp_path / "loot")
+
+        resposta = responder_designacao(
+            loot, [self.SOLO], em(9, 5), "fantasma", presenca=agenda
+        )
+
+        atual = loot.designacao()
+        assert atual is not None, "a designacao TEM que ter sido gravada"
+        assert atual.nick == "fantasma"
+        assert atual.alvo == em(10, 0)
+        assert "fantasma" in loot.nicks_conhecidos()
+        assert "Fantasma pega o loot do proximo Solo Boss, as 10:00." in resposta
+        assert "nao esta na lista" in resposta
+
+    def test_lista_VAZIA_nao_muda_a_resposta_em_nada(self, tmp_path):
+        """Uma lista vazia nao tem opiniao — ninguem confirmou nada ainda.
+
+        Sem esta regra, todo `.loot-<nick>` mandado antes da chamada das 1h50
+        (que e o caso NORMAL: a party combina o revezamento no comeco do farm)
+        sairia com um aviso que nao quer dizer nada.
+        """
+        agenda = RegistroEmDisco(tmp_path / "agenda")
+
+        com = responder_designacao(
+            RegistroDeLoot(tmp_path / "a"),
+            [self.SOLO],
+            em(9, 5),
+            "fantasma",
+            presenca=agenda,
+        )
+        sem = responder_designacao(
+            RegistroDeLoot(tmp_path / "b"), [self.SOLO], em(9, 5), "fantasma"
+        )
+
+        assert com == sem
+
+    def test_presenca_None_e_identico_ao_comportamento_de_hoje(self, tmp_path):
+        """O parametro nasce com default: nada que ja existia muda."""
+        a = responder_designacao(
+            RegistroDeLoot(tmp_path / "a"), [self.SOLO], em(9, 5), "kaus"
+        )
+        b = responder_designacao(
+            RegistroDeLoot(tmp_path / "b"),
+            [self.SOLO],
+            em(9, 5),
+            "kaus",
+            presenca=None,
+        )
+        assert a == b == "Kaus pega o loot do proximo Solo Boss, as 10:00."
+
+    def test_a_lista_consultada_e_a_do_boss_ALVO_e_nao_a_de_outro(self, tmp_path):
+        """Estar na lista das 12:00 nao vale para a designacao das 10:00.
+
+        O `chave_da_ocorrencia` compara a ocorrencia INTEIRA pelo mesmo motivo
+        que `RegistroEmDisco.presentes` nao usa `startswith`: as duas listas
+        do mesmo dia compartilham quase todo o prefixo, e junta-las faria o
+        bot afirmar presenca em um boss que a pessoa nao confirmou.
+        """
+        agenda = self._agenda_com_lista(tmp_path, 12, "fantasma")
+        loot = RegistroDeLoot(tmp_path / "loot")
+
+        resposta = responder_designacao(
+            loot, [self.SOLO], em(9, 5), "fantasma", presenca=agenda
+        )
+
+        assert "nao esta na lista" in resposta
+        assert loot.designacao().nick == "fantasma"
+
+    def test_maiuscula_no_comando_nao_inventa_um_ausente(self, tmp_path):
+        """A lista guarda slug; `.loot-J4GUAR` e a mesma pessoa do `.join`."""
+        agenda = self._agenda_com_lista(tmp_path, 10, "j4guar")
+
+        resposta = responder_designacao(
+            RegistroDeLoot(tmp_path / "loot"),
+            [self.SOLO],
+            em(9, 5),
+            "J4GUAR",
+            presenca=agenda,
+        )
+
+        assert "nao esta na lista" not in resposta
+
+    def test_a_substituicao_e_o_aviso_convivem(self, tmp_path):
+        """Trocar a vez para alguem que nao joinou diz as DUAS coisas.
+
+        Sao fatos independentes — quem perdeu a vez, e que o novo dono nao
+        confirmou — e colapsar um deles esconderia informacao que a party usa
+        para decidir.
+        """
+        agenda = self._agenda_com_lista(tmp_path, 10, "kaus")
+        loot = RegistroDeLoot(tmp_path / "loot")
+        responder_designacao(loot, [self.SOLO], em(9, 0), "kaus", presenca=agenda)
+
+        resposta = responder_designacao(
+            loot, [self.SOLO], em(9, 5), "fantasma", presenca=agenda
+        )
+
+        assert "(Era do Kaus.)" in resposta
+        assert "nao esta na lista" in resposta
+        assert loot.designacao().nick == "fantasma"
+
+    def test_nenhum_caminho_devolve_RECUSA_por_causa_da_lista(self, tmp_path):
+        """A varredura completa: em nenhum estado da lista a gravacao falha.
+
+        Este teste e chato de proposito. A frase de recusa que existe no
+        modulo — "Nao achei o Solo Boss" — e sobre a AGENDA, e nunca sobre a
+        presenca. Se um dia alguem acrescentar uma recusa por lista, ele cai
+        aqui e nao no code review.
+        """
+        for indice, presentes in enumerate(((), ("fantasma",), ("kaus",))):
+            agenda = self._agenda_com_lista(
+                tmp_path, 10, *presentes, pasta=f"agenda{indice}"
+            )
+            loot = RegistroDeLoot(tmp_path / f"loot{indice}")
+
+            resposta = responder_designacao(
+                loot, [self.SOLO], em(9, 5), "fantasma", presenca=agenda
+            )
+
+            atual = loot.designacao()
+            assert atual is not None and atual.nick == "fantasma", presentes
+            assert "Fantasma pega o loot" in resposta, presentes
+
+
 class TestCancelamento:
     """Apagar a designacao: o `.loot-` que deixa o proximo boss sem dono.
 

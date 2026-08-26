@@ -620,14 +620,40 @@ class TestTextoDeFechamento:
         assert "J4guar" in texto and "Tiomad" in texto
 
     def test_sugestao_none_nao_acrescenta_nada(self):
+        """Sem registro de loot a lista fecha igual — a sugestao e um EXTRA.
+
+        E o caso real de quem roda `--so-agenda` sem pasta de loot, e o de
+        `Sessao(loot=None)`. A lista fechada e o desfecho da chamada; perde-la
+        por falta de estatistica seria trocar a mensagem que importa pela que
+        enfeita.
+        """
         assert texto_de_fechamento(self.UM) == texto_de_fechamento(
             self.UM, sugestao=None
         )
 
     def test_sugestao_preenchida_entra_no_fim(self):
-        """Nasce declarada e ignorada nesta fase — quem a preenche e o 10-05."""
-        texto = texto_de_fechamento(self.UM, sugestao="Sugestao de loot: Kaus.")
-        assert texto.endswith("Sugestao de loot: Kaus.")
+        """O par `(slug, total)` de `loot.sugerir_a_vez` (plano 10-05)."""
+        texto = texto_de_fechamento(self.UM, sugestao=("kaus", 2))
+        assert texto.endswith("Sugestao de loot: Kaus (2 loots).")
+
+    def test_a_sugestao_sai_com_a_grafia_do_config(self):
+        """D-10 vale para a sugestao tambem: o disco tem `tiomad`.
+
+        Sugerir com a caixa do slug no meio de uma frase que ja usa a grafia
+        certa na lista leria como bot quebrado justamente na linha que a party
+        vai discutir.
+        """
+        texto = texto_de_fechamento(
+            self.UM, nomes={"tiomad": "TioMad"}, sugestao=("tiomad", 1)
+        )
+        assert texto.endswith("Sugestao de loot: TioMad (1 loot).")
+
+    def test_um_loot_no_singular_e_zero_diz_que_nunca_pegou(self):
+        """"1 loots" e "0 loots" leem como bug — e a frase e para humano."""
+        um = texto_de_fechamento(self.UM, sugestao=("kaus", 1))
+        nenhum = texto_de_fechamento(self.UM, sugestao=("kaus", 0))
+        assert um.endswith("Sugestao de loot: Kaus (1 loot).")
+        assert nenhum.endswith("Sugestao de loot: Kaus (ainda nenhum).")
 
 
 class TestFormaDoTexto:
@@ -672,12 +698,21 @@ class TestFormaDoTexto:
         # A lista fechada passa pelas MESMAS regras: ela sai pelo mesmo
         # despachante, para o mesmo grupo, e uma frase acentuada no meio le
         # como colada de outro lugar.
-        frases.append(
-            texto_de_fechamento(
-                Fechamento(evento="Solo Boss", alvo=em(20, 0), nicks=("tiomad",)),
-                nomes={"tiomad": "TioMad"},
-            )
+        fechamento = Fechamento(
+            evento="Solo Boss", alvo=em(20, 0), nicks=("tiomad",)
         )
+        frases.append(texto_de_fechamento(fechamento, nomes={"tiomad": "TioMad"}))
+        # E a MESMA frase com a sugestao de loot do plano 10-05: ela sai
+        # colada na anterior, no mesmo grupo, e nao pode ser a unica com
+        # acento ou quebra de linha.
+        for total in (0, 1, 3):
+            frases.append(
+                texto_de_fechamento(
+                    fechamento,
+                    nomes={"tiomad": "TioMad"},
+                    sugestao=("tiomad", total),
+                )
+            )
 
         return frases
 

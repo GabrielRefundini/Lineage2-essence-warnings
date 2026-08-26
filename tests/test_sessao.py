@@ -628,6 +628,109 @@ class TestPresencaNoTick:
         r = s.tick(frame_real, momento=em(10, 0))
         assert r.presencas_fechadas == []
 
+    def _loot_com(self, tmp_path, **quantos):
+        from l2scanner.loot import RegistroDeLoot
+
+        registro = RegistroDeLoot(tmp_path / "loot")
+        passo = 0
+        for nick, total in quantos.items():
+            for _ in range(total):
+                # Vespera, para nenhum registro historico colidir com o boss
+                # das 10:00 que o tick deste teste vai consumir.
+                registro.registrar(
+                    nick, SEGUNDA.replace(day=23, hour=(passo * 2) % 24)
+                )
+                passo += 1
+        return registro
+
+    def test_a_lista_fechada_sai_com_a_sugestao_de_loot(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """PRES-14/PRES-15: quem esteve presente aparece na hora de decidir.
+
+        Tres na lista, e o `tiomad` nunca pegou nada: a mensagem que o grupo
+        recebe nomeia ele. Sem esta linha a lista fechada seria so um recibo —
+        util, mas sem a decisao que a party de fato precisa tomar no momento
+        em que o boss nasce.
+        """
+        loot = self._loot_com(tmp_path, kaus=2, j4guar=5)
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO], loot=loot)
+        self._com_lista(s, 10, "kaus", "j4guar", "tiomad")
+
+        r = s.tick(frame_real, momento=em(10, 0))
+
+        assert r.presencas_fechadas
+        assert r.avisos[-1].endswith("Sugestao de loot: Tiomad (ainda nenhum).")
+
+    def test_com_um_nick_so_a_sugestao_e_ele(
+        self, calibracao, frame_real, tmp_path
+    ):
+        loot = self._loot_com(tmp_path, kaus=3)
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO], loot=loot)
+        self._com_lista(s, 10, "kaus")
+
+        r = s.tick(frame_real, momento=em(10, 0))
+
+        assert r.avisos[-1].endswith("Sugestao de loot: Kaus (3 loots).")
+
+    def test_a_sugestao_sai_com_a_grafia_do_config(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """D-10 na sugestao tambem: o disco tem `tiomad`, a party le `TioMad`."""
+        loot = self._loot_com(tmp_path, kaus=2)
+        s = nova_sessao(
+            calibracao,
+            tmp_path,
+            eventos=[self.SOLO],
+            loot=loot,
+            membros=[self.MembroFalso("TioMad")],
+        )
+        self._com_lista(s, 10, "kaus", "tiomad")
+
+        r = s.tick(frame_real, momento=em(10, 0))
+
+        assert r.avisos[-1].endswith("Sugestao de loot: TioMad (ainda nenhum).")
+
+    def test_sem_registro_de_loot_a_mensagem_sai_como_no_plano_10_04(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """`loot=None` e o caso de quem nunca usou o revezamento.
+
+        A lista fechada e o desfecho da chamada feita 1h50 antes; perde-la por
+        falta de estatistica de loot seria deixar a party sem a resposta por
+        causa de um extra.
+        """
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO])
+        self._com_lista(s, 10, "kaus", "tiomad")
+
+        r = s.tick(frame_real, momento=em(10, 0))
+
+        assert r.presencas_fechadas
+        assert "Sugestao de loot" not in r.avisos[-1]
+        assert r.avisos[-1] == (
+            "Solo Boss das 10:00 comecando. Confirmaram: Kaus, Tiomad."
+        )
+
+    def test_o_consumo_do_boss_ANTERIOR_ja_conta_na_sugestao(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """A razao de o fechamento vir DEPOIS do consumo de loot no tick.
+
+        O `kaus` foi designado para este mesmo boss das 10:00. No tick das
+        10:00 o consumo registra o loot dele ANTES de a lista fechar, entao a
+        sugestao ja o enxerga com um loot a mais e passa a vez para o outro.
+        Invertida a ordem, o bot sugeriria justamente quem acabou de pegar.
+        """
+        loot = self._loot_com(tmp_path)
+        loot.designar("kaus", SEGUNDA.replace(hour=10), SEGUNDA.replace(hour=9))
+        s = nova_sessao(calibracao, tmp_path, eventos=[self.SOLO], loot=loot)
+        self._com_lista(s, 10, "kaus", "tiomad")
+
+        r = s.tick(frame_real, momento=em(10, 0))
+
+        assert r.loot_consumado is not None
+        assert r.avisos[-1].endswith("Sugestao de loot: Tiomad (ainda nenhum).")
+
 
 class TestLootNoTick:
     """O fio inteiro do loot dentro do tick: aviso com "Loot: X" e consumo.
