@@ -1,8 +1,8 @@
 ---
-status: awaiting_human_verify
+status: resolved
 trigger: "abro o inventario POR CIMA da party window e o scanner manda falso alerta de morte no WhatsApp — mas o log mostra HP ok 100% o tempo todo, quem oscila e o NOME"
 created: 2026-08-26T00:00:00Z
-updated: 2026-08-26T00:00:00Z
+updated: 2026-08-26T09:30:00Z
 ---
 
 ## Current Focus
@@ -11,70 +11,35 @@ bug_class: Bohrbug — deterministico, reproduzido offline a partir do log real
 status: CAUSA RAIZ CONFIRMADA por reproducao offline em tres variantes, todas
   batendo com assinaturas reais de `logs/scanner.log`
 next_action: >
-  AGUARDANDO O USUARIO. Correcao JA aplicada e commitada em f2013c3 (suite
-  758 passando + 2 skipped, mutacao 7/7 morta). NAO reescrever os testes nem
-  refazer a correcao num resume. O que falta e resposta humana a tres
-  perguntas, nesta ordem:
-  (1) verificacao em campo — reiniciar o bot e confirmar que o inventario por
-      cima nao gera alerta e que a morte real de membro reconhecido ainda avisa;
-  (2) veto ou aceite do preco — a morte de membro SEM assinatura passa a ser
-      silenciosa, o que obrigou a reverter a assercao de
-      `test_morte_em_linha_desconhecida_nao_usa_nome_de_outro`
-      (era mortes == ["Membro 2"], virou mortes == []);
-  (3) o furo em aberto — barra ilegivel em linha RECONHECIDA ainda pode virar
-      "KORZIS MORREU"; so uma gravacao real (tools/record.py com o inventario
-      aberto) permite fechar isso sem inventar fixture.
+  NADA PENDENTE NA CORRECAO. O usuario decidiu em 2026-08-26, com dado na mao:
+  MANTER O SILENCIO para linha sem identidade.
 
-reasoning_checkpoint:
-  hypothesis: >
-    A hipotese anterior ("o rotulo oscilando, sozinho, vira morte") esta
-    REFUTADA — medido: party estavel, HP 100% constante, rotulo da linha 0
-    oscilando Korzis <-> Membro 1 por 96 frames produz ZERO eventos.
+  A decisao foi tomada contra a contagem do log real, e nao por preferencia.
+  Classificados os 75 alertas de party do historico por SUJEITO e por DURACAO:
 
-    A causa real e que a chave POSICIONAL `#linhaN` — criada quando o
-    reconhecimento falha — e um membro de primeira classe da maquina de estado
-    para MORTE e RESSURREICAO, enquanto SAIU e ENTROU ja foram fechados contra
-    ela em duas sessoes anteriores. Restaram exatamente os dois eventos que
-    ninguem fechou.
+    51 posicionais ("Membro N")  x  24 nomeados (Korzis, Kaus, J4guar, TioMad)
 
-    E `#linhaN` nao e uma pessoa: e o scanner dizendo "nao sei quem esta aqui".
-    Como e uma POSICAO, ela nao tem continuidade — o estado dela sobrevive a
-    lacunas arbitrarias (frames em que a linha FOI reconhecida, ou em que a
-    linha nem existia) e o `desde` continua correndo. Dai "ficou 1h56 morto".
-  confirming_evidence:
-    - "logs/scanner.log:13803 — 'MEMBRO 3 FOI RESSUSCITADO (ficou 1h56 morto)'; 13666 — 51min20s; 13705 — 53min31s. Duracao impossivel para uma morte real."
-    - "logs/scanner.log:12341-12345 — [vigiando] as 14:06:44 mostra uma party de DOIS (Membro 1, Membro 2) e as 14:06:59 anuncia 'MEMBRO 3 MORREU' — morte numa linha que nao existia no frame anterior."
-    - "logs/scanner.log:14711-15036 — 17:05-17:10: 22 eventos alternando MEMBRO 1 e MEMBRO 4, quase todos 'ficou 5s morto' — exatamente `confirmacoes_para_ressurreicao=5` a 1 Hz, assinatura de contador batendo no limiar, nao de ressurreicao real."
-    - "reproducao offline (3 cenarios) devolve as MESMAS assinaturas: RESSUSCITOU 'Membro 1' com 228s; metralhadora MORREU/RESSUSCITOU a cada 5-6s; MORREU 'Membro 3' com party de dois."
-    - "rastreador.py:864-868 `_pode_ter_saido` recusa `#linhaN`; rastreador.py:979 `e_chave_de_posicao` recusa `#linhaN` na entrada. O bloco de morte/ressurreicao (rastreador.py:1010-1048) nao tem guarda nenhuma."
-  falsification_test: >
-    Se a causa fosse a oscilacao do rotulo por si so, party estavel com HP
-    100% constante e rotulo oscilando produziria eventos. Medido: ZERO eventos
-    em 96 frames. Refuta a hipotese anterior e isola a causa no estado ZUMBI da
-    chave posicional, nao na oscilacao.
-  fix_rationale: >
-    Aplicar a morte e a ressurreicao a MESMA regra que o projeto ja aplicou
-    duas vezes a entrada e a saida: uma identidade posicional nao anuncia
-    evento. Mais a metade que faltava nas duas vezes anteriores — uma
-    identidade posicional nao SOBREVIVE a uma lacuna, porque posicao nao e
-    identidade e o proximo ocupante da linha 2 nao tem relacao com o anterior.
-    A guarda e condicionada a `assinaturas_configuradas`, que e a propria
-    fronteira que o projeto ja usa em `_rotular` entre "a posicao e a
-    identidade" (modo legado) e "a imagem e a identidade" (modo atual).
-  blind_spots:
-    - "NAO explico, no nivel de PIXEL, por que a barra de uma linha ocupada le 0% com o inventario aberto. `medir_barra` devolve 0.0 para recorte ilegivel e as linhas da party NAO tem o equivalente de `barra_propria_legivel` — mas sem gravacao em `recordings/` nao da para medir se `_bordas_da_barra_intactas` deveria ter pego. Registrado no checkpoint, nao corrigido as cegas."
-    - "A morte real de um membro SEM assinatura gravada passa a ser silenciosa. E o preco explicito, e bate com a definicao do proprio constraint ('a morte real acontece com a party window visivel e o NOME LEGIVEL')."
-  candidate_causes:
-    - "code: morte/ressurreicao sem a guarda de identidade posicional que entrada/saida ja tem (CONFIRMADO)"
-    - "code: o estado de `#linhaN` sobrevive a lacunas e o `desde` continua correndo (CONFIRMADO — produz 1h56)"
-    - "data: a party tem membros SEM assinatura gravada, entao chaves `#linhaN` existem o tempo todo (CONFIRMADO — warning de linha ocupada ha 120 leituras em scanner.log:22427)"
-    - "environment: inventario por cima / janela arrastada derruba nome E barra ao mesmo tempo (GATILHO, nao corrigido aqui — sem gravacao para medir)"
-  and_gate: >
-    SIM. Exige (1) a ausencia da guarda no caminho de morte/ressurreicao E
-    (2) a existencia de chaves `#linhaN`, que so nascem quando o
-    reconhecimento falha. Com a party inteira reconhecida nao existe chave
-    posicional e nenhum falso positivo aparece — foi por isso que a validacao
-    em campo de 2026-08-24 (12 mortes reais, nomes corretos) passou limpa.
+  A duracao separa artefato de morte real, e separa de forma limpa:
+
+    posicionais : 15x "exatamente 5s" (assinatura do contador de confirmacao
+                  batendo o limiar a 1 Hz, nunca de uma morte), mais 1h56,
+                  53min31s e 51min20s — fisicamente impossiveis
+    nomeados    : 4s 6s 9s 10s 10s 13s 16s 21s 35s 40s 41s 51s — TODAS
+                  diferentes, todas plausiveis
+
+  Nenhum alerta posicional do historico tem assinatura de morte real. Silenciar
+  nao perde nada que algum dia foi verdadeiro: remove 68% do volume de alerta
+  de party, todo ele ruido.
+
+  O preco aceito, explicito: se o reconhecimento falhar E alguem morrer de
+  verdade nesse intervalo, nao sai alerta. Limitado por duas coisas — os quatro
+  membros do roster tem assinatura calibrada, e o aviso de recalibracao dispara
+  sozinho depois de ~2 min de linha sem nome, entao a falha de identidade nao
+  fica invisivel.
+
+  Fica em aberto, e NAO foi fechado: barra ilegivel numa linha RECONHECIDA
+  ainda pode virar "KORZIS MORREU" (ver a secao "Em aberto"). Depende de uma
+  gravacao com o inventario aberto, porque recordings/ esta vazio.
 
 ## Symptoms
 
