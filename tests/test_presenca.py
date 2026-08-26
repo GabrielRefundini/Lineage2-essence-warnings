@@ -566,18 +566,21 @@ class TestFechamentoDaLista:
         assert [f.nicks for f in fechados] == [("j4guar",)]
 
     def test_a_virada_da_meia_noite_fecha_a_lista_de_ontem(self, registro):
-        """Um boss as 23:50 ainda esta recem-nascido as 00:02 do dia seguinte.
+        """Um boss as 23:58 ainda esta recem-nascido as 00:02 do dia seguinte.
 
         A varredura inclui ONTEM pelo mesmo motivo de `silencio_ativo` — sem
-        isso a lista de todo boss noturno morreria sem ser anunciada.
+        isso a lista de todo boss que nasce nos ultimos minutos do dia morreria
+        sem ser anunciada. Os dois minutos aqui nao sao folga: a tolerancia e
+        de 5, entao 23:58 e o ultimo horario cheio cuja janela atravessa a
+        meia-noite de verdade.
         """
-        evento = solo_boss(horarios=((23, 50),))
+        evento = solo_boss(horarios=((23, 58),))
         registro.entrar(
-            chave_da_ocorrencia("Solo Boss", em(23, 50, dia=24)), "kaus"
+            chave_da_ocorrencia("Solo Boss", em(23, 58, dia=24)), "kaus"
         )
 
         fechados = fechar_ocorrencias(registro, [evento], em(0, 2, dia=25))
-        assert [f.alvo for f in fechados] == [em(23, 50, dia=24)]
+        assert [f.alvo for f in fechados] == [em(23, 58, dia=24)]
 
     def test_o_fechamento_e_imutavel(self):
         """Estruturado e congelado, pelo mesmo motivo de `Aviso.chave` ser."""
