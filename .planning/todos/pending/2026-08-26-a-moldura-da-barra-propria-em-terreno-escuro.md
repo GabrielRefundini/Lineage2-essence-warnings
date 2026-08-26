@@ -80,10 +80,31 @@ número:
    ficar abaixo de 60, o portão de moldura **está suprimindo morte real hoje** e
    precisa de outro discriminador — não de outro limiar.
 
-4. **Se o limiar não puder separar os dois casos**, o caminho é o mesmo que a
+4. ~~**Se o limiar não puder separar os dois casos**, o caminho é o mesmo que a
    party já usa: olhar chrome que existe FORA do campo da barra, onde o terreno
    não entra. Isso exige recalibrar a região `hp_proprio` com 1-2 px de margem
-   sobrando, o que hoje ela não tem.
+   sobrando, o que hoje ela não tem.~~ **REFUTADO — ver abaixo.**
+
+   > **IDEIA REFUTADA (medido em 2026-08-26)** — amostrar o chrome FORA da
+   > região calibrada, como `_bordas_da_barra_intactas` faz para as barras da
+   > party. Medido num anel de 3 px em volta da região `hp_proprio`:
+   >
+   > | Amostra | anel de 3 px |
+   > |---|---|
+   > | barra livre | média **70.7** |
+   > | coberta (n=9) | média **36.4 a 63.8** |
+   >
+   > Isso separa **PIOR** que o teste atual, que fica em 73.7 contra 48.9 — o
+   > anel deixa **25 pontos** de separação na mesa.
+   >
+   > **Motivo, e é estrutural:** quando uma janela grande do jogo cobre a barra,
+   > ela cobre a **vizinhança junto**. O inventário e o mercado do XM Essence são
+   > painéis grandes, não recortes do tamanho exato da barra — o anel de fora não
+   > é refúgio nenhum, é a mesma região coberta pela mesma janela.
+   >
+   > Quem chegar aqui pelo passo 3 precisa de **outro discriminador**, não de
+   > outra região para amostrar o mesmo discriminador. Recalibrar `hp_proprio`
+   > com margem sobrando não compra o que este passo prometia.
 
 5. Guardar o recorte como fixture e travar com teste, ao lado de
    `quase_vazia_terreno_atras.png`.

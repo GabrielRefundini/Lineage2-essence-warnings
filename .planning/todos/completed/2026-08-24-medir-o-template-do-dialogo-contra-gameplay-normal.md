@@ -1,14 +1,17 @@
+completed: 2026-08-26
 ---
 created: 2026-08-24T22:02:48.835Z
 title: Medir o template do diálogo contra gameplay normal
 area: testing
 severity: minor
 files:
+
   - l2scanner/cliente.py:130 (casar_dialogo)
   - l2scanner/cliente.py:151 (estado_do_cliente, limiar_do_dialogo=0.90)
   - l2scanner/recursos/dialogo_desconexao.png (o template, 320x62)
   - tests/test_cliente.py (TestTemplateDoDialogo)
   - tests/fixtures/cliente/dialogo_desconexao_recorte.png (o único positivo)
+
 ---
 
 ## Problem
@@ -86,3 +89,65 @@ Com o jogo aberto e rodando normal (não precisa estar em party):
 Ela vem do título da janela (`XM Essence` sem prefixo de personagem), que é
 texto do Windows — sem limiar, sem pixel, sem risco. Só a detecção de
 DESCONECTADO carrega essa incerteza.
+
+## Resolution
+
+**Resolvido em 2026-08-26** (quick `260826-es0`). A medição existe, e agora está
+travada por teste permanente.
+
+**O que foi medido**, com o jogo rodando normal, n=10 frames de janela inteira
+1720x1392 capturados da tela do usuário:
+
+| Frame | Score | Veredito |
+|---|---|---|
+| `Faerlina - XM Essence` com o diálogo aberto | **0.9997** | positivo real (já era conhecido) |
+| `XM Essence` na tela de login | **0.5051** | negativo real (já era conhecido) |
+| **gameplay normal, pior de 10 frames** | **0.4662** | **a linha que faltava** |
+| **gameplay normal, melhor de 10 frames** | **0.3068** | |
+
+Os 10 frames incluem o pior negativo que o jogo produz naturalmente — o passo 5
+desta própria pendência: **inventário E mercado abertos ao mesmo tempo**, que são
+literalmente caixas cinzas com botões, a coisa na tela mais parecida com o
+diálogo modal. Mesmo esse ficou na **metade** do limiar de produção.
+
+**Critério de aceite (passo 3): score < 0.70.** Atendido com folga de **0.2338**
+no pior frame, e **0.4338** de margem até o limiar de 0.90 que decide de verdade.
+O template não precisa mudar, e o limiar não precisa se mexer.
+
+**A fixture guardada** é `tests/fixtures/gameplay/faixa_com_inventario.png`
+(1032x696, 464 KB) — só a **faixa de busca**, não a janela inteira:
+
+- o score é **preservado** pelo recorte: 0.4618 na faixa, idêntico ao da janela
+  inteira, porque `casar_dialogo` já busca só dentro da faixa em produção;
+
+- 464 KB contra 3,6 MB da janela — as outras fixtures do projeto ficam entre
+  76 KB e 192 KB, e uma fixture de 3,6 MB destoaria do repositório inteiro;
+
+- cumpre o **passo 4** desta pendência: o chat, com nomes e mensagens de outros
+  jogadores, fica embaixo à esquerda e cai **fora** da faixa central (y 0.30 a
+  0.80, x 0.20 a 0.80). A imagem foi aberta e revisada antes do commit.
+
+**O que trava isso daqui em diante** — `TestOTemplateContraGameplayNormal` em
+`tests/test_cliente.py`, ao lado do positivo:
+
+1. `test_gameplay_normal_com_inventario_aberto_nao_casa` — a medição em si
+   (< 0.70, e folga até 0.90 maior que 0.40);
+
+2. `test_a_fixture_e_exatamente_a_faixa_de_busca` — o **tripwire da geometria**:
+   recalcula `FAIXA_DO_DIALOGO` sobre a janela real de 1720x1392 e exige
+   (696, 1032). Alargar a faixa sem remedir passa a quebrar a suíte, em vez de
+   deixar o teste 1 verde medindo uma região que o scanner não usa mais. Provado
+   por **mutação**: com `(0.10, 0.30, 0.80, 0.80)` o teste falha dizendo
+   `(696, 1032)` contra `(696, 1204)`;
+
+3. `test_casar_dialogo_sobre_a_faixa_mede_uma_regiao_menor` — a armadilha
+   registrada como teste.
+
+**`casar_dialogo` NÃO é quem mede na fixture**, e isso é de propósito: ele
+recorta a faixa **a partir do que recebe**, então entregar a faixa já recortada
+faz ele medir uma faixa **da faixa** — 0.3586 em vez de 0.4618. As posições
+candidatas viram um subconjunto, então o máximo só pode cair; usar esse número
+como "a medição" travaria um valor otimista por acidente. O teste chama
+`cv2.matchTemplate` direto, e afirma a relação entre os dois valores.
+
+Suíte: 780 -> 783 testes, sem o jogo aberto e sem rede.
