@@ -120,3 +120,53 @@ para não ser esquecido.
 sequência de leituras da barra própria ILEGÍVEL durante combate em ambiente
 escuro. Ilegibilidade que aparece só ao morrer, e não ao abrir o inventário, é
 esta pendência se realizando.
+
+## Medido em 2026-08-26 (tela real, terreno mais escuro) — O RISCO E REAL E A ABORDAGEM NAO TEM CONSERTO POR LIMIAR
+
+Capturada a janela do usuario num cenario mais escuro que a grama do meio-dia.
+
+    brilho medio da janela      dia 99.2   |  escuro 62.6
+    terreno atras da barra      dia 96.2   |  escuro 39.2
+
+A moldura da barra VAZIA escala com o terreno (e o terreno que aparece atras da
+parte vazia). Projetando a unica amostra real de barra vazia que existe:
+
+    barra vazia, dia    : moldura 78.73  (terreno 96.2)
+    barra vazia, escuro : ~32            (terreno 39.2)
+
+CLASSES MEDIDAS, contra o limiar atual de 60:
+
+    coberta pelo inventario     28.0 .. 48.9    (n=9, real)
+    livre, cheia, dia           73.7 .. 86.4    (n=45, real)
+    livre, vazia, dia           78.7            (n=1, proxy MP real)
+    livre, vazia, ESCURO        ~32             (estimado)
+
+**A barra vazia no escuro cai DENTRO da faixa das cobertas.** As duas classes se
+sobrepoem nesse regime, entao NENHUM limiar de brilho as separa. Isto deixa de
+ser "calibrar melhor o numero" e passa a ser "trocar o discriminador".
+
+## Pistas ja medidas para o substituto (nao decidido)
+
+Testados tres discriminadores independentes de brilho, nas 8 fixtures + o proxy:
+
+1. densidade de bordas verticais  — NAO separa (coberta_0 da 36, livres dao 39)
+2. desvio das medias por linha    — NAO separa (coberta 3.0..26.4, livre ~14.5)
+3. **casamento do CANTO ESQUERDO da barra** — o mais promissor:
+       livres          0.98 .. 1.00
+       cobertas       -0.10 .. 0.03   (exceto coberta_0, que da 0.993)
+   e, o que mais importa, ele SOBREVIVE a barra esvaziar: comparando a barra de
+   MP cheia (88%) contra a mesma barra quase vazia (6.6%), o canto esquerdo
+   casa 0.89..0.99 para larguras de 2 a 12 px. O canto DIREITO nao serve — com
+   a barra vazia ele mostra terreno, que muda de cena para cena.
+
+O canto esquerdo sozinho deixa passar a `coberta_0` (a unica das cobertas que
+nao produz morte: ela le 86.9%, nao 0%). Um portao combinado precisa ser
+desenhado e medido.
+
+## O que AINDA falta, e por que
+
+Uma amostra real da barra de HP PROPRIA visivelmente baixa (abaixo de ~60%) em
+terreno escuro. Tentativa de captura oportunista em 2026-08-26: 90 segundos
+gravando durante farm, o HP nunca saiu de 100%. O proxy de MP cobre "barra
+vazia" mas NAO serve para casamento de canto, porque e outra barra (azul, chrome
+proprio) — medido: -0.127 contra a referencia de HP.
