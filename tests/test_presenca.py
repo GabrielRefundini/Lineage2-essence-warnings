@@ -942,3 +942,282 @@ class TestDestinoDosComandosAntigos:
             em(20, 30),
             time.monotonic(),
         )
+
+
+# O telefone de um party-mate declarado em `[[membro]]` e em mais lugar nenhum.
+#
+# Os 8 digitos finais (98001122) sao deliberadamente diferentes dos do `DONO`
+# (97077000): o scanner compara telefones pelo sufixo de 8, e dois numeros de
+# teste que colidissem ali fariam o party-mate ser aceito como DONO — o teste
+# passaria verde provando o nivel errado.
+TELEFONE_DO_MEMBRO = "+5544998001122"
+
+
+def despachos_do_membro(
+    texto: str,
+    tmp_path,
+    *,
+    registro=None,
+    identificador: int = 4242,
+    agora=None,
+    nick: str = "J4guar",
+    membros=None,
+    conversa="1",
+) -> DespachanteQueGrava:
+    """Um `.join`/`.leave` vindo de um PARTY-MATE, nao do dono do scanner.
+
+    A allowlist de dono e sobrescrita para OUTRO numero de proposito. O
+    construtor do leitor falso poe o telefone do remetente tambem em
+    `telefones`, e deixar assim faria o party-mate entrar pelo nivel de DONO —
+    o teste ficaria verde medindo a autorizacao antiga e nao diria nada sobre
+    o `[[membro]]`, que e o elo que esta fase existe para ligar.
+
+    Nao pode ser lista VAZIA: allowlist vazia aceita qualquer um, por
+    compatibilidade com quem configurava comandos so por conversa. Vazia, este
+    helper provaria ainda menos.
+    """
+    import time
+
+    from l2scanner.__main__ import atender_comandos
+    from l2scanner.comandos import Membro
+
+    leitor = LeitorDeUmaMensagem(
+        texto,
+        conversa=conversa,
+        telefone=TELEFONE_DO_MEMBRO,
+        membros=(
+            [Membro(nick=nick, telefone=TELEFONE_DO_MEMBRO)]
+            if membros is None
+            else membros
+        ),
+        identificador=identificador,
+    )
+    leitor.telefones = [DONO]
+
+    despachante = DespachanteQueGrava()
+    atender_comandos(
+        leitor,
+        registro if registro is not None else RegistroEmDisco(tmp_path / "agenda"),
+        [solo_boss()],
+        despachante,
+        agora if agora is not None else em(19, 0),
+        time.monotonic(),
+    )
+    return despachante
+
+
+class TestDespachoDoJoinEDoLeave:
+    """Os dois ramos novos, pelo caminho que o LACO usa.
+
+    A PROPRIEDADE NOVA DO PROJETO ESTA AQUI: pela primeira vez os dois destinos
+    recebem redacoes DIFERENTES. Ate esta fase, `avisar_o_grupo = True`
+    significava "mande o mesmo texto duas vezes", e era o suficiente porque
+    todo comando ecoado mudava algo que o grupo inteiro ja estava vivendo. A
+    lista de presenca nao: quem digitou precisa saber que CHEGOU, e o grupo
+    precisa do NICK e do HORARIO — e ninguem na party quer ler "anotado, voce
+    esta na lista".
+
+    O que estes testes afirmam e a CONTAGEM e o DESTINO dos despachos, mais a
+    diferenca entre os dois textos. A redacao em si e afirmada em `TestJoin`,
+    `TestLeave` e `TestFormaDoTexto`, contra `presenca.py` direto — repeti-la
+    aqui faria a costura quebrar em toda melhoria de frase.
+    """
+
+    def test_join_de_membro_responde_no_privado_E_anuncia_no_grupo(self, tmp_path):
+        despachante = despachos_do_membro(".join", tmp_path)
+
+        assert despachante.alvos == ["1", None], (
+            "um .join que gravou tinha que responder na origem E anunciar no "
+            f"grupo; os destinos foram {despachante.alvos}"
+        )
+        privado, grupo = despachante.textos
+        assert privado != grupo, (
+            "as duas redacoes sairam IGUAIS — o eco do bloco antigo continua "
+            "de pe e o D-09 nao chegou ao despacho"
+        )
+        assert "J4guar" in grupo, "o grupo nao ficou sabendo QUEM entrou"
+        assert "20:00" in grupo, "o grupo nao ficou sabendo de QUAL ocorrencia"
+
+    def test_sem_o_bloco_membro_o_join_do_party_mate_NAO_atravessa(self, tmp_path):
+        """Guarda contra prova vazia: o que deixou o `.join` passar foi o nivel
+        de membro, e nao a allowlist de dono nem a falta de trava.
+
+        O mesmo telefone, a mesma mensagem, so que sem `[[membro]]` nenhum
+        configurado: tem de morrer em silencio na quinta trava. Sem este
+        controle, o teste acima passaria identico num scanner que aceitasse
+        comando de qualquer um.
+        """
+        despachante = despachos_do_membro(".join", tmp_path, membros=[])
+        assert despachante.despachos == [], (
+            "um telefone sem [[membro]] e fora da allowlist de dono conseguiu "
+            "dar .join"
+        )
+
+    def test_join_repetido_responde_no_privado_e_CALA_no_grupo(self, tmp_path):
+        """D-08. O grupo e o recurso caro desta fase.
+
+        Sao doze ocorrencias por dia; um dedo nervoso repetindo `.join` viraria
+        spam para as 4-8 pessoas do grupo, e foi por causa desse volume que o
+        usuario ja desligou `avisar_no_horario` do Solo Boss.
+
+        O MESMO registro nas duas chamadas de proposito: um registro novo a
+        cada chamada apagaria a memoria que este teste existe para exercitar.
+        """
+        registro = RegistroEmDisco(tmp_path / "agenda")
+        primeiro = despachos_do_membro(
+            ".join", tmp_path, registro=registro, identificador=1
+        )
+        assert primeiro.alvos == ["1", None], "o primeiro .join nem entrou"
+
+        segundo = despachos_do_membro(
+            ".join", tmp_path, registro=registro, identificador=2
+        )
+        assert segundo.alvos == ["1"], (
+            "o .join repetido tinha que responder SO no privado; os destinos "
+            f"foram {segundo.alvos}"
+        )
+
+    def test_leave_de_quem_estava_na_lista_anuncia_no_grupo(self, tmp_path):
+        registro = RegistroEmDisco(tmp_path / "agenda")
+        despachos_do_membro(".join", tmp_path, registro=registro, identificador=1)
+
+        saida = despachos_do_membro(
+            ".leave", tmp_path, registro=registro, identificador=2
+        )
+        assert saida.alvos == ["1", None], (
+            f"o .leave de quem estava na lista foi para {saida.alvos}"
+        )
+        privado, grupo = saida.textos
+        assert privado != grupo, "as duas redacoes do .leave sairam IGUAIS"
+        assert "J4guar" in grupo, "o grupo nao ficou sabendo QUEM saiu"
+
+    def test_leave_de_quem_nunca_joinou_responde_so_no_privado(self, tmp_path):
+        """A assimetria com o `.join` e proposital.
+
+        Um `.leave` de quem nunca entrou quase sempre e engano de quem achou
+        que tinha entrado — e anunciar no grupo a saida de alguem que nunca
+        esteve la e ruido puro.
+        """
+        despachante = despachos_do_membro(".leave", tmp_path)
+        assert despachante.alvos == ["1"], (
+            f"o .leave sem entrada previa foi para {despachante.alvos}"
+        )
+
+    def test_join_de_dono_fora_do_bloco_membro_NAO_inventa_nick(self, tmp_path):
+        """D-10. O `sender.name` do Chatwoot nunca vira nick de lista.
+
+        O nivel de dono alcanca todo comando, entao o pedido CHEGA — mas sem
+        `[[membro]]` nao ha nick nenhum para por na lista. Inventar um a partir
+        do nome do contato poria na lista da party um "Yazalaque" que nao e
+        personagem de ninguem, e a lista fechada e o que alimenta a sugestao da
+        vez do loot.
+        """
+        despachante = despachos_de(
+            ".join", tmp_path, eventos=[solo_boss()], agora=em(19, 0)
+        )
+        assert despachante.alvos == ["1"], (
+            "um .join sem nick nao pode produzir anuncio no grupo; os destinos "
+            f"foram {despachante.alvos}"
+        )
+        assert "Yazalaque" not in despachante.textos[0], (
+            "o nome do CONTATO do Chatwoot vazou para a resposta como se fosse "
+            "nick de personagem"
+        )
+
+    def test_o_ramo_novo_sem_despachante_nao_levanta(self, tmp_path):
+        """Rodar sem `.env` continua sendo um modo suportado, tambem no `.join`."""
+        import time
+
+        from l2scanner.__main__ import atender_comandos
+        from l2scanner.comandos import Membro
+
+        leitor = LeitorDeUmaMensagem(
+            ".join",
+            conversa="1",
+            telefone=TELEFONE_DO_MEMBRO,
+            membros=[Membro(nick="J4guar", telefone=TELEFONE_DO_MEMBRO)],
+        )
+        leitor.telefones = [DONO]
+        atender_comandos(
+            leitor,
+            RegistroEmDisco(tmp_path / "agenda"),
+            [solo_boss()],
+            None,
+            em(19, 0),
+            time.monotonic(),
+        )
+
+
+class TestOEloDoNivelDeMembro:
+    """`leitor.membros` chegando ate `comandos_novos` — o elo que o plano 10-01
+    deixou pronto e ninguem consultava.
+
+    Sem ele, `Membro`, `nick_do_membro`, `COMANDOS_DE_MEMBRO` e os blocos
+    `[[membro]]` do `config.toml` existem, tem teste unitario verde, e a fase
+    inteira fica MUDA para os party-mates: `autorizado_para` recebe a tupla
+    vazia por default e recusa todo mundo que nao seja dono. E o modo de falha
+    mais caro possivel — codigo inalcancavel que parece pronto.
+    """
+
+    def test_atender_comandos_passa_membros_para_comandos_novos(self):
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        arvore = ast.parse(inspect.getsource(principal.atender_comandos))
+        chamadas = [
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.Call)
+            and getattr(no.func, "id", None) == "comandos_novos"
+        ]
+        assert chamadas, "atender_comandos nao chama comandos_novos"
+        for chamada in chamadas:
+            nomes = {palavra.arg for palavra in chamada.keywords}
+            assert "membros" in nomes, (
+                "comandos_novos e chamado sem `membros`: o nivel de membro "
+                "existe e nunca e consultado"
+            )
+
+    @pytest.mark.parametrize("laco", ["laco_principal", "laco_da_agenda"])
+    def test_os_dois_lacos_entregam_um_leitor_que_carrega_membros(self, laco):
+        """As DUAS chamadas de `atender_comandos`, e nao so a do laco principal.
+
+        `--so-agenda` e o modo de quem nao esta com o jogo aberto — e e
+        exatamente quem manda `.join` pelo celular. Ligar o elo so no laco
+        principal deixaria o comando funcionando na maquina de quem esta
+        jogando e mudo em quem so quer entrar na lista.
+
+        Lido por AST e nao por grep: a docstring desta fase escreve `membros`
+        varias vezes, e uma busca textual daria positivo na propria
+        documentacao que a restricao existe para proteger.
+        """
+        arvore = ast.parse(
+            (RAIZ / "l2scanner" / "__main__.py").read_text(encoding="utf-8")
+        )
+        funcao = next(
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.FunctionDef) and no.name == laco
+        )
+        chamada = next(
+            no
+            for no in ast.walk(funcao)
+            if isinstance(no, ast.Call)
+            and getattr(no.func, "id", None) == "atender_comandos"
+        )
+        variavel = getattr(chamada.args[0], "id", None)
+        assert variavel, f"{laco} passa algo que nao e um nome para atender_comandos"
+
+        montagens = [
+            no
+            for no in ast.walk(funcao)
+            if isinstance(no, ast.Assign)
+            and any(getattr(alvo, "id", None) == variavel for alvo in no.targets)
+            and isinstance(no.value, ast.Call)
+            and getattr(no.value.func, "id", None) == "montar_leitor_de_comandos"
+        ]
+        assert montagens, (
+            f"{laco} entrega a atender_comandos um `{variavel}` que nao veio de "
+            "montar_leitor_de_comandos — o leitor pode nao carregar os membros"
+        )
