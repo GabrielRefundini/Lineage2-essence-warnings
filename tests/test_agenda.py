@@ -472,6 +472,59 @@ class TestLerAgenda:
         assert "TOML" in str(erro.value)
 
 
+class TestChamarMinutosAntesNoToml:
+    """O campo que liga a chamada, lido e validado no ARRANQUE.
+
+    O usuario nao edita codigo: ele edita uma linha do config.toml. Entao o
+    numero errado tem que derrubar o scanner enquanto ele esta olhando para o
+    console — nunca as 2h da manha, calado, com a party achando que vai ser
+    chamada.
+    """
+
+    def escrever(self, tmp_path, linha=""):
+        caminho = tmp_path / "config.toml"
+        caminho.write_text(
+            '[[evento]]\nnome = "Solo Boss"\nhorarios = ["20:00"]\n' + linha,
+            encoding="utf-8",
+        )
+        return caminho
+
+    def test_o_numero_do_toml_chega_no_evento(self, tmp_path):
+        caminho = self.escrever(tmp_path, "chamar_minutos_antes = 110\n")
+        assert ler_agenda(caminho)[0].chamar_minutos_antes == 110
+
+    def test_campo_ausente_vira_zero(self, tmp_path):
+        """Ausente e o estado de TvT e Prime — e nao pode ser erro."""
+        assert ler_agenda(self.escrever(tmp_path))[0].chamar_minutos_antes == 0
+
+    @pytest.mark.parametrize(
+        "valor",
+        ["-1", '"110"', "true", "1.5"],
+        ids=["negativo", "texto", "booleano", "fracionario"],
+    )
+    def test_valor_sem_sentido_derruba_o_arranque_citando_o_evento(
+        self, tmp_path, valor
+    ):
+        """`true` esta nesta lista de proposito.
+
+        `isinstance(True, int)` e verdadeiro em Python, entao uma validacao
+        copiada sem pensar aceitaria `chamar_minutos_antes = true` e trataria
+        como "chamar 1 minuto antes" — uma chamada inutil, entregue todo dia,
+        sem nenhuma mensagem de erro. A validacao de `avisar_minutos_antes` tem
+        exatamente esse buraco hoje; esta nao pode herda-lo.
+        """
+        caminho = self.escrever(tmp_path, f"chamar_minutos_antes = {valor}\n")
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_agenda(caminho)
+        assert "chamar_minutos_antes" in str(erro.value)
+        assert "Solo Boss" in str(erro.value), "a mensagem tem que citar o NOME"
+
+    def test_zero_explicito_e_valido_e_significa_desligado(self, tmp_path):
+        """Escrever `= 0` e a forma de desligar sem apagar a linha."""
+        caminho = self.escrever(tmp_path, "chamar_minutos_antes = 0\n")
+        assert ler_agenda(caminho)[0].chamar_minutos_antes == 0
+
+
 class TestAgendaRealDoUsuario:
     """O `config.toml` versionado, exatamente como ele esta no repositorio.
 
@@ -510,6 +563,29 @@ class TestAgendaRealDoUsuario:
         por_nome = {e.nome: e for e in agenda}
         assert por_nome["TvT"].silenciar_minutos == 15
         assert por_nome["Prime"].silenciar_minutos == 120
+
+    def test_so_o_solo_boss_tem_chamada_no_arquivo_do_repositorio(self, agenda):
+        """D-02: o opt-in e por evento, e hoje so um evento pediu.
+
+        TvT e Prime nao mudam de comportamento em nada nesta fase. Se algum dia
+        alguem quiser chamada neles, e uma linha no config.toml — e uma decisao
+        de volume de mensagem, que este teste obriga a tomar de proposito.
+        """
+        por_nome = {e.nome: e for e in agenda}
+        assert por_nome["Solo Boss"].chamar_minutos_antes == 110
+        assert por_nome["TvT"].chamar_minutos_antes == 0
+        assert por_nome["Prime"].chamar_minutos_antes == 0
+
+    def test_o_cabecalho_do_arquivo_documenta_o_campo(self):
+        """Um campo que existe e nao esta na lista de campos e uma mentira por
+        omissao: quem le o arquivo conclui que a chamada nao da para desligar.
+        """
+        from pathlib import Path
+
+        raiz = Path(__file__).resolve().parent.parent
+        texto = (raiz / "config.toml").read_text(encoding="utf-8")
+        cabecalho = texto.split("[[evento]]")[0]
+        assert "chamar_minutos_antes" in cabecalho
 
     def _varrer_um_dia(self, agenda, dia):
         """Todos os avisos de um dia, minuto a minuto."""
