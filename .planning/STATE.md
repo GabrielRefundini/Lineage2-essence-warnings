@@ -1,10 +1,10 @@
 ---
 gsd_state_version: 1.0
-current_phase: 9
-current_phase_name: todas implementadas
-status: milestone-v2-definido
-stopped_at: "Quick 260825-t1n concluida: o .help responde com a lista de comandos, derivada do enum"
-last_updated: "2026-08-26T00:14:36.964Z"
+current_phase: 10
+current_phase_name: lista-de-presenca-do-solo-boss-pelo-whatsapp
+status: phase-10-planned
+stopped_at: "Fase 10 planejada: 6 planos, 6 ondas, plan-checker sem blocker"
+last_updated: "2026-08-26T00:00:00.000Z"
 last_activity: 2026-08-25
 last_activity_desc: "Quick 260825-t1n: `.help` com a lista de comandos derivada do enum, com tripwire"
 state_head: ee86740d8e3f183a3c25c2d471204ec6374234b5
@@ -64,6 +64,8 @@ O usuário roda **duas instâncias** (Yazalaque e Faerlina) lado a lado.
 ## Accumulated Context
 
 ### Roadmap Evolution
+
+- Phase 10 planejada (2026-08-26): 6 planos em 6 ondas sequenciais, branch `feat/solo-boss-join`. 15 requisitos `PRES-*` derivados em `## v3 Requirements`. Plan-checker: 0 blocker, 5 warning, todos aplicados.
 
 - Phase 10 added (2026-08-26): Lista de presenca do Solo Boss pelo WhatsApp — aviso 1h50 antes, `.join`/`.leave` no privado, autorizacao por etiqueta `CP` do Chatwoot, lista fechada no horario alimentando o revezamento de loot. Abre o milestone v3.
 - Correcao de indice (2026-08-26): Phases 8 e 9 existiam em "Phase Details" mas nunca entraram na lista de fases do topo do ROADMAP. Restauradas.
