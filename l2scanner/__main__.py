@@ -90,6 +90,11 @@ from .notificador import (  # noqa: E402
     NotificadorDeConsole,
     formatar_console,
 )
+from .presenca import (  # noqa: E402
+    RespostaDePresenca,
+    responder_join,
+    responder_leave,
+)
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
 from .sessao import Sessao  # noqa: E402
@@ -601,6 +606,13 @@ def atender_comandos(
         registro.enviados(),
         leitor.telefones,
         nicks_conhecidos=loot.nicks_conhecidos() if loot else frozenset(),
+        # O ELO DO SEGUNDO NIVEL DE AUTORIZACAO. Sem esta linha, `Membro`,
+        # `nick_do_membro`, `COMANDOS_DE_MEMBRO` e os blocos `[[membro]]` do
+        # config.toml existem, tem teste verde, e o scanner fica MUDO para os
+        # party-mates: `autorizado_para` recebe a tupla vazia por default e
+        # recusa todo mundo que nao seja dono. E daqui tambem que sai o
+        # `pedido.nick` — o nick do JOGO, que o `.join` poe na lista.
+        membros=leitor.membros,
     ):
         # Marca ANTES de agir. Se o processo morrer no meio, o pior caso e um
         # comando perdido — nao um comando obedecido em laco a cada tick.
@@ -691,10 +703,55 @@ def atender_comandos(
                 resposta = responder_consulta(loot, pedido.argumento, agora)
             # Pergunta pessoal, mesmo racional do .status.
             avisar_o_grupo = False
+        elif pedido.comando is Comando.JOIN:
+            # `pedido.nick` pode ser None — e o DONO que nao se declarou
+            # `[[membro]]`, cujo pedido chega porque o nivel de dono alcanca
+            # todo comando. O None e repassado inteiro: quem responde e o
+            # `presenca.py`, que ja tem esse ramo. Inventar aqui um nick a
+            # partir do `sender.name` do Chatwoot poria na lista da party um
+            # nome de CONTATO que nao e personagem de ninguem (D-10).
+            resposta = responder_join(
+                registro, eventos_agendados, agora, pedido.nick
+            )
+        elif pedido.comando is Comando.LEAVE:
+            resposta = responder_leave(
+                registro, eventos_agendados, agora, pedido.nick
+            )
         else:
             continue
 
-        log.info(_para_o_console(resposta))
+        # UMA LINGUA SO PARA O BLOCO DE DESPACHO: privado mais grupo-ou-None.
+        #
+        # Os ramos acima produzem `(str, bool)`; os dois de presenca produzem
+        # `RespostaDePresenca`. Traduzir os antigos AQUI, num lugar so, em vez
+        # de reescrever os oito — o bloco de despacho e o funil por onde TODA
+        # resposta de comando passa, e um erro nele nao quebra um recurso: ele
+        # muda o destino de todos ao mesmo tempo, em silencio (a mensagem
+        # chega, no lugar errado). `tests/test_presenca.py` tem a tabela dos
+        # destinos de cada ramo antigo, escrita e verde ANTES desta conversao.
+        #
+        # `avisar_o_grupo = True` vira "o grupo recebe o MESMO texto do
+        # privado", que e exatamente o que ele ja significava.
+        if not isinstance(resposta, RespostaDePresenca):
+            resposta = RespostaDePresenca(
+                privado=resposta,
+                grupo=resposta if avisar_o_grupo else None,
+            )
+
+        # PRIMEIRA VEZ NO PROJETO EM QUE OS DOIS DESTINOS RECEBEM REDACOES
+        # DIFERENTES (D-09), e a lista de presenca e a razao. Ate aqui, ecoar
+        # o mesmo texto bastava porque todo comando ecoado mudava algo que o
+        # grupo inteiro ja estava vivendo. No `.join` os leitores sao outros:
+        # quem digitou precisa saber que CHEGOU — sem esse eco privado, um
+        # `.join` recusado por autorizacao e um que funcionou sao
+        # indistinguiveis na tela dele, os dois produzem silencio — e o grupo
+        # precisa do NICK e do HORARIO, nao de "anotado, voce esta na lista".
+        log.info(_para_o_console(resposta.privado))
+        if resposta.grupo is not None and resposta.grupo != resposta.privado:
+            # Cada um na SUA linha, e cada um pela `_para_o_console`: a regra
+            # de nao moldurar texto com quebra de linha vale para os dois.
+            log.info(_para_o_console(resposta.grupo))
+
         if not despachante:
             continue
 
@@ -703,11 +760,17 @@ def atender_comandos(
         # conversa 1, resposta as 23:04:52 na 13, e o usuario achou que nao
         # tinha funcionado.
         if pedido.conversa:
-            despachante.despachar(resposta, Categoria.SEMPRE, pedido.conversa)
-            if avisar_o_grupo:
-                despachante.despachar(resposta, Categoria.SEMPRE)
+            despachante.despachar(
+                resposta.privado, Categoria.SEMPRE, pedido.conversa
+            )
+            if resposta.grupo is not None:
+                despachante.despachar(resposta.grupo, Categoria.SEMPRE)
         else:
-            despachante.despachar(resposta, Categoria.SEMPRE)
+            # Sem conversa de origem sai UMA mensagem so, a do privado, e ela
+            # cai no grupo: melhor responder em algum lugar do que em nenhum.
+            # Mandar tambem a redacao de grupo aqui faria o mesmo evento
+            # aparecer duas vezes no MESMO destino.
+            despachante.despachar(resposta.privado, Categoria.SEMPRE)
 
 
 def _obedecer_cancelar(registro, eventos, agora, quem: str) -> str:
