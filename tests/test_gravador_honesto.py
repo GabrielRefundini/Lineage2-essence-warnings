@@ -25,11 +25,19 @@ import json
 import logging
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.gravador import Gravador
+
+# A janela do jogo do usuario, medida em recordings/inv3/f000_JANELA.png.
+# O recorte da party window, que e o que o --record de hoje grava, mede
+# 172x522 — as duas formas juntas sao o que torna o teste do modo janela
+# capaz de distinguir "gravou a janela" de "gravou o recorte de sempre".
+ALTURA_DA_JANELA, LARGURA_DA_JANELA = 1392, 1720
+ALTURA_DA_PARTY, LARGURA_DA_PARTY = 522, 172
 
 
 def _frame(indice: int, altura: int = 20, largura: int = 30) -> Frame:
@@ -176,3 +184,74 @@ def test_gravar_nunca_levanta_nem_quando_o_imwrite_explode(
     assert gravador.frames_gravados == 0
     assert gravador.falhas_de_gravacao == 2
     assert _linhas_do_jsonl(gravador.pasta) == []
+
+
+# -- modo janela completa (--record-janela) ---------------------------------
+#
+# O `--record` de hoje salva SO `frame.pixels`, o recorte da party window. Uma
+# sessao gravada assim nao contem um unico pixel do painel do mercado, o que
+# torna o spike de campo impossivel por construcao. O modo janela existe para
+# resolver o ovo-e-galinha: a regiao do mercado so sera conhecida DEPOIS da
+# calibracao, e a calibracao roda sobre frames GRAVADOS.
+
+
+def _party() -> Frame:
+    pixels = np.full(
+        (ALTURA_DA_PARTY, LARGURA_DA_PARTY, 3), 40, dtype=np.uint8
+    )
+    return Frame(pixels=pixels, indice=0, saude=SaudeDoFrame.OK)
+
+
+def test_o_modo_janela_grava_a_janela_completa_e_nao_o_recorte(
+    tmp_path: Path,
+) -> None:
+    completa = np.full(
+        (ALTURA_DA_JANELA, LARGURA_DA_JANELA, 3), 90, dtype=np.uint8
+    )
+    gravador = Gravador(tmp_path, "janela", fonte_completa=lambda: completa)
+
+    assert gravador.gravar(_party(), 0.0) is True
+    gravador.fechar()
+
+    gravados = _pngs_no_disco(gravador.pasta)
+    assert len(gravados) == 1
+    imagem = cv2.imread(str(gravados[0]))
+    assert imagem.shape == (ALTURA_DA_JANELA, LARGURA_DA_JANELA, 3), (
+        "o PNG precisa ser a janela inteira; com o shape do recorte da party "
+        "o painel do mercado nunca entraria na gravacao"
+    )
+
+
+def test_a_janela_sem_frame_falha_fechada_em_vez_de_gravar_o_recorte(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Nunca cair de volta em `frame.pixels`.
+
+    Gravar o recorte errado em silencio gastaria as sessoes do usuario, que
+    sao o recurso escasso desta fase: so ele pode grava-las, e ele so
+    descobriria o engano depois de gastar as oito.
+    """
+    gravador = Gravador(tmp_path, "janela-vazia", fonte_completa=lambda: None)
+
+    with caplog.at_level(logging.ERROR, logger="l2scanner.gravador"):
+        assert gravador.gravar(_party(), 0.0) is False
+    gravador.fechar()
+
+    assert gravador.frames_gravados == 0
+    assert gravador.falhas_de_gravacao == 1
+    assert _pngs_no_disco(gravador.pasta) == [], (
+        "nenhum consolo: o recorte da party nao pode ser gravado no lugar"
+    )
+    assert _linhas_do_jsonl(gravador.pasta) == []
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+def test_sem_fonte_completa_o_comportamento_e_o_de_hoje(tmp_path: Path) -> None:
+    """Compatibilidade do `--record` atual, byte a byte de forma."""
+    gravador = Gravador(tmp_path, "compat")
+
+    assert gravador.gravar(_party(), 0.0) is True
+    gravador.fechar()
+
+    imagem = cv2.imread(str(_pngs_no_disco(gravador.pasta)[0]))
+    assert imagem.shape == (ALTURA_DA_PARTY, LARGURA_DA_PARTY, 3)

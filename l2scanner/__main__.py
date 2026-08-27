@@ -1479,9 +1479,27 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         log.info("Lendo o desktop — o jogo precisa estar visivel. "
                  "Use --janela para funcionar com ele coberto.")
 
-    gravador = Gravador(PASTA_GRAVACOES, args.rotulo) if args.record else None
+    # `--record-janela` ja foi validado no parse: implica --record e exige
+    # --janela, entao aqui a fonte e sempre uma JanelaSource.
+    fonte_completa = fonte.capturar_completo if args.record_janela else None
+    gravador = (
+        Gravador(PASTA_GRAVACOES, args.rotulo, fonte_completa=fonte_completa)
+        if args.record
+        else None
+    )
     if gravador:
-        log.info("Gravando em %s", gravador.pasta)
+        if fonte_completa is not None:
+            # O sinal de alarme e um PNG de ~170 KB onde deveria haver ~3,5 MB:
+            # seria o recorte da party window de novo, e a sessao do usuario
+            # teria sido gasta a toa.
+            log.info(
+                "Gravando a JANELA COMPLETA em %s — cerca de 3,5 MB por frame, "
+                "cerca de 210 MB por minuto a 1 Hz. Prefira sessoes de 30 a 60 "
+                "segundos e confira o tamanho do primeiro PNG.",
+                gravador.pasta,
+            )
+        else:
+            log.info("Gravando em %s", gravador.pasta)
 
     rastreador = Rastreador(
         nomes=list(cal.nomes),
@@ -1771,6 +1789,18 @@ def main() -> int:
     parser.add_argument(
         "--record", action="store_true", help="grava a sessao em disco"
     )
+    parser.add_argument(
+        "--record-janela",
+        action="store_true",
+        dest="record_janela",
+        help=(
+            "grava a JANELA COMPLETA do jogo em vez do recorte da party "
+            "window (implica --record, exige --janela). Necessario para o "
+            "spike do mercado: o painel so cabe num frame completo. "
+            "CUSTO MEDIDO: cerca de 3,5 MB por frame, cerca de 210 MB por "
+            "minuto a 1 Hz — use sessoes de 30 a 60 segundos."
+        ),
+    )
     parser.add_argument("--rotulo", help="nome para identificar a gravacao")
     parser.add_argument(
         "--replay", help="reproduz uma pasta de sessao gravada, sem o jogo"
@@ -1849,6 +1879,24 @@ def main() -> int:
     parser.add_argument("-v", "--verboso", action="store_true", help="log detalhado")
 
     args = parser.parse_args()
+
+    # Pedir a janela completa e pedir gravacao — obrigar as duas flags juntas
+    # so criaria uma combinacao errada a mais para o usuario acertar.
+    args.record = args.record or args.record_janela
+    # O --replay vem ANTES do --janela: com uma sessao gravada nao existe
+    # janela nenhuma, e mandar acrescentar --janela seria conselho errado.
+    if args.record_janela and args.replay:
+        parser.error(
+            "--record-janela nao funciona com --replay: uma sessao gravada "
+            "nao tem janela para capturar, so os PNGs que ja estao no disco."
+        )
+    if args.record_janela and not args.janela:
+        parser.error(
+            "--record-janela exige --janela: so o caminho da janela expoe a "
+            "janela completa (capturar_completo). O caminho `mss` captura o "
+            "desktop composto e nao tem a janela do jogo como unidade."
+        )
+
     configurar_log(args.verboso)
 
     log.debug("Consciencia de DPI: %s", _MODO_DPI)

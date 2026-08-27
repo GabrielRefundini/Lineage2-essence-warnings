@@ -17,6 +17,19 @@ as bordas de barra que precisamos medir) mais um JSONL com uma linha por frame.
 `cv2.imwrite`. Consertar so o contador deixaria o indice citando arquivos que
 nao existem — que e a mesma mentira, um nivel abaixo. Uma gravacao serve para
 sustentar evidencia; uma gravacao que mente sobre si mesma e pior que nenhuma.
+
+**Modo janela completa (`fonte_completa`).** Por padrao o PNG gravado e
+`frame.pixels`: o recorte da party window. Isso basta para regressao de morte,
+e nao basta para nada que ainda nao foi calibrado — o painel do World Exchange,
+por exemplo, nunca entra num PNG assim. E ha um ovo-e-galinha: a regiao do
+mercado so sera conhecida DEPOIS da calibracao, e a calibracao roda sobre
+frames GRAVADOS. Gravar a janela inteira quebra o ciclo, porque o calibrador
+recorta qualquer regiao depois.
+
+Custo medido em `recordings/inv3/f000_JANELA.png`: 1720x1392 = **3,5 MB por
+PNG**, ou cerca de **210 MB por minuto** a 1 Hz. Por isso o modo e uma flag
+propria e nao o padrao, e por isso o roteiro do spike prescreve sessoes de 30
+a 60 segundos.
 """
 
 from __future__ import annotations
@@ -30,6 +43,8 @@ from typing import TYPE_CHECKING
 from .frames import Frame
 
 if TYPE_CHECKING:  # pragma: no cover - so para o verificador de tipos
+    from collections.abc import Callable
+
     import numpy as np
 
 log = logging.getLogger(__name__)
@@ -47,7 +62,12 @@ FALHAS_ENTRE_GRITOS = 10
 class Gravador:
     """Grava frames e metadados de uma sessao em disco."""
 
-    def __init__(self, pasta_base: Path, rotulo: str | None = None) -> None:
+    def __init__(
+        self,
+        pasta_base: Path,
+        rotulo: str | None = None,
+        fonte_completa: "Callable[[], np.ndarray | None] | None" = None,
+    ) -> None:
         carimbo = datetime.now().strftime("%Y%m%d-%H%M%S")
         nome = f"{carimbo}-{rotulo}" if rotulo else carimbo
         self.pasta = pasta_base / nome
@@ -58,6 +78,7 @@ class Gravador:
         )
         self.frames_gravados = 0
         self.falhas_de_gravacao = 0
+        self._fonte_completa = fonte_completa
 
     def gravar(self, frame: Frame, momento: float) -> bool:
         """Grava UM frame. Devolve se a escrita foi confirmada no disco.
@@ -75,8 +96,20 @@ class Gravador:
         """
         caminho = self.pasta / f"frame_{frame.indice:06d}.png"
 
-        if not self._escrever(caminho, frame.pixels):
-            self._contabilizar_falha(caminho)
+        imagem = frame.pixels
+        if self._fonte_completa is not None:
+            completa = self._fonte_completa()
+            if completa is None:
+                # NUNCA cair de volta em `frame.pixels`. Gravar o recorte
+                # errado em silencio gastaria as sessoes do usuario — o
+                # recurso escasso desta fase, porque so ele pode grava-las — e
+                # ele so descobriria o engano depois de gastar todas.
+                self._contabilizar_falha(caminho, "a janela nao produziu frame")
+                return False
+            imagem = completa
+
+        if not self._escrever(caminho, imagem):
+            self._contabilizar_falha(caminho, "o cv2.imwrite nao confirmou a escrita")
             return False
 
         linha = {
@@ -104,7 +137,7 @@ class Gravador:
         except Exception:  # noqa: BLE001
             return False
 
-    def _contabilizar_falha(self, caminho: Path) -> None:
+    def _contabilizar_falha(self, caminho: Path, motivo: str) -> None:
         """A falha e visivel AQUI, no modulo que possui a verdade do disco.
 
         Logar em `Sessao.tick` obrigaria o chamador a saber o caminho do
@@ -118,9 +151,10 @@ class Gravador:
         )
         registrar = log.error if gritar else log.debug
         registrar(
-            "Nao consegui gravar %s — o frame NAO foi contado. "
+            "Nao consegui gravar %s (%s) — o frame NAO foi contado. "
             "Falhas de gravacao ate agora: %d",
             caminho,
+            motivo,
             self.falhas_de_gravacao,
         )
 
