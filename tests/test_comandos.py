@@ -298,6 +298,87 @@ class TestAjuda:
                 f"caminho real devolveu {[m.comando for m in achados]}"
             )
 
+    def test_a_presenca_anuncia_o_vocabulario_PORTUGUES(self):
+        """A decisao do usuario, escrita como PROVA e nao como comentario.
+
+        Os outros tripwires desta classe sao DERIVADOS da tabela de proposito:
+        eles perguntam "a sintaxe anunciada comeca pelo prefixo oficial?" e
+        "ela volta como o comando certo?", e as duas respostas continuam sim
+        se alguem inverter o vocabulario de volta para o ingles no proximo
+        ajuste de texto. Esta e a unica prova que quebra nesse caso.
+
+        A segunda metade importa tanto quanto a primeira: a forma inglesa tem
+        que continuar ANUNCIADA entre os apelidos. Sem esta asercao,
+        "inverter" viraria "apagar" sem alarme nenhum, e quem decorou o nome
+        antigo descobriria por acidente que ele sumiu da vitrine.
+        """
+        entrar = _AJUDA[Comando.JOIN]
+        sair = _AJUDA[Comando.LEAVE]
+        assert entrar.sintaxe == comandos.PREFIXO + "entrar", entrar.sintaxe
+        assert sair.sintaxe == comandos.PREFIXO + "sair", sair.sintaxe
+        assert comandos.PREFIXO + "join" in entrar.apelidos, entrar.apelidos
+        assert comandos.PREFIXO + "leave" in sair.apelidos, sair.apelidos
+
+    @pytest.mark.parametrize("prefixo", comandos.PREFIXOS)
+    def test_os_quatro_nomes_da_presenca_seguem_valendo(self, prefixo):
+        """Os quatro nomes convivem, e nenhum deles pode cair em silencio.
+
+        Comando nao reconhecido e DESCARTADO no `continue` do laco de
+        autorizacao — nao existe resposta de recusa. Quem digitasse o nome
+        demovido receberia NADA, e do lado dele isso e indistinguivel de o bot
+        ter caido. Por isso a democao e de VITRINE, nunca de vocabulario.
+
+        Pelo CAMINHO REAL (`comandos_novos`, cinco travas ligadas) e
+        parametrizado sobre `comandos.PREFIXOS`, nunca escrito duas vezes: um
+        terceiro prefixo, se um dia existir, ja nasce provado aqui.
+        """
+        conhecidos = frozenset({apelido("J4guar")})
+        for nome, esperado in (
+            ("entrar", Comando.JOIN),
+            ("join", Comando.JOIN),
+            ("sair", Comando.LEAVE),
+            ("leave", Comando.LEAVE),
+        ):
+            texto = prefixo + nome
+            achados = comandos_novos(
+                [self._mensagem(texto)],
+                set(),
+                [self.TELEFONE],
+                nicks_conhecidos=conhecidos,
+            )
+            assert [m.comando for m in achados] == [esperado], (
+                f"{texto!r} devia voltar como {esperado.name}, mas o caminho "
+                f"real devolveu {[m.comando for m in achados]}"
+            )
+
+    def test_todo_apelido_anunciado_volta_como_o_comando_certo(self):
+        """A tabela nao tem dois niveis de veracidade — mas tinha dois niveis
+        de prova.
+
+        O teste vizinho percorre SO o campo `sintaxe`. Um apelido anunciado
+        que nao funciona ensina sintaxe morta exatamente como uma sintaxe
+        anunciada que nao funciona; e no instante em que uma forma e DEMOVIDA
+        a apelido, ela sairia da cobertura ponta-a-ponta em silencio. Mesmo
+        caminho real do vizinho, mesmas cinco travas.
+        """
+        conhecidos = frozenset({apelido("J4guar")})
+        for esperado, linha in _AJUDA.items():
+            for forma in linha.apelidos:
+                texto = forma.replace("<nick>", "J4guar").replace(
+                    "<hora>", "18:00"
+                )
+                achados = comandos_novos(
+                    [self._mensagem(texto)],
+                    set(),
+                    [self.TELEFONE],
+                    nicks_conhecidos=conhecidos,
+                )
+                assert [m.comando for m in achados] == [esperado], (
+                    f"a ajuda anuncia o apelido {texto!r} para "
+                    f"{esperado.name}, mas o caminho real devolveu "
+                    f"{[m.comando for m in achados]}"
+                )
+
     def test_o_texto_cita_todas_as_sintaxes(self):
         """Pega o caso em que uma familia inteira deixa de ser emitida.
 
