@@ -1343,7 +1343,13 @@ class TestAjudaNaCostura:
         with caplog.at_level(logging.INFO, logger="l2scanner"):
             self._atender(tmp_path, ".help")
         registrado = "\n".join(r.getMessage() for r in caplog.records)
-        assert ".status" in registrado, "a resposta nem chegou no log"
+        # A canaria e DERIVADA da tabela: ela afirma a sintaxe OFICIAL, e um
+        # literal aqui envelheceria junto com o prefixo (foi o que aconteceu
+        # quando o oficial virou a barra). O comando ENVIADO continua na forma
+        # antiga de proposito — e cobertura do legado ponta-a-ponta.
+        assert _AJUDA[Comando.STATUS].sintaxe in registrado, (
+            "a resposta nem chegou no log"
+        )
         assert not _tem_borda(registrado), (
             f"a ajuda saiu moldurada no console:\n{registrado}"
         )

@@ -12,9 +12,10 @@ TRES TRAVAS, E NENHUMA E OPCIONAL:
    uma delas, do Joao Pedro, diz literalmente "Quero cancelar". Um leitor que
    varresse a conta inteira obedeceria a ele.
 
-2. **Prefixo estrito.** Comandos comecam com ponto (`.cancelar`), a mesma
-   convencao que o grupo do usuario ja usa (`.offline`). Sem o prefixo,
-   qualquer conversa sobre "cancelar o silencio" viraria uma acao.
+2. **Prefixo estrito.** Comandos comecam com barra (`/cancelar`), a convencao
+   do proprio Lineage (`/target`, `/invite`). A forma antiga com ponto segue
+   ACEITA e nao anunciada — ver `PREFIXOS`. Sem prefixo nenhum, qualquer
+   conversa sobre "cancelar o silencio" viraria uma acao.
 
 3. **So `incoming`.** `message_type == 0`. O scanner nunca pode obedecer as
    proprias mensagens — um comando ecoado viraria laco infinito.
@@ -59,9 +60,27 @@ from typing import NamedTuple
 
 from .loot import NICK_VALIDO, apelido, interpretar_pegou
 
-# Todo comando comeca com isto. Mesma convencao do `.offline` que o grupo ja
-# usa, entao nao e vocabulario novo para ninguem.
-PREFIXO = "."
+# O prefixo OFICIAL, e o unico que aparece em TEXTO: ajuda, respostas, README,
+# comentarios do `config.toml`. E a barra porque e a convencao do proprio
+# Lineage — a mao que joga ja digita `/target` e `/invite`, entao o comando do
+# bot cai no mesmo dedo.
+PREFIXO = "/"
+
+# O que o parser ACEITA. A barra primeiro, a forma antiga depois — aceita e
+# NUNCA anunciada.
+#
+# O ponto nao foi cortado por causa de um modo de falha concreto deste
+# desenho: comando nao reconhecido morre EM SILENCIO, no `continue` do laco de
+# autorizacao de `comandos_novos`. Nao existe resposta de recusa (e nao pode
+# existir: responder a texto arbitrario de terceiro abriria eco). Entao um
+# corte seco deixaria os cinco party-mates ja treinados no ponto digitando
+# `.join` e recebendo NADA — indistinguivel, do lado deles, de "o bot caiu".
+# Manter a forma antiga custa um caractere nesta tupla.
+#
+# QUAL USAR: `PREFIXO` para montar texto que alguem vai LER; `PREFIXOS` para
+# decidir se um texto e comando. Trocar os dois de lugar anuncia o legado ou
+# recusa a barra, e as duas falhas sao silenciosas.
+PREFIXOS = (PREFIXO, ".")
 
 # Chatwoot usa INT em message_type. 0 = incoming (pessoa), 1 = outgoing (bot).
 # Descoberto lendo a API de verdade — a documentacao fala em strings.
@@ -237,56 +256,56 @@ class LinhaDeAjuda:
 _AJUDA: dict[Comando, LinhaDeAjuda] = {
     Comando.STATUS: LinhaDeAjuda(
         "Vigilancia",
-        ".status",
+        "/status",
         "Digo se estou vigiando ou calado, e qual o proximo evento",
     ),
     Comando.SOLO: LinhaDeAjuda(
-        "Vigilancia", ".solo", "Vigio so o seu personagem e paro de reclamar de party"
+        "Vigilancia", "/solo", "Vigio so o seu personagem e paro de reclamar de party"
     ),
     Comando.PARTY: LinhaDeAjuda(
-        "Vigilancia", ".party", "Volto a vigiar a party inteira", (".pt",)
+        "Vigilancia", "/party", "Volto a vigiar a party inteira", ("/pt",)
     ),
     Comando.CANCELAR_SILENCIO: LinhaDeAjuda(
-        "Silencio", ".cancelar", "Tira o silencio de TvT/Prime que estiver rolando"
+        "Silencio", "/cancelar", "Tira o silencio de TvT/Prime que estiver rolando"
     ),
     # A familia Presenca vem ANTES de "Loot do Solo Boss" porque essa e a ordem
     # do ciclo do boss: primeiro a party diz quem vai, so depois se decide de
     # quem e o loot. A ordem de insercao deste dict E a ordem da resposta.
     Comando.JOIN: LinhaDeAjuda(
         "Presenca",
-        ".join",
+        "/join",
         "Entro na lista do proximo Solo Boss",
-        (".entrar",),
+        ("/entrar",),
     ),
     Comando.LEAVE: LinhaDeAjuda(
         "Presenca",
-        ".leave",
+        "/leave",
         "Saio da lista do proximo Solo Boss",
-        (".sair",),
+        ("/sair",),
     ),
     Comando.LOOT_DESIGNAR: LinhaDeAjuda(
-        "Loot do Solo Boss", ".loot-<nick>", "Marca quem pega o loot do proximo boss"
+        "Loot do Solo Boss", "/loot-<nick>", "Marca quem pega o loot do proximo boss"
     ),
     Comando.LOOT_CANCELAR: LinhaDeAjuda(
-        "Loot do Solo Boss", ".loot-", "Desmarca: o proximo boss volta a ser de ninguem"
+        "Loot do Solo Boss", "/loot-", "Desmarca: o proximo boss volta a ser de ninguem"
     ),
     Comando.LOOT_CONSULTA: LinhaDeAjuda(
         "Loot do Solo Boss",
-        ".<nick>",
+        "/<nick>",
         "Quantos loots o char ja pegou, e quando foi o ultimo",
     ),
     Comando.LOOT_CORRIGIR: LinhaDeAjuda(
         "Loot do Solo Boss",
-        ".corrigir-<nick>",
+        "/corrigir-<nick>",
         "Troca o dono do ultimo loot ja registrado",
     ),
     Comando.LOOT_ATRIBUIR: LinhaDeAjuda(
         "Loot do Solo Boss",
-        ".pegou <hora> <nick>",
+        "/pegou <hora> <nick>",
         "Registra loot de um boss que ja passou (ex.: 18:00 Korzis)",
     ),
     Comando.AJUDA: LinhaDeAjuda(
-        "Ajuda", ".help", "Esta lista", (".ajuda", ".comandos")
+        "Ajuda", "/help", "Esta lista", ("/ajuda", "/comandos")
     ),
 }
 
@@ -304,7 +323,7 @@ def texto_de_ajuda() -> str:
     dezenove linhas aqui — a moldura viraria uma parede de asteriscos na tela
     do telefone. Ver D-04.
     """
-    linhas = ["Comandos do scanner — sempre com ponto na frente:"]
+    linhas = [f"Comandos do scanner — sempre com barra ({PREFIXO}) na frente:"]
     familia_atual = ""
     for entrada in _AJUDA.values():
         if entrada.familia != familia_atual:
@@ -651,10 +670,29 @@ def colisoes_de_telefone(
     return pares
 
 
+def sem_prefixo(palavra: str) -> str | None:
+    """O que sobra depois do prefixo, ou None quando nao ha prefixo nenhum.
+
+    O UNICO ponto de decisao sobre prefixo do parser. Com dois prefixos vivos,
+    duas copias do `startswith` divergiriam no primeiro ajuste e o vocabulario
+    fixo passaria a aceitar uma forma que a superficie dinamica recusa — em
+    SILENCIO, que e o pior modo de falha desta trava.
+
+    Os chamadores testam `is None`, nunca verdade: um prefixo SOZINHO devolve
+    string vazia, que e um caso legitimo e morre sozinho mais adiante (nao casa
+    vocabulario nem `_NICK_VALIDO`). Tratar "" como ausencia de prefixo daria o
+    mesmo resultado hoje e esconderia a diferenca no dia em que nao der.
+    """
+    for prefixo in PREFIXOS:
+        if palavra.startswith(prefixo):
+            return palavra[len(prefixo) :]
+    return None
+
+
 def interpretar(texto: str | None) -> Comando | None:
     """Que comando este texto pede? None quando nao pede nenhum.
 
-    Exige o prefixo. "vamos cancelar o silencio?" nao e comando; ".cancelar" e.
+    Exige o prefixo. "vamos cancelar o silencio?" nao e comando; "/cancelar" e.
     A diferenca entre conversar sobre uma acao e pedir a acao tem que ser
     visivel no texto, senao o scanner age no meio de uma conversa.
     """
@@ -666,12 +704,13 @@ def interpretar(texto: str | None) -> Comando | None:
         return None
 
     palavra = primeira[0]
-    if not palavra.startswith(PREFIXO):
+    miolo_cru = sem_prefixo(palavra)
+    if miolo_cru is None:
         return None
 
-    # `.cancelar` e `.cancelar silencio` sao o mesmo pedido — juntamos as duas
+    # `/cancelar` e `/cancelar silencio` sao o mesmo pedido — juntamos as duas
     # primeiras palavras para aceitar as duas formas sem gramatica nenhuma.
-    miolo = palavra[len(PREFIXO) :].lower()
+    miolo = miolo_cru.lower()
     if len(primeira) > 1:
         junto = (miolo + primeira[1].lower()).replace("-", "").replace("_", "")
         if junto in _VOCABULARIO:
@@ -689,6 +728,14 @@ _NICK_VALIDO = NICK_VALIDO
 # `.offline` e convencao humana do grupo — quem digita esta avisando GENTE,
 # nao o bot. Excluido por nome para jamais virar consulta de nick, nem que
 # um dia exista um personagem chamado Offline.
+#
+# D-05: a exclusao e AGNOSTICA DE PREFIXO, e vale para os dois. Com a barra o
+# risco humano praticamente some (ninguem digita `/offline` para avisar
+# gente), mas a forma antiga continua aceita, e tornar a protecao especifica
+# de prefixo criaria uma DIVERGENCIA DE COMPORTAMENTO entre duas formas que
+# devem ser a mesma coisa — o oposto exato de "os dois valem". O unico preco
+# de manter e um personagem hipotetico chamado Offline, que o comentario
+# acima ja tinha aceitado perder.
 _PALAVRA_HUMANA = "offline"
 
 # As palavras que, no lugar do nick, querem dizer "ninguem" — o `.loot-`
@@ -724,9 +771,9 @@ def interpretar_dinamico(
         return None
 
     primeira = palavras[0]
-    if not primeira.startswith(PREFIXO):
+    crua = sem_prefixo(primeira)
+    if crua is None:
         return None
-    crua = primeira[len(PREFIXO) :]
 
     # `.loot-<nick>` e `.loot <nick>`: o comando e case-insensitive, o nick
     # e preservado como digitado.
