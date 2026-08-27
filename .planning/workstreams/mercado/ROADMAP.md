@@ -1,0 +1,104 @@
+# Roadmap: L2 Party Scanner — Mercado (v1-mercado)
+
+**Workstream:** mercado (`.planning/workstreams/mercado/`)
+**Milestone:** v1-mercado — captura e análise de preços do World Exchange
+**Created:** 2026-08-27
+**Delivery:** console-only (decisão do usuário — comandos WhatsApp de mercado são v2)
+
+## Overview
+
+O milestone transforma cada abertura manual do World Exchange numa coleta de dados passiva. A jornada tem uma porta de entrada inegociável: nada da UI do XM Essence é verificável por pesquisa, então a Fase 1 é um spike de campo — o gravador é consertado primeiro (evidência não-confirmada é o pesadelo documentado do projeto), o USUÁRIO grava sessões reais do mercado, e dessas gravações saem a calibração, os templates e a detecção do painel (o mesmo sinal que protege o detector de morte do incidente 27x). Com fixtures em mãos, a Fase 2 constrói a leitura de página com falha fechada e a Fase 3 constrói a persistência em SQLite — em paralelo, porque a Fase 3 só depende do formato da página aceita. A Fase 4 liga tudo: o modo `--mercado` como terceira invocação, o console ao vivo e a análise honesta ("menor pedido visível", nunca "preço de venda").
+
+**Nota de escopo (F0 embutida):** a pesquisa sugeria uma fase 0 de firewall de escopo. Ela foi dobrada na Fase 1: FIRE-01 é um teste de CI + entradas Out of Scope já registradas em REQUIREMENTS.md — minutos de trabalho, sem dependências, e precisa existir ANTES de qualquer código de mercado. Fase própria seria cerimônia.
+
+**Nota de nomenclatura:** os slugs de diretório das fases usam o prefixo `mercado-` (ex.: `phases/01-mercado-fundacao-spike/`) para que escopos de commit nunca colidam com as fases do workstream default.
+
+## Phases
+
+**Phase Numbering:**
+- Integer phases (1, 2, 3): Planned milestone work
+- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+
+- [ ] **Phase 1: Fundação — firewall, gravador e spike de campo** - Gravador confiável, gravações reais do World Exchange, calibração/templates e detecção do painel compartilhada com o detector de morte
+- [ ] **Phase 2: Leitura de página** - Watchlist, dígitos e estabilizador de página contra as fixtures da Fase 1 — falha sempre fechada, preço nunca inventado
+- [ ] **Phase 3: Persistência de observações** - Snapshots dedupados em SQLite (WAL) compartilhado entre instâncias, com firewall de exceção que nunca derruba os alertas
+- [ ] **Phase 4: Modo --mercado, análise e console** - Terceira invocação, console ao vivo e estatísticas honestas: mínimo/mediana, destaques, tendência e margem de craft
+
+## Phase Details
+
+### Phase 1: Fundação — firewall, gravador e spike de campo
+**Goal**: O usuário consegue produzir evidência de campo confiável do World Exchange, e dessa evidência saem a calibração, os templates e a detecção do painel — o sinal único que também protege o detector de morte.
+**Depends on**: Nothing (first phase)
+**Requirements**: FIRE-01, FUND-01, FUND-02, FUND-03, DETC-01
+**Success Criteria** (what must be TRUE):
+  1. O usuário roda uma sessão com `--record` e o contador de frames bate exatamente com os arquivos no disco; um `cv2.imwrite` que falha aparece como erro alto e visível, nunca como frame contado — o usuário pode provar isso enchendo o disco ou apontando para pasta inválida
+  2. O usuário gravou sessões reais do World Exchange (fechado, aberto, com scroll, página cheia) e as perguntas de campo estão respondidas por escrito a partir dessas gravações: linhas por página, separador de milhar, moeda, colunas, preço total vs unitário, onde fica o preço médio embutido — incluindo a decisão explícita sobre variantes de encanto (+3 vs +4) na watchlist
+  3. O usuário roda a ferramenta de calibração sobre um frame gravado e vê as regiões da janela, a âncora do painel e os templates de dígito persistidos em `calibration.json` — sem editar JSON à mão
+  4. No replay da gravação do incidente 27x, o usuário observa o painel de mercado ser reconhecido como "World Exchange aberto" e ZERO alertas de morte disparados — um sinal, dois consumidores, nunca duplicado
+  5. Adicionar uma biblioteca de síntese de input (ex.: `pyautogui`) à árvore de dependências faz o teste de firewall falhar — o usuário pode ver o teste vermelho ao tentar
+**Plans**: TBD
+
+**Bloqueio externo — explícito:** somente o USUÁRIO pode produzir as gravações do World Exchange (conta, cliente e servidor dele). O fix do gravador (FUND-01) vem ANTES de qualquer gravação; depois disso a fase PARA e espera as gravações do usuário. Nenhuma fase seguinte deve ser planejada em detalhe antes das respostas do spike.
+
+### Phase 2: Leitura de página
+**Goal**: Contra as fixtures gravadas na Fase 1, o scanner reconhece itens da watchlist e lê preços/quantidades das linhas visíveis — e nunca inventa um número.
+**Depends on**: Phase 1 (fixtures, calibração, templates e respostas do spike)
+**Requirements**: LEIT-01, LEIT-02, LEIT-03
+**Success Criteria** (what must be TRUE):
+  1. Rodando o replay contra as fixtures, todo item da watchlist (`config.toml`) visível na página é reconhecido pelo nome, e itens fora da watchlist nunca são confundidos com itens dela (matching rejection-first, conjunto fechado)
+  2. Os preços e quantidades lidos batem dígito a dígito com o que o usuário vê no frame — separador de milhar tratado como glifo de primeira classe; quando o frame está ilegível, a linha aparece como descartada, nunca como um número plausível
+  3. Uma página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS; frames bit a bit idênticos são reportados como captura congelada, não aceitos como acordo
+**Plans**: TBD
+
+### Phase 3: Persistência de observações
+**Goal**: Cada página aceita vira snapshot com observações num SQLite compartilhável entre as duas instâncias — sem duplicar, sem adivinhar, e sem jamais derrubar o núcleo de alertas.
+**Depends on**: Phase 1 (respostas do spike informam o schema). Paraleliza com a Phase 2 — só depende do formato da página aceita, não da leitura pronta.
+**Requirements**: PERS-01, PERS-02, PERS-03
+**Success Criteria** (what must be TRUE):
+  1. Após uma sessão, o usuário consulta `mercado.db` e vê snapshots com carimbo do relógio ancorado e observações com preço total e quantidade em colunas separadas (unitário derivado, nunca confundido)
+  2. Reler ou revisitar a mesma página não aumenta a contagem de observações — o usuário pode contar antes e depois e ver o mesmo número (`INSERT OR IGNORE` por chave de conteúdo)
+  3. Duas instâncias escrevendo na mesma pasta ao mesmo tempo não corrompem nem travam o banco — o teste de martelo com 2 processos passa (WAL + `busy_timeout`)
+  4. Com o banco propositalmente quebrado (arquivo travado ou read-only), o usuário vê o aviso alto de que a feature de mercado desligou — e os alertas de party continuam chegando normalmente
+**Plans**: TBD
+
+### Phase 4: Modo --mercado, análise e console
+**Goal**: O usuário roda a terceira invocação `--mercado` e responde "vale quanto agora?" no console, com estatísticas nomeadas honestamente e evidência sempre visível.
+**Depends on**: Phase 2, Phase 3
+**Requirements**: DETC-02, LEIT-04, ANAL-01, ANAL-02, ANAL-03, ANAL-04
+**Success Criteria** (what must be TRUE):
+  1. O usuário inicia `--mercado` como terceira invocação ao lado das duas instâncias de party, e o modo party segue intocado — nenhum comportamento do detector de morte muda, nenhuma competição de recursos perceptível
+  2. Com o mercado aberto, o console mostra ao vivo páginas lidas/perdidas e o último item reconhecido; o resumo final conta as duas metades ("li 7, perdi 3")
+  3. Para cada item da watchlist, o console responde "vale quanto agora": menor pedido visível e mediana, sempre acompanhados de contagem de evidência e recência ("n=12, visto às 14:32") — a palavra usada é "menor pedido visível", nunca "preço de venda"
+  4. Com o mercado aberto, linhas abaixo da mediana histórica aparecem destacadas no console na hora
+  5. Tendência por item e margem de craft (receitas do `config.toml`) aparecem com o tamanho da janela de dados explícito, e cada componente da margem mostra sua própria staleness
+**Plans**: TBD
+
+## Progress
+
+**Execution Order:**
+1 → (2 ∥ 3) → 4 — a Fase 3 pode andar em paralelo com a Fase 2 após a Fase 1.
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. Fundação — firewall, gravador e spike de campo | 0/TBD | Not started | - |
+| 2. Leitura de página | 0/TBD | Not started | - |
+| 3. Persistência de observações | 0/TBD | Not started | - |
+| 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
+
+## Coverage
+
+Todas as 17 exigências v1 mapeadas (a definição dizia 16; a recontagem na criação do roadmap achou 17 — FIRE 1, FUND 3, DETC 2, LEIT 4, PERS 3, ANAL 4), cada uma em exatamente uma fase:
+
+| Category | Requirements | Phase |
+|----------|--------------|-------|
+| Firewall | FIRE-01 | 1 |
+| Fundação | FUND-01, FUND-02, FUND-03 | 1 |
+| Detecção | DETC-01 | 1 |
+| Detecção | DETC-02 | 4 |
+| Leitura | LEIT-01, LEIT-02, LEIT-03 | 2 |
+| Leitura | LEIT-04 | 4 |
+| Persistência | PERS-01, PERS-02, PERS-03 | 3 |
+| Análise | ANAL-01, ANAL-02, ANAL-03, ANAL-04 | 4 |
+
+---
+*Roadmap created: 2026-08-27 — awaiting user approval (orchestrator commits)*

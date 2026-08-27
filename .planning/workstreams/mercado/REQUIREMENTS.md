@@ -65,17 +65,33 @@ Excluído explicitamente. Documentado para impedir retorno silencioso.
 
 ## Traceability
 
-Preenchida na criação do roadmap.
+Preenchida na criação do roadmap (2026-08-27).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| — | — | — |
+| FIRE-01 | Phase 1 | Pending |
+| FUND-01 | Phase 1 | Pending |
+| FUND-02 | Phase 1 | Pending |
+| FUND-03 | Phase 1 | Pending |
+| DETC-01 | Phase 1 | Pending |
+| DETC-02 | Phase 4 | Pending |
+| LEIT-01 | Phase 2 | Pending |
+| LEIT-02 | Phase 2 | Pending |
+| LEIT-03 | Phase 2 | Pending |
+| LEIT-04 | Phase 4 | Pending |
+| PERS-01 | Phase 3 | Pending |
+| PERS-02 | Phase 3 | Pending |
+| PERS-03 | Phase 3 | Pending |
+| ANAL-01 | Phase 4 | Pending |
+| ANAL-02 | Phase 4 | Pending |
+| ANAL-03 | Phase 4 | Pending |
+| ANAL-04 | Phase 4 | Pending |
 
 **Coverage:**
-- v1 requirements: 16 total
-- Mapped to phases: 0
-- Unmapped: 16 ⚠️ (roadmap pendente)
+- v1 requirements: 17 total (a contagem "16" da definição inicial estava errada — recontado na criação do roadmap)
+- Mapped to phases: 17
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-08-27*
-*Last updated: 2026-08-27 after initial definition*
+*Last updated: 2026-08-27 after roadmap creation (traceability filled)*
