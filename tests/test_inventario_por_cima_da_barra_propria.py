@@ -30,13 +30,14 @@ e a morte de verdade continua virando morte.
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 
-from l2scanner.calibracao import Calibracao
+from l2scanner.calibracao import Calibracao, Regiao
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
 from l2scanner.visao import (
@@ -45,6 +46,7 @@ from l2scanner.visao import (
     _moldura_da_barra_propria,
     barra_propria_legivel,
     extrair,
+    medir_barra,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "barra_propria"
@@ -297,3 +299,180 @@ class TestOTripwireDoDesvioPadrao:
             gerador.integers(0, 255, (8, 120, 1), dtype=np.uint8), 3, axis=2
         )
         assert barra_propria_legivel(texturizado)
+
+
+# ---------------------------------------------------------------------------
+# TERRENO ESCURO — o outro lado do portao de moldura, medido em 2026-08-27
+# ---------------------------------------------------------------------------
+
+# As tres fixtures resgatadas de `recordings/escuro_janela.png` (1392x1720,
+# brilho medio 58.12), que esta no `.gitignore` e era a UNICA copia da unica
+# cena escura que o repositorio conhece. Recortes, em linhas e colunas do
+# arquivo:
+#
+#   escuro_cheia       = [716:740, 294:485]  a regiao `hp_proprio` calibrada
+#   escuro_cauda_vazia = [741:765, 294:485]  o widget de MP, 25 px abaixo
+#   escuro_faixa       = [739:767, 294:485]  a mesma cauda com 2 px de folga
+ESCURO_CHEIA = "escuro_cheia"
+ESCURO_CAUDA_VAZIA = "escuro_cauda_vazia"
+ESCURO_FAIXA = "escuro_faixa"
+
+# 88.48% de 191 px termina o preenchimento na coluna 169 — daqui para a direita
+# a barra e 100% vazia e mostra so o terreno escuro. Numero MEDIDO, nao chutado.
+PRIMEIRA_COLUNA_VAZIA = 169
+
+
+def calibracao_do_widget(cal: Calibracao) -> Calibracao:
+    """A mesma calibracao, com o detector apontado para as cores do widget.
+
+    A fixture de terreno escuro e o widget de MP (AZUL): a mascara de HP
+    (vermelha) simplesmente nao a enxerga, e `medir_barra` devolveria 0.0 por
+    daltonismo, nao por barra vazia.
+
+    Isto NAO sintetiza pixel nenhum e nao afrouxa portao nenhum: todo o resto do
+    caminho de `extrair` — o portao de desvio, o portao de moldura, a corrida
+    inicial de colunas — fica exatamente como em producao. Trocar `limiares_hp`
+    por `limiares_mp` e o equivalente a dizer ao detector de que cor e a barra
+    que ele esta olhando.
+    """
+    return dataclasses.replace(cal, limiares_hp=cal.limiares_mp)
+
+
+class TestOTerrenoEscuroSomeDoConsole:
+    """O DEFEITO, preso em pixels reais: a barra legitima some em cena escura.
+
+    Medido em 2026-08-27 sobre `recordings/escuro_janela.png`:
+
+        escuro_janela HP  (716,294)  100% cheia   moldura 86.42  LEGIVEL
+        escuro_janela MP  (741,294)  88.5% cheia  moldura 29.08  ILEGIVEL
+        agora_janela  MP  (741,294)   6.8% cheia  moldura 78.73  LEGIVEL
+
+    A barra NAO precisa estar vazia para cair: 11.5% de cauda vazia sobre
+    terreno escuro ja bastam. O "~32 estimado" do TODO virou 29.08 MEDIDO.
+
+    E as duas classes se sobrepoem NESTE ARQUIVO, nao em teoria:
+
+        coberta pelo inventario  28.00 .. 48.92   (n=8, tela real)
+        livre em cena escura     29.08            (n=1, tela real)
+
+    29.08 fica DENTRO da faixa das cobertas. Nenhum limiar de brilho separa as
+    duas classes, e por isso o remedio nao e mexer em
+    `BRILHO_MINIMO_DA_MOLDURA_PROPRIA`: e um discriminador diferente, invariante
+    a brilho.
+
+    Consequencia no produto, e e ela que esta tarefa ataca: durante a descida
+    inteira de HP numa cena escura, o console e o `scanner.log` nao mostram NADA
+    da barra propria — some justamente a unica ferramenta de depuracao pos-farm
+    que o projeto tem, e sem log nao ha como capturar a amostra que fecharia a
+    pendencia.
+    """
+
+    def test_a_barra_legitima_em_cena_escura_cai_na_faixa_das_cobertas(self):
+        """A sobreposicao, afirmada sobre pixels versionados.
+
+        Passa HOJE e deve continuar passando DEPOIS: este teste documenta a
+        SOBREPOSICAO, nao o remedio. O dia em que ele quebrar, alguem mexeu no
+        limiar de moldura ou nas fixtures — e a medicao inteira precisa ser
+        refeita.
+        """
+        moldura = _moldura_da_barra_propria(recorte(ESCURO_CAUDA_VAZIA))
+
+        assert moldura < BRILHO_MINIMO_DA_MOLDURA_PROPRIA, (
+            f"{ESCURO_CAUDA_VAZIA}.png: moldura {moldura:.2f} passou no portao "
+            f"de hoje — a fixture mudou e a premissa desta tarefa caiu"
+        )
+        assert 28.00 <= moldura <= 48.92, (
+            f"moldura {moldura:.2f} saiu da faixa das COBERTAS (28.00..48.92); "
+            f"a sobreposicao medida em 2026-08-27 era o coracao do argumento"
+        )
+
+    def test_hp_proprio_continua_None_e_isso_e_PROPOSITAL(self, calibracao):
+        """A assercao que prova que a mudanca NAO mexe na maquina de estado.
+
+        `hp_proprio` alimenta TRES consumidores no `rastreador.py` (linhas 454,
+        496 e 833). Uma leitura vinda daqui pode ser um recorte parcialmente
+        ocluido — `coberta_0` (moldura 48.00) e esta fixture (29.08) so se
+        ordenam pela moldura, e nessa ordem a classe coberta fica dos DOIS lados
+        do unico ponto legitimo. Entao ela nao pode virar `hp_proprio`, hoje nem
+        depois.
+
+        Este teste e VERDE hoje e tem que continuar verde: e o gate que impede
+        alguem de "melhorar" a correcao para dentro do rastreador.
+        """
+        obs = extrair(frame_solo(ESCURO_CAUDA_VAZIA), calibracao_do_widget(calibracao))
+
+        assert obs.hp_proprio is None, (
+            f"hp_proprio saiu {obs.hp_proprio!r} em vez de None: a leitura de "
+            f"cena escura vazou para a maquina de estado, que e exatamente o "
+            f"que a revisao 3 deste plano existe para impedir"
+        )
+
+    def test_a_descida_volta_a_ser_MOSTRADA_pelo_campo_aparente(self, calibracao):
+        """VERMELHA hoje: `hp_proprio_aparente` ainda nao existe.
+
+        Medido: a leitura da cauda vazia com os limiares do widget e 0.8848 — a
+        barra esta 88.5% cheia e o usuario esta VIVO. Hoje o console e o log nao
+        mostram nada; depois mostram este numero, MARCADO COMO APARENTE.
+        """
+        obs = extrair(frame_solo(ESCURO_CAUDA_VAZIA), calibracao_do_widget(calibracao))
+
+        assert obs.hp_proprio_aparente is not None, (
+            "a barra 88.5% cheia em cena escura continua sem produzir NADA "
+            "para o console e para o log"
+        )
+        assert abs(obs.hp_proprio_aparente - 0.8848) < 0.001, (
+            f"a leitura aparente saiu {obs.hp_proprio_aparente!r}; o medido em "
+            f"2026-08-27 sobre esta fixture e 0.8848"
+        )
+
+    def test_a_cena_escura_SOZINHA_nao_derruba_nada(self):
+        """A testemunha: mesma cena, mesma janela, mesmo frame, barra CHEIA.
+
+        `escuro_cheia` mede moldura 86.42 e ja e legivel hoje. Ou seja: nao e o
+        escuro que derruba o portao — e a CAUDA VAZIA mostrando terreno escuro.
+        Sem esta testemunha, "cena escura quebra a leitura" seria uma explicacao
+        plausivel e errada.
+        """
+        assert barra_propria_legivel(recorte(ESCURO_CHEIA)), (
+            f"{ESCURO_CHEIA}.png: a barra CHEIA em cena escura foi declarada "
+            f"ilegivel — entao o problema nao e a cauda vazia e toda a medicao "
+            f"de 2026-08-27 precisa ser refeita"
+        )
+        assert _moldura_da_barra_propria(recorte(ESCURO_CHEIA)) > 80.0
+
+    def test_a_cauda_100_por_cento_vazia_e_terreno_escuro_puro(self, calibracao):
+        """As duas metades da prova, afirmadas juntas de proposito.
+
+        A primeira mostra que o recorte foi derivado certo (a partir da coluna
+        169 nao ha preenchimento nenhum — 88.48% de 191 px termina ali). A
+        segunda mostra que esse terreno escuro, sozinho, REPROVA no portao de
+        hoje. Uma sem a outra nao prova nada: leitura zero poderia ser recorte
+        errado, e moldura baixa poderia ser barra ainda preenchida.
+        """
+        cauda = recorte(ESCURO_CAUDA_VAZIA)[:, PRIMEIRA_COLUNA_VAZIA:]
+        regiao = Regiao(
+            esquerda=0, topo=0, largura=cauda.shape[1], altura=cauda.shape[0]
+        )
+
+        assert medir_barra(cauda, regiao, calibracao.limiares_mp) == 0.0, (
+            "a cauda a partir da coluna 169 ainda tem preenchimento: a "
+            "derivacao do recorte esta errada e o resto da medicao nao vale"
+        )
+        assert _moldura_da_barra_propria(cauda) < BRILHO_MINIMO_DA_MOLDURA_PROPRIA, (
+            "o terreno escuro atras da barra vazia PASSOU no portao de hoje — "
+            "entao nao ha defeito a consertar e a premissa caiu"
+        )
+
+    def test_a_faixa_carrega_a_prova_do_proprio_alinhamento(self):
+        """`escuro_faixa[2:26]` E `escuro_cauda_vazia`, byte a byte.
+
+        A faixa tem 28 linhas justamente para que os deslocamentos de -2 a +2 px
+        venham de PIXELS REAIS, e nao de `np.roll` (que inventa linhas). Esta
+        assercao e o que garante que a janela do meio e a fixture principal.
+        """
+        faixa = recorte(ESCURO_FAIXA)
+        assert faixa.shape == (28, 191, 3), faixa.shape
+        assert (faixa[2:26] == recorte(ESCURO_CAUDA_VAZIA)).all(), (
+            "a faixa deixou de estar alinhada com a cauda vazia — os testes de "
+            "tolerancia a desalinhamento passam a medir outra coisa"
+        )
