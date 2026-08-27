@@ -99,8 +99,23 @@ silenciar_minutos = 0
 # party-mate alcancaria TODOS os comandos — entao o scanner NAO SOBE ate voce
 # desambiguar. Entre dois numeros do mesmo nivel ele so avisa alto.
 #
-# Descomente e troque pelos seus. O arquivo do repositorio nao carrega
-# telefone de ninguem.
+# ONDE ESCREVER OS SEUS: no `config.local.toml`, NAO aqui.
+#
+# Copie o `config.local.exemplo.toml` para `config.local.toml` e ponha os
+# blocos la. Aquele arquivo esta no .gitignore; este aqui e versionado, e o
+# telefone de um party-mate e de OUTRA PESSOA — numero que entra em historico
+# de git nao sai mais, nem apagando depois.
+#
+# Este arquivo continua versionado por causa da agenda: os `[[evento]]` la de
+# cima tem teste lendo o arquivo DO REPOSITORIO, porque um horario errado de
+# TvT deixa a party esperando um evento que nao vai acontecer.
+#
+# Com `config.local.toml` presente e com bloco, os `[[membro]]` daqui sao
+# IGNORADOS — vale um arquivo ou o outro, nunca a soma. Deixando bloco nos
+# dois, o arranque avisa alto e diz qual venceu.
+#
+# O exemplo abaixo fica comentado de proposito: o arquivo do repositorio nao
+# carrega telefone de ninguem.
 #
 # [[membro]]
 # nick = "Korzis"

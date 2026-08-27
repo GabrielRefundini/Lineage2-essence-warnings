@@ -346,6 +346,24 @@ mesma pessoa para o scanner.
 Com a lista vazia, qualquer um da conversa manda — e o scanner avisa isso no
 arranque, em vez de deixar você descobrir por acidente.
 
+**Os party-mates ficam no `config.local.toml`.** Quem estiver ali pode mandar
+`.join` e `.leave` para entrar e sair da lista do próximo Solo Boss — e **mais
+nada**: um `[[membro]]` não alcança `.cancelar`, `.corrigir` nem `.pegou`.
+Copie `config.local.exemplo.toml` para `config.local.toml` e preencha:
+
+```toml
+[[membro]]
+nick = "Korzis"
+telefone = "+5544999998888"
+```
+
+Esse arquivo está no `.gitignore`, e é por isso que ele existe separado: o
+telefone é de **outra pessoa**, e número que entra em histórico de git não sai
+mais — nem apagando depois. O `config.toml` continua versionado por causa da
+agenda, que tem teste lendo o arquivo do repositório. Se você deixar
+`[[membro]]` nos dois arquivos, vale o `config.local.toml` e o arranque avisa
+qual dos dois está sendo ignorado.
+
 **Etiqueta como interruptor.** Se preferir ligar e desligar pelo painel do
 Chatwoot em vez do arquivo, ponha um nome em `CHATWOOT_ETIQUETA_COMANDO` e
 marque a conversa com essa etiqueta. Vale na hora, sem reiniciar. A etiqueta

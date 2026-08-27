@@ -34,6 +34,7 @@ from l2scanner.comandos import (
     interpretar_dinamico,
     texto_de_ajuda,
 )
+from l2scanner import config
 from l2scanner.config import ler_membros
 from l2scanner.loot import apelido
 
@@ -1692,6 +1693,161 @@ class TestMembroNoConfigToml:
             )
             == []
         )
+
+
+class TestMembrosNoArquivoLocal:
+    """Os telefones saem do arquivo versionado e vao para o `config.local.toml`.
+
+    Por que nao foi so por o `config.toml` no .gitignore: o
+    `TestAgendaRealDoUsuario` le o arquivo DO REPOSITORIO para afirmar os
+    horarios de TvT, Prime e Solo Boss. Fora do git, aquele guarda passaria a
+    vigiar um exemplo que ninguem edita — continuaria verde e pararia de
+    guardar, que e pior do que nao existir, porque parece protecao.
+
+    A saida e um SEGUNDO arquivo, ignorado pelo git, carregando so os
+    `[[membro]]`. A agenda e do PROJETO e fica versionada; telefone de
+    party-mate e da MAQUINA e nao fica — e telefone de OUTRA PESSOA, e o que
+    entra em historico de git nao sai mais nem apagando depois.
+    """
+
+    KORZIS = '[[membro]]\nnick = "Korzis"\ntelefone = "+5544911112222"\n'
+    J4GUAR = '[[membro]]\nnick = "J4guar"\ntelefone = "+5544933334444"\n'
+
+    def _arquivos(self, tmp_path, versionado: str | None, local: str | None):
+        """Escreve so o que foi pedido: `None` significa arquivo AUSENTE.
+
+        Os quatro estados desta classe sao exatamente as quatro combinacoes de
+        presenca dos dois arquivos, e cada uma precisa de resposta definida —
+        inclusive a de nenhum dos dois, que e a maquina recem-clonada.
+        """
+        caminho = tmp_path / "config.toml"
+        caminho_local = tmp_path / "config.local.toml"
+        if versionado is not None:
+            caminho.write_text(versionado, encoding="utf-8")
+        if local is not None:
+            caminho_local.write_text(local, encoding="utf-8")
+        return caminho, caminho_local
+
+    def test_so_o_versionado_le_do_versionado(self, tmp_path):
+        """Quem nunca criou o arquivo local ve o comportamento de sempre."""
+        caminho, caminho_local = self._arquivos(tmp_path, self.KORZIS, None)
+        assert [m.nick for m in ler_membros(caminho, caminho_local)] == ["Korzis"]
+
+    def test_so_o_local_le_do_local(self, tmp_path):
+        """O caso normal depois desta mudanca: os telefones so moram la."""
+        caminho, caminho_local = self._arquivos(tmp_path, None, self.J4GUAR)
+        membros = ler_membros(caminho, caminho_local)
+        assert [m.nick for m in membros] == ["J4guar"]
+        assert membros[0].telefone == "+5544933334444"
+
+    def test_os_dois_o_local_vence_e_NAO_soma(self, tmp_path):
+        """Um ou outro, nunca a soma.
+
+        Somar faria um nick apagado do `config.toml` reaparecer pelo local sem
+        ninguem entender por que, e poria a validacao de nick repetido para
+        decidir qual dos dois arquivos ganha — decisao que nao tem resposta
+        obvia e que ninguem quer descobrir as 2h da manha.
+        """
+        caminho, caminho_local = self._arquivos(tmp_path, self.KORZIS, self.J4GUAR)
+        assert [m.nick for m in ler_membros(caminho, caminho_local)] == ["J4guar"]
+
+    def test_os_dois_o_arranque_AVISA_nomeando_os_dois_arquivos(self, tmp_path, caplog):
+        """Um bloco que nao faz nada e invisivel; sem aviso, e uma armadilha.
+
+        O usuario que editou o `config.toml` e nao viu efeito nenhum precisa
+        ler no console qual arquivo venceu — senao ele reedita o mesmo bloco
+        morto a noite inteira.
+        """
+        caminho, caminho_local = self._arquivos(tmp_path, self.KORZIS, self.J4GUAR)
+        with caplog.at_level(logging.WARNING, logger="l2scanner"):
+            ler_membros(caminho, caminho_local)
+        assert "config.toml" in caplog.text, "o arquivo ignorado nao foi nomeado"
+        assert "config.local.toml" in caplog.text, "o vencedor nao foi nomeado"
+        assert any(r.levelno >= logging.WARNING for r in caplog.records), (
+            "o aviso saiu baixo demais para alguem notar no arranque"
+        )
+
+    def test_nenhum_dos_dois_e_lista_vazia_sem_excecao(self, tmp_path):
+        """Maquina recem-clonada sobe o scanner igual sempre subiu."""
+        caminho, caminho_local = self._arquivos(tmp_path, None, None)
+        assert ler_membros(caminho, caminho_local) == []
+
+    def test_so_o_versionado_NAO_avisa(self, tmp_path, caplog):
+        """Aviso sem conflito e aviso que se aprende a ignorar — e no dia em
+        que houver conflito de verdade ninguem le."""
+        caminho, caminho_local = self._arquivos(tmp_path, self.KORZIS, None)
+        with caplog.at_level(logging.WARNING, logger="l2scanner"):
+            ler_membros(caminho, caminho_local)
+        assert caplog.text == ""
+
+    def test_a_validacao_vale_igual_vinda_do_local(self, tmp_path):
+        """A regra e escrita UMA vez: nick repetido derruba venha de onde vier.
+
+        Um segundo caminho de leitura com validacao propria e como a regra
+        morre: ela continua no arquivo antigo e some no novo, que e justamente
+        o que todo mundo passa a usar.
+        """
+        caminho, caminho_local = self._arquivos(
+            tmp_path,
+            None,
+            '[[membro]]\nnick = "Kaus"\ntelefone = "+5544911112222"\n'
+            '[[membro]]\nnick = "kaus"\ntelefone = "+5544933334444"\n',
+        )
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_membros(caminho, caminho_local)
+        assert "Kaus" in str(erro.value)
+
+    def test_telefone_curto_no_local_tambem_derruba_no_arranque(self, tmp_path):
+        caminho, caminho_local = self._arquivos(
+            tmp_path, None, '[[membro]]\nnick = "Kaus"\ntelefone = "8888"\n'
+        )
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_membros(caminho, caminho_local)
+        assert "Kaus" in str(erro.value)
+
+    def test_o_caminho_local_PADRAO_e_o_que_o_arranque_usa(self, tmp_path, monkeypatch):
+        """A ligacao que o `__main__` de fato exercita: `ler_membros()` pelado.
+
+        Sem este teste a precedencia poderia estar inteira e correta na forma
+        com argumento e MORTA em producao, que chama a funcao sem nenhum.
+        """
+        caminho, caminho_local = self._arquivos(tmp_path, self.KORZIS, self.J4GUAR)
+        monkeypatch.setattr(config, "ARQUIVO_CONFIG", caminho)
+        monkeypatch.setattr(config, "ARQUIVO_CONFIG_LOCAL", caminho_local)
+        assert [m.nick for m in ler_membros()] == ["J4guar"]
+
+    def test_um_caminho_explicito_sozinho_le_SO_aquele_arquivo(self, tmp_path):
+        """Passar um caminho e pedir aquele arquivo, nao a vizinhanca dele.
+
+        E disso que depende o
+        `test_o_config_toml_do_REPOSITORIO_nao_carrega_telefone_de_ninguem`:
+        ele afirma que o arquivo VERSIONADO nao leva telefone. Se um caminho
+        explicito arrastasse junto o `config.local.toml` ao lado, aquele guarda
+        passaria a ler a maquina de quem roda o teste — e acusaria o arquivo
+        errado, ou ficaria verde por acidente.
+        """
+        caminho, _ = self._arquivos(tmp_path, self.KORZIS, self.J4GUAR)
+        assert [m.nick for m in ler_membros(caminho)] == ["Korzis"]
+
+    def test_o_EXEMPLO_do_repositorio_tambem_nao_carrega_telefone_de_ninguem(self):
+        """O modelo versionado e o novo lugar onde um telefone pode vazar.
+
+        O `config.local.exemplo.toml` existe para ser COPIADO. Ele e rastreado
+        pelo git, e um dedo errado que salve o modelo no lugar da copia poe o
+        numero de um party-mate no repositorio pela porta que acabou de ser
+        fechada — com o agravante de que ninguem vai olhar de novo para um
+        arquivo chamado "exemplo".
+
+        Mesmo guarda que o `test_o_config_toml_do_REPOSITORIO_...` faz do outro
+        lado, no arquivo que agora nao deve mais receber `[[membro]]` nenhum.
+        """
+        raiz = Path(__file__).resolve().parent.parent
+        modelo = raiz / "config.local.exemplo.toml"
+        assert modelo.exists(), (
+            "o modelo sumiu — sem ele o README manda copiar um arquivo que nao "
+            "existe, e o usuario escreve os telefones no config.toml de novo"
+        )
+        assert ler_membros(modelo) == []
 
 
 class TestColisaoDeTelefone:

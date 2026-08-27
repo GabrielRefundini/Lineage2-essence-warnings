@@ -1,0 +1,31 @@
+# config.local.exemplo.toml — o modelo do seu config.local.toml
+#
+# COPIE ESTE ARQUIVO PARA `config.local.toml` e ponha os seus party-mates la.
+# O `config.local.toml` esta no .gitignore: ele nunca e commitado.
+#
+# POR QUE OS TELEFONES NAO FICAM NO `config.toml`: aquele arquivo e versionado,
+# e o telefone aqui e de OUTRA PESSOA. Numero que entra em historico de git nao
+# sai mais — nem apagando depois, nem trocando o arquivo. Um clone antigo, um
+# fork, um pull request: todos continuam com ele.
+#
+# A agenda (os `[[evento]]`) continua no `config.toml` e continua versionada,
+# porque errar um horario de TvT ali deixa a party esperando um evento que nao
+# vai acontecer, e existe teste vigiando aquele arquivo justamente por isso.
+#
+# COM ESTE ARQUIVO PRESENTE, os `[[membro]]` do `config.toml` sao IGNORADOS —
+# vale um arquivo ou o outro, nunca a soma. Se voce deixar bloco nos dois, o
+# arranque avisa alto e diz qual venceu.
+#
+# A explicacao longa de cada campo (o que um [[membro]] alcanca e o que nao
+# alcanca, a regra dos 8 digitos finais, o nick ser o do JOGO) esta no
+# `config.toml`, na secao de membros. Aqui vai so o formato.
+#
+# Descomente e troque pelos seus.
+
+# [[membro]]
+# nick = "Korzis"
+# telefone = "+5544999998888"
+#
+# [[membro]]
+# nick = "J4guar"
+# telefone = "+5544977776666"
