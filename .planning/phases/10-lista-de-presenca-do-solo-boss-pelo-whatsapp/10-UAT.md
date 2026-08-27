@@ -105,10 +105,10 @@ reason: exige `.env` real, etiqueta `CP` no Chatwoot, `[[membro]]` com telefone 
 expected: Um nao-programador consegue preencher nick e telefone sem ajuda
 result: pass
 
-### 3. O texto da chamada (10-02, D7) — DE VOLTA PARA RE-TESTE
+### 3. O texto da chamada (10-02, D7)
 expected: Pergunta clara, horario visivel, instrucao de ONDE responder sem ambiguidade
-result: [pending]
-reason: PASSOU em 2026-08-27 e voltou no mesmo dia — a quick 260827-e1b mudou o texto que ele julga, e carimbar uma redacao que ninguem leu seria pior que reperguntar
+result: pass
+note: PASSOU com `/join`, voltou para re-teste quando a quick 260827-e1b trocou o texto, e foi RE-APRESENTADO com `/entrar` em 2026-08-27. Fechado EM LOTE com o item 4 a pedido do usuario ("nao precisamos fazer uat de textos, vamos skippar ta tudo certo"), sem leitura item a item.
 
 ### 4. As mensagens de `/entrar` e `/sair` (10-03, D9)
 expected: Claras e uteis nos seis desfechos, sem duvida sobre QUAL boss
