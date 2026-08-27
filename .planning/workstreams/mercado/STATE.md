@@ -4,17 +4,17 @@ milestone: v1-mercado
 milestone_name: )
 current_phase: 1
 current_phase_name: Fundação — firewall, gravador e spike de campo
-status: roadmap_created
-stopped_at: Roadmap created, pre-approval
-last_updated: "2026-08-27T23:27:19.331Z"
+status: executing
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-08-27T23:47:39.090Z"
 last_activity: 2026-08-27
-last_activity_desc: Roadmap v1-mercado created (4 phases, 17/17 requirements mapped — a definição dizia 16, recontagem achou 17)
-state_head: 70434c236e30980493023933a6ea87c1803de94e
+last_activity_desc: Phase 1 execution started
+state_head: e82eb88fbee2eb190a450daecea8e8d654771bcf
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -23,15 +23,15 @@ progress:
 ## Project Reference
 
 **Core value:** Cada abertura do World Exchange vira coleta de dados — preços lidos passivamente da tela, sem nunca enviar input ao jogo.
-**Current focus:** Fase 1 — Fundação: firewall, gravador e spike de campo.
+**Current focus:** Phase 1 — Fundação — firewall, gravador e spike de campo
 **Delivery decision (locked):** console-only na v1; comandos WhatsApp de mercado são v2.
 
 ## Current Position
 
-Phase: 1 (Fundação — firewall, gravador e spike de campo) — READY TO EXECUTE
-Plan: Not planned yet
-Status: Roadmap created — awaiting user approval, then `/gsd-plan-phase 1`
-Last activity: 2026-08-27 — Roadmap v1-mercado created (4 phases, 17/17 requirements mapped — a definição dizia 16, recontagem achou 17)
+Phase: 1 (Fundação — firewall, gravador e spike de campo) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-08-27 — Phase 1 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -43,6 +43,9 @@ Progress: [░░░░░░░░░░] 0%
 - DETC-02 e LEIT-04 vivem na Fase 4: são a fiação do laço `--mercado` e a superfície de console, conforme a espinha da pesquisa
 - Fase 3 paraleliza com a Fase 2: depende só do formato da página aceita, não da leitura pronta
 - Slugs de fase levam prefixo `mercado-` para não colidir com o workstream default
+- [Phase 1]: O log ALTO da falha de gravacao mora em gravador.py, nao em Sessao.tick: o modulo que possui a verdade do disco e o que reporta a mentira, e assim sessao.py fica byte-identico
+- [Phase 1]: Contagem do disco usa is_file(): um diretorio com nome de PNG seria contado por um glob cru, reintroduzindo a mentira dentro da propria conferencia
+- [Phase 1]: O firewall FIRE-01 prova o vermelho por mutacao e por dist-info fabricada; instalar uma banida de verdade num teste seria cometer o proprio pecado
 
 ### Blockers
 
@@ -56,6 +59,14 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-**Stopped At:** Roadmap created, pre-approval
+**Last session:** 2026-08-27T23:47:39.074Z
+
+**Stopped At:** Completed 01-01-PLAN.md
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
+
+## Performance Metrics
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 1 P1 | 8 min | 3 tasks | 4 files |

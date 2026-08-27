@@ -9,11 +9,11 @@ Requisitos do milestone v1-mercado. Cada um mapeia para uma fase do roadmap.
 
 ### Firewall de escopo
 
-- [ ] **FIRE-01**: O build quebra se qualquer biblioteca de síntese de input entrar na árvore de dependências (estende o ban de `pyautogui` do v1)
+- [x] **FIRE-01**: O build quebra se qualquer biblioteca de síntese de input entrar na árvore de dependências (estende o ban de `pyautogui` do v1)
 
 ### Fundação (spike de campo)
 
-- [ ] **FUND-01**: O gravador só conta frames confirmados no disco — retorno do `cv2.imwrite` checado, falha aparece alto (pré-requisito da coleta de evidência da spike)
+- [x] **FUND-01**: O gravador só conta frames confirmados no disco — retorno do `cv2.imwrite` checado, falha aparece alto (pré-requisito da coleta de evidência da spike)
 - [ ] **FUND-02**: Sessões reais do World Exchange gravadas com `--record`, com as perguntas de campo respondidas e registradas: linhas por página, separador de milhar, moeda, colunas, onde fica o preço médio embutido
 - [ ] **FUND-03**: Calibração do mercado (regiões da janela, âncora do painel, templates de dígito) persiste em `calibration.json` via ferramenta própria
 
@@ -69,8 +69,8 @@ Preenchida na criação do roadmap (2026-08-27).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FIRE-01 | Phase 1 | Pending |
-| FUND-01 | Phase 1 | Pending |
+| FIRE-01 | Phase 1 | Complete |
+| FUND-01 | Phase 1 | Complete |
 | FUND-02 | Phase 1 | Pending |
 | FUND-03 | Phase 1 | Pending |
 | DETC-01 | Phase 1 | Pending |
@@ -88,6 +88,7 @@ Preenchida na criação do roadmap (2026-08-27).
 | ANAL-04 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 17 total (a contagem "16" da definição inicial estava errada — recontado na criação do roadmap)
 - Mapped to phases: 17
 - Unmapped: 0 ✓

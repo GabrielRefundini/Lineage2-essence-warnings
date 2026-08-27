@@ -40,12 +40,12 @@ O milestone transforma cada abertura manual do World Exchange numa coleta de dad
   4. No replay da gravação do incidente 27x, o usuário observa o painel de mercado ser reconhecido como "World Exchange aberto" e ZERO alertas de morte disparados — um sinal, dois consumidores, nunca duplicado
   5. Adicionar uma biblioteca de síntese de input (ex.: `pyautogui`) à árvore de dependências faz o teste de firewall falhar — o usuário pode ver o teste vermelho ao tentar
 
-**Plans**: 4 plans (4 waves — a fase é serial por construção: cada wave depende do portão anterior)
+**Plans**: 1/4 plans executed (4 waves — a fase é serial por construção: cada wave depende do portão anterior)
 
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — (wave 1) Gravador honesto (imwrite checado, resumo com a verdade do disco), modo de gravação da janela completa e o firewall de escopo `tests/test_firewall_escopo.py`
+- [x] 01-01-PLAN.md — (wave 1) Gravador honesto (imwrite checado, resumo com a verdade do disco), modo de gravação da janela completa e o firewall de escopo `tests/test_firewall_escopo.py`
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -112,7 +112,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Fundação — firewall, gravador e spike de campo | 0/4 | Planned | - |
+| 1. Fundação — firewall, gravador e spike de campo | 1/4 | In Progress|  |
 | 2. Leitura de página | 0/TBD | Not started | - |
 | 3. Persistência de observações | 0/TBD | Not started | - |
 | 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
