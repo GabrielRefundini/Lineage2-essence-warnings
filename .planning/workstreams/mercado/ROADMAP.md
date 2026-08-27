@@ -36,7 +36,12 @@ O milestone transforma cada abertura manual do World Exchange numa coleta de dad
   3. O usuário roda a ferramenta de calibração sobre um frame gravado e vê as regiões da janela, a âncora do painel e os templates de dígito persistidos em `calibration.json` — sem editar JSON à mão
   4. No replay da gravação do incidente 27x, o usuário observa o painel de mercado ser reconhecido como "World Exchange aberto" e ZERO alertas de morte disparados — um sinal, dois consumidores, nunca duplicado
   5. Adicionar uma biblioteca de síntese de input (ex.: `pyautogui`) à árvore de dependências faz o teste de firewall falhar — o usuário pode ver o teste vermelho ao tentar
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Gravador honesto (imwrite checado, resumo com a verdade do disco), modo de gravação da janela completa e o firewall de escopo `tests/test_firewall_escopo.py`
+- [ ] 01-02-PLAN.md — `ROTEIRO-SPIKE.md` (8 cenários rotulados), trilho da âncora do painel medido sobre a gravação do incidente 27x, e o **portão externo: o usuário grava as sessões**
+- [ ] 01-03-PLAN.md — `SPIKE-RESPOSTAS.md`, `calibrar-mercado.bat` + `calibrar_mercado.py` (regiões, templates, matriz de confusão) e DETC-01 final com a regressão do 27x
 
 **Bloqueio externo — explícito:** somente o USUÁRIO pode produzir as gravações do World Exchange (conta, cliente e servidor dele). O fix do gravador (FUND-01) vem ANTES de qualquer gravação; depois disso a fase PARA e espera as gravações do usuário. Nenhuma fase seguinte deve ser planejada em detalhe antes das respostas do spike.
 
@@ -80,7 +85,7 @@ O milestone transforma cada abertura manual do World Exchange numa coleta de dad
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Fundação — firewall, gravador e spike de campo | 0/TBD | Not started | - |
+| 1. Fundação — firewall, gravador e spike de campo | 0/3 | Planned | - |
 | 2. Leitura de página | 0/TBD | Not started | - |
 | 3. Persistência de observações | 0/TBD | Not started | - |
 | 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
