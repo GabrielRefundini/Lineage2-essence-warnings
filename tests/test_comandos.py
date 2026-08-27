@@ -1829,6 +1829,26 @@ class TestMembrosNoArquivoLocal:
         caminho, _ = self._arquivos(tmp_path, self.KORZIS, self.J4GUAR)
         assert [m.nick for m in ler_membros(caminho)] == ["Korzis"]
 
+    def test_o_EXEMPLO_do_repositorio_tambem_nao_carrega_telefone_de_ninguem(self):
+        """O modelo versionado e o novo lugar onde um telefone pode vazar.
+
+        O `config.local.exemplo.toml` existe para ser COPIADO. Ele e rastreado
+        pelo git, e um dedo errado que salve o modelo no lugar da copia poe o
+        numero de um party-mate no repositorio pela porta que acabou de ser
+        fechada — com o agravante de que ninguem vai olhar de novo para um
+        arquivo chamado "exemplo".
+
+        Mesmo guarda que o `test_o_config_toml_do_REPOSITORIO_...` faz do outro
+        lado, no arquivo que agora nao deve mais receber `[[membro]]` nenhum.
+        """
+        raiz = Path(__file__).resolve().parent.parent
+        modelo = raiz / "config.local.exemplo.toml"
+        assert modelo.exists(), (
+            "o modelo sumiu — sem ele o README manda copiar um arquivo que nao "
+            "existe, e o usuario escreve os telefones no config.toml de novo"
+        )
+        assert ler_membros(modelo) == []
+
 
 class TestColisaoDeTelefone:
     """A colisao de 8 digitos deixa de ser invisivel.

@@ -39,6 +39,17 @@ logs/
 # Calibração é local da máquina — cada tela tem a sua
 calibration.json
 
+# Os [[membro]] da party — telefone de OUTRA PESSOA, e por isso a regra
+# aqui e mais dura que a do calibration.json. Numero que entra em historico
+# de git nao sai mais: nem apagando o arquivo depois, nem trocando o valor.
+# Todo clone, todo fork e todo pull request ja saiu com ele dentro, e nao ha
+# como pedir de volta. A agenda continua no config.toml versionado porque um
+# horario errado la deixa a party esperando um TvT que nao vem, e existe
+# teste lendo AQUELE arquivo para pegar isso — por isso o telefone e que sai
+# do config.toml, e nao o config.toml que sai do git.
+# O modelo, esse sim versionado, e o config.local.exemplo.toml.
+config.local.toml
+
 # Python
 __pycache__/
 *.py[cod]
