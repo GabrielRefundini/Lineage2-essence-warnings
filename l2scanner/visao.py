@@ -76,6 +76,40 @@ class Observacao:
     linhas: tuple[LeituraDeLinha, ...]
     hp_proprio: float | None = None
 
+    # SO PARA MOSTRAR. Nenhuma decisao pode sair deste campo, nunca.
+    #
+    # Ele carrega a leitura que `barra_propria_legivel` RECUSOU e que o segundo
+    # discriminador (`_braco_do_casamento`) ainda assim reconheceu como barra —
+    # o caso real e a cena escura, onde a cauda vazia mostra terreno escuro e a
+    # moldura despenca para 29.08 com a barra ainda 88.5% cheia. Hoje, nesse
+    # regime, o console e o `scanner.log` nao mostram NADA da barra propria
+    # durante a descida inteira.
+    #
+    # POR QUE ELE NAO PODE VIRAR `hp_proprio`, medido em 2026-08-27: tudo que o
+    # casamento certifica pode ser um recorte PARCIALMENTE OCLUIDO. `coberta_0`
+    # — o inventario cobrindo parte da barra — casa +0.999 e le 86.91%. As duas
+    # classes so se ordenam pela moldura (48.00 contra 29.08), e nessa ordem
+    # `coberta_2` (28.00) e `coberta_3` (29.00) ficam ABAIXO do unico ponto
+    # legitimo que existe: a classe errada dos dois lados.
+    #
+    # E o custo de tratar isto como leitura de verdade foi SIMULADO contra a
+    # maquina de estado, com `Ajustes()` de producao. `hp_proprio` tem TRES
+    # consumidores em `rastreador.py` (linhas 454, 496 e 833):
+    #
+    #   quente com party, inventario 30 ticks -> `voce_sem_party` falso, tick 27
+    #   morre e abre o inventario             -> `ressuscitou` falso, tick 34
+    #   SOLO: morre e abre o inventario       -> `ressuscitou` falso, tick 34
+    #   morrendo (2 de 3), abre e fecha       -> morte ATRASA do tick 18 para o 20
+    #
+    # Duas classes de alerta falso e um atraso de morte. A `ressuscitou` falsa e
+    # literalmente metade do defeito que a quick `260826-dxm` pagou para matar.
+    # O usuario abre o inventario o tempo todo: nao e raro, e frequente.
+    #
+    # A seguranca aqui NAO vem de guardas no rastreador — vem de esta leitura
+    # NAO EXISTIR para ele. `rastreador.py` nao le este campo, e ha um tripwire
+    # de arquitetura na suite que quebra se ele passar a ler.
+    hp_proprio_aparente: float | None = None
+
     # Em que estado o CLIENTE esta (jogando, tela de login, desconectado).
     # Vem de fora da analise de pixels da party window — o titulo da janela e
     # um sinal do Windows, nao da imagem — por isso entra como campo em vez de
@@ -271,6 +305,173 @@ def barra_propria_legivel(recorte: np.ndarray | None) -> bool:
         float(cinza.std()) >= DESVIO_MINIMO_DA_BARRA_PROPRIA
         and _moldura_da_barra_propria(recorte) >= BRILHO_MINIMO_DA_MOLDURA_PROPRIA
     )
+
+
+
+# ---------------------------------------------------------------------------
+# O SEGUNDO discriminador da barra propria — INVARIANTE A BRILHO.
+#
+# Medido em 2026-08-27 sobre `recordings/escuro_janela.png` (1392x1720, brilho
+# medio 58.12), a unica cena escura que o repositorio conhece, resgatada para
+# `tests/fixtures/barra_propria/escuro_*.png`.
+#
+# O PROBLEMA que ele existe para resolver: em cena escura a barra propria e
+# declarada ILEGIVEL assim que QUALQUER cauda vazia aparece — medido com a barra
+# ainda 88.5% cheia. A parte vazia da barra e transparente e mostra o terreno; em
+# masmorra/noite esse terreno e escuro, e a MOLDURA despenca:
+#
+#   amostra (tela REAL)                fracao cheia   moldura   veredito de HOJE
+#   escuro_janela HP  (294,716)        100%           86.42     LEGIVEL
+#   escuro_janela MP  (294,741)         88.5%         29.08     ILEGIVEL
+#   agora_janela  MP  (294,741)          6.8%         78.73     LEGIVEL
+#
+# 29.08 cai DENTRO da faixa das cobertas (28.00..48.92). As duas classes se
+# SOBREPOEM nesse regime — nenhum limiar de brilho as separa, entao a resposta
+# nao e outro numero, e outro discriminador.
+#
+#   classe                        n    moldura          casamento
+#   livre, cheia, dia            45    73.67 .. 86.42   +0.993 .. +1.000
+#   livre, cheia, ESCURO          1    86.42            +0.944
+#   livre, 88.5% cheia, ESCURO    1    29.08            +0.964
+#   livre, 6.8% cheia, dia        1    78.73            +0.979
+#   coberta TOTAL, le 0%          8    28.00 .. 48.92   -0.059 .. +0.236
+#   coberta parcial, le 86.91%    1    48.00            +0.999
+#
+# O casamento e INVARIANTE A BRILHO — Pearson e cego a escala e a deslocamento —
+# e por isso da +0.964 num recorte cuja moldura despencou para 29.08.
+#
+# MAS A LEITURA QUE ELE CERTIFICA NAO E CONFIAVEL, e isso precisa estar escrito
+# aqui: `coberta_0` (parcialmente ocluida) da +0.999. Casamento alto nao prova
+# que o recorte esta LIVRE — prova que a estrutura horizontal da barra esta
+# visivel. Por isso o resultado vai para `Observacao.hp_proprio_aparente`, que
+# so o console e o log leem, e NUNCA para `hp_proprio`.
+# ---------------------------------------------------------------------------
+
+# Media de cinza por LINHA de `livre_0.png`, linhas 2 a 21 — 20 valores, com 2 px
+# de folga em cima e embaixo para o casamento poder DESLIZAR. A folga e o que
+# compra tolerancia a desalinhamento vertical; sem ela um unico pixel de
+# deslocamento derruba a correlacao de +0.972 para -0.179 (medido).
+PERFIL_DE_REFERENCIA_DA_BARRA_PROPRIA = (
+    72.81, 72.57, 72.31, 72.33, 59.71, 104.48, 85.23, 88.60, 88.44, 94.38,
+    85.98, 87.73, 86.40, 89.79, 64.02, 72.60, 72.48, 72.69, 72.69, 72.38,
+)  # fmt: skip
+
+# Altura em linhas do recorte calibrado da barra propria. Um recorte de outra
+# altura e reamostrado para esta antes de casar — senao a comparacao mediria
+# geometria em vez de estrutura.
+LINHAS_DO_PERFIL_PROPRIO = 24
+
+# Casamento minimo para o recorte valer como uma barra APARENTE.
+#
+#   coberta TOTAL (n=8, tela real), maximo  : +0.236  -> folga de 0.164
+#   as duas genuinas de cena escura         : +0.944 e +0.964 -> folga de 0.544
+#
+# O ponto medio das duas classes seria 0.590. O limiar fica ABAIXO dele de
+# proposito: errar para cima recusa barra legitima, e a direcao do dano deste
+# projeto e o SILENCIO.
+CASAMENTO_MINIMO_DO_PERFIL_PROPRIO = 0.40
+
+# Leitura minima para o casamento poder certificar qualquer coisa.
+#
+# ESTA CONSTANTE E UMA TRAVA DE SEGURANCA, nao um ajuste de qualidade. Um painel
+# de inventario cobrindo o LADO ESQUERDO da barra ZERA a leitura (`medir_barra`
+# mede a corrida inicial a partir da esquerda) e ainda assim casa +1.000, porque
+# o perfil e a media por LINHA e cobrir 5 de 191 colunas mal move essa media.
+# Sem esta trava, um inventario aberto viraria leitura de morte — a classe de
+# defeito que a quick `260826-dxm` pagou para matar (27 mortes + 27
+# ressurreicoes falsas num unico log real).
+#
+# 0.05 e 2.5x o `Ajustes.fracao_hp_considerada_zero = 0.02` do rastreador,
+# ~9.5 de 191 colunas. Verificado por EXAUSTAO nas DUAS direcoes de oclusao:
+# 4608 compostos (3 preenchimentos de direita x 4 paineis reais x k de 0 a 191 x
+# 2 direcoes), 3279 no regime de morte, ZERO certificados.
+#
+# O acoplamento com o rastreador esta preso por tripwire em
+# `tests/test_inventario_por_cima_da_barra_propria.py`: baixar
+# `fracao_hp_considerada_zero` anularia esta trava a distancia, sem tocar aqui.
+LEITURA_MINIMA_PARA_O_CASAMENTO = 0.05
+
+
+def _casamento_do_perfil_proprio(recorte: np.ndarray) -> float:
+    """Quanto a estrutura HORIZONTAL do recorte parece a da barra propria.
+
+    Media de cinza por LINHA (o perfil vertical do widget: moldura em cima,
+    campo da barra no meio, moldura embaixo), correlacionada por Pearson com
+    `PERFIL_DE_REFERENCIA_DA_BARRA_PROPRIA`.
+
+    Duas propriedades, as duas MEDIDAS:
+
+    * INVARIANTE A BRILHO. Pearson normaliza media e escala, entao a mesma barra
+      sobre terreno escuro casa igual: +0.964 num recorte cuja moldura caiu para
+      29.08. E exatamente por isso que ele serve onde a moldura falha.
+
+    * TOLERA +-2 px de desalinhamento vertical. A referencia tem 20 valores e
+      DESLIZA sobre o perfil de 24; o melhor encaixe vence. Medido nas 5 janelas
+      reais de `escuro_faixa.png`: +0.964 CONSTANTE ate a terceira casa, enquanto
+      a moldura das mesmas 5 pula de 12.64 a 32.33. A versao de posicao FIXA cai
+      de +0.972 para -0.179 com UM pixel de deslocamento — o deslizamento nao e
+      refinamento, e o que faz a funcao funcionar.
+
+    Em +-3 px o casamento cai para +0.293/+0.364, ambos abaixo do limiar: essa e
+    a tolerancia INTEIRA, e nao ha rede alem dela.
+
+    Sem variancia em qualquer um dos dois vetores o denominador de Pearson e
+    zero. A funcao devolve 0.0 nesse caso — nunca divide por zero, e nunca
+    aprova o degenerado (um recorte uniforme tem perfil constante).
+    """
+    cinza = cv2.cvtColor(recorte, cv2.COLOR_BGR2GRAY)
+    perfil = cinza.mean(axis=1).astype(np.float64)
+
+    if perfil.size != LINHAS_DO_PERFIL_PROPRIO:
+        perfil = np.interp(
+            np.linspace(0.0, 1.0, LINHAS_DO_PERFIL_PROPRIO),
+            np.linspace(0.0, 1.0, perfil.size),
+            perfil,
+        )
+
+    referencia = np.asarray(PERFIL_DE_REFERENCIA_DA_BARRA_PROPRIA, dtype=np.float64)
+    if perfil.size < referencia.size:
+        return 0.0
+
+    centrada = referencia - referencia.mean()
+    norma_ref = float(np.sqrt(float((centrada * centrada).sum())))
+    if norma_ref == 0.0:
+        return 0.0
+
+    melhor = 0.0
+    for inicio in range(perfil.size - referencia.size + 1):
+        janela = perfil[inicio : inicio + referencia.size]
+        desvio = janela - janela.mean()
+        norma = float(np.sqrt(float((desvio * desvio).sum())))
+        if norma == 0.0:
+            continue
+        melhor = max(melhor, float((desvio * centrada).sum()) / (norma * norma_ref))
+
+    return melhor
+
+
+def _braco_do_casamento(recorte: np.ndarray, leitura: float | None) -> bool:
+    """O recorte parece uma barra E a leitura NAO esta em regime de morte?
+
+    Funcao separada de proposito: e ELA que carrega a propriedade de seguranca
+    desta mudanca, e o teste exaustivo precisa mirar direto nela em vez de
+    inferi-la por `extrair`.
+
+    A ordem importa. O portao de LEITURA vem primeiro e e absoluto: um painel
+    cobrindo a esquerda da barra zera a leitura e ainda assim casa +1.000. Se o
+    casamento pudesse certificar leitura zero, abrir o inventario voltaria a
+    produzir morte falsa.
+
+    Isto NAO fecha o buraco simetrico do braco de MOLDURA, que e PRE-EXISTENTE:
+    `coberta_2` com o painel cobrindo 5 colunas a esquerda le 0.0000 com moldura
+    64.00 e ja e aceito HOJE por `barra_propria_legivel`. Esse buraco nao e
+    fechavel por portao de leitura — o braco de moldura PRECISA certificar
+    leitura zero, e assim que a morte e anunciada em terreno de dia. Registrado
+    em .planning/todos/pending/2026-08-26-a-moldura-da-barra-propria-em-terreno-escuro.md
+    """
+    if leitura is None or leitura <= LEITURA_MINIMA_PARA_O_CASAMENTO:
+        return False
+    return _casamento_do_perfil_proprio(recorte) >= CASAMENTO_MINIMO_DO_PERFIL_PROPRIO
 
 
 def _bordas_da_barra_intactas(
@@ -489,11 +690,43 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
         )
         hp_proprio = medir_barra(recorte_proprio, regiao_inteira, cal.limiares_hp)
 
+    # A leitura APARENTE, so para o console e para o log. O bloco acima NAO foi
+    # tocado de proposito: o que alimenta a maquina de estado precisa sair daqui
+    # byte a byte como saia antes, senao nenhum alerta pode ser garantido.
+    #
+    # Ela so e calculada quando o portao de hoje RECUSOU — em cena escura, uma
+    # barra 88.5% cheia e recusada por moldura 29.08 e some do console durante a
+    # descida inteira. Ver `Observacao.hp_proprio_aparente` para a razao de ela
+    # nao poder ser promovida a leitura de verdade.
+    hp_proprio_aparente = None
+    if (
+        hp_proprio is None
+        and recorte_proprio is not None
+        and recorte_proprio.size > 0
+    ):
+        regiao_aparente = Regiao(
+            esquerda=0,
+            topo=0,
+            largura=recorte_proprio.shape[1],
+            altura=recorte_proprio.shape[0],
+        )
+        leitura_aparente = medir_barra(
+            recorte_proprio, regiao_aparente, cal.limiares_hp
+        )
+        cinza_proprio = cv2.cvtColor(recorte_proprio, cv2.COLOR_BGR2GRAY)
+        # O portao de CONTRASTE continua valendo: um recorte preto ou uniforme
+        # nao pode virar numero no console mais do que podia virar alerta.
+        if float(cinza_proprio.std()) >= DESVIO_MINIMO_DA_BARRA_PROPRIA and (
+            _braco_do_casamento(recorte_proprio, leitura_aparente)
+        ):
+            hp_proprio_aparente = leitura_aparente
+
     return Observacao(
         indice_do_frame=frame.indice,
         ui_visivel=ui_visivel,
         linhas=tuple(linhas),
         hp_proprio=hp_proprio,
+        hp_proprio_aparente=hp_proprio_aparente,
     )
 
 

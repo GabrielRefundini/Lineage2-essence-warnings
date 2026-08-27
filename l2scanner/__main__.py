@@ -399,6 +399,28 @@ def desenhar_status(
             f"  {rotulo:<12s} {simbolos[estado_proprio]:<6s} "
             f"HP {obs.hp_proprio:5.0%}"
         )
+    elif obs.hp_proprio_aparente is not None and cal.nome_proprio:
+        # ESTA LINHA E A UNICA CONSUMIDORA DE `hp_proprio_aparente` no projeto
+        # inteiro, e e essa unicidade que mantem a mudanca inofensiva: a leitura
+        # pode vir de um recorte parcialmente ocluido, entao ela pode virar
+        # TEXTO e nada mais. `rastreador.py` nao le o campo, e a suite tem um
+        # tripwire de arquitetura que quebra se ele passar a ler.
+        #
+        # O caso real: cena escura. A cauda vazia da barra mostra terreno
+        # escuro, a moldura despenca para 29.08 com a barra ainda 88.5% cheia e
+        # o portao de legibilidade recusa — hoje o console e o log ficam sem
+        # NADA da barra propria durante a descida inteira, que e justamente
+        # quando a informacao mais importa.
+        #
+        # A MARCA e obrigatoria. Um numero sem marca no `scanner.log` vira
+        # evidencia falsa numa investigacao pos-farm: o proximo leitor
+        # concluiria que o scanner estava vendo a barra quando nao estava.
+        estado_proprio = rastreador.estado_de_membro(f"@{cal.nome_proprio}")
+        rotulo = f"{cal.nome_proprio} (voce)"
+        linhas.append(
+            f"  {rotulo:<12s} {simbolos[estado_proprio]:<6s} "
+            f"HP ~{obs.hp_proprio_aparente:4.0%} (aparente)"
+        )
 
     return "\n".join(linhas)
 
