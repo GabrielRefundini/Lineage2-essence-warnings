@@ -616,6 +616,195 @@ class TestInterpretarDinamico:
         assert interpretar_dinamico("   ", frozenset()) is None
 
 
+class TestOsDoisPrefixos:
+    """A barra e o oficial; o ponto e legado ACEITO e jamais anunciado.
+
+    Os dois convivem por um motivo mecanico, nao por gosto: comando nao
+    reconhecido morre EM SILENCIO, no `continue` do laco de autorizacao de
+    `comandos_novos`. Nao existe resposta de recusa. Num corte seco os cinco
+    party-mates ja treinados no ponto digitariam `.join`, nao receberiam NADA,
+    e concluiriam que o bot caiu — que e o pior modo de falha possivel para
+    uma mudanca cosmetica.
+
+    A prova aqui e de PARIDADE (as duas formas devolvem o MESMO `Comando`) e
+    nao de igualdade de texto, porque as duas coisas sao deliberadamente
+    diferentes: o parser aceita duas formas, a superficie de texto anuncia
+    UMA. E a paridade e parametrizada sobre `comandos.PREFIXOS` em vez de
+    escrita duas vezes, para que um terceiro prefixo, se um dia existir, ja
+    nasca provado.
+    """
+
+    TELEFONE = "+5544997077000"
+
+    # Amostra representativa: as duas familias do vocabulario fixo que a party
+    # usa no meio do farm, a forma de DUAS palavras (que tem caminho proprio em
+    # `interpretar`) e o `?`, que atravessa os dois `replace` do miolo.
+    FORMAS = [
+        ("cancelar", Comando.CANCELAR_SILENCIO),
+        ("cancelar silencio", Comando.CANCELAR_SILENCIO),
+        ("status", Comando.STATUS),
+        ("solo", Comando.SOLO),
+        ("party", Comando.PARTY),
+        ("join", Comando.JOIN),
+        ("entrar", Comando.JOIN),
+        ("leave", Comando.LEAVE),
+        ("sair", Comando.LEAVE),
+        ("help", Comando.AJUDA),
+        ("?", Comando.AJUDA),
+    ]
+
+    def _mensagem(self, id_: int, texto: str) -> dict:
+        return {
+            "id": id_,
+            "content": texto,
+            "message_type": 0,
+            "private": False,
+            "sender": {"name": "Yazalaque", "phone_number": self.TELEFONE},
+        }
+
+    @pytest.mark.parametrize("prefixo", comandos.PREFIXOS)
+    @pytest.mark.parametrize("forma,esperado", FORMAS)
+    def test_o_vocabulario_fixo_tem_PARIDADE_entre_os_prefixos(
+        self, prefixo, forma, esperado
+    ):
+        assert interpretar(prefixo + forma) is esperado
+
+    @pytest.mark.parametrize("prefixo", comandos.PREFIXOS)
+    def test_a_palavra_humana_e_recusada_nos_DOIS(self, prefixo):
+        """D-05: a exclusao do `offline` e AGNOSTICA de prefixo, de proposito.
+
+        Ela existe porque a palavra e convencao HUMANA do grupo — quem digita
+        esta avisando GENTE, nao o bot — e nao pode virar consulta de nick.
+        Com a barra o risco praticamente some, mas torna-la especifica de
+        prefixo criaria uma divergencia de comportamento entre duas formas que
+        devem ser a MESMA coisa, que e o oposto de "os dois valem".
+        """
+        conhecidos = frozenset({apelido("Offline")})
+        assert interpretar(prefixo + "offline") is None
+        assert interpretar_dinamico(prefixo + "offline", conhecidos) is None
+
+    @pytest.mark.parametrize("prefixo", comandos.PREFIXOS)
+    def test_a_consulta_por_nick_vale_nos_DOIS(self, prefixo):
+        """D-06, e ela nao foi escolha solta: e FORCADA pela tabela de ajuda.
+
+        A `_AJUDA` passou a anunciar `/<nick>`, e
+        `test_toda_sintaxe_anunciada_volta_como_o_comando_certo` roda a tabela
+        INTEIRA pelo caminho real. Anunciar a barra sem aceita-la quebraria a
+        suite — este teste so torna a consequencia visivel onde se procura.
+        """
+        conhecidos = frozenset({apelido("J4guar")})
+        assert interpretar_dinamico(prefixo + "J4guar", conhecidos) == (
+            Comando.LOOT_CONSULTA,
+            "J4guar",
+        )
+
+    @pytest.mark.parametrize("prefixo", comandos.PREFIXOS)
+    def test_palavra_do_vocabulario_NAO_vira_consulta_em_nenhum_prefixo(
+        self, prefixo
+    ):
+        """O outro lado da fronteira de D-06.
+
+        Sem isto, um personagem homonimo de comando SOMBREARIA o comando: um
+        char chamado "Status" faria `/status` responder estatistica de loot em
+        vez de dizer se o scanner esta vigiando.
+        """
+        conhecidos = frozenset({apelido("status"), apelido("join")})
+        assert interpretar_dinamico(prefixo + "status", conhecidos) is None
+        assert interpretar_dinamico(prefixo + "join", conhecidos) is None
+
+    def test_a_superficie_dinamica_inteira_na_barra(self):
+        """Caso a caso, porque cada ramo tem uma armadilha propria.
+
+        Em especial o cancelamento por palavra reservada em DUAS palavras: foi
+        exatamente essa forma que, tratada so com hifen, fez o scanner DESIGNAR
+        um personagem inexistente chamado "cancelar" numa tarefa anterior deste
+        projeto. A forma de duas palavras nunca e opcional num comando que mexe
+        em estado duravel.
+        """
+        conhecidos = frozenset({apelido("J4guar")})
+        assert interpretar_dinamico("/loot-J4guar", conhecidos) == (
+            Comando.LOOT_DESIGNAR,
+            "J4guar",
+        )
+        assert interpretar_dinamico("/loot J4guar", conhecidos) == (
+            Comando.LOOT_DESIGNAR,
+            "J4guar",
+        )
+        assert interpretar_dinamico("/loot-", conhecidos) == (
+            Comando.LOOT_CANCELAR,
+            "",
+        )
+        assert interpretar_dinamico("/loot-cancelar", conhecidos) == (
+            Comando.LOOT_CANCELAR,
+            "",
+        )
+        assert interpretar_dinamico("/loot cancelar", conhecidos) == (
+            Comando.LOOT_CANCELAR,
+            "",
+        )
+        assert interpretar_dinamico("/corrigir-J4guar", conhecidos) == (
+            Comando.LOOT_CORRIGIR,
+            "J4guar",
+        )
+        assert interpretar_dinamico("/corrigir J4guar", conhecidos) == (
+            Comando.LOOT_CORRIGIR,
+            "J4guar",
+        )
+        assert interpretar_dinamico("/pegou 18:00 J4guar", conhecidos) == (
+            Comando.LOOT_ATRIBUIR,
+            "18:00 J4guar",
+        )
+
+    def test_o_loot_SOZINHO_continua_sendo_nada_na_barra(self):
+        """D-02 do codigo, e o prefixo novo nao pode ter afrouxado isso.
+
+        Comando sem argumento nao pode ser destrutivo: quem digita `/loot` no
+        meio de um farm quase sempre esta PERGUNTANDO de quem e a vez.
+        """
+        assert interpretar_dinamico("/loot", frozenset({apelido("J4guar")})) is None
+        assert interpretar("/loot") is None
+
+    @pytest.mark.parametrize("prefixo", comandos.PREFIXOS)
+    def test_o_prefixo_solto_antes_da_palavra_vale_nos_DOIS(self, prefixo):
+        """Comportamento que ja existia, medido aqui para nao divergir depois.
+
+        `interpretar` junta as DUAS primeiras palavras para aceitar
+        `/cancelar silencio`, e o efeito colateral e que o prefixo separado da
+        palavra por um espaco tambem casa. Isso vale identico nos dois
+        prefixos, e e exatamente o tipo de detalhe que uma segunda copia do
+        `startswith` faria divergir sem ninguem notar.
+        """
+        assert interpretar(prefixo + " join") is Comando.JOIN
+
+    @pytest.mark.parametrize(
+        "texto", ["//join", "/./join", "/", ".", "/nao-existe", "/rm -rf"]
+    )
+    def test_prefixo_duplicado_ou_sozinho_nao_e_comando(self, texto):
+        """Um prefixo a mais nao vira comando, e um prefixo so tambem nao.
+
+        `sem_prefixo` devolve string VAZIA para o prefixo sozinho — e um caso
+        legitimo que morre adiante por nao casar vocabulario nem nick. Este
+        teste e quem garante que "morre adiante" continua verdade.
+        """
+        assert interpretar(texto) is None, texto
+        assert interpretar_dinamico(texto, frozenset({apelido("J4guar")})) is None
+
+    def test_a_forma_antiga_atravessa_o_caminho_REAL_ponta_a_ponta(self):
+        """A promessa feita aos party-mates e sobre o caminho INTEIRO.
+
+        Prova so no `interpretar` nao bastaria: o que decide se o comando vira
+        acao e `comandos_novos`, com as cinco travas ligadas. E e la, no
+        `continue` da autorizacao, que mora o descarte silencioso que motivou
+        manter a forma antiga viva.
+        """
+        achados = comandos_novos(
+            [self._mensagem(31, ".join"), self._mensagem(32, ".leave")],
+            set(),
+            [self.TELEFONE],
+        )
+        assert [m.comando for m in achados] == [Comando.JOIN, Comando.LEAVE]
+
+
 class TestComandosDinamicosNasTravas:
     """As travas antigas valem INTEGRALMENTE para os comandos novos.
 
