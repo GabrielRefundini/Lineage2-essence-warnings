@@ -300,3 +300,23 @@ processo GSD concorrente no mesmo repositorio. Nenhum deles toca `l2scanner/` ne
 
 Nenhum. Nada foi deixado pela metade — o que nao foi feito esta registrado como
 regime nao coberto no TODO, com numero.
+
+## Self-Check: PASSED
+
+Conferido em disco e no git log apos os commits:
+
+    FOUND: tests/fixtures/barra_propria/escuro_cauda_vazia.png
+    FOUND: tests/fixtures/barra_propria/escuro_cheia.png
+    FOUND: tests/fixtures/barra_propria/escuro_faixa.png
+    FOUND: .planning/quick/.../260827-fsk-SUMMARY.md
+    FOUND: .planning/todos/pending/2026-08-26-a-moldura-...md   (ABERTO)
+    FOUND: 6e8ef85  b4782b7  5a72dae  2346954
+
+Portoes:
+
+    rastreador.py em cd53bf03..HEAD ......... AUSENTE
+    grep hp_proprio_aparente rastreador.py .. 0
+    pyproject.toml em 9d5533e..HEAD ......... 0 arquivos
+    TODO em done/ ........................... nao existe
+    pytest tests/ -q ........................ 1164 passed, 2 skipped (exit 0)
+    pytest --collect-only ................... 1166 (baseline 1127)
