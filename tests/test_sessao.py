@@ -1034,7 +1034,6 @@ class TestManutencaoNoTick:
         anterior: as duas sessoes chegam ao mesmo aviso, com a mesma chave, no
         mesmo instante, e exatamente uma cria o arquivo com O_CREAT|O_EXCL.
         """
-        from l2scanner.manutencao import VigiaDeManutencao
 
         frame = self._frame_com_banner(frame_real)
         sessoes = [
@@ -1066,7 +1065,7 @@ class TestManutencaoNoTick:
         None), e mesmo assim o aviso de 5 minutos sai: ele vem da ancora, nao
         da tela (D-10).
         """
-        from l2scanner.manutencao import TipoDeAvisoDeManutencao, VigiaDeManutencao
+        from l2scanner.manutencao import TipoDeAvisoDeManutencao
 
         vigia = _vigia_das_duas_escalas(
             LeitorDoBanner("Server Maintence 6 minutes")
