@@ -210,6 +210,16 @@ _VOCABULARIO: dict[str, Comando] = {
     # exatamente por isso que a lista de apelidos e CURTA — duas formas por
     # comando, a inglesa que a party ja usa em jogo e a portuguesa que a mao
     # digita sozinha.
+    #
+    # QUAL DELAS O PRODUTO ANUNCIA mudou em 2026-08-27: a party e brasileira e
+    # a mao digita portugues sozinha, entao "entrar" e "sair" passaram a ser a
+    # sintaxe da tabela `_AJUDA` e "join" e "leave" viraram apelido ANUNCIADO
+    # ali — demovidos da vitrine, nunca apagados dela.
+    #
+    # AS QUATRO ENTRADAS ABAIXO NAO SAEM DAQUI. Comando nao reconhecido e
+    # descartado no `continue` do laco de autorizacao: nao existe resposta de
+    # recusa. Quem decorou "join" e o digitasse depois de um corte receberia
+    # NADA — indistinguivel, do lado dele, de o bot ter caido.
     "join": Comando.JOIN,
     "entrar": Comando.JOIN,
     "leave": Comando.LEAVE,
@@ -273,15 +283,15 @@ _AJUDA: dict[Comando, LinhaDeAjuda] = {
     # quem e o loot. A ordem de insercao deste dict E a ordem da resposta.
     Comando.JOIN: LinhaDeAjuda(
         "Presenca",
-        "/join",
+        "/entrar",
         "Entro na lista do proximo Solo Boss",
-        ("/entrar",),
+        ("/join",),
     ),
     Comando.LEAVE: LinhaDeAjuda(
         "Presenca",
-        "/leave",
+        "/sair",
         "Saio da lista do proximo Solo Boss",
-        ("/sair",),
+        ("/leave",),
     ),
     Comando.LOOT_DESIGNAR: LinhaDeAjuda(
         "Loot do Solo Boss", "/loot-<nick>", "Marca quem pega o loot do proximo boss"
