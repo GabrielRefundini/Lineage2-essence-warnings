@@ -63,8 +63,18 @@ mudou: seguem bloqueados em campo.
 
 ## Current Test
 
-[testing pausado — 5 itens em aberto: 3, 4 e 6 (julgamento de redacao,
-prontos para responder), 1 e 5 (bloqueados em campo)]
+[testing pausado — os 4 itens de JULGAMENTO estao fechados; sobram 1 e 5,
+os dois bloqueados em campo]
+
+Os quatro itens de redacao (2, 3, 4, 6) estao aprovados. Os itens 3 e 4 foram
+fechados EM LOTE em 2026-08-27, a pedido explicito do usuario — o registro diz
+isso de proposito, para nao parecer revisao item a item que nao houve.
+
+O QUE FALTA, e so isso: os itens 1 e 5, que exigem `.env` real, a etiqueta `CP`
+no Chatwoot, um `[[membro]]` com telefone real e um SEGUNDO telefone. Nenhum
+deles e fechavel de dentro desta sessao.
+
+Retome com `/gsd-verify-work 10` quando tiver o celular em maos.
 
 O gap 1 esta CONSERTADO (quick `260827-e1b`, 2026-08-27): o vocabulario
 oficial passou a ser `/entrar` e `/sair`, com o ingles mantido como apelido
@@ -102,7 +112,8 @@ reason: PASSOU em 2026-08-27 e voltou no mesmo dia — a quick 260827-e1b mudou 
 
 ### 4. As mensagens de `/entrar` e `/sair` (10-03, D9)
 expected: Claras e uteis nos seis desfechos, sem duvida sobre QUAL boss
-result: [pending]
+result: pass
+note: fechado EM LOTE a pedido do usuario ("nao precisamos fazer uat de textos, vamos skippar ta tudo certo"), sem leitura dos seis desfechos um a um. Julgamento afirmativo dele, nao revisao detalhada.
 reported: "vamos trocar o comando de join para /entrar e /sair"
 resolved_by: quick-260827-e1b (2026-08-27)
 reason: o issue foi consertado, e o registro dele fica — foi essa decisao do usuario que gerou a quick. Os seis textos mudaram e pedem re-leitura
@@ -116,18 +127,18 @@ reason: depende do Chatwoot real e de um segundo telefone; sai de carona nos pas
 
 ### 6. A lista fechada no grupo (10-04, D8)
 expected: Le bem e nao vira ruido, pensando nas doze ocorrencias por dia
-result: [pending]
+result: pass
 
 ---
 
 ## Summary
 
 total: 6
-passed: 1
+passed: 4
 issues: 0
-pending: 5
+pending: 0
+blocked: 2
 skipped: 0
-blocked: 0
 
 ---
 
@@ -252,7 +263,7 @@ sem ambiguidade.
 
 **Por que humano:** qualidade de redacao e julgamento.
 
-- [ ] Conferido
+- [x] Conferido — 2026-08-27 (em lote)
 
 ---
 
@@ -278,7 +289,7 @@ O Solo Boss das 20:00 ja comecou e a lista fechou. Nao da mais para sair dela.
 
 **Por que humano:** qualidade de redacao e julgamento.
 
-- [ ] Conferido
+- [x] Conferido — 2026-08-27 (em lote)
 
 ---
 
@@ -317,7 +328,7 @@ alguem confirmou", nao doze.
 
 **Por que humano:** percepcao de volume e de ruido e julgamento.
 
-- [ ] Conferido
+- [x] Conferido — 2026-08-27
 
 ---
 

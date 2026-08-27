@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 current_phase: 10
 current_phase_name: Lista de presenca do Solo Boss pelo WhatsApp
-status: phase-10-implemented-pending-field-validation
+status: phase-10-pending-field-uat-only
 stopped_at: "Fase 10 implementada e verificada offline (1052 testes); falta validacao em campo no WhatsApp"
 last_updated: "2026-08-27T13:32:03Z"
 last_activity: 2026-08-27
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-08-24)
 
 Phase: 10 (Lista de presenca do Solo Boss pelo WhatsApp) — EXECUTING
 Status: Executing Phase 10
-Last activity: 2026-08-27 — Quick 260827-e1b: `/entrar` e `/sair` viram o vocabulario ANUNCIADO da lista de presenca
+Last activity: 2026-08-27 — UAT da Fase 10: os 4 itens de julgamento de redacao APROVADOS (3 e 4 em lote, a pedido); sobram so os itens 1 e 5, bloqueados em campo (exigem Chatwoot real e um segundo telefone)
 
 Progress: [██████████] 100% (9 de 9 fases)
 
