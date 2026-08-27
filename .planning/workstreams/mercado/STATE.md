@@ -1,14 +1,19 @@
 ---
 gsd_state_version: 1.0
 milestone: v1-mercado
-milestone_name: "Mercado: captura e analise de precos do World Exchange"
+milestone_name: )
+current_phase: 1
+current_phase_name: Fundação — firewall, gravador e spike de campo
 status: roadmap_created
-last_updated: "2026-08-27T00:00:00.000Z"
+stopped_at: Roadmap created, pre-approval
+last_updated: "2026-08-27T23:27:19.331Z"
 last_activity: 2026-08-27
+last_activity_desc: Roadmap v1-mercado created (4 phases, 17/17 requirements mapped — a definição dizia 16, recontagem achou 17)
+state_head: 70434c236e30980493023933a6ea87c1803de94e
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 4
   completed_plans: 0
   percent: 0
 ---
@@ -23,7 +28,7 @@ progress:
 
 ## Current Position
 
-Phase: 1 of 4 — Fundação (firewall, gravador e spike de campo)
+Phase: 1 (Fundação — firewall, gravador e spike de campo) — READY TO EXECUTE
 Plan: Not planned yet
 Status: Roadmap created — awaiting user approval, then `/gsd-plan-phase 1`
 Last activity: 2026-08-27 — Roadmap v1-mercado created (4 phases, 17/17 requirements mapped — a definição dizia 16, recontagem achou 17)
