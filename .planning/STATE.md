@@ -4,9 +4,9 @@ current_phase: 10
 current_phase_name: Lista de presenca do Solo Boss pelo WhatsApp
 status: phase-10-implemented-pending-field-validation
 stopped_at: "Fase 10 implementada e verificada offline (1052 testes); falta validacao em campo no WhatsApp"
-last_updated: "2026-08-27T02:07:58Z"
+last_updated: "2026-08-27T13:32:03Z"
 last_activity: 2026-08-27
-last_activity_desc: Quick 260826-vtt — as duas pendencias mecanicas da Fase 10 fechadas
+last_activity_desc: Quick 260827-e1b — o vocabulario anunciado da lista de presenca passa a ser portugues
 state_head: bf00d63b89a446cb01dc356c6b65746599df2347
 progress:
   total_phases: 10
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-08-24)
 
 Phase: 10 (Lista de presenca do Solo Boss pelo WhatsApp) — EXECUTING
 Status: Executing Phase 10
-Last activity: 2026-08-27 — Quick 260827-b82: comandos passam a usar `/`, com o `.` aceito em silencio
+Last activity: 2026-08-27 — Quick 260827-e1b: `/entrar` e `/sair` viram o vocabulario ANUNCIADO da lista de presenca
 
 Progress: [██████████] 100% (9 de 9 fases)
 
@@ -147,6 +147,7 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 
 | Data | Tarefa | Resultado |
 |------|--------|-----------|
+| 2026-08-27 | [o-vocabulario-oficial-da-lista-de-presenca](quick/260827-e1b-o-vocabulario-oficial-da-lista-de-presen/260827-e1b-SUMMARY.md) | O que o produto **anuncia** para entrar e sair da lista do Solo Boss passou a ser portugues: `/entrar` e `/sair` viraram a `sintaxe` das duas linhas de Presenca da `_AJUDA`, e as formas inglesas desceram para `apelidos` — **demovidas da vitrine, nunca apagadas**. O `_VOCABULARIO` nao perdeu uma linha: os quatro nomes continuam aceitos, porque comando desconhecido morre no `continue` do laco de autorizacao **sem resposta de recusa** — quem decorou o nome ingles receberia NADA, indistinguivel do bot ter caido. As tres mensagens operacionais de uma linha (a chamada de 1h50, o erro de disco, as tres linhas de arranque) falam **so portugues**; as superficies de CONSULTA (`_AJUDA`, bloco `[[membro]]` do `config.toml`, tabela do README) mostram **as duas**, com a portuguesa na frente. A tabela do README ganhou de quebra as duas linhas de Presenca que nunca tinham entrado la (Deferred Item do b82). **A lacuna que a tarefa fechou:** o tripwire do caminho real percorria so o campo `sintaxe` — nenhum teste exercitava `apelidos`, entao demover o ingles o tiraria da cobertura ponta-a-ponta em silencio. Agora TODO apelido anunciado volta pelo `comandos_novos` real. Os itens 3 e 4 do `10-UAT.md` voltaram para re-teste com as citacoes refeitas da fonte viva, e o gap 1 fechou. Suite: **1121 → 1125 passed, 2 skipped** (+4 testes, nenhum trocado). |
 | 2026-08-27 | [comandos-passam-a-usar-a-barra](quick/260827-b82-comandos-passam-a-usar-a-barra-do-lineag/260827-b82-SUMMARY.md) | Os comandos do WhatsApp passam a usar `/`, seguindo a convenção do próprio Lineage. O `.` **continua aceito**, em silêncio: comando não reconhecido é descartado sem resposta, então um corte seco deixaria os 5 party-mates digitando `.join` sem retorno nenhum e concluindo que o bot caiu. Toda a superfície de texto — tabela do `/ajuda`, respostas, README, comentários do `config.toml` e a chamada do Solo Boss na `agenda.py` — passa a anunciar somente `/`. `/offline` segue recusado (é convenção humana do grupo) e `/<nick>` consulta, igual ao `.<nick>`. Suite: **1077 → 1121 passed, 2 skipped** (+44 testes; a cobertura do ponto foi mantida, nunca trocada). |
 | 2026-08-26 | [fechar-as-duas-pendencias-mecanicas](quick/260826-vtt-fechar-as-duas-pendencias-mecanicas-da-f/260826-vtt-SUMMARY.md) | As duas pendencias mecanicas que sobraram da Fase 10, fechadas com o menor diff possivel. **(1)** Os dois `F401` de `VigiaDeManutencao` em `tests/test_sessao.py` sairam por `ruff --fix` com escopo no ARQUIVO — diff de **1 insercao e 2 delecoes**, exatamente a forma pre-vista com `--fix --diff`. A armadilha era a linha 1069, que trazia DOIS nomes: ela foi **encurtada, nao apagada**, porque `TipoDeAvisoDeManutencao` alimenta o `assert tipos == [...]` do proprio teste e apagar a linha inteira daria `NameError` — e por isso o conserto tinha que ser `ruff --fix` e nao `sed`. Os 2 imports legitimos (961 e 989, que fazem `return VigiaDeManutencao(...)`) seguem de pe: a contagem caiu de 4 para 2, nunca para 0. `ruff format` NAO foi rodado (o arquivo ja falhava o `--check` antes de qualquer mudanca) e os outros 29 erros de ruff do repo continuam la de proposito. Suite inteira nas duas pontas: **1077 passed, 2 skipped** -> **1077 passed, 2 skipped**. **(2)** O `.planning/milestone.lock` da sessao morta foi removido — pid 28896 inexistente e `updated_at` de ~11h contra um TTL de 4h, duas contas independentes dando a reivindicacao como morta. O `deferred-items.md` da fase 10 fecha o item 1 e corrige as coordenadas **897/929 -> 1037/1069**, que tinham envelhecido com o crescimento do arquivo — o unico detalhe do registro capaz de mandar a proxima pessoa para o lugar errado. |
 | 2026-08-26 | [fechar-as-pendencias](quick/260826-es0-fechar-as-pendencias-template-do-dialogo/260826-es0-SUMMARY.md) | Duas pendências fechadas com dado real, não com opinião. **(1)** O template do diálogo de desconexão nunca tinha sido medido contra gameplay normal — medido em 10 frames da tela real, o pior caso (inventário e mercado abertos, que são caixas cinzas com botões) dá **0.4618** contra o limiar de 0.90: margem de 0.43. Fixture da faixa de busca presa no repo, com tripwire que quebra se `FAIXA_DO_DIALOGO` mudar sem remedir. **(2)** A divergência do ledger (`.pegou` com data sem ano) foi **julgada rodando as duas regras lado a lado**, não carimbada: as regras só divergem onde o recuo de ano irrestrito gravaria estado permanente e inalcançável em `.loot/`; implementado está certo, waived com a razão. Ledger: open_count 1 → 0. Também registrada uma ideia REFUTADA (amostrar chrome fora da região da barra própria: separa pior, 7 pontos contra 25). 780 → 783 testes. |
@@ -175,9 +176,9 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 
 ## Session Continuity
 
-Last session: 2026-08-27T02:07:58Z
-Stopped at: Quick 260826-vtt concluida: os dois F401 sairam de tests/test_sessao.py por ruff --fix (diff 1/2) e o milestone.lock morto saiu do .planning. Suite em 1077 passed, 2 skipped.
-Historico anterior: Quick 260825-t1n concluida: o .help responde com a lista de comandos, derivada do enum
+Last session: 2026-08-27T13:32:03Z
+Stopped at: Quick 260827-e1b concluida: /entrar e /sair viraram o vocabulario anunciado da lista de presenca, com o ingles mantido como apelido anunciado e os quatro nomes intactos no _VOCABULARIO. Itens 3 e 4 do 10-UAT.md de volta para re-teste; gap 1 fechado. Suite em 1125 passed, 2 skipped.
+Historico anterior: Quick 260827-b82 concluida: a barra virou o prefixo oficial e o ponto seguiu aceito em silencio
 lida como saída de party, arranque cego lido como entrada em party). 226 testes.
 Commits 589ac84 e 7bb43f0. Sessão em `.planning/debug/resolved/alarme-falso-no-arranque.md`.
 **O bot precisa ser reiniciado para carregar as correções.**
@@ -188,6 +189,9 @@ Resume file: None
 - [Phase 4]: [loot]: O horario do `.pegou` e ENCAIXADO numa ocorrencia real do Solo Boss (tolerancia 30 min) e o registro usa o horario da ocorrencia, nunca o digitado. Sem boss por perto o comando recusa e lista os horarios — a pasta .loot/ nunca e podada, entao um registro orfao seria permanente e inalcancavel.
 - [Phase 4]: [loot]: Data sem ano resolve para a leitura de calendario MAIS PROXIMA de agora, e so entao precisa ter passado. Em janeiro "30/12" e dezembro passado; em agosto o mesmo "30/12" recusa em vez de gravar oito meses atras. Recuar sempre para o ano anterior gravaria estado permanente por um dedo escorregado.
 - [Phase 9]: [comandos]: O texto da ajuda e DERIVADO de uma tabela chaveada pelo enum Comando, com tripwire set(_AJUDA) == set(Comando). Cinco comandos nasceram em um dia; ajuda escrita a mao envelheceria antes do fim da semana, e ajuda desatualizada ensina sintaxe que nao funciona. O tripwire foi provado por MUTACAO, nao por leitura.
+- [Phase 10]: [comandos]: VITRINE e VOCABULARIO sao superficies separadas. O que o produto ANUNCIA (a tabela `_AJUDA`) pode inverter sem que o parser mude uma virgula; demover uma forma e tira-la da frente, nunca do `_VOCABULARIO`. A regra vem de uma medicao, nao de gosto: comando nao reconhecido e descartado no `continue` do laco de autorizacao, sem resposta de recusa, entao um corte seco deixa quem decorou o nome antigo sem retorno nenhum.
+- [Phase 10]: [comandos]: A forma demovida fica ANUNCIADA como apelido, e nao aceita em silencio. E mais forte que o desenho do ponto na quick b82, e o preco e um teste: todo apelido anunciado tem que voltar como o comando certo pelo caminho REAL, senao a tabela ganha um segundo nivel de veracidade sem um segundo nivel de prova.
+- [Phase 10]: [comandos]: Mensagem operacional de UMA LINHA nomeia UMA acao e fala so portugues; superficie de CONSULTA mostra as duas formas com a principal na frente. Listar dois nomes numa frase lida de relance no meio do farm dobra o comprimento e ensina duas coisas onde so uma precisa ser feita.
 - [Phase 9]: [console]: Resposta com quebra de linha nunca e moldurada. moldurar faz max(LARGURA, len(miolo) + len(carimbo)) sobre a string INTEIRA, entao a ajuda de dezenove linhas sairia no log com uma borda de 725 caracteres — medido. A regra vale pela FORMA do texto, nao pelo comando de origem.
 
 ## Deferred Verification
