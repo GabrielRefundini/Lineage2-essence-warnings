@@ -39,23 +39,47 @@ nenhum texto o menciona. Julgue os textos com a barra — e a que a party vai le
 
 ---
 
+## CORRECAO DE VOCABULARIO (2026-08-27)
+
+O gap 1 foi consertado pela quick `260827-e1b` ("o vocabulario oficial da
+lista de presenca"). O que o produto ANUNCIA para entrar e sair da lista
+passou a ser portugues. As formas inglesas continuam ACEITAS pelo parser e
+continuam anunciadas como APELIDO na tabela do `/help` — o que mudou e so
+quem vem na frente. Nenhuma mensagem operacional de uma linha as cita mais.
+
+Citacoes REFEITAS lendo a fonte viva, DEPOIS do conserto:
+
+- item 3 — `l2scanner/agenda.py:267-276` (`texto_do_aviso`, ramo
+  `TipoDeAviso.CHAMADA`), renderizado para o boss das 22:00;
+- item 4 — `l2scanner/presenca.py:268-285` (entrar) e `:326-356` (sair).
+  **Dos seis desfechos so o do erro de disco mudou**; os outros cinco foram
+  CONFERIDOS contra os f-strings do modulo, um a um, e nao presumidos.
+
+Os itens 1 e 5 tiveram so o NOME DO COMANDO atualizado, para o teste de
+campo nao mandar a pessoa digitar a forma demovida. O veredito deles nao
+mudou: seguem bloqueados em campo.
+
+---
+
 ## Current Test
 
-[testing pausado — 3 itens em aberto: 6 (julgamento, pronto para responder),
-1 e 5 (bloqueados em campo)]
+[testing pausado — 5 itens em aberto: 3, 4 e 6 (julgamento de redacao,
+prontos para responder), 1 e 5 (bloqueados em campo)]
 
-Pausado em 2026-08-27 para consertar o gap 1 (o vocabulario oficial passa a ser
-`/entrar` e `/sair`). O item 6 NAO e afetado pela troca — a mensagem da lista
-fechada nao cita comando nenhum — entao a pergunta feita continua valida.
-Os itens 3 e 4 voltam para a fila de re-teste depois do conserto.
+O gap 1 esta CONSERTADO (quick `260827-e1b`, 2026-08-27): o vocabulario
+oficial passou a ser `/entrar` e `/sair`, com o ingles mantido como apelido
+anunciado. Os itens 3 e 4 voltaram para a fila porque o texto que eles
+julgam mudou. O item 6 NAO foi afetado — a mensagem da lista fechada nao
+cita comando nenhum — entao a pergunta feita a ele continua valida.
 
 DECISAO DO USUARIO (2026-08-27), confirmando o gap 1:
 "ah se ja funciona pode manter, so use em portugues nas mensagens como padrao
 /entrar /sair" — os quatro nomes continuam aceitos; muda so o que e ANUNCIADO.
 
-**Ordem escolhida:** 2 -> 3 -> 4 -> 6 -> 1 -> 5. Os quatro primeiros sao
-julgamento de redacao e nao exigem jogo, rede nem segundo telefone — dao para
-fechar agora. Os itens 1 e 5 dependem do Chatwoot real e ficam por ultimo.
+**Ordem escolhida:** 3 -> 4 -> 6 -> 1 -> 5 (o 2 ja passou). Os tres
+primeiros sao julgamento de redacao e nao exigem jogo, rede nem segundo
+telefone — dao para fechar agora, e os tres agora falam portugues. Os
+itens 1 e 5 dependem do Chatwoot real e ficam por ultimo.
 
 ---
 
@@ -71,17 +95,20 @@ reason: exige `.env` real, etiqueta `CP` no Chatwoot, `[[membro]]` com telefone 
 expected: Um nao-programador consegue preencher nick e telefone sem ajuda
 result: pass
 
-### 3. O texto da chamada (10-02, D7) — PASSOU (2026-08-27)
+### 3. O texto da chamada (10-02, D7) — DE VOLTA PARA RE-TESTE
 expected: Pergunta clara, horario visivel, instrucao de ONDE responder sem ambiguidade
-result: pass
+result: [pending]
+reason: PASSOU em 2026-08-27 e voltou no mesmo dia — a quick 260827-e1b mudou o texto que ele julga, e carimbar uma redacao que ninguem leu seria pior que reperguntar
 
-### 4. As mensagens de `/join` e `/leave` (10-03, D9)
+### 4. As mensagens de `/entrar` e `/sair` (10-03, D9)
 expected: Claras e uteis nos seis desfechos, sem duvida sobre QUAL boss
-result: issue
+result: [pending]
 reported: "vamos trocar o comando de join para /entrar e /sair"
+resolved_by: quick-260827-e1b (2026-08-27)
+reason: o issue foi consertado, e o registro dele fica — foi essa decisao do usuario que gerou a quick. Os seis textos mudaram e pedem re-leitura
 severity: minor
 
-### 5. O `/join` visto pelos dois lados ao mesmo tempo (10-03b, D7)
+### 5. O `/entrar` visto pelos dois lados ao mesmo tempo (10-03b, D7)
 expected: Resposta util no privado dele E o nick entrando na lista no grupo, ao mesmo tempo
 result: [pending]
 blocked_by: third-party
@@ -96,9 +123,9 @@ result: [pending]
 ## Summary
 
 total: 6
-passed: 2
-issues: 1
-pending: 3
+passed: 1
+issues: 0
+pending: 5
 skipped: 0
 blocked: 0
 
@@ -107,25 +134,26 @@ blocked: 0
 ## Gaps
 
 - truth: "O comando anunciado para entrar e sair da lista de presenca e o que a party vai digitar"
-  status: failed
+  status: resolved
+  resolved_by: "quick-260827-e1b (2026-08-27) — a tabela _AJUDA inverteu: as formas portuguesas viraram a sintaxe anunciada e as inglesas desceram para apelido, sem sair do _VOCABULARIO. As tres mensagens operacionais, o config.toml e o README seguiram."
   reason: "User reported: vamos trocar o comando de join para /entrar e /sair"
   severity: minor
   test: 4
-  root_cause: "Nao e defeito — e escolha de vocabulario. `/entrar` e `/sair` JA funcionam hoje (`_VOCABULARIO` em comandos.py:213-216 mapeia os quatro nomes), mas a tabela `_AJUDA` (comandos.py:276-284) anuncia `/join` e `/leave` como principais e relega `/entrar`/`/sair` a apelido. Toda a superficie de texto seguiu a tabela."
+  root_cause: "Nao era defeito — era escolha de vocabulario. `/entrar` e `/sair` JA funcionavam antes do conserto (`_VOCABULARIO` em comandos.py mapeia os quatro nomes desde sempre); o que estava errado era a VITRINE: a tabela `_AJUDA` anunciava as formas inglesas (join, leave) como principais e relegava as portuguesas a apelido, e toda a superficie de texto seguiu a tabela. Nomes sem prefixo de proposito: este arquivo nao pode voltar a ensinar a sintaxe demovida a quem so bate o olho."
   artifacts:
     - path: "l2scanner/comandos.py:276-284"
-      issue: "tabela _AJUDA traz /join e /leave como sintaxe principal, /entrar e /sair como apelidos"
+      issue: "a tabela _AJUDA trazia as formas inglesas como sintaxe principal e as portuguesas como apelido — CORRIGIDO, invertido"
     - path: "l2scanner/agenda.py:273-275"
-      issue: "o texto da chamada de 1h50 diz 'Mande /join no PRIVADO' e 'ou /leave para sair'"
+      issue: "o texto da chamada de 1h50 citava a forma inglesa duas vezes — CORRIGIDO, so os dois tokens de comando mudaram"
     - path: "l2scanner/presenca.py:283"
-      issue: "a mensagem de erro de disco diz 'Mande /join de novo'"
+      issue: "a mensagem de erro de disco citava a forma inglesa — CORRIGIDO"
     - path: "config.toml:70-76"
-      issue: "o bloco [[membro]] documenta /join e /leave como principais"
+      issue: "o bloco [[membro]] documentava a forma inglesa como principal — CORRIGIDO, mostra as duas com a portuguesa na frente"
   missing:
     - "Inverter principal e apelido em _AJUDA: /entrar e /sair viram a sintaxe anunciada"
     - "Trocar o comando citado no texto da chamada (agenda.py) e na mensagem de erro de disco (presenca.py)"
     - "Atualizar o bloco [[membro]] do config.toml e o README"
-    - "MANTER /join e /leave aceitos em silencio no _VOCABULARIO — mesmo desenho do ponto em quick-260827-b82; ninguem que ja decorou o antigo fica na mao"
+    - "MANTER as formas inglesas (join, leave) no _VOCABULARIO — mesmo desenho do ponto em quick-260827-b82; ninguem que ja decorou o antigo fica na mao. ENTREGUE MAIS FORTE que o pedido: em vez de aceitas em silencio, elas ficaram ANUNCIADAS como apelido na tabela do /help, entao ninguem descobre por acidente que a forma que decorou foi demovida"
     - "Re-testar os itens 3 e 4 deste UAT contra os textos novos"
   debug_session: ""
   precedente: "quick-260827-b82 — a barra virou o prefixo oficial e o ponto seguiu aceito em silencio. Mesma forma, mesmo desenho."
@@ -157,13 +185,13 @@ confira no celular:
 
 1. A chamada chega no grupo 1h50 antes do proximo Solo Boss, com o horario
    certo, num texto que diz para responder no privado.
-2. Um party-mate manda `/join` no privado do bot e recebe de volta uma linha
+2. Um party-mate manda `/entrar` no privado do bot e recebe de volta uma linha
    curta citando o horario do boss.
 3. O grupo recebe a confirmacao com o NICK do config — nao com o nome
    do contato do WhatsApp.
-4. Um segundo `/join` da mesma pessoa responde no privado e NAO aparece no
+4. Um segundo `/entrar` da mesma pessoa responde no privado e NAO aparece no
    grupo.
-5. Um `/leave` tira da lista e o grupo fica sabendo.
+5. Um `/sair` tira da lista e o grupo fica sabendo.
 6. No horario do boss o grupo recebe a lista fechada com a sugestao de loot.
    **E, com ninguem na lista, NENHUMA mensagem chega.** Confira os dois
    estados: e a promessa de silencio que voce tomou ao desligar
@@ -212,19 +240,23 @@ a contencao inteira.
 meio do farm.
 
 ```
-Solo Boss as 22:00. Quem vai? Mande /join no PRIVADO do bot para entrar na lista, ou /leave para sair. Aqui no grupo o bot nao le comando.
+Solo Boss as 22:00. Quem vai? Mande /entrar no PRIVADO do bot para entrar na lista, ou /sair para sair. Aqui no grupo o bot nao le comando.
 ```
+
+> Este item JA TINHA PASSADO em 2026-08-27, e voltou para a fila no mesmo dia
+> porque a quick `260827-e1b` trocou os dois nomes de comando desta frase.
+> Nenhuma outra palavra mudou.
 
 **Esperado:** pergunta clara, horario visivel, e a instrucao de ONDE responder
 sem ambiguidade.
 
 **Por que humano:** qualidade de redacao e julgamento.
 
-- [x] Conferido — 2026-08-27
+- [ ] Conferido
 
 ---
 
-## 4. As mensagens de `/join` e `/leave` (10-03, D9)
+## 4. As mensagens de `/entrar` e `/sair` (10-03, D9)
 
 **Teste:** leia os seis desfechos do ponto de vista de um party-mate que so ve
 o WhatsApp e nunca leu o codigo:
@@ -232,11 +264,15 @@ o WhatsApp e nunca leu o codigo:
 ```
 Anotado. Voce esta na lista do Solo Boss das 20:00.
 Voce ja esta na lista do Solo Boss das 20:00. Nao precisa mandar de novo.
-Nao consegui gravar a sua entrada no Solo Boss das 20:00: deu erro de disco aqui. Mande /join de novo.
+Nao consegui gravar a sua entrada no Solo Boss das 20:00: deu erro de disco aqui. Mande /entrar de novo.
 Pronto. Voce saiu da lista do Solo Boss das 20:00.
 Voce nao estava na lista do Solo Boss das 22:00.
 O Solo Boss das 20:00 ja comecou e a lista fechou. Nao da mais para sair dela.
 ```
+
+> Este item era o proprio gap 1, e ele esta consertado (`260827-e1b`). Dos
+> seis desfechos so o terceiro mudou — os outros cinco foram conferidos
+> contra `presenca.py`, um a um, e continuam identicos.
 
 **Esperado:** claras e uteis nos seis casos, sem deixar duvida sobre QUAL boss.
 
@@ -246,10 +282,10 @@ O Solo Boss das 20:00 ja comecou e a lista fechou. Nao da mais para sair dela.
 
 ---
 
-## 5. O `/join` visto pelos dois lados ao mesmo tempo (10-03b, D7)
+## 5. O `/entrar` visto pelos dois lados ao mesmo tempo (10-03b, D7)
 
-**Teste:** um party-mate manda `/join` no privado do bot enquanto voce olha o
-grupo.
+**Teste:** um party-mate manda `/entrar` no privado do bot enquanto voce olha
+o grupo.
 
 **Esperado:** ele ve chegar uma resposta util no privado dele, e o grupo ve o
 nick entrar na lista — as duas coisas, com redacoes diferentes, na mesma hora.
