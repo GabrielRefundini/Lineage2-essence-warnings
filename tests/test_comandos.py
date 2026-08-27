@@ -34,7 +34,7 @@ from l2scanner.comandos import (
     interpretar_dinamico,
     texto_de_ajuda,
 )
-from l2scanner import config
+from l2scanner import comandos, config
 from l2scanner.config import ler_membros
 from l2scanner.loot import apelido
 
@@ -77,6 +77,36 @@ def msg(id_, texto, tipo=0, autor="Yazalaque", private=False):
 class TestInterpretar:
     def test_o_comando_com_prefixo_e_reconhecido(self):
         assert interpretar(".cancelar") is Comando.CANCELAR_SILENCIO
+
+    def test_a_barra_e_o_prefixo_oficial(self):
+        """A barra segue a convencao do proprio jogo (`/target`, `/invite`).
+
+        A mao que joga ja digita barra. Este teste e a fatia vertical: se ele
+        passa, `PREFIXO` virou a barra e os DOIS leitores do parser
+        (`interpretar` e `interpretar_dinamico`) foram pelo mesmo caminho.
+        """
+        assert comandos.PREFIXO == "/"
+        assert interpretar("/cancelar") is Comando.CANCELAR_SILENCIO
+        assert interpretar("/join") is Comando.JOIN
+        assert interpretar("/status") is Comando.STATUS
+        # A forma de duas palavras vale na barra igual valia no legado.
+        assert interpretar("/cancelar silencio") is Comando.CANCELAR_SILENCIO
+
+    def test_a_forma_antiga_continua_reconhecida(self):
+        """O legado nao foi cortado, e o motivo esta na constante do prefixo.
+
+        Comando nao reconhecido morre EM SILENCIO — nao existe resposta de
+        recusa. Num corte seco, os party-mates ja treinados no ponto nao
+        receberiam NADA e concluiriam que o bot caiu.
+        """
+        assert "." in comandos.PREFIXOS
+        assert interpretar(".join") is Comando.JOIN
+        assert interpretar(".cancelar silencio") is Comando.CANCELAR_SILENCIO
+
+    def test_sem_prefixo_nenhum_continua_sendo_nada(self):
+        """Alargar o vocabulario de prefixos nao afrouxa a trava do prefixo."""
+        for texto in ("join", "cancelar", "status", "leave"):
+            assert interpretar(texto) is None, texto
 
     def test_aceita_as_formas_que_a_pessoa_lembra(self):
         for forma in (".cancelar", ".cancelar silencio", ".silencio", ".voltar"):
@@ -207,6 +237,42 @@ class TestAjuda:
             "a tabela de ajuda documenta comando que nao existe mais: "
             + ", ".join(sorted(c.name for c in sobrando))
         )
+
+    def test_toda_sintaxe_anunciada_usa_o_prefixo_OFICIAL(self):
+        """O SEGUNDO TRIPWIRE: a tabela so pode anunciar o prefixo oficial.
+
+        Os dois prefixos sao ACEITOS, mas so um e ANUNCIADO. Sem esta prova, a
+        proxima linha de ajuda nasceria no prefixo legado por copiar a de cima,
+        e a tabela viraria uma mistura dos dois — que e como o usuario aprende
+        a sintaxe errada.
+
+        Derivado de `comandos.PREFIXO` e nunca de um literal: assim a prova
+        acompanha a constante em vez de ter que ser reescrita junto com ela.
+        """
+        for comando, linha in _AJUDA.items():
+            assert linha.sintaxe.startswith(comandos.PREFIXO), (
+                f"{comando.name} anuncia {linha.sintaxe!r}, que nao comeca "
+                f"pelo prefixo oficial {comandos.PREFIXO!r}"
+            )
+            for forma in linha.apelidos:
+                assert forma.startswith(comandos.PREFIXO), (
+                    f"{comando.name} anuncia o apelido {forma!r}, que nao "
+                    f"comeca pelo prefixo oficial {comandos.PREFIXO!r}"
+                )
+
+    def test_o_texto_entregue_nao_anuncia_o_prefixo_legado(self):
+        """O que chega no celular fala SO a barra.
+
+        O tripwire acima olha a tabela; este olha o texto montado, que e o que
+        o usuario le — inclusive o cabecalho, que nao vem de nenhuma linha.
+        """
+        texto = texto_de_ajuda()
+        for comando, linha in _AJUDA.items():
+            legado = "." + linha.sintaxe[len(comandos.PREFIXO) :]
+            assert legado not in texto, (
+                f"o texto da ajuda ainda anuncia {legado!r} ({comando.name})"
+            )
+        assert "ponto" not in texto.lower()
 
     def test_toda_sintaxe_anunciada_volta_como_o_comando_certo(self):
         """A ajuda nao tem como ensinar sintaxe que nao funciona.
