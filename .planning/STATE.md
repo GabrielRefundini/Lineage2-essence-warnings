@@ -4,9 +4,9 @@ current_phase: 10
 current_phase_name: Lista de presenca do Solo Boss pelo WhatsApp
 status: phase-10-implemented-pending-field-validation
 stopped_at: "Fase 10 implementada e verificada offline (1052 testes); falta validacao em campo no WhatsApp"
-last_updated: "2026-08-26T14:48:51.328Z"
-last_activity: 2026-08-26
-last_activity_desc: Phase 10 execution started
+last_updated: "2026-08-27T02:07:58Z"
+last_activity: 2026-08-27
+last_activity_desc: Quick 260826-vtt — as duas pendencias mecanicas da Fase 10 fechadas
 state_head: bf00d63b89a446cb01dc356c6b65746599df2347
 progress:
   total_phases: 10
@@ -147,6 +147,7 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 
 | Data | Tarefa | Resultado |
 |------|--------|-----------|
+| 2026-08-26 | [fechar-as-duas-pendencias-mecanicas](quick/260826-vtt-fechar-as-duas-pendencias-mecanicas-da-f/260826-vtt-SUMMARY.md) | As duas pendencias mecanicas que sobraram da Fase 10, fechadas com o menor diff possivel. **(1)** Os dois `F401` de `VigiaDeManutencao` em `tests/test_sessao.py` sairam por `ruff --fix` com escopo no ARQUIVO — diff de **1 insercao e 2 delecoes**, exatamente a forma pre-vista com `--fix --diff`. A armadilha era a linha 1069, que trazia DOIS nomes: ela foi **encurtada, nao apagada**, porque `TipoDeAvisoDeManutencao` alimenta o `assert tipos == [...]` do proprio teste e apagar a linha inteira daria `NameError` — e por isso o conserto tinha que ser `ruff --fix` e nao `sed`. Os 2 imports legitimos (961 e 989, que fazem `return VigiaDeManutencao(...)`) seguem de pe: a contagem caiu de 4 para 2, nunca para 0. `ruff format` NAO foi rodado (o arquivo ja falhava o `--check` antes de qualquer mudanca) e os outros 29 erros de ruff do repo continuam la de proposito. Suite inteira nas duas pontas: **1077 passed, 2 skipped** -> **1077 passed, 2 skipped**. **(2)** O `.planning/milestone.lock` da sessao morta foi removido — pid 28896 inexistente e `updated_at` de ~11h contra um TTL de 4h, duas contas independentes dando a reivindicacao como morta. O `deferred-items.md` da fase 10 fecha o item 1 e corrige as coordenadas **897/929 -> 1037/1069**, que tinham envelhecido com o crescimento do arquivo — o unico detalhe do registro capaz de mandar a proxima pessoa para o lugar errado. |
 | 2026-08-26 | [fechar-as-pendencias](quick/260826-es0-fechar-as-pendencias-template-do-dialogo/260826-es0-SUMMARY.md) | Duas pendências fechadas com dado real, não com opinião. **(1)** O template do diálogo de desconexão nunca tinha sido medido contra gameplay normal — medido em 10 frames da tela real, o pior caso (inventário e mercado abertos, que são caixas cinzas com botões) dá **0.4618** contra o limiar de 0.90: margem de 0.43. Fixture da faixa de busca presa no repo, com tripwire que quebra se `FAIXA_DO_DIALOGO` mudar sem remedir. **(2)** A divergência do ledger (`.pegou` com data sem ano) foi **julgada rodando as duas regras lado a lado**, não carimbada: as regras só divergem onde o recuo de ano irrestrito gravaria estado permanente e inalcançável em `.loot/`; implementado está certo, waived com a razão. Ledger: open_count 1 → 0. Também registrada uma ideia REFUTADA (amostrar chrome fora da região da barra própria: separa pior, 7 pontos contra 25). 780 → 783 testes. |
 | 2026-08-26 | [inventario-por-cima-da-propria-barra](quick/260826-dxm-inventario-por-cima-da-propria-barra-vir/260826-dxm-SUMMARY.md) | **O maior falso positivo do projeto, achado por gravação ao vivo da tela do usuário.** Inventário/mercado aberto por cima da barra de vida própria fazia o scanner ler HP 0% e anunciar "YAZALAQUE MORREU" — **27 vezes** no log real, mais que todos os alertas de party somados. `barra_propria_legivel` usava só desvio-padrão de cinza, e a grade do inventário passava. Medido em 45 amostras livres + 9 cobertas: o desvio-padrão **não separa** (livre 34.8-36.2, coberta 17.4-36.5, sobrepostas); o **brilho da moldura separa limpo** (livre 73.7-86.4, coberta 28.0-48.9). Portão novo em série com o antigo, limiar 60. **Polaridade INVERTIDA** em relação a `_bordas_da_barra_intactas` da party (lá se rejeita borda clara demais, aqui moldura escura demais) — documentado no código porque é o detalhe mais fácil de reabrir por engano. Morte real preservada e provada: a barra quase vazia real lê 0% e continua legível. 758 → 780 testes. |
 | 2026-08-25 | [comando-help](quick/260825-t1n-comando-help-listando-todos-os-comandos-/260825-t1n-SUMMARY.md) | `.help` (e `.ajuda`, `.comandos`, `.?`) responde com **a lista de todos os comandos** direto no WhatsApp — e a lista **não é escrita à mão**: ela é derivada de uma tabela chaveada pelo enum `Comando`, com um **tripwire** (`set(_AJUDA) == set(Comando)`) que quebra a suíte no dia em que alguém acrescentar um comando sem documentá-lo. O tripwire foi provado por **mutação** — um membro descartável no enum fez o teste falhar dizendo o nome dele. A tabela é chaveada pelo ENUM e não pelo `_VOCABULARIO` porque os cinco comandos dinâmicos (`.loot-<nick>`, `.<nick>`, `.corrigir-`, `.pegou`) não moram no vocabulário. Cada sintaxe anunciada volta pelo `comandos_novos` REAL, com as cinco travas ligadas, como o comando que a ajuda promete. Pegou um defeito de passagem: `destacar` moldurava a resposta no log e a conta de largura de `moldurar` roda sobre a string inteira — as dezenove linhas sairiam no `scanner.log` com uma borda de **725 caracteres** (medido). Resposta só na conversa de origem, sem portão novo (as cinco travas já bastam). 730 → 746 testes. `.solo` e `.party` finalmente entraram na tabela do README — o mesmo envelhecimento que o tripwire agora previne do lado do bot. |
@@ -173,8 +174,9 @@ terceiro estado registrando ter observado o mundo no estado oposto.
 
 ## Session Continuity
 
-Last session: 2026-08-26T00:14:35.713Z
-Stopped at: Quick 260825-t1n concluida: o .help responde com a lista de comandos, derivada do enum
+Last session: 2026-08-27T02:07:58Z
+Stopped at: Quick 260826-vtt concluida: os dois F401 sairam de tests/test_sessao.py por ruff --fix (diff 1/2) e o milestone.lock morto saiu do .planning. Suite em 1077 passed, 2 skipped.
+Historico anterior: Quick 260825-t1n concluida: o .help responde com a lista de comandos, derivada do enum
 lida como saída de party, arranque cego lido como entrada em party). 226 testes.
 Commits 589ac84 e 7bb43f0. Sessão em `.planning/debug/resolved/alarme-falso-no-arranque.md`.
 **O bot precisa ser reiniciado para carregar as correções.**
