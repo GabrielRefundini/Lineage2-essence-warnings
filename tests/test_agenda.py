@@ -357,7 +357,15 @@ class TestTextoDoAviso:
         texto = texto_do_aviso(aviso)
         assert "Solo Boss" in texto
         assert "20:00" in texto
-        assert ".join" in texto
+        # A sintaxe OFICIAL, e o texto mais lido do recurso inteiro: ele sai
+        # duas vezes por ocorrencia de boss, para o grupo todo. A negativa nao
+        # e redundancia — o ponto continua ACEITO pelo parser, entao so a
+        # ausencia dele aqui prova que a chamada nao ensina mais a forma
+        # antiga a quem nunca usou o bot.
+        assert "/join" in texto
+        assert "/leave" in texto
+        assert ".join" not in texto
+        assert ".leave" not in texto
         assert "privado" in texto.lower()
 
     def test_a_chamada_nao_repete_nenhum_dos_dois_textos_de_hoje(self):

@@ -2399,7 +2399,7 @@ class TestArranqueComMembros:
         ]
         self._montar(monkeypatch, ["+5544997077000"], membros, caplog)
         assert "Korzis" in caplog.text and "J4guar" in caplog.text
-        assert ".join" in caplog.text
+        assert "/join" in caplog.text
 
     def test_a_colisao_dono_contra_membro_RECUSA_A_SUBIR(self, monkeypatch, caplog):
         """CR-01: avisar nao e mitigar uma escalada de privilegio.
@@ -2424,7 +2424,7 @@ class TestArranqueComMembros:
             "a recusa precisa nomear as duas linhas, senao o usuario nao sabe "
             "o que consertar"
         )
-        assert ".corrigir" in texto, (
+        assert "/corrigir" in texto, (
             "a recusa precisa dizer a CONSEQUENCIA, nao so que os numeros sao "
             "parecidos"
         )
@@ -2480,7 +2480,7 @@ class TestArranqueComMembros:
         assert "Nenhum deles alcanca comando de loot" not in caplog.text
         avisos = [r for r in caplog.records if r.levelno >= logging.WARNING]
         texto = "\n".join(r.getMessage() for r in avisos)
-        assert ".corrigir" in texto and "CHATWOOT_TELEFONES_COMANDO" in texto
+        assert "/corrigir" in texto and "CHATWOOT_TELEFONES_COMANDO" in texto
 
     def test_com_allowlist_de_dono_a_promessa_continua_sendo_feita(
         self, monkeypatch, caplog

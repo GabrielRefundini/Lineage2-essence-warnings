@@ -284,46 +284,46 @@ Para testar sem esperar o horário, numa janela de comando **nesta pasta**:
 O scanner pode **ouvir**, além de falar. Está desligado por padrão — com o
 `CHATWOOT_CONVERSAS_COMANDO` vazio no `.env`, ele nunca lê nada.
 
-Comandos, sempre com ponto na frente:
+Comandos, sempre com barra na frente:
 
 | Comando | O que faz |
 |---|---|
-| `.help` | Responde com esta mesma lista, direto no WhatsApp |
-| `.cancelar` | Tira o silêncio de TvT/Prime que estiver rolando |
-| `.status` | Diz se está vigiando ou calado, e qual o próximo evento |
-| `.solo` | Vigia só o seu personagem e para de reclamar de party ausente |
-| `.party` | Volta a vigiar a party inteira |
-| `.loot-<nick>` | Marca quem pega o loot do próximo Solo Boss |
-| `.loot-` | Desmarca (o aviso volta a sair sem nome) |
-| `.<nick>` | Quantos loots o char já pegou, e quando foi o último |
-| `.corrigir-<nick>` | Troca o dono do último loot já registrado |
-| `.pegou <hora> <nick>` | Registra quem pegou o loot de um boss que já passou, mesmo sem ter sido marcado antes |
+| `/help` | Responde com esta mesma lista, direto no WhatsApp |
+| `/cancelar` | Tira o silêncio de TvT/Prime que estiver rolando |
+| `/status` | Diz se está vigiando ou calado, e qual o próximo evento |
+| `/solo` | Vigia só o seu personagem e para de reclamar de party ausente |
+| `/party` | Volta a vigiar a party inteira |
+| `/loot-<nick>` | Marca quem pega o loot do próximo Solo Boss |
+| `/loot-` | Desmarca (o aviso volta a sair sem nome) |
+| `/<nick>` | Quantos loots o char já pegou, e quando foi o último |
+| `/corrigir-<nick>` | Troca o dono do último loot já registrado |
+| `/pegou <hora> <nick>` | Registra quem pegou o loot de um boss que já passou, mesmo sem ter sido marcado antes |
 
-Também valem `.ajuda`, `.comandos` e `.?` no lugar de `.help` — quem está no
+Também valem `/ajuda`, `/comandos` e `/?` no lugar de `/help` — quem está no
 jogo pergunta pelo WhatsApp e recebe a lista sem sair da tela. **Essa lista é
 gerada a partir do próprio código**, não escrita à mão: um comando novo que
 não seja documentado quebra a suíte de testes de propósito, porque ajuda
 desatualizada é pior que ajuda nenhuma (ela ensina sintaxe que não funciona).
 
-**Quando usar `.pegou` e quando usar `.corrigir`.** O `.corrigir-Korzis` é o
+**Quando usar `/pegou` e quando usar `/corrigir`.** O `/corrigir-Korzis` é o
 atalho para o boss que *acabou de passar*: ele não aceita horário, e por isso
-não tem como errar de boss. O `.pegou 18:00 Korzis` fala de um horário
-**específico**, e serve para o caso que o `.corrigir` não alcança — ninguém
+não tem como errar de boss. O `/pegou 18:00 Korzis` fala de um horário
+**específico**, e serve para o caso que o `/corrigir` não alcança — ninguém
 tinha marcado nada, então não existe registro nenhum para corrigir (o scanner
 estava fechado quando o boss passou, por exemplo).
 
 O horário digitado é **encaixado no Solo Boss mais próximo**, e o registro fica
-com o horário do boss, não com o que você digitou: `.pegou 18h20 Korzis`
+com o horário do boss, não com o que você digitou: `/pegou 18h20 Korzis`
 registra o boss das 18:00. Se não houver boss por perto, ele recusa e diz quais
 horários existem — em vez de criar um registro num horário que nenhum boss
 produz, que ficaria na estatística para sempre.
 
 Sem data, o horário vale para a ocorrência **mais recente que já passou**: às
-2h da manhã, `.pegou 18:00 Korzis` fala do boss de *ontem*. Por isso a resposta
+2h da manhã, `/pegou 18:00 Korzis` fala do boss de *ontem*. Por isso a resposta
 sempre diz o dia de volta ("de ontem as 18:00", "de 23/08 as 18:00") — é assim
 que você confere, na hora, que ele acertou o boss. Para ser explícito:
-`.pegou 23/08 18:00 Korzis`. Todas as formas valem com hífen
-(`.pegou-18:00 Korzis`) e com `h` no lugar dos dois pontos (`18h`, `18h30`).
+`/pegou 23/08 18:00 Korzis`. Todas as formas valem com hífen
+(`/pegou-18:00 Korzis`) e com `h` no lugar dos dois pontos (`18h`, `18h30`).
 
 Para descobrir em qual conversa configurar:
 
@@ -347,8 +347,8 @@ Com a lista vazia, qualquer um da conversa manda — e o scanner avisa isso no
 arranque, em vez de deixar você descobrir por acidente.
 
 **Os party-mates ficam no `config.local.toml`.** Quem estiver ali pode mandar
-`.join` e `.leave` para entrar e sair da lista do próximo Solo Boss — e **mais
-nada**: um `[[membro]]` não alcança `.cancelar`, `.corrigir` nem `.pegou`.
+`/join` e `/leave` para entrar e sair da lista do próximo Solo Boss — e **mais
+nada**: um `[[membro]]` não alcança `/cancelar`, `/corrigir` nem `/pegou`.
 Copie `config.local.exemplo.toml` para `config.local.toml` e preencha:
 
 ```toml

@@ -426,7 +426,7 @@ def cmd_entrada(env: dict[str, str]) -> int:
             print("  ATENCAO: " + ", ".join(sorted(ruins)) + " nao recebe mensagem")
             print("  de pessoa nenhuma. Comando mandado ali nunca vai chegar.")
             return 1
-        print("  Tudo certo. Mande .cancelar por ali para tirar o silencio.")
+        print("  Tudo certo. Mande /cancelar por ali para tirar o silencio.")
         return 0
 
     print("Nenhum canal de comando configurado — o scanner so FALA.")

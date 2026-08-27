@@ -515,7 +515,7 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
         onde.append(f"{len(config.conversas_de_comando)} conversa(s) fixa(s)")
     if config.etiqueta_de_comando:
         onde.append(f"conversas com a etiqueta '{config.etiqueta_de_comando}'")
-    log.info("Ouvindo comandos em: %s. Mande .status para conferir.", " e ".join(onde))
+    log.info("Ouvindo comandos em: %s. Mande /status para conferir.", " e ".join(onde))
 
     if leitor.aberto_a_qualquer_um:
         # Nao e erro, e compatibilidade. Mas um scanner que obedece qualquer um
@@ -526,7 +526,7 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
         )
         log.warning(
             "Para restringir, ponha o seu numero em CHATWOOT_TELEFONES_COMANDO "
-            "no .env. Para dar so .join/.leave aos party-mates, use os blocos "
+            "no .env. Para dar so /join e /leave aos party-mates, use os blocos "
             "[[membro]] do config.toml."
         )
     else:
@@ -548,7 +548,7 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
     if membros:
         if config.telefones_de_comando:
             log.info(
-                "Presenca: %d party-mate(s) podem dar .join/.leave (%s). Nenhum "
+                "Presenca: %d party-mate(s) podem dar /join e /leave (%s). Nenhum "
                 "deles alcanca comando de loot.",
                 len(membros),
                 ", ".join(m.nick for m in membros),
@@ -557,7 +557,7 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
             log.warning(
                 "Presenca: os %d [[membro]] (%s) NAO estao contidos — com "
                 "CHATWOOT_TELEFONES_COMANDO vazio qualquer remetente alcanca "
-                "TODO comando, inclusive .corrigir e .pegou.",
+                "TODO comando, inclusive /corrigir e /pegou.",
                 len(membros),
                 ", ".join(m.nick for m in membros),
             )
@@ -589,7 +589,7 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
         else:
             log.warning(
                 "Os dois sao do mesmo nivel (%s): ninguem ganha comando novo, "
-                "mas um .join pode ser creditado ao nick errado. Troque um "
+                "mas um /join pode ser creditado ao nick errado. Troque um "
                 "dos dois.",
                 colisao.origem_do_primeiro,
             )
@@ -605,7 +605,7 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
             f"{linhas}\n"
             "Um lado veio de CHATWOOT_TELEFONES_COMANDO (.env) e o outro de um "
             "[[membro]] (config.toml), e o scanner nao consegue distinguir os "
-            "dois. Aquele party-mate alcancaria .corrigir e .pegou, que "
+            "dois. Aquele party-mate alcancaria /corrigir e /pegou, que "
             "reescrevem a estatistica do .loot/ — pasta que nunca e podada e "
             "nao tem backup.\n"
             "Escreva os dois numeros por inteiro (com +55 e DDD), ou tire um "

@@ -67,23 +67,23 @@ chamar_minutos_antes = 110
 silenciar_minutos = 0
 
 # ---------------------------------------------------------------------------
-# Quem pode dar .join e .leave — os [[membro]] da party
+# Quem pode dar /join e /leave — os [[membro]] da party
 #
 # Cada bloco [[membro]] liga um telefone do WhatsApp a um nick do jogo. Quem
 # estiver aqui pode mandar SO ISTO no scanner:
 #
-#   .join  (.entrar)   entra na lista do proximo Solo Boss
-#   .leave (.sair)     sai da lista
+#   /join  (/entrar)   entra na lista do proximo Solo Boss
+#   /leave (/sair)     sai da lista
 #
-# E MAIS NADA. Um [[membro]] NAO alcanca .cancelar, .solo, .party, .status,
-# nem nenhum comando de loot — em especial .corrigir e .pegou, que reescrevem
+# E MAIS NADA. Um [[membro]] NAO alcanca /cancelar, /solo, /party, /status,
+# nem nenhum comando de loot — em especial /corrigir e /pegou, que reescrevem
 # a estatistica de quem pegou o que e nao tem como voltar atras. Esses
 # continuam so para os numeros de CHATWOOT_TELEFONES_COMANDO, no .env.
 #
 # ATENCAO: isso vale enquanto CHATWOOT_TELEFONES_COMANDO tiver pelo menos um
 # numero. Com a variavel VAZIA, o scanner aceita comando de QUALQUER remetente
 # das conversas configuradas — membro ou nao — e ai nao ha contencao nenhuma,
-# inclusive para .corrigir e .pegou. O arranque grita quando esta nesse estado.
+# inclusive para /corrigir e /pegou. O arranque grita quando esta nesse estado.
 #
 # O nick e o do JOGO, e e ele que aparece na lista de presenca. O nome que o
 # WhatsApp mostra nao serve: ele e escrito pelo dono do telefone e muda quando

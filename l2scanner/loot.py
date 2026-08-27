@@ -1086,8 +1086,8 @@ def responder_atribuicao(
         # esta mesma funcao aceita. Existe porque confiar na camada de cima e
         # exatamente o tipo de aposta que levanta no meio do farm.
         return (
-            "Nao entendi. Use assim: `.pegou 18:00 Korzis` "
-            "(ou `.pegou 24/08 18:00 Korzis` para um dia antigo)."
+            "Nao entendi. Use assim: `/pegou 18:00 Korzis` "
+            "(ou `/pegou 24/08 18:00 Korzis` para um dia antigo)."
         )
 
     evento = next((e for e in eventos if eh_solo_boss(e.nome)), None)
@@ -1105,7 +1105,7 @@ def responder_atribuicao(
         # erro para distingui-los nao ajudaria ninguem a digitar melhor.
         return (
             "Essa data nao aponta para nenhum momento que ja passou — "
-            f"o `.pegou` so registra {nome_do_evento} que ja aconteceu."
+            f"o `/pegou` so registra {nome_do_evento} que ja aconteceu."
         )
 
     alvo = encaixar_na_agenda(desejado, eventos, agora)

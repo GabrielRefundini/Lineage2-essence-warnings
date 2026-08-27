@@ -280,7 +280,7 @@ def responder_join(
     return RespostaDePresenca(
         privado=(
             f"Nao consegui gravar a sua entrada no {nome} das {hora}: "
-            f"deu erro de disco aqui. Mande .join de novo."
+            f"deu erro de disco aqui. Mande /join de novo."
         )
     )
 
