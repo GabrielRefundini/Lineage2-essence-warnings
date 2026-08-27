@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-08-24)
 
 Phase: 10 (Lista de presenca do Solo Boss pelo WhatsApp) — EXECUTING
 Status: Executing Phase 10
-Last activity: 2026-08-26 — Phase 10 execution started
+Last activity: 2026-08-26 — Completed quick task 260826-vtt: as duas pendencias mecanicas da Fase 10 (F401 em tests/test_sessao.py + milestone.lock morto)
 
 Progress: [██████████] 100% (9 de 9 fases)
 
