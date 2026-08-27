@@ -47,6 +47,16 @@ def _linhas_do_jsonl(pasta: Path) -> list[dict]:
     return [json.loads(linha) for linha in texto.splitlines() if linha.strip()]
 
 
+def _pngs_no_disco(pasta: Path) -> list[Path]:
+    """A contagem independente, lida do disco.
+
+    O `is_file` nao e preciosismo: a falha deterministica destes testes e um
+    DIRETORIO com nome de PNG, e um glob cru o contaria como frame gravado —
+    reintroduzindo a mentira dentro da propria conferencia.
+    """
+    return [caminho for caminho in pasta.glob("frame_*.png") if caminho.is_file()]
+
+
 def _ocupar_o_nome_com_um_diretorio(pasta: Path, indice: int) -> None:
     """A falha deterministica que funciona em QUALQUER SO.
 
@@ -76,7 +86,7 @@ def test_o_caminho_feliz_conta_exatamente_o_que_esta_no_disco(tmp_path: Path) ->
 
     assert gravador.frames_gravados == 3
     assert gravador.falhas_de_gravacao == 0
-    assert len(list(gravador.pasta.glob("frame_*.png"))) == 3
+    assert len(_pngs_no_disco(gravador.pasta)) == 3
     assert len(_linhas_do_jsonl(gravador.pasta)) == 3
 
 
@@ -109,7 +119,7 @@ def test_toda_linha_do_jsonl_cita_um_arquivo_que_existe(tmp_path: Path) -> None:
     assert gravador.falhas_de_gravacao == 1
     assert gravador.frames_gravados == 8
     assert len(linhas) == gravador.frames_gravados
-    assert gravador.frames_gravados == len(list(gravador.pasta.glob("frame_*.png")))
+    assert gravador.frames_gravados == len(_pngs_no_disco(gravador.pasta))
     for linha in linhas:
         caminho = gravador.pasta / linha["arquivo"]
         assert caminho.is_file(), (

@@ -1702,10 +1702,27 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         fonte.fechar()
         if gravador:
             gravador.fechar()
-            log.info(
-                "Sessao gravada: %d frames em %s",
+            # A verdade do disco ao lado do contador. O criterio da fase e "o
+            # contador bate com os arquivos no disco", e a unica forma de
+            # provar isso sem sair do console e imprimir os dois numeros lado
+            # a lado — mesma filosofia do "snapshots hoje" ser um COUNT(*).
+            # `is_file` de proposito: um diretorio com nome de PNG (o modo de
+            # falha deterministico dos testes) seria contado por um glob cru,
+            # reintroduzindo a mentira dentro da propria conferencia.
+            no_disco = sum(
+                1 for caminho in gravador.pasta.glob("frame_*.png") if caminho.is_file()
+            )
+            # Com falhas o bloco sobe para ERROR: uma sessao parcialmente
+            # perdida no fim de uma hora de farm nao pode passar despercebida
+            # no meio das linhas de rotina.
+            registrar = log.error if gravador.falhas_de_gravacao else log.info
+            registrar(
+                "Sessao gravada: %d frames confirmados, %d falhas de escrita, "
+                "em %s (no disco: %d frame_*.png)",
                 gravador.frames_gravados,
+                gravador.falhas_de_gravacao,
                 gravador.pasta,
+                no_disco,
             )
 
         if despachante:
