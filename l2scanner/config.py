@@ -8,6 +8,7 @@ O token nunca aparece em log nem em mensagem de erro.
 
 from __future__ import annotations
 
+import logging
 import tomllib
 from pathlib import Path
 
@@ -25,6 +26,8 @@ from .agenda import (
 from .comandos import DIGITOS_FINAIS_DO_TELEFONE, Membro, so_digitos
 from .loot import NICK_VALIDO, apelido
 from .notificador import ConfigChatwoot
+
+log = logging.getLogger(__name__)
 
 RAIZ = Path(__file__).resolve().parent.parent
 ARQUIVO_ENV = RAIZ / ".env"
@@ -129,6 +132,10 @@ def config_do_chatwoot(caminho: Path | None = None) -> ConfigChatwoot:
 # ---------------------------------------------------------------------------
 
 ARQUIVO_CONFIG = RAIZ / "config.toml"
+
+# O irmao IGNORADO pelo git do `config.toml`. So os `[[membro]]` moram
+# aqui — o porque esta no comentario da secao de membros, la embaixo.
+ARQUIVO_CONFIG_LOCAL = RAIZ / "config.local.toml"
 
 
 def ler_agenda(caminho: Path | None = None) -> list[EventoAgendado]:
@@ -254,26 +261,45 @@ def _evento_de_dict(bruto: dict, indice: int) -> EventoAgendado:
 
 
 # ---------------------------------------------------------------------------
-# Os party-mates que podem dar `.join` e `.leave` (config.toml, [[membro]])
+# Os party-mates que podem dar `.join` e `.leave` ([[membro]])
 #
-# MORA AQUI, E NAO NO .env, E A ASSIMETRIA COM O `CHATWOOT_TELEFONES_COMANDO`
+# MORA NUM TOML, E NAO NO .env, E A ASSIMETRIA COM O `CHATWOOT_TELEFONES_COMANDO`
 # E PROPOSITAL. Aquele telefone mora no `.env` porque acompanha o token do
 # Chatwoot, e o `.env` e o arquivo que ninguem abre sem motivo. O telefone de
 # um party-mate nao e segredo nenhum: ele ja esta na agenda de todo mundo do
 # grupo. O que ele precisa e de um arquivo feito para ser aberto e editado a
-# mao quando alguem entra ou sai da party — e esse arquivo e o config.toml,
-# que ainda por cima aceita comentario explicando o que cada campo faz.
+# mao quando alguem entra ou sai da party — e um TOML ainda por cima aceita
+# comentario explicando o que cada campo faz.
+#
+# MAS NAO NO `config.toml`, QUE E VERSIONADO. Nao ser segredo nao e o mesmo que
+# ser do repositorio: o telefone e de OUTRA PESSOA, e o que entra em historico
+# de git nao sai mais nem apagando depois. Por isso existe o
+# `config.local.toml`, que o .gitignore cobre.
+#
+# E por que nao foi so por o `config.toml` inteiro no .gitignore, que era mais
+# simples: porque `tests/test_agenda.py::TestAgendaRealDoUsuario` le o
+# `config.toml` DO REPOSITORIO para afirmar os horarios de TvT, Prime e Solo
+# Boss — um dedo errado ali significa a party esperando um TvT que nao vai
+# acontecer. Fora do git, aquele guarda passaria a vigiar um exemplo que
+# ninguem edita: continuaria verde e pararia de guardar, que e pior do que nao
+# existir, porque parece protecao.
+#
+# Entao a divisao e a mesma que o projeto ja faz entre `config.toml` e
+# `calibration.json`: o que e do PROJETO fica versionado (a agenda), o que e da
+# MAQUINA nao (a calibracao, e agora os telefones).
 # ---------------------------------------------------------------------------
 
 
-def ler_membros(caminho: Path | None = None) -> list[Membro]:
-    """Le os party-mates do config.toml.
+def ler_membros(
+    caminho: Path | None = None, caminho_local: Path | None = None
+) -> list[Membro]:
+    """Le os party-mates do `config.local.toml`, ou do `config.toml`.
 
     Mesma disciplina de `ler_agenda`, logo acima, e pelas mesmas razoes.
 
-    ARQUIVO AUSENTE NAO E ERRO: quem nunca criou o config.toml, ou nunca
-    declarou um `[[membro]]`, fica com a lista vazia e o scanner continua
-    subindo com o nivel de dono funcionando como sempre funcionou.
+    ARQUIVO AUSENTE NAO E ERRO: quem nunca criou os arquivos, ou nunca declarou
+    um `[[membro]]`, fica com a lista vazia e o scanner continua subindo com o
+    nivel de dono funcionando como sempre funcionou.
 
     ARQUIVO PRESENTE E MAL FORMADO E ERRO DE ARRANQUE. Aqui isso pesa mais que
     na agenda: um telefone com erro de digitacao nao produz mensagem de erro
@@ -284,9 +310,74 @@ def ler_membros(caminho: Path | None = None) -> list[Membro]:
     E a excecao de "o config.toml nao faz sentido", ja e capturada onde o
     arranque quer capturar, e ja derruba o scanner com o usuario olhando para o
     console. Uma segunda classe duplicaria esse tratamento sem ganhar nada.
+
+    UM ARQUIVO OU O OUTRO, NUNCA A SOMA. Se o `config.local.toml` tem
+    `[[membro]]`, ele e a fonte INTEIRA e o `config.toml` e ignorado. Somar os
+    dois faria um nick apagado do `config.toml` reaparecer pelo local sem
+    ninguem entender por que, e poria a validacao de nick repetido para decidir
+    qual dos dois arquivos ganha — decisao que nao tem resposta obvia e que
+    ninguem quer descobrir as 2h da manha.
+
+    Quando os DOIS tem bloco, o arranque avisa alto e nomeia o vencedor. Um
+    bloco que nao faz nada e invisivel; um bloco que nao faz nada e nao avisa e
+    uma armadilha — o usuario reedita a noite inteira o arquivo errado.
+
+    UM `caminho` EXPLICITO LE SO AQUELE ARQUIVO, sem procurar vizinho. E disso
+    que depende o guarda que afirma que o `config.toml` do repositorio nao
+    carrega telefone de ninguem: se um caminho explicito arrastasse junto o
+    `config.local.toml` ao lado, aquele teste passaria a ler a maquina de quem
+    o roda. Os dois `None` — que e como o `__main__` chama — sao o unico caso
+    em que a precedencia entre os dois arquivos padrao vale.
     """
+    if caminho is None and caminho_local is None:
+        caminho_local = ARQUIVO_CONFIG_LOCAL
     caminho = caminho or ARQUIVO_CONFIG
-    if not caminho.exists():
+
+    do_versionado = _blocos_de_membro(caminho)
+    do_local = _blocos_de_membro(caminho_local)
+
+    if do_local and do_versionado:
+        log.warning(
+            "ATENCAO: %s e %s tem [[membro]]. Vale o %s; os blocos do %s estao "
+            "sendo IGNORADOS e nao autorizam ninguem. Para voltar a usar o %s, "
+            "apague os [[membro]] do %s (ou o arquivo).",
+            caminho.name,
+            caminho_local.name,
+            caminho_local.name,
+            caminho.name,
+            caminho.name,
+            caminho_local.name,
+        )
+
+    # `or` e a precedencia inteira, escrita numa linha: o local quando ele tem
+    # bloco, o versionado quando nao tem. E a validacao abaixo e UMA so, entao
+    # nick repetido e telefone curto derrubam o arranque venha de onde vier.
+    membros = [
+        _membro_de_dict(bruto, i) for i, bruto in enumerate(do_local or do_versionado)
+    ]
+    _recusar_nicks_repetidos(membros)
+    return membros
+
+
+def _blocos_de_membro(caminho: Path | None) -> object:
+    """Os `[[membro]]` crus de um arquivo, ainda sem validar bloco nenhum.
+
+    A leitura e separada da validacao por causa da precedencia: para saber qual
+    dos dois arquivos manda e preciso primeiro saber quais tem bloco, e so o
+    VENCEDOR e validado. Validar o perdedor derrubaria o arranque por causa de
+    um bloco que ja nao tem efeito nenhum — erro que aponta para o arquivo
+    errado, que e pior do que erro nenhum.
+
+    Devolve o valor cru de `dados["membro"]` sem normalizar de proposito:
+    `membro = "Kaus"` no lugar de `[[membro]]` precisa continuar chegando em
+    `_membro_de_dict`, que e quem sabe explicar esse erro exato.
+
+    `caminho` `None` ou ausente e lista vazia, nao erro — ver `ler_membros`.
+    TOML quebrado, sim, e erro de arranque, e cita o nome do arquivo, porque
+    com dois arquivos em jogo "o TOML esta quebrado" sem dizer qual e um
+    convite a editar o errado.
+    """
+    if caminho is None or not caminho.exists():
         return []
 
     try:
@@ -295,11 +386,7 @@ def ler_membros(caminho: Path | None = None) -> list[Membro]:
     except tomllib.TOMLDecodeError as erro:
         raise AgendaInvalida(f"{caminho.name} nao e um TOML valido: {erro}") from erro
 
-    membros = [
-        _membro_de_dict(bruto, i) for i, bruto in enumerate(dados.get("membro", []))
-    ]
-    _recusar_nicks_repetidos(membros)
-    return membros
+    return dados.get("membro", [])
 
 
 def _recusar_nicks_repetidos(membros: list[Membro]) -> None:
