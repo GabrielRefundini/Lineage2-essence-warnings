@@ -42,7 +42,12 @@ from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
 from l2scanner.visao import (
     BRILHO_MINIMO_DA_MOLDURA_PROPRIA,
+    CASAMENTO_MINIMO_DO_PERFIL_PROPRIO,
     DESVIO_MINIMO_DA_BARRA_PROPRIA,
+    LEITURA_MINIMA_PARA_O_CASAMENTO,
+    Observacao,
+    _braco_do_casamento,
+    _casamento_do_perfil_proprio,
     _moldura_da_barra_propria,
     barra_propria_legivel,
     extrair,
@@ -476,3 +481,511 @@ class TestOTerrenoEscuroSomeDoConsole:
             "a faixa deixou de estar alinhada com a cauda vazia — os testes de "
             "tolerancia a desalinhamento passam a medir outra coisa"
         )
+
+
+# ---------------------------------------------------------------------------
+# O BRACO NOVO — leitura APARENTE, so para o console e para o log
+# ---------------------------------------------------------------------------
+
+RECORDINGS = Path(__file__).parent.parent / "recordings"
+
+# As 8 amostras da tabela de verificacao do plano, com a calibracao apontada
+# para as cores do widget de CADA fixture. `escuro_cauda_vazia` e
+# `quase_vazia_terreno_atras` sao o widget de MP (azul); as outras seis sao HP.
+#
+# `hp_proprio` sai IDENTICO ao que sai hoje nas oito — e esse "identico" e a
+# prova de que nenhum alerta pode ter mudado.
+AS_OITO_AMOSTRAS = (
+    ("escuro_cauda_vazia", "MP", None, 0.8848),
+    ("escuro_cheia", "HP", 1.0000, None),
+    ("coberta_0", "HP", None, 0.8691),
+    ("coberta_1", "HP", None, None),
+    ("coberta_2", "HP", None, None),
+    ("coberta_3", "HP", None, None),
+    ("livre_0", "HP", 1.0000, None),
+    ("quase_vazia_terreno_atras", "MP", 0.0681, None),
+)
+
+
+def cal_do_widget(cal: Calibracao, widget: str) -> Calibracao:
+    return calibracao_do_widget(cal) if widget == "MP" else cal
+
+
+def regiao_inteira(px: np.ndarray) -> Regiao:
+    return Regiao(esquerda=0, topo=0, largura=px.shape[1], altura=px.shape[0])
+
+
+def frame_de_party(rotulo_da_barra: str | None) -> Frame:
+    """Um frame com a party window REAL visivel e a barra propria escolhida.
+
+    Aquecer o rastreador exige `_ja_viu_party_window=True` e `_voce_em_party=
+    True`, que e o estado NORMAL de qualquer sessao em party depois do primeiro
+    minuto. Aqui esse estado vem de pixels de verdade — a party window da
+    fixture `party_estavel_com_vazamento/limpo.png` — em vez de ser fixado a
+    mao nos campos privados. Um aquecimento fabricado provaria menos.
+    """
+    if rotulo_da_barra is None:
+        barra = cv2.imread(str(CALIBRACAO.parent / "limpo__hp_proprio.png"))
+        assert barra is not None
+    else:
+        barra = recorte(rotulo_da_barra)
+    return Frame(
+        pixels=cv2.imread(str(CALIBRACAO.parent / "limpo.png")),
+        indice=0,
+        saude=SaudeDoFrame.OK,
+        extras={"hp_proprio": barra},
+    )
+
+
+class TestOBracoNovoNuncaCertificaLeituraDeMorte:
+    """A varredura EXAUSTIVA, nas DUAS direcoes de oclusao.
+
+    `medir_barra` mede a corrida inicial DA ESQUERDA. Isso torna as duas
+    direcoes assimetricas, e a assimetria e a coisa mais perigosa deste arquivo:
+
+        painel a DIREITA  -> SUBESTIMA a leitura   (k/191)
+        painel a ESQUERDA -> ZERA a leitura        (0.0000)
+
+    E a direcao que zera e a que o casamento NAO enxerga: o perfil e a media por
+    LINHA, entao cobrir 5 de 191 colunas mal move a media e Pearson e cego a
+    escala. Medido: painel cobrindo 5 colunas a esquerda le 0.0000 e casa
+    +1.000. Sem o portao de LEITURA, abrir o inventario voltaria a produzir
+    morte falsa — a classe de defeito que a quick `260826-dxm` pagou para matar.
+
+    A assercao e sobre a LEITURA, e nao sobre k: para TODO composto cuja leitura
+    caia em ou abaixo de `Ajustes().fracao_hp_considerada_zero`, o braco novo
+    recusa. Escrita sobre k, ela certificaria a propriedade errada — foi o
+    BLOCKER 2 da primeira iteracao do plan-check.
+
+    HONESTIDADE SOBRE A AMOSTRA: os 4 paineis sao recortes REAIS do inventario
+    do usuario. Dos 3 preenchimentos de direita, DOIS sao recortes reais de
+    largura inteira (`livre_0`, `quase_vazia_terreno_atras`) e o TERCEIRO e a
+    cauda 100% vazia real de terreno escuro LADRILHADA ate 191 colunas — pixels
+    reais, geometria sintetica.
+    """
+
+    def test_nenhum_composto_em_regime_de_morte_e_certificado(self, calibracao):
+        """Medido em 2026-08-27: 4608 compostos, 3279 em regime de morte, ZERO.
+
+        As fixtures sao lidas UMA vez fora do laco de proposito: em cache a
+        varredura leva ~0.13 s, relendo o disco a cada iteracao leva ~0.4 s.
+        """
+        cauda = recorte(ESCURO_CAUDA_VAZIA)[:, PRIMEIRA_COLUNA_VAZIA:]
+        ladrilhada = np.tile(cauda, (1, (191 // cauda.shape[1]) + 1, 1))[:, :191]
+        direitas = {
+            "livre_0": recorte("livre_0"),
+            "quase_vazia": recorte(QUASE_VAZIA),
+            "cauda_escura_ladrilhada": ladrilhada,
+        }
+        paineis = {rotulo: recorte(rotulo) for rotulo in COBERTAS}
+        limiar_de_morte = Ajustes().fracao_hp_considerada_zero
+
+        total = 0
+        em_regime_de_morte = 0
+        for nome_direita, direita in direitas.items():
+            for nome_painel, painel in paineis.items():
+                for k in range(0, 192):
+                    compostos = (
+                        ("painel a ESQUERDA", np.hstack([painel[:, :k], direita[:, k:]])),
+                        ("painel a DIREITA", np.hstack([direita[:, :k], painel[:, k:]])),
+                    )
+                    for direcao, composto in compostos:
+                        total += 1
+                        leitura = medir_barra(
+                            composto, regiao_inteira(composto), calibracao.limiares_hp
+                        )
+                        if leitura > limiar_de_morte:
+                            continue
+                        em_regime_de_morte += 1
+                        assert not _braco_do_casamento(composto, leitura), (
+                            f"{direcao}, {nome_painel} sobre {nome_direita}, k={k}: "
+                            f"leitura {leitura:.4f} (limiar de morte "
+                            f"{limiar_de_morte}) foi CERTIFICADA pelo braco novo "
+                            f"— um painel de inventario acabou de virar uma "
+                            f"leitura de morte, que e o defeito de 27 alertas "
+                            f"falsos que a quick 260826-dxm pagou para matar"
+                        )
+
+        assert total == 4608, total
+        assert em_regime_de_morte > 0, (
+            "NENHUM composto ficou em regime de morte: a montagem quebrou e "
+            "esta varredura passou VERDE sem testar coisa nenhuma"
+        )
+        assert em_regime_de_morte == 3279, (
+            f"o conjunto em regime de morte mudou de 3279 para "
+            f"{em_regime_de_morte}: as fixtures ou a montagem mudaram, e a "
+            f"exaustao precisa ser remedida antes de valer como prova"
+        )
+
+
+class TestACobertaAtravessaORastreadorSemEmitirNada:
+    """O TESTE QUE FALTAVA — e cuja ausencia deixou o risco escapar da suite.
+
+    Nenhum teste deste repositorio levava um recorte COBERTO ate dentro do
+    `Rastreador`. O unico que chega la,
+    `test_trinta_frames_de_inventario_aberto_nao_emitem_morte`, FILTRA os
+    eventos por `MORREU` — entao um `VOCE_SEM_PARTY` ou um `RESSUSCITOU` falso
+    passaria despercebido. Foi por isso que o custo apareceu no plan-check e nao
+    na suite.
+
+    Aqui a assercao e sobre a lista de eventos INTEIRA, de QUALQUER tipo.
+
+    O QUE ACONTECERIA se a leitura aparente virasse `hp_proprio` — simulado com
+    `Ajustes()` de producao (`confirmacoes_para_voce_sem_party = 8`,
+    `confirmacoes_para_morte = 3`), porque `hp_proprio` tem TRES consumidores no
+    `rastreador.py` (linhas 454, 496 e 833):
+
+        quente com party, inventario 30 ticks -> `voce_sem_party` falso (tick 27)
+        morre e depois abre o inventario      -> `ressuscitou` falso (tick 34)
+                                                 + `voce_sem_party` falso (37)
+        SOLO: morre e abre o inventario       -> `ressuscitou` falso (tick 34)
+        morrendo (2 de 3), abre e fecha       -> morte ATRASA do tick 18 para o 20
+
+    A `ressuscitou` falsa e literalmente metade do defeito da quick
+    `260826-dxm` (27 mortes + 27 ressurreicoes num unico log real).
+
+    REGRA GERAL que sai daqui: teste de deteccao que filtra por UM tipo de
+    evento nao prova ausencia dos outros.
+    """
+
+    def _aquecido(self, cal: Calibracao, solo: bool) -> tuple[Rastreador, Observacao]:
+        rastreador = Rastreador(
+            nomes=list(cal.nomes),
+            nome_proprio=cal.nome_proprio,
+            ajustes=Ajustes(),
+            modo_solo=solo,
+        )
+        viva = extrair(frame_de_party(None), cal)
+        assert viva.ui_visivel and viva.hp_proprio == 1.0, (
+            "o frame de aquecimento parou de mostrar a party window com a "
+            "barra propria cheia — o rastreador nao fica QUENTE e o teste "
+            "passa a medir o comeco frio, que protege por acidente"
+        )
+        for i in range(20):
+            rastreador.observar(viva, float(i))
+        return rastreador, viva
+
+    @pytest.mark.parametrize("solo", [False, True], ids=["party", "solo"])
+    def test_trinta_ticks_de_inventario_nao_emitem_evento_de_tipo_nenhum(
+        self, calibracao, solo
+    ):
+        rastreador, _ = self._aquecido(calibracao, solo)
+        coberto = extrair(frame_solo("coberta_0"), calibracao)
+
+        assert coberto.hp_proprio is None
+        assert coberto.hp_proprio_aparente is not None, (
+            "`coberta_0` parou de produzir leitura aparente: este teste deixou "
+            "de exercitar o caminho que existe para vigiar"
+        )
+
+        eventos = alimentar(rastreador, coberto, 30, 100.0)
+
+        assert eventos == [], (
+            f"modo {'solo' if solo else 'party'}: abrir o inventario por 30 "
+            f"ticks emitiu {[e.tipo.name for e in eventos]} — a leitura "
+            f"aparente vazou para a maquina de estado"
+        )
+
+    @pytest.mark.parametrize("solo", [False, True], ids=["party", "solo"])
+    def test_depois_de_uma_morte_REAL_o_inventario_nao_ressuscita_ninguem(
+        self, calibracao, solo
+    ):
+        """O cenario que mais importa: morre, e ai abre o inventario.
+
+        E o mais perigoso porque o alerta falso vem DEPOIS de um alerta
+        verdadeiro — o grupo ja foi mobilizado, e um `RESSUSCITOU` falso manda
+        todo mundo parar de socorrer alguem que continua morto.
+        """
+        rastreador, _ = self._aquecido(calibracao, solo)
+
+        # Morte de verdade, com a party window VISIVEL: o portao de cegueira so
+        # congela o veredito quando a tela some, e aqui ela nao some.
+        morta = extrair(frame_de_party(QUASE_VAZIA), calibracao)
+        assert morta.ui_visivel and morta.hp_proprio == 0.0
+        eventos_da_morte = alimentar(rastreador, morta, 10, 100.0)
+
+        assert [e.tipo for e in eventos_da_morte] == [TipoDeEvento.MORREU], (
+            f"a morte REAL nao saiu como unico evento: "
+            f"{[e.tipo.name for e in eventos_da_morte]}"
+        )
+
+        depois = alimentar(
+            rastreador, extrair(frame_solo("coberta_0"), calibracao), 30, 200.0
+        )
+
+        assert depois == [], (
+            f"modo {'solo' if solo else 'party'}: depois de uma morte real, "
+            f"abrir o inventario emitiu {[e.tipo.name for e in depois]} — o "
+            f"medido em 2026-08-27 para o desenho REJEITADO era "
+            f"['RESSUSCITOU', 'VOCE_SEM_PARTY'] em party e ['RESSUSCITOU'] "
+            f"em solo"
+        )
+
+
+class TestOAparenteNaoMudaNadaDoQueAMaquinaDeEstadoVe:
+    """A conta que fecha a promessa: `hp_proprio` sai identico ao de hoje."""
+
+    @pytest.mark.parametrize(
+        ("rotulo", "widget", "esperado_proprio", "esperado_aparente"), AS_OITO_AMOSTRAS
+    )
+    def test_as_oito_amostras(
+        self, calibracao, rotulo, widget, esperado_proprio, esperado_aparente
+    ):
+        obs = extrair(frame_solo(rotulo), cal_do_widget(calibracao, widget))
+
+        if esperado_proprio is None:
+            assert obs.hp_proprio is None, (
+                f"{rotulo}: hp_proprio saiu {obs.hp_proprio!r} onde hoje sai "
+                f"None — a maquina de estado passou a ver uma leitura nova"
+            )
+        else:
+            assert obs.hp_proprio is not None
+            assert abs(obs.hp_proprio - esperado_proprio) < 0.001, (
+                f"{rotulo}: hp_proprio saiu {obs.hp_proprio!r} em vez de "
+                f"{esperado_proprio} — o que alimenta os alertas MUDOU"
+            )
+
+        if esperado_aparente is None:
+            assert obs.hp_proprio_aparente is None, (
+                f"{rotulo}: a leitura aparente apareceu onde nao devia "
+                f"({obs.hp_proprio_aparente!r})"
+            )
+        else:
+            assert obs.hp_proprio_aparente is not None
+            assert abs(obs.hp_proprio_aparente - esperado_aparente) < 0.001, (
+                f"{rotulo}: a leitura aparente saiu "
+                f"{obs.hp_proprio_aparente!r} em vez de {esperado_aparente}"
+            )
+
+    def test_o_rastreador_NAO_le_a_leitura_aparente(self):
+        """TRIPWIRE DE ARQUITETURA, grosseiro de proposito.
+
+        A seguranca desta mudanca nao vem de guarda nenhuma: vem de a leitura
+        NAO EXISTIR para a maquina de estado. O jeito de verificar isso e ler o
+        fonte do rastreador e exigir que o nome do campo nao esteja la.
+
+        Se este teste quebrar, alguem promoveu uma leitura que pode vir de um
+        recorte PARCIALMENTE OCLUIDO a fonte de decisao — e o custo medido disso
+        e `voce_sem_party` falso, `ressuscitou` falso (inclusive em `--solo`) e
+        morte atrasada.
+        """
+        fonte = (
+            Path(__file__).parent.parent / "l2scanner" / "rastreador.py"
+        ).read_text(encoding="utf-8")
+
+        assert "hp_proprio_aparente" not in fonte, (
+            "l2scanner/rastreador.py passou a ler a leitura APARENTE. A "
+            "maquina de estado agora depende de uma leitura que pode vir de um "
+            "recorte ocluido: `coberta_0` casa +0.999 com o inventario por "
+            "cima da barra. Medido em 2026-08-27, o custo disso e "
+            "`voce_sem_party` falso no tick 27, `ressuscitou` falso no tick 34 "
+            "e uma morte em andamento atrasando do tick 18 para o 20."
+        )
+
+
+class TestOPortaoDeLeituraEstaAmarradoAoRastreador:
+    """Duas camadas, um acoplamento numerico — e ele precisa de tripwire.
+
+    `LEITURA_MINIMA_PARA_O_CASAMENTO` (visao.py) so protege enquanto for MAIOR
+    que `Ajustes.fracao_hp_considerada_zero` (rastreador.py). Baixar o limiar de
+    morte do rastreador anularia a trava A DISTANCIA, sem tocar em `visao.py` —
+    e a revisao nem passaria perto do arquivo onde a propriedade mora.
+    """
+
+    def test_o_portao_de_leitura_fica_acima_do_limiar_de_morte(self):
+        limiar_de_morte = Ajustes().fracao_hp_considerada_zero
+
+        assert LEITURA_MINIMA_PARA_O_CASAMENTO > limiar_de_morte, (
+            f"LEITURA_MINIMA_PARA_O_CASAMENTO ({LEITURA_MINIMA_PARA_O_CASAMENTO}) "
+            f"deixou de ficar acima de fracao_hp_considerada_zero "
+            f"({limiar_de_morte}): o braco novo voltou a poder certificar uma "
+            f"leitura que o rastreador leria como MORTE"
+        )
+        assert LEITURA_MINIMA_PARA_O_CASAMENTO >= 2.5 * limiar_de_morte, (
+            "a folga de 2.5x medida em 2026-08-27 encolheu; a exaustao das "
+            "duas direcoes de oclusao foi verificada com ela e precisa ser "
+            "refeita antes de o limiar descer"
+        )
+
+
+class TestOCasamentoTolera2pxDeDesalinhamento:
+    """O motivo de a referencia DESLIZAR, medido em pixels reais.
+
+    A versao de posicao FIXA cai de +0.972 para -0.179 com UM pixel de
+    deslocamento. Deslizando, o casamento fica CONSTANTE ate a terceira casa em
+    +-2 px — enquanto a moldura, no mesmo intervalo, pula de 12.64 a 32.33.
+
+    Nada de `np.roll`: rolar inventa linhas. `escuro_faixa.png` tem 28 linhas
+    justamente para que cada deslocamento venha de pixels reais do frame.
+
+    E +-2 px E A TOLERANCIA INTEIRA. Em +-3 px o casamento cai para
+    +0.293/+0.364, os dois abaixo do limiar, e a moldura reprova junto: nao ha
+    rede alem disso, e o TODO registra isso como regime nao coberto.
+    """
+
+    def test_as_cinco_janelas_reais_casam_todas(self):
+        faixa = recorte(ESCURO_FAIXA)
+        casamentos = []
+        molduras = []
+        for dy in range(-2, 3):
+            janela = faixa[2 + dy : 26 + dy]
+            assert janela.shape == (24, 191, 3)
+            casamentos.append(_casamento_do_perfil_proprio(janela))
+            molduras.append(_moldura_da_barra_propria(janela))
+
+        for dy, valor in zip(range(-2, 3), casamentos):
+            assert valor >= CASAMENTO_MINIMO_DO_PERFIL_PROPRIO, (
+                f"dy={dy:+d}: casamento {valor:.4f} abaixo de "
+                f"{CASAMENTO_MINIMO_DO_PERFIL_PROPRIO} — a tolerancia de +-2 px "
+                f"encolheu e a janela do jogo arrastada volta a calar a barra"
+            )
+            assert abs(valor - 0.9641) < 0.001, (
+                f"dy={dy:+d}: casamento {valor:.4f}; o medido em 2026-08-27 e "
+                f"+0.9641 CONSTANTE nas cinco janelas"
+            )
+
+        assert min(molduras) < 15.0 and max(molduras) > 30.0, (
+            f"as molduras das mesmas 5 janelas ({[round(m, 2) for m in molduras]}) "
+            f"deixaram de ser caoticas — o contraste entre o discriminador "
+            f"ANTIGO (12.64..32.33) e o NOVO (constante) era metade do "
+            f"argumento para trocar"
+        )
+
+    def test_a_janela_do_meio_e_a_fixture_principal(self):
+        assert (recorte(ESCURO_FAIXA)[2:26] == recorte(ESCURO_CAUDA_VAZIA)).all()
+
+
+class TestOCasamentoNasFixturesVERSIONADAS:
+    """As duas classes, contra o discriminador novo — so o que o repo carrega.
+
+    As populacoes grandes que o plano cita (45 livres de `recordings/inv2/`, 8
+    cobertas de `recordings/inv3/`) NAO podem ser afirmadas aqui: `recordings/`
+    esta no `.gitignore` e um clone limpo nao as tem. Este arquivo afirma sobre
+    as fixtures VERSIONADAS; a parte de `recordings/` fica atras de
+    `pytest.skip`, com a razao dita.
+    """
+
+    @pytest.mark.parametrize(
+        ("rotulo", "esperado"),
+        [
+            ("livre_0", 1.0000),
+            ("livre_1", 0.9992),
+            ("livre_2", 0.9986),
+            ("livre_3", 0.9963),
+            ("escuro_cheia", 0.9439),
+            ("escuro_cauda_vazia", 0.9641),
+            (QUASE_VAZIA, 0.9793),
+        ],
+    )
+    def test_as_livres_casam_alto(self, rotulo, esperado):
+        valor = _casamento_do_perfil_proprio(recorte(rotulo))
+        assert valor >= CASAMENTO_MINIMO_DO_PERFIL_PROPRIO, (
+            f"{rotulo}: casamento {valor:.4f} abaixo do limiar — uma barra "
+            f"LEGITIMA deixou de ser reconhecida"
+        )
+        assert abs(valor - esperado) < 0.001, (
+            f"{rotulo}: casamento {valor:.4f} em vez de {esperado} medido"
+        )
+
+    @pytest.mark.parametrize(
+        ("rotulo", "esperado"),
+        [("coberta_1", 0.0000), ("coberta_2", 0.2356), ("coberta_3", 0.0729)],
+    )
+    def test_as_cobertas_TOTAIS_ficam_bem_abaixo(self, rotulo, esperado):
+        """Estas tres sao as que liam 0% — as que viravam morte falsa."""
+        valor = _casamento_do_perfil_proprio(recorte(rotulo))
+        assert valor < CASAMENTO_MINIMO_DO_PERFIL_PROPRIO, (
+            f"{rotulo}: casamento {valor:.4f} passou do limiar"
+        )
+        assert abs(valor - esperado) < 0.001, (
+            f"{rotulo}: casamento {valor:.4f} em vez de {esperado} medido"
+        )
+
+    def test_a_coberta_PARCIAL_casa_alto_e_por_isso_a_leitura_e_APARENTE(self):
+        """`coberta_0` casa +0.999 COM O INVENTARIO POR CIMA DA BARRA.
+
+        E a razao inteira de a leitura ir para um campo separado. Casamento alto
+        nao prova recorte LIVRE — prova estrutura horizontal visivel. Se um dia
+        alguem quiser promover a leitura a `hp_proprio`, este numero e o que
+        precisa ser explicado primeiro.
+        """
+        valor = _casamento_do_perfil_proprio(recorte("coberta_0"))
+        assert valor > 0.99, (
+            f"coberta_0 casa {valor:.4f}: se isto caiu, o argumento de que o "
+            f"casamento nao distingue livre de parcialmente ocluido mudou, e a "
+            f"decisao de desenho precisa ser revisitada — nao apagada"
+        )
+
+    def test_as_populacoes_de_recordings_nao_sao_afirmaveis_num_clone_limpo(self):
+        if not (RECORDINGS / "inv2").is_dir() or not (RECORDINGS / "inv3").is_dir():
+            pytest.skip(
+                "recordings/ e gitignored: as 45 livres de inv2/ e as 8 "
+                "cobertas de inv3/ nao existem num clone limpo. As fixtures "
+                "VERSIONADAS acima cobrem as duas classes."
+            )
+        livres = sorted((RECORDINGS / "inv2").glob("*_propria.png"))
+        assert livres, "recordings/inv2/ existe mas nao tem *_propria.png"
+        for caminho in livres:
+            px = cv2.imread(str(caminho))
+            valor = _casamento_do_perfil_proprio(px)
+            assert valor >= CASAMENTO_MINIMO_DO_PERFIL_PROPRIO, (
+                f"{caminho.name}: casamento {valor:.4f} abaixo do limiar"
+            )
+
+
+class TestOBuracoPreExistenteDoBracoDeMoldura:
+    """CARACTERIZACAO de um defeito que esta tarefa NAO cria e NAO fecha.
+
+    `coberta_2` com o painel cobrindo o lado ESQUERDO da barra le 0.0000 com
+    moldura 64.00 — acima do limiar de 60 — e ja e aceito HOJE por
+    `barra_propria_legivel`. Isso e uma morte falsa por um caminho que NENHUM
+    dos dois bracos cobre.
+
+    Nao e fechavel por portao de leitura, e a razao e estrutural: o braco de
+    MOLDURA precisa poder certificar leitura zero, porque e assim que a morte e
+    anunciada em terreno de dia.
+
+    Candidato MEDIDO para fechar: contiguidade do preenchimento (`sobra` = 0 nas
+    51 amostras genuinas, 11..186 nos compostos de oclusao a esquerda). Ele so
+    pode entrar depois de medido contra TERRENO VERMELHO — lava e chao
+    avermelhado podem gerar colunas cheias espurias, e o modo de falha dessa
+    heuristica e SILENCIO, que e o pior desfecho declarado do projeto.
+
+    Registrado em
+    `.planning/todos/pending/2026-08-26-a-moldura-da-barra-propria-em-terreno-escuro.md`.
+    QUANDO ALGUEM FECHAR O BURACO, ESTE TESTE QUEBRA — de proposito, para
+    obrigar a atualizar aquele registro em vez de deixa-lo envelhecer mentindo.
+    """
+
+    @pytest.mark.parametrize("k", [5, 20, 60])
+    def test_o_painel_a_esquerda_le_zero_e_ja_passa_HOJE(self, calibracao, k):
+        composto = np.hstack(
+            [recorte("coberta_2")[:, :k], recorte("livre_0")[:, k:]]
+        )
+        leitura = medir_barra(
+            composto, regiao_inteira(composto), calibracao.limiares_hp
+        )
+        moldura = _moldura_da_barra_propria(composto)
+
+        assert leitura == 0.0, f"k={k}: leitura {leitura:.4f}, esperado 0.0000"
+        assert abs(moldura - 64.00) < 0.05, f"k={k}: moldura {moldura:.2f}"
+        assert barra_propria_legivel(composto), (
+            f"k={k}: o buraco PRE-EXISTENTE do braco de moldura fechou. Isso e "
+            f"uma boa noticia — e o TODO "
+            f"2026-08-26-a-moldura-da-barra-propria-em-terreno-escuro.md "
+            f"precisa ser atualizado, porque ele ainda registra este caminho "
+            f"como aberto."
+        )
+
+    def test_o_braco_NOVO_recusa_o_mesmo_composto(self, calibracao):
+        """A metade que ESTA tarefa garante: o braco novo nao piora o buraco.
+
+        Ele nao FECHA (o composto ja passa pelo braco de moldura, que roda
+        antes), mas tambem nao acrescenta um segundo caminho para a mesma morte
+        falsa.
+        """
+        composto = np.hstack([recorte("coberta_2")[:, :5], recorte("livre_0")[:, 5:]])
+        leitura = medir_barra(
+            composto, regiao_inteira(composto), calibracao.limiares_hp
+        )
+        assert not _braco_do_casamento(composto, leitura)
