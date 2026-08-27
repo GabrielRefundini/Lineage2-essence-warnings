@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 2
+open_count: 3
 waived_count: 1
 fixed_count: 1
-total_count: 4
-last_updated: 2026-08-26T16:22:22.620Z
+total_count: 5
+last_updated: 2026-08-27T15:59:09.257Z
 ---
 
 # Broken Windows Ledger
@@ -19,6 +19,7 @@ last_updated: 2026-08-26T16:22:22.620Z
 | 2 | quick-260825-psq | unmet-truth | l2scanner/ocr.py |  | ESCALA_DE_DETECCAO=1 nao le os digitos do banner real (le MOninutes): com 1x e 3x as duas escalas nunca concordam e o recurso nunca anuncia | fixed |  | 2026-08-25T22:04:27.547Z | 2026-08-25T22:11:00.846Z |
 | 3 | 10 | todo | l2scanner/config.py |  | avisar_minutos_antes ainda aceita true (isinstance(True, int) e verdadeiro); chamar_minutos_antes nao herdou o buraco, o campo antigo espera plano proprio | open |  | 2026-08-26T15:25:06.252Z |  |
 | 4 | 10 | todo | l2scanner/presenca.py |  | texto_de_fechamento(sugestao=) nasce declarado e sem chamador; quem o preenche e o plano 10-05 (D-13) | open |  | 2026-08-26T16:22:22.620Z |  |
+| 5 | quick-260827-fsk | unrun-verify | .planning/quick/260827-fsk-trocar-o-discriminador-da-legibilidade-d/260827-fsk-PLAN.md |  | verify da Task 3 aponta para .planning/STATE.md, movido para .planning/workstreams/default/ por processo concorrente; STATE atualizado no caminho novo | open |  | 2026-08-27T15:59:09.257Z |  |
 
 ````json
 [
@@ -68,6 +69,18 @@ last_updated: 2026-08-26T16:22:22.620Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-26T16:22:22.620Z",
+    "resolved_at": null
+  },
+  {
+    "id": 5,
+    "kind": "unrun-verify",
+    "phase": "quick-260827-fsk",
+    "file": ".planning/quick/260827-fsk-trocar-o-discriminador-da-legibilidade-d/260827-fsk-PLAN.md",
+    "line": null,
+    "description": "verify da Task 3 aponta para .planning/STATE.md, movido para .planning/workstreams/default/ por processo concorrente; STATE atualizado no caminho novo",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-27T15:59:09.257Z",
     "resolved_at": null
   }
 ]
