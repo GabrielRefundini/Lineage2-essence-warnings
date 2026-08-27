@@ -157,3 +157,163 @@ Devolver ao planejador. O objetivo — parar de calar a barra legitima em terren
 escuro — esta certo, e o discriminador escolhido serve. O que falta e a metade
 nao medida da varredura de seguranca, e uma clausula que impeca o braco novo de
 aprovar um recorte que le zero.
+
+---
+
+# PLAN CHECK — ITERACAO 2 (revisao 2 do plano, commit 7e24e80)
+
+**Verdict: BLOCK** — 1 blocker novo, 2 warnings novos. Os DOIS blockers da
+iteracao 1 estao **CLOSED**.
+
+O redesenho esta certo e a prova esta certa. O blocker novo nao esta no portao:
+esta no que a leitura recem-liberada faz na CAMADA DE CIMA — um caminho que o
+plano nao modela, o pre-voo nao ve e os testes propostos nao cobrem.
+
+## Reproducao independente da revisao 2
+
+| item | plano | medido neste check | bate? |
+|---|---|---|---|
+| `escuro_janela` 1392x1720, brilho 58.12 | idem | idem | sim |
+| HP (716,294) | moldura 86.42 / cas +0.944 | 86.42 / +0.944 | sim |
+| MP (741,294) | moldura 29.08 / cas +0.964 | 29.08 / +0.964 | sim |
+| `escuro_faixa[2:26] == escuro_cauda_vazia` | verdadeiro | verdadeiro | sim |
+| leitura do MP com `limiares_mp` | 0.8848 | 0.8848 | sim |
+| 3b, painel a ESQUERDA, k=5/20/60/120 | leitura 0.0000; moldura 48.92/64.00/55.42 | identico | sim |
+| 4, a colisao | genuina +0.627 contra 5-col-esq +0.645 | 0.627 contra 0.622/0.619/**0.645** | sim |
+| 4, k=3 e k=10 | +0.642 / +0.637 | idem | sim |
+| 5, exaustao | 2304 compostos, 1733 em regime de morte, **0 aceitos** | **2304 / 1733 / 0**, 0.06 s | sim |
+| 8, dy -4..+4 | +-2 constante +0.964; +-3 = +0.293/+0.364 | identico | sim |
+| baseline de coleta | 1127 | 1127 | sim |
+| `9d5533e` ancestral de HEAD | implicito | verdadeiro | sim |
+
+Os quatro pontos encarregados a esta re-review:
+
+1. **O portao usa a MESMA grandeza que o rastreador.** Confirmado no caminho de
+   codigo: a Task 2 manda `extrair` MEDIR uma unica vez, com `cal.limiares_hp`
+   sobre a regiao inteira, e entregar esse mesmo float ao portao E a
+   `hp_proprio`. Nao ha segundo calculo, nao ha short-circuit, nao ha ordenacao
+   em que o gate e o rastreador possam divergir. `0.05 > 0.02` e verdade por
+   construcao. Unico residual, declarado pelo proprio plano: o braco de MOLDURA
+   segue podendo certificar leitura zero — o buraco pre-existente, item 4.
+2. **Exaustao reproduzida** nas duas direcoes, com o preenchimento de direita
+   escuro: 2304 / 1733 / **zero aceitos**. A varredura nao e vazia.
+3. **A intercalacao e real e esta dita sem enfeite** — plano secao 4 e truth 7,
+   TODO item (4) da Task 3, e o bloco de output exigindo o mesmo do SUMMARY. Os
+   tres com o numero. A promessa encolhida NAO esta enterrada: esta na revisao,
+   no objective e no success_criteria.
+4. **Buraco pre-existente confirmado:** `coberta_2[:, :5] + livre_0[:, 5:]` le
+   0.0000 com moldura **64.00** (acima de 60) — aceito HOJE. Nao e criado nem
+   fechado por esta mudanca. Registrado em tres lugares duraveis (TODO item 5,
+   T-fsk-05, `TestOBuracoPreExistenteDoBracoDeMoldura`), com o candidato
+   (`sobra`: 0 nas 51 genuinas contra 11..186 nos compostos) e a condicao de
+   adocao (medir contra TERRENO VERMELHO, porque o modo de falha e silencio).
+
+## Blockers da iteracao 1
+
+- **BLOCKER 1 (oclusao pela esquerda passando lendo 0%) — CLOSED.** Resolvido por
+  construcao e nao por limiar; re-medido, zero aceitos em 1733.
+- **BLOCKER 2 (o teste certificava a propriedade falsa) — CLOSED.** A varredura
+  percorre as duas direcoes, aserta sobre a LEITURA e nao sobre k, e a classe
+  aserta que o conjunto em regime de morte nao e vazio.
+
+## BLOCKER NOVO — aceitar `coberta_0` abre um alerta falso de VOCE_SEM_PARTY, e isso nao esta no plano
+
+O plano contabiliza o custo de aceitar a coberta parcial como UMA coisa so:
+"`coberta_0` passa a ler 86.91% e nao pode virar morte porque fica 43x acima do
+limiar de morte" (Task 3 item 7 e `TestOCustoDeAceitarACobertaParcial`). Isso e
+verdade sobre a MORTE — e o limiar de morte e o unico consumidor de `hp_proprio`
+que o plano examinou. Nao e o unico que existe.
+
+`rastreador.py:454` ramifica em `obs.hp_proprio is not None and not modo_solo`
+para `_avaliar_se_voce_esta_em_party`. HOJE, com o inventario por cima,
+`hp_proprio` sai `None` e esse ramo nem e ENTRADO. Depois da mudanca ele passa a
+ser entrado com 0.8691, e a guarda de cegueira de `rastreador.py:643` NAO salva,
+porque ela so congela quando `hp_proprio` esta ZERADO. Com a party window coberta
+pelo mesmo painel (`ui_visivel=False`), `_contador_sem_party` avanca a cada tick
+e, em `confirmacoes_para_voce_sem_party = 8`, sai `VOCE_SEM_PARTY`.
+
+Simulado aqui, com o portao forcado a aceitar `coberta_0` — que ele aceita:
+leitura 0.8691 acima de 0.05 e casamento +0.999 acima de 0.40:
+
+    HOJE     hp_proprio: None       -> ramo nao entrado, nenhum evento
+    DEPOIS   hp_proprio: 0.8691, ui_visivel: False
+             rastreador FRIO  -> nenhum evento (o comeco frio protege)
+             rastreador MORNO -> tick 7: EVENTO VOCE_SEM_PARTY
+
+MORNO e o estado NORMAL: `_voce_em_party=True` e `_ja_viu_party_window=True` sao
+o que qualquer sessao em party tem depois do primeiro minuto. Oito ticks de
+inventario aberto e coisa banal — e a familia de defeito e exatamente a que a
+quick `260826-dxm` pagou para matar: alerta falso originado do painel do
+inventario.
+
+Por que nem o pre-voo nem os testes planejados pegam isto: o pre-voo roda a suite
+inteira, e NENHUM teste da suite leva `coberta_0` ate o `Rastreador` — conferido,
+`coberta_0` so aparece em `test_inventario_por_cima_da_barra_propria.py`, sempre
+em chamada direta a `barra_propria_legivel` ou `extrair`. E
+`TestOCustoDeAceitarACobertaParcial`, como escrita, aserta apenas que a leitura
+fica acima do limiar de morte — a asercao reduzida que faz o custo PARECER
+fechado.
+
+Isto deixa imprecisas, como escritas, a truth 4 ("nenhuma oclusao passa a produzir
+morte" — verdadeira sobre morte, silenciosa sobre este evento), o T-fsk-02 e o
+success_criteria.
+
+Fix, em ordem de custo:
+
+(a) **Medir primeiro.** Acrescentar a `TestOCustoDeAceitarACobertaParcial` um
+    percurso pelo `Rastreador` MORNO (`_voce_em_party=True`,
+    `_ja_viu_party_window=True`) com `extrair(frame_solo("coberta_0"))` repetido
+    por `confirmacoes_para_voce_sem_party + 2` ticks, exigindo lista de eventos
+    VAZIA. Se ela nao for vazia — e nao e — o custo fica medido e a decisao vira
+    explicita em vez de tacita.
+
+(b) Se confirmar, escolher uma saida: estender a guarda de `rastreador.py:643`
+    para congelar tambem quando a UI esta invisivel e a leitura veio do braco
+    novo; ou expor na `Observacao` por qual braco a legibilidade passou; ou
+    aceitar o alerta e registra-lo no TODO com o mesmo rigor do buraco
+    pre-existente. Qualquer das tres serve. O que NAO serve e o plano seguir
+    afirmando que o unico custo de `coberta_0` e uma leitura que nao pode virar
+    morte.
+
+Direcao do dano: alarme FALSO, nao silencio — nao e o defeito inaceitavel
+declarado do projeto. Mas e NOVO, e causado por esta mudanca, e chega ao usuario
+em 8 segundos de inventario aberto.
+
+## Warnings da iteracao 1 — todos verificados
+
+1. **dy=+-3 — CLOSED.** +0.293 / +0.364 re-medidos, ambos abaixo de 0.40, e a
+   secao 8 traz a correcao NOMEADA, explicando que a linha antiga vinha do
+   recorte de HP e nao do de MP.
+2. **+-2 px e o teto — CLOSED.** Secao 10.4 e TODO item (6), sem vender robustez.
+3. **`pyproject` — CLOSED com residual info.** O diff contra `9d5533e..HEAD`
+   funciona (`9d5533e` conferido como ancestral de HEAD) e nao e mais vacuo.
+   Residual: so ve o COMMITADO. Como o verify roda pos-commit, aceitavel.
+4. **Contagem de testes — CLOSED e verificada por execucao.** Rodei o proprio
+   comando da Task 2 no estado atual: imprime `coletados: 1127` e **sai 1**. O
+   gate REPROVA no baseline, como o planejador afirma. Confirmei tambem que
+   pytest devolve **4** para classe inexistente, validando o `test $? -eq 1` da
+   Task 1.
+5. **Duas populacoes (versionadas contra `recordings/`) — CLOSED.** A Task 2 manda
+   pular com `pytest.skip` para `inv2/` e o mesmo cuidado para as 4 de `inv3/`.
+
+## Warnings novos
+
+1. **`2 skipped` esta escrito como se fosse constante.** Com os skips novos, um
+   clone limpo (sem `recordings/`) tera MAIS de 2 skips, e a truth e o done dizem
+   "pelo menos 1125 passed, 2 skipped". Nenhum verify automatizado aserta o
+   numero de skips, entao nada quebra — mas o texto deveria dizer "2 skipped na
+   maquina com `recordings/`, mais num clone limpo".
+2. **Um dos tres preenchimentos de direita da varredura e SINTETICO.** A cauda
+   escura e ladrilhada ate 191 colunas. O plano chama tudo de composto o tempo
+   todo, mas a truth 3 diz "2304 compostos de painel REAL": os paineis sao reais,
+   um dos tres preenchimentos de direita nao e. Uma palavra a corrigir, nao um
+   defeito.
+
+## Recomendacao
+
+Devolver ao planejador. Falta UMA coisa: medir o que a leitura liberada faz no
+RASTREADOR, e nao so contra o limiar de morte. O redesenho, a exaustao, a
+promessa encolhida e o registro do que nao fecha estao todos corretos e todos
+reproduzidos — este plano e mais honesto que o anterior e entrega menos de
+proposito, o que e a troca certa. O que resta e CONTABILIDADE DE CUSTO, e o teste
+que o expoe cabe em dez linhas dentro de uma classe que o plano ja tem.
