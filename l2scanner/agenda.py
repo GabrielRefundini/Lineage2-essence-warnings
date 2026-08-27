@@ -271,8 +271,8 @@ def texto_do_aviso(aviso: Aviso, loot: str | None = None) -> str:
         # onde responder colhe resposta num lugar que o bot nunca le.
         return (
             f"{aviso.evento} as {hora}. Quem vai? "
-            f"Mande /join no PRIVADO do bot para entrar na lista, "
-            f"ou /leave para sair. Aqui no grupo o bot nao le comando."
+            f"Mande /entrar no PRIVADO do bot para entrar na lista, "
+            f"ou /sair para sair. Aqui no grupo o bot nao le comando."
         )
     return f"{aviso.evento} comecou agora, as {hora}."
 

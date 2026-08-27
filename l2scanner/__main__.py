@@ -526,7 +526,7 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
         )
         log.warning(
             "Para restringir, ponha o seu numero em CHATWOOT_TELEFONES_COMANDO "
-            "no .env. Para dar so /join e /leave aos party-mates, use os blocos "
+            "no .env. Para dar so /entrar e /sair aos party-mates, use os blocos "
             "[[membro]] do config.toml."
         )
     else:
@@ -548,7 +548,7 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
     if membros:
         if config.telefones_de_comando:
             log.info(
-                "Presenca: %d party-mate(s) podem dar /join e /leave (%s). Nenhum "
+                "Presenca: %d party-mate(s) podem dar /entrar e /sair (%s). Nenhum "
                 "deles alcanca comando de loot.",
                 len(membros),
                 ", ".join(m.nick for m in membros),
@@ -589,7 +589,7 @@ def montar_leitor_de_comandos(args: argparse.Namespace):
         else:
             log.warning(
                 "Os dois sao do mesmo nivel (%s): ninguem ganha comando novo, "
-                "mas um /join pode ser creditado ao nick errado. Troque um "
+                "mas um /entrar pode ser creditado ao nick errado. Troque um "
                 "dos dois.",
                 colisao.origem_do_primeiro,
             )

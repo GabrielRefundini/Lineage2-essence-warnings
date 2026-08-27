@@ -2480,7 +2480,7 @@ class TestArranqueComMembros:
         ]
         self._montar(monkeypatch, ["+5544997077000"], membros, caplog)
         assert "Korzis" in caplog.text and "J4guar" in caplog.text
-        assert "/join" in caplog.text
+        assert "/entrar" in caplog.text
 
     def test_a_colisao_dono_contra_membro_RECUSA_A_SUBIR(self, monkeypatch, caplog):
         """CR-01: avisar nao e mitigar uma escalada de privilegio.

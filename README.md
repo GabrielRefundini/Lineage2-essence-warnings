@@ -293,6 +293,8 @@ Comandos, sempre com barra na frente:
 | `/status` | Diz se está vigiando ou calado, e qual o próximo evento |
 | `/solo` | Vigia só o seu personagem e para de reclamar de party ausente |
 | `/party` | Volta a vigiar a party inteira |
+| `/entrar` | Entra na lista do próximo Solo Boss |
+| `/sair` | Sai da lista do próximo Solo Boss |
 | `/loot-<nick>` | Marca quem pega o loot do próximo Solo Boss |
 | `/loot-` | Desmarca (o aviso volta a sair sem nome) |
 | `/<nick>` | Quantos loots o char já pegou, e quando foi o último |
@@ -304,6 +306,9 @@ jogo pergunta pelo WhatsApp e recebe a lista sem sair da tela. **Essa lista é
 gerada a partir do próprio código**, não escrita à mão: um comando novo que
 não seja documentado quebra a suíte de testes de propósito, porque ajuda
 desatualizada é pior que ajuda nenhuma (ela ensina sintaxe que não funciona).
+
+As formas inglesas `/join` e `/leave` continuam valendo no lugar de
+`/entrar` e `/sair` — ninguém que já decorou o nome antigo fica sem resposta.
 
 **Quando usar `/pegou` e quando usar `/corrigir`.** O `/corrigir-Korzis` é o
 atalho para o boss que *acabou de passar*: ele não aceita horário, e por isso
@@ -347,8 +352,9 @@ Com a lista vazia, qualquer um da conversa manda — e o scanner avisa isso no
 arranque, em vez de deixar você descobrir por acidente.
 
 **Os party-mates ficam no `config.local.toml`.** Quem estiver ali pode mandar
-`/join` e `/leave` para entrar e sair da lista do próximo Solo Boss — e **mais
-nada**: um `[[membro]]` não alcança `/cancelar`, `/corrigir` nem `/pegou`.
+`/entrar` e `/sair` para entrar e sair da lista do próximo Solo Boss — e
+**mais nada**: um `[[membro]]` não alcança `/cancelar`, `/corrigir` nem
+`/pegou`.
 Copie `config.local.exemplo.toml` para `config.local.toml` e preencha:
 
 ```toml
