@@ -186,3 +186,81 @@ class TestOTripwireEstrutural:
             f"coordenadas isso produz retangulo plausivel na posicao errada. "
             f"Use WINDOW_AUTOSIZE, ou chame resizeWindow com as dimensoes reais."
         )
+
+
+class TestODrenoDaFilaDeTeclas:
+    """WR-05: drenar POR TEMPO, nao ate a primeira sondagem vazia.
+
+    O fix do vazamento de ENTER era
+
+        for _ in range(20):
+            if cv2.waitKey(1) == -1:
+                break
+
+    e ele saia na primeira leitura vazia: ~1 ms de bombeamento. A ferramenta
+    que DIAGNOSTICOU o defeito (`tools/diagnosticar_selecao.py`) documenta,
+    medido, que isso nao basta -- "uma tecla pode chegar alguns milissegundos
+    depois" -- e por isso ela mesma dreno por 300 ms.
+
+    E o caminho de risco nao e so o navegador de frames: `calibrar()` faz 5+N
+    selecoes seguidas, e a tecla que confirma a selecao k e candidata a vazar
+    para a k+1. Quando isso acontece, todos os retangulos ja marcados sao
+    perdidos.
+    """
+
+    def test_nao_para_na_primeira_sondagem_vazia(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Uma tecla que chega DEPOIS do primeiro -1 ainda tem de ser drenada."""
+        respostas = [-1, -1, -1, 13, -1]  # o ENTER chega na 4a sondagem
+        vistas: list[int] = []
+
+        def waitKey_falso(_ms):
+            valor = respostas.pop(0) if respostas else -1
+            vistas.append(valor)
+            return valor
+
+        monkeypatch.setattr(cv2, "waitKey", waitKey_falso)
+
+        drenadas = l2scanner.calibrar.esvaziar_a_fila_de_teclas(0.05)
+
+        assert 13 in vistas, (
+            "o dreno parou antes de a tecla chegar. Ela vazaria para o "
+            "selectROI seguinte, que devolveria (0,0,0,0) e jogaria fora todos "
+            "os retangulos ja marcados."
+        )
+        assert drenadas == 1
+
+    def test_dreno_por_tempo_e_nao_por_numero_de_sondagens(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Com a fila sempre vazia, ele continua bombeando ate o prazo."""
+        import time
+
+        contador = {"n": 0}
+
+        def waitKey_falso(_ms):
+            contador["n"] += 1
+            time.sleep(0.001)
+            return -1
+
+        monkeypatch.setattr(cv2, "waitKey", waitKey_falso)
+
+        comeco = time.perf_counter()
+        assert l2scanner.calibrar.esvaziar_a_fila_de_teclas(0.05) == 0
+        decorrido = time.perf_counter() - comeco
+
+        assert decorrido >= 0.05, (
+            f"o dreno durou {decorrido * 1000:.1f} ms para um prazo de 50 ms"
+        )
+        assert contador["n"] > 20, (
+            f"so {contador['n']} sondagens -- o laco antigo fazia 1 e saia"
+        )
+
+    def test_o_selecionar_regiao_usa_o_dreno_por_tempo(self):
+        """Tripwire: o laco de `range(20)` com `break` nao pode voltar."""
+        fonte = inspect.getsource(l2scanner.calibrar._selecionar_regiao)
+        assert "esvaziar_a_fila_de_teclas()" in fonte
+        assert "break" not in fonte, (
+            "voltou um dreno que sai cedo dentro de _selecionar_regiao"
+        )

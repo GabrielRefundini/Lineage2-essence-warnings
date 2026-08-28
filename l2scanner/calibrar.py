@@ -360,6 +360,52 @@ def calibrar_automatico(pixels: np.ndarray, ox: int, oy: int) -> Calibracao | No
     )
 
 
+DRENO_DA_FILA_DE_TECLAS = 0.15
+"""Segundos bombeando a fila do HighGUI antes de abrir uma selecao.
+
+NAO e "ate a primeira sondagem vazia". A ferramenta que DIAGNOSTICOU o
+vazamento de ENTER (`tools/diagnosticar_selecao.py`) registra, medido, que uma
+tecla pode chegar alguns milissegundos DEPOIS de a janela anterior fechar -- e
+por isso ela mesma dreno por 300 ms, e nao por primeira leitura vazia.
+
+O valor tem folga sobre o zero e e imperceptivel para quem esta com a mao no
+mouse: 0,15 s por selecao, contra os 5+N arrastos que uma calibracao de mercado
+custa.
+"""
+
+
+def esvaziar_a_fila_de_teclas(segundos: float = DRENO_DA_FILA_DE_TECLAS) -> int:
+    """Bombeia o event loop do HighGUI POR TEMPO, e devolve quantas teclas saiu.
+
+    Por que por tempo e nao ate o primeiro `-1`: o laco anterior era
+
+        for _ in range(20):
+            if cv2.waitKey(1) == -1:
+                break
+
+    e ele saia na PRIMEIRA sondagem vazia -- cerca de 1 ms de bombeamento. Uma
+    tecla que chegasse 3 ms depois passava direto.
+
+    O caminho de risco nao e so o navegador de frames. `calibrar()` faz 5 + N
+    selecoes seguidas, e a tecla que confirma a selecao *k* e candidata a vazar
+    para a *k+1*. Quando isso acontece, `selectROI` devolve (0,0,0,0), `_marcar`
+    levanta `MercadoNaoCalibravel("selecao cancelada -- nada foi gravado")` e
+    TODOS os retangulos ja marcados sao perdidos. E o sintoma original de
+    2026-08-28, so que no meio do fluxo em vez de no comeco.
+
+    MEDIDO durante aquela investigacao, e e o que torna este dreno confiavel:
+    `cv2.waitKey(300)` demora os 300 ms pedidos mesmo SEM nenhuma janela aberta
+    (308,5 ms sem janela; 303,4 ms com; 311,5 ms depois de `destroyAllWindows`).
+    Ele nao retorna cedo, entao bombeia o tempo todo.
+    """
+    drenadas = 0
+    fim = time.perf_counter() + segundos
+    while time.perf_counter() < fim:
+        if cv2.waitKey(1) != -1:
+            drenadas += 1
+    return drenadas
+
+
 def _selecionar_regiao(
     pixels: np.ndarray, titulo: str, instrucao: str
 ) -> tuple[int, int, int, int] | None:
@@ -402,11 +448,9 @@ def _selecionar_regiao(
     # O sintoma era indistinguivel de 'a janela nao abriu': o console dizia
     # que abriu, a janela piscava, e nada era gravado.
     #
-    # `waitKey(1)` devolve -1 quando nao ha tecla. O laco e limitado porque
-    # uma tecla segurada geraria eventos para sempre.
-    for _ in range(20):
-        if cv2.waitKey(1) == -1:
-            break
+    # O dreno e POR TEMPO, nao ate a primeira sondagem vazia -- ver
+    # `esvaziar_a_fila_de_teclas`, que registra a medicao.
+    esvaziar_a_fila_de_teclas()
 
     # (2) A JANELA E CRIADA E POSICIONADA ANTES, DE PROPOSITO -- E EM
     #     WINDOW_AUTOSIZE, QUE E A METADE QUE IMPORTA DESTA LINHA.
