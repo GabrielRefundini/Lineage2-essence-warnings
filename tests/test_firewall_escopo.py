@@ -17,6 +17,22 @@ ambiente que roda a suite, e o `.venv` de producao via
 `distributions(path=[...])`, mais uma varredura best-effort de `Requires-Dist`
 que pega a transitiva DECLARADA antes mesmo de ela ser instalada.
 
+**Quatro sintaxes que o pip aceita e que a varredura declarada deixava passar**
+(medidas contra este parser, e fechadas):
+
+    pyautogui@git+https://github.com/asweigart/pyautogui
+    keyboard@https://example.com/keyboard-0.13.5-py3-none-any.whl
+    -r extra-requirements.txt
+    -e ./vendor/pynput
+
+As duas primeiras sao referencia direta PEP 508: sem o `@` em `_FIM_DO_NOME` o
+nome extraido virava a string inteira e nao casava com a banlist. As duas
+ultimas eram engolidas junto com todas as linhas que comecam com `-`. As outras
+duas varreduras pegariam qualquer uma delas DEPOIS da instalacao, mas a
+declarada e justamente a que promete pegar antes — e um controle cuja funcao
+declarada e detectar antes da instalacao nao pode ser derrotado por sintaxe que
+o pip aceita.
+
 **Como ver o vermelho com as proprias maos** (criterio de sucesso 5 da fase):
 
     .venv\\Scripts\\pip install keyboard
@@ -62,7 +78,21 @@ BANIDAS = {
 }
 
 # Onde um nome de pacote termina numa linha de requirement.
-_FIM_DO_NOME = re.compile(r"[=<>!~\[\];(,\s]")
+#
+# O `@` fecha o nome numa referencia direta PEP 508 (`keyboard@https://...`,
+# `pyautogui@git+https://...`). Sem ele o nome extraido virava a string inteira
+# — "keyboard@https://example-com/..." — e nao casava com nada da banlist,
+# enquanto o pip instalava `keyboard` normalmente.
+_FIM_DO_NOME = re.compile(r"[=<>!~@\[\];(,\s]")
+
+# Opcoes de requirements.txt que trazem pacote por fora da linha de nome.
+#
+# `-r` aponta para um arquivo que esta varredura nao abre; `-e` aponta para um
+# caminho ou URL de VCS de onde o nome REAL da distribuicao so sai instalando.
+# As duas sao recusadas em vez de "melhor esforco de extrair o nome": um verde
+# obtido lendo "pynput" do caminho `./vendor/pynput` seria coincidencia, e
+# `./vendor/lib-do-fulano` instalaria a mesma coisa sem dizer.
+_OPCOES_QUE_TRAZEM_PACOTE = ("-r", "--requirement", "-e", "--editable")
 
 
 def _normalizar(nome: str) -> str:
@@ -122,7 +152,25 @@ def _nomes_declarados_no_requirements(texto: str) -> set[str]:
     nomes: set[str] = set()
     for linha_bruta in texto.splitlines():
         linha = linha_bruta.split("#", 1)[0].strip()
-        if not linha or linha.startswith("-"):
+        if not linha:
+            continue
+        if linha.split(None, 1)[0] in _OPCOES_QUE_TRAZEM_PACOTE:
+            raise AssertionError(
+                f"{linha!r}: o firewall nao segue includes nem resolve "
+                f"instalacoes editaveis, entao esta linha traria um pacote "
+                f"para dentro da arvore com a varredura declarada VERDE.\n"
+                f"\n"
+                f"Declare a dependencia pelo nome no proprio requirements.txt, "
+                f"ou ensine esta varredura a abrir o alvo — mas nao deixe as "
+                f"duas coisas em silencio. Ver a tabela Out of Scope de "
+                f"{TABELA_FORA_DE_ESCOPO}."
+            )
+        # As demais opcoes (`--index-url`, `--no-binary`, `-i`, ...) nao
+        # adicionam dependencia: seguem ignoradas, de proposito. Recusar toda
+        # linha de opcao deixaria o firewall vermelho por um motivo que nao e
+        # o dele, e um teste que falha por motivo errado convida a ser
+        # desligado.
+        if linha.startswith("-"):
             continue
         corte = _FIM_DO_NOME.search(linha)
         nome = linha[: corte.start()] if corte else linha
@@ -225,6 +273,80 @@ def test_o_detector_acusa_uma_distribuicao_banida_injetada() -> None:
     assert _banidas_presentes({"PyDirectInput"}) == {"pydirectinput"}
     assert _banidas_presentes({"PyWinAuto"}) == {"pywinauto"}
     assert _banidas_presentes({" keyboard \n"}) == {"keyboard"}
+
+
+@pytest.mark.parametrize(
+    "linha,esperado",
+    [
+        # Referencia direta PEP 508 — `nome @ url`. Sem o `@` no fim-do-nome, o
+        # nome extraido virava "pyautogui@git+https://..." e nao casava com
+        # NADA da banlist.
+        (
+            "pyautogui@git+https://github.com/asweigart/pyautogui",
+            {"pyautogui"},
+        ),
+        (
+            "keyboard@https://example.com/keyboard-0.13.5-py3-none-any.whl",
+            {"keyboard"},
+        ),
+        # Com espacos em volta do `@`, que tambem e sintaxe legal.
+        ("pynput @ git+https://github.com/moses-palmer/pynput", {"pynput"}),
+        # E o caso inocente nao pode virar falso positivo.
+        ("mss>=10.2.0", {"mss"}),
+        ("opencv-python>=4.10,<5", {"opencv-python"}),
+    ],
+)
+def test_a_referencia_direta_pep508_nao_escapa_da_varredura_declarada(
+    linha: str, esperado: set[str]
+) -> None:
+    """`nome @ url` e pip-instalavel e passava batido.
+
+    A varredura declarada e a que o docstring do modulo descreve como pegando
+    "a transitiva DECLARADA antes mesmo de ela ser instalada". Um controle cuja
+    funcao e detectar ANTES da instalacao nao pode ser derrotado por uma
+    sintaxe que o proprio pip aceita.
+    """
+    assert _nomes_declarados_no_requirements(linha) == esperado
+
+
+@pytest.mark.parametrize(
+    "linha",
+    [
+        "-r extra-requirements.txt",
+        "--requirement extra-requirements.txt",
+        "-e ./vendor/pynput",
+        "--editable git+https://github.com/moses-palmer/pynput#egg=pynput",
+    ],
+)
+def test_as_linhas_que_trazem_pacote_por_fora_sao_RECUSADAS(linha: str) -> None:
+    """`-r` e `-e` eram engolidas junto com todas as linhas que comecam com `-`.
+
+    As quatro sao formas legais e pip-instalaveis de trazer uma biblioteca
+    banida para dentro da arvore com a varredura declarada verde.
+
+    RECUSAR e nao "tentar extrair o nome" e deliberado: o `-r` aponta para um
+    arquivo que esta varredura nao abre, e o `-e` aponta para um caminho ou uma
+    URL de VCS de onde o nome REAL da distribuicao so sai instalando. Fingir
+    que da para ler o nome dali produziria um verde que nao significa nada —
+    `-e ./vendor/pynput` tem "pynput" no caminho por coincidencia, e
+    `-e ./vendor/lib-do-fulano` poderia instalar `pynput` sem dizer.
+
+    Falhar alto com a razao escrita e o unico resultado honesto.
+    """
+    with pytest.raises(AssertionError, match="firewall"):
+        _nomes_declarados_no_requirements(linha)
+
+
+def test_as_opcoes_que_nao_trazem_pacote_continuam_ignoradas() -> None:
+    """Estreitar a recusa importa: `--index-url` nao adiciona dependencia.
+
+    Recusar TODA linha de opcao deixaria o firewall vermelho por um motivo que
+    nao e o dele, e um teste que falha por motivo errado convida a ser
+    desligado.
+    """
+    assert _nomes_declarados_no_requirements("--index-url https://pypi.org/simple") == set()
+    assert _nomes_declarados_no_requirements("--no-binary :all:") == set()
+    assert _nomes_declarados_no_requirements("-i https://pypi.org/simple") == set()
 
 
 def test_a_varredura_por_path_acusa_uma_dist_info_banida_fabricada(
