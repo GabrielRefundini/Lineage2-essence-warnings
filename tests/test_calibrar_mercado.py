@@ -1,0 +1,415 @@
+"""A ferramenta de calibracao do mercado: o que da para afirmar sem o mouse.
+
+O fluxo e interativo por desenho (D-06) — as regioes sao marcadas com
+`cv2.selectROI`. Este arquivo afirma tudo o que NAO depende da mao do usuario:
+
+- os DOIS tripwires de escrita de imagem, o velho e o novo;
+- que a mecanica de selecao e COMPARTILHADA com o calibrador atual, e nao
+  copiada — inclusive que a refatoracao preservou o comportamento;
+- a matriz de confusao, que e a unica parte da ferramenta que pode recusar
+  sozinha um trabalho que o usuario acabou de fazer;
+- carregar-mutar-regravar, que e o que sustenta "sem editar JSON a mao";
+- as recusas explicadas: sem calibracao anterior, frame do modo errado, e
+  janela redimensionada depois da calibracao.
+
+O que NAO esta aqui, e nao pode estar: se os retangulos caem no lugar certo.
+Isso e o portao humano da Task 2, e a imagem de conferencia existe para ele.
+"""
+
+from __future__ import annotations
+
+import inspect
+import json
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
+
+import l2scanner.calibrar
+import l2scanner.calibrar_mercado
+from l2scanner.calibracao import CalibracaoInvalida
+from l2scanner.calibrar import _selecionar_regiao, calibrar_selecionando
+from l2scanner.calibrar_mercado import (
+    COLISAO_MAXIMA_ENTRE_TEMPLATES,
+    MercadoNaoCalibravel,
+    carregar_calibracao,
+    conferir_o_frame,
+    derivar_grade,
+    desenhar_conferencia,
+    escolher_frame,
+    ler_watchlist,
+    matriz_de_confusao,
+    montar_ancoras,
+)
+
+REFERENCIA = Path(__file__).parent / "fixtures" / "calibracao_de_referencia.json"
+
+
+@pytest.fixture
+def calibracao(tmp_path: Path) -> Path:
+    destino = tmp_path / "calibration.json"
+    destino.write_text(REFERENCIA.read_text(encoding="utf-8"), encoding="utf-8")
+    return destino
+
+
+class TestOsDoisTripwiresDeEscritaDeImagem:
+    """O modulo novo nao grava imagem; o velho continua gravando num lugar so.
+
+    Replica de `test_conferencia_gravada.py::
+    test_existe_um_unico_ponto_de_escrita_no_modulo`, e a razao de o modulo ser
+    NOVO: se a calibracao do mercado tivesse crescido dentro de `calibrar.py`,
+    qualquer gravacao dela cairia na contagem daquele teste.
+    """
+
+    def test_o_modulo_novo_nao_grava_imagem_por_conta_propria(self):
+        fonte = inspect.getsource(l2scanner.calibrar_mercado)
+        assert fonte.count("imwrite") == 0, (
+            "calibrar_mercado gravou imagem sozinho. Toda escrita tem de passar "
+            "por _gravar_conferencia, que confere o retorno e diz alto quando "
+            "falha — foi o erro calado nos dois pontos que fez o calibrador "
+            "anunciar uma imagem que nao existia"
+        )
+
+    def test_o_modulo_novo_IMPORTA_o_ponto_unico_de_escrita(self):
+        assert hasattr(l2scanner.calibrar_mercado, "_gravar_conferencia")
+        assert (
+            l2scanner.calibrar_mercado._gravar_conferencia
+            is l2scanner.calibrar._gravar_conferencia
+        )
+
+    def test_o_tripwire_do_modulo_VELHO_continua_verde_apos_a_extracao(self):
+        total = inspect.getsource(l2scanner.calibrar).count("imwrite")
+        no_auxiliar = inspect.getsource(
+            l2scanner.calibrar._gravar_conferencia
+        ).count("imwrite")
+        assert no_auxiliar >= 1
+        assert total == no_auxiliar, (
+            "a extracao de _selecionar_regiao trouxe escrita de imagem junto"
+        )
+
+    def test_a_selecao_e_COMPARTILHADA_e_nao_duplicada(self):
+        fonte = inspect.getsource(l2scanner.calibrar_mercado)
+        assert "selectROI" not in fonte, (
+            "ha uma segunda mecanica de selectROI: duas copias envelhecem "
+            "separadas e a pior produz retangulo plausivel na posicao errada"
+        )
+        assert (
+            l2scanner.calibrar_mercado._selecionar_regiao
+            is l2scanner.calibrar._selecionar_regiao
+        )
+
+
+class TestOAuxiliarExtraido:
+    """A reescala e a parte que nao podia ser duplicada."""
+
+    def test_devolve_a_caixa_nas_coordenadas_ORIGINAIS(self, monkeypatch):
+        """Imagem larga forca escala < 1.0; a caixa volta multiplicada."""
+        pixels = np.zeros((900, 3200, 3), dtype=np.uint8)
+        monkeypatch.setattr(cv2, "selectROI", lambda *a, **k: (100, 50, 200, 30))
+        monkeypatch.setattr(cv2, "destroyAllWindows", lambda: None)
+
+        caixa = _selecionar_regiao(pixels, "t", "i")
+
+        # escala = 1600/3200 = 0.5 -> tudo dobra na volta
+        assert caixa == (200, 100, 400, 60)
+
+    def test_sem_reescala_devolve_a_caixa_como_veio(self, monkeypatch):
+        pixels = np.zeros((400, 800, 3), dtype=np.uint8)
+        monkeypatch.setattr(cv2, "selectROI", lambda *a, **k: (10, 20, 30, 40))
+        monkeypatch.setattr(cv2, "destroyAllWindows", lambda: None)
+
+        assert _selecionar_regiao(pixels, "t", "i") == (10, 20, 30, 40)
+
+    @pytest.mark.parametrize("caixa", [(10, 20, 0, 40), (10, 20, 30, 0)])
+    def test_caixa_degenerada_devolve_None(self, monkeypatch, caixa):
+        """ESC devolve (0,0,0,0): cancelar nao pode virar retangulo de area zero."""
+        pixels = np.zeros((400, 800, 3), dtype=np.uint8)
+        monkeypatch.setattr(cv2, "selectROI", lambda *a, **k: caixa)
+        monkeypatch.setattr(cv2, "destroyAllWindows", lambda: None)
+
+        assert _selecionar_regiao(pixels, "t", "i") is None
+
+
+class TestAEquivalenciaDaRefatoracao:
+    """`calibrar_selecionando` refatorada tem de fazer o que fazia antes."""
+
+    def test_a_mesma_caixa_produz_o_mesmo_recorte_e_a_mesma_origem(
+        self, monkeypatch
+    ):
+        pixels = np.zeros((900, 3200, 3), dtype=np.uint8)
+        pixels[100:160, 200:600] = 200
+        monkeypatch.setattr(cv2, "selectROI", lambda *a, **k: (100, 50, 200, 30))
+        monkeypatch.setattr(cv2, "destroyAllWindows", lambda: None)
+
+        vistos = {}
+
+        def espiao(recorte, ox, oy):
+            vistos["forma"] = recorte.shape
+            vistos["origem"] = (ox, oy)
+            return None
+
+        monkeypatch.setattr(
+            l2scanner.calibrar, "calibrar_automatico", espiao
+        )
+        calibrar_selecionando(pixels, 1000, 2000)
+
+        # x=200 y=100 larg=400 alt=60, exatamente como antes da extracao
+        assert vistos["forma"] == (60, 400, 3)
+        assert vistos["origem"] == (1200, 2100)
+
+    def test_cancelar_continua_devolvendo_None_sem_chamar_o_automatico(
+        self, monkeypatch
+    ):
+        pixels = np.zeros((400, 800, 3), dtype=np.uint8)
+        monkeypatch.setattr(cv2, "selectROI", lambda *a, **k: (0, 0, 0, 0))
+        monkeypatch.setattr(cv2, "destroyAllWindows", lambda: None)
+
+        def nunca(*a, **k):  # pragma: no cover - o teste falha se rodar
+            raise AssertionError("nao pode deduzir layout de uma selecao vazia")
+
+        monkeypatch.setattr(l2scanner.calibrar, "calibrar_automatico", nunca)
+        assert calibrar_selecionando(pixels, 0, 0) is None
+
+
+def molde_de_texto(texto: str, largura: int = 120, altura: int = 20) -> np.ndarray:
+    imagem = np.zeros((altura, largura), dtype=np.uint8)
+    cv2.putText(
+        imagem, texto, (2, altura - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, 255, 1
+    )
+    return imagem
+
+
+class TestAMatrizDeConfusao:
+    def test_dois_moldes_QUASE_IDENTICOS_sao_RECUSADOS_com_o_par_nomeado(self):
+        """`+3 Bota X` contra `+4 Bota X`: o caso que corrompe a serie inteira."""
+        moldes = {
+            "+3 Bota X": molde_de_texto("+3 Bota X"),
+            "+4 Bota X": molde_de_texto("+3 Bota X").copy(),
+            "Chapeu Y": molde_de_texto("Chapeu Y"),
+        }
+        resultado = matriz_de_confusao(moldes)
+
+        assert not resultado.aprovado
+        assert set(resultado.par_colidente) == {"+3 Bota X", "+4 Bota X"}
+        assert resultado.pior_score > COLISAO_MAXIMA_ENTRE_TEMPLATES
+        assert resultado.limiar_sugerido is None
+        texto = resultado.explicar()
+        assert "+3 Bota X" in texto and "+4 Bota X" in texto
+        assert "destroi a serie" in texto
+
+    def test_moldes_BEM_SEPARADOS_sao_aprovados_com_limiar_sugerido(self):
+        moldes = {
+            "Dragon Belt": molde_de_texto("Dragon Belt"),
+            "Zzzz": molde_de_texto("Zzzz"),
+        }
+        resultado = matriz_de_confusao(moldes)
+
+        assert resultado.aprovado
+        assert resultado.pior_score <= COLISAO_MAXIMA_ENTRE_TEMPLATES
+        assert resultado.limiar_sugerido == pytest.approx(
+            (1.0 + resultado.pior_score) / 2
+        )
+        assert f"{resultado.pior_score:.4f}" in resultado.explicar()
+
+    def test_a_matriz_traz_TODO_par_uma_vez_so(self):
+        moldes = {n: molde_de_texto(n) for n in ("A", "B", "C")}
+        resultado = matriz_de_confusao(moldes)
+        assert len(resultado.matriz) == 3
+        assert ("A", "B") in resultado.matriz
+        assert ("B", "A") not in resultado.matriz
+
+    def test_com_menos_de_dois_moldes_nao_ha_o_que_confundir(self):
+        assert matriz_de_confusao({}).aprovado
+        assert matriz_de_confusao({"so um": molde_de_texto("so um")}).aprovado
+
+    def test_moldes_de_TAMANHOS_diferentes_sao_comparaveis(self):
+        """Cortar ao menor comum e o que impede a matriz de aprovar por omissao.
+
+        Sem o alinhamento, dois moldes em que nenhum domina o outro nos dois
+        eixos dariam 0.0 — "nao colidem" por nao terem sido comparados.
+        """
+        base = molde_de_texto("Bota X", largura=140, altura=30)
+        # Nenhum dos dois domina o outro nos DOIS eixos: 30x100 contra 20x140.
+        moldes = {"alto": base[:30, :100].copy(), "largo": base[:20, :140].copy()}
+        resultado = matriz_de_confusao(moldes)
+        assert resultado.pior_score > 0.0
+        assert not resultado.aprovado
+
+
+class TestCarregarMutarRegravar:
+    def test_mutar_so_o_mercado_preserva_todos_os_demais_campos(
+        self, calibracao: Path
+    ):
+        antes = json.loads(calibracao.read_text(encoding="utf-8"))
+
+        cal = carregar_calibracao(calibracao)
+        cal.mercado_grade = {"layout": "negociacao", "linhas_por_pagina": 10}
+        cal.mercado_limiar_de_template = 0.93
+        cal.salvar(calibracao)
+
+        depois = json.loads(calibracao.read_text(encoding="utf-8"))
+        for chave, valor in antes.items():
+            if chave.startswith("mercado_"):
+                continue
+            if isinstance(valor, dict):
+                # Campos com valor padrao (os do `layout`) sao ACRESCENTADOS pelo
+                # `salvar`, o que ja acontecia antes desta ferramenta existir. O
+                # que nao pode e um valor MEDIDO pelo usuario mudar.
+                assert valor.items() <= depois[chave].items(), (
+                    f"{chave} perdeu ou alterou um valor medido"
+                )
+            else:
+                assert depois[chave] == valor, f"{chave} mudou sem ninguem pedir"
+        assert depois["mercado_grade"]["linhas_por_pagina"] == 10
+        assert depois["mercado_limiar_de_template"] == 0.93
+
+    def test_a_VERSAO_DO_ESQUEMA_nao_sobe(self, calibracao: Path):
+        cal = carregar_calibracao(calibracao)
+        cal.mercado_grade = {"layout": "adena"}
+        cal.salvar(calibracao)
+        assert json.loads(calibracao.read_text(encoding="utf-8"))["versao"] == 2
+        assert carregar_calibracao(calibracao).mercado_grade == {"layout": "adena"}
+
+    def test_sem_calibracao_anterior_a_recusa_diz_O_QUE_RODAR(self, tmp_path: Path):
+        with pytest.raises(MercadoNaoCalibravel) as erro:
+            carregar_calibracao(tmp_path / "nao_existe.json")
+        texto = str(erro.value)
+        assert "calibrar.bat" in texto
+        assert not (tmp_path / "nao_existe.json").exists(), (
+            "recusar nao pode criar uma calibracao pela metade"
+        )
+
+
+class TestAsRecusasDeGeometria:
+    def test_frame_do_modo_PARTY_e_recusado_alto(self, calibracao: Path):
+        cal = carregar_calibracao(calibracao)
+        recorte_de_party = np.zeros((522, 174, 3), dtype=np.uint8)
+        with pytest.raises(MercadoNaoCalibravel, match="modo party"):
+            conferir_o_frame(cal, recorte_de_party)
+
+    def test_frame_de_JANELA_COMPLETA_passa(self, calibracao: Path):
+        cal = carregar_calibracao(calibracao)
+        conferir_o_frame(cal, np.zeros((1392, 1720, 3), dtype=np.uint8))
+
+    def test_frame_vazio_e_recusado(self, calibracao: Path):
+        cal = carregar_calibracao(calibracao)
+        with pytest.raises(MercadoNaoCalibravel):
+            conferir_o_frame(cal, np.zeros((0, 0, 3), dtype=np.uint8))
+
+    def test_janela_redimensionada_faz_a_LEITURA_recusar(self, calibracao: Path):
+        """Pitfall 5: o molde cortado noutra escala casa baixo sem explicacao."""
+        cal = carregar_calibracao(calibracao)
+        cal.mercado_geometria_da_captura = {"largura": 1720, "altura": 1392}
+        cal.salvar(calibracao)
+
+        recarregada = carregar_calibracao(calibracao)
+        recarregada.conferir_geometria_do_mercado(1720, 1392)  # nao levanta
+        with pytest.raises(CalibracaoInvalida, match="Recalibre o mercado"):
+            recarregada.conferir_geometria_do_mercado(1600, 900)
+
+    def test_sem_carimbo_gravado_a_leitura_nao_reclama(self, calibracao: Path):
+        """Instalacao que nunca calibrou o mercado sobe igual, com a feature OFF."""
+        carregar_calibracao(calibracao).conferir_geometria_do_mercado(800, 600)
+
+
+class TestAEscolhaDoFrame:
+    def test_o_padrao_da_gravacao_e_o_frame_do_MEIO(self, tmp_path: Path):
+        for i in range(5):
+            (tmp_path / f"frame_{i:06d}.png").write_bytes(b"")
+        assert escolher_frame(tmp_path, None, None).name == "frame_000002.png"
+
+    def test_indice_explicito_manda(self, tmp_path: Path):
+        for i in range(5):
+            (tmp_path / f"frame_{i:06d}.png").write_bytes(b"")
+        assert escolher_frame(tmp_path, None, 0).name == "frame_000000.png"
+
+    def test_indice_fora_da_faixa_e_recusado_dizendo_a_faixa(self, tmp_path: Path):
+        for i in range(3):
+            (tmp_path / f"frame_{i:06d}.png").write_bytes(b"")
+        with pytest.raises(MercadoNaoCalibravel, match="0 a 2"):
+            escolher_frame(tmp_path, None, 9)
+
+    def test_pasta_sem_frames_e_recusada(self, tmp_path: Path):
+        with pytest.raises(MercadoNaoCalibravel, match="record-janela"):
+            escolher_frame(tmp_path, None, None)
+
+    def test_sem_gravacao_e_sem_frame_a_recusa_diz_as_duas_flags(self):
+        with pytest.raises(MercadoNaoCalibravel, match="--gravacao"):
+            escolher_frame(None, None, None)
+
+
+class TestADerivacaoDaGrade:
+    def test_dez_linhas_de_45_px_saem_de_uma_linha_so(self):
+        grade = derivar_grade((100, 200, 900, 450), (100, 200, 900, 45), "negociacao")
+        assert grade["linhas_por_pagina"] == 10
+        assert grade["altura_da_linha"] == 45
+        assert grade["origem_x"] == 100 and grade["origem_y"] == 200
+
+    def test_a_tela_de_busca_tem_NOVE(self):
+        grade = derivar_grade((0, 0, 900, 405), (0, 0, 900, 45), "busca")
+        assert grade["linhas_por_pagina"] == 9
+
+    def test_o_LAYOUT_e_gravado_junto(self):
+        """Sao TRES conjuntos de coluna; ler a coluna errada corrompe a serie."""
+        assert derivar_grade((0, 0, 9, 9), (0, 0, 9, 3), "adena")["layout"] == "adena"
+
+    def test_linha_de_altura_zero_e_recusada(self):
+        with pytest.raises(MercadoNaoCalibravel, match="remarque"):
+            derivar_grade((0, 0, 900, 450), (0, 0, 900, 0), "negociacao")
+
+
+class TestAsAncorasViramDESLOCAMENTO:
+    def test_a_posicao_absoluta_vira_deslocamento_a_partir_da_origem(self):
+        pixels = np.random.default_rng(1).integers(
+            0, 255, size=(600, 800, 3), dtype=np.uint8
+        )
+        caixas = {
+            "titulo": (300, 100, 100, 28),
+            "botao_fechar": (700, 90, 60, 60),
+        }
+        ancoras = montar_ancoras(pixels, caixas, (300, 100))
+
+        assert [(a.nome, a.dx, a.dy) for a in ancoras] == [
+            ("titulo", 0, 0),
+            ("botao_fechar", 400, -10),
+        ]
+        assert ancoras[0].molde.shape == (28, 100)
+
+    def test_ancora_fora_do_frame_e_recusada_pelo_nome(self):
+        pixels = np.zeros((100, 100, 3), dtype=np.uint8)
+        with pytest.raises(MercadoNaoCalibravel, match="botao_fechar"):
+            montar_ancoras(pixels, {"botao_fechar": (500, 500, 60, 60)}, (0, 0))
+
+
+class TestAWatchlist:
+    def test_le_a_lista_do_config(self, tmp_path: Path):
+        arquivo = tmp_path / "config.toml"
+        arquivo.write_text(
+            '[mercado]\nwatchlist = ["+3 Bota X", "Dragon Belt"]\n', encoding="utf-8"
+        )
+        assert ler_watchlist(arquivo) == ["+3 Bota X", "Dragon Belt"]
+
+    def test_sem_secao_de_mercado_devolve_lista_VAZIA_e_nao_erro(
+        self, tmp_path: Path
+    ):
+        arquivo = tmp_path / "config.toml"
+        arquivo.write_text("[[evento]]\nnome = 'TvT'\n", encoding="utf-8")
+        assert ler_watchlist(arquivo) == []
+
+    def test_sem_arquivo_devolve_lista_vazia(self, tmp_path: Path):
+        assert ler_watchlist(tmp_path / "nao_existe.toml") == []
+
+    def test_entradas_em_branco_sao_ignoradas(self, tmp_path: Path):
+        arquivo = tmp_path / "config.toml"
+        arquivo.write_text('[mercado]\nwatchlist = ["A", "  ", ""]\n', encoding="utf-8")
+        assert ler_watchlist(arquivo) == ["A"]
+
+
+class TestAImagemDeConferencia:
+    def test_desenha_sem_tocar_o_original(self):
+        pixels = np.zeros((200, 300, 3), dtype=np.uint8)
+        copia = pixels.copy()
+        saida = desenhar_conferencia(pixels, {"titulo": (10, 20, 100, 28)})
+        assert np.array_equal(pixels, copia), "o frame de origem foi alterado"
+        assert saida.any(), "nenhum retangulo foi desenhado"

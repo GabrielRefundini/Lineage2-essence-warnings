@@ -124,3 +124,31 @@ silenciar_minutos = 0
 # [[membro]]
 # nick = "J4guar"
 # telefone = "+5544977776666"
+
+# ---------------------------------------------------------------------------
+# Watchlist do WORLD EXCHANGE — quais itens acompanhar no mercado
+#
+# CONJUNTO FECHADO, de proposito. O scanner nao le nome de item na tela: ele
+# compara o recorte com um molde cortado da SUA gravacao, um por item desta
+# lista. Item que nao esta aqui nao e lido, e isso e a decisao D-05.
+#
+# ESCREVA O NOME COMO ELE APARECE NA TELA, com o prefixo de encanto quando
+# houver. Cada variante de encanto e uma LINHA SEPARADA, porque cada uma e uma
+# serie de precos independente — medido numa unica pagina real, o mesmo item
+# base valia de 7,02 a 100,00 conforme o encanto. Misturar `+3` e `+4` na mesma
+# serie nao acrescenta ruido: destroi a serie.
+#
+# O item SEM encanto nao escreve `+0` — ele nao escreve prefixo nenhum.
+#
+# Depois de editar esta lista, rode o calibrar-mercado.bat: ele pede um recorte
+# para cada item e RECUSA se dois deles se confundirem, dizendo qual par.
+#
+# Sem esta secao a calibracao roda igual: ela grava as ancoras e a grade, e diz
+# alto que nao cortou molde de nome nenhum.
+#
+# [mercado]
+# watchlist = [
+#   "Dragon Belt",
+#   "+3 Dragon Belt",
+#   "+4 Dragon Belt",
+# ]

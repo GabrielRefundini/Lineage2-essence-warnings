@@ -360,18 +360,37 @@ def calibrar_automatico(pixels: np.ndarray, ox: int, oy: int) -> Calibracao | No
     )
 
 
-def calibrar_selecionando(pixels: np.ndarray, ox: int, oy: int) -> Calibracao | None:
-    """Usuario arrasta o mouse em volta da party window; o resto e deduzido."""
-    altura, largura = pixels.shape[:2]
-    escala = min(1.0, 1600 / largura)
+def _selecionar_regiao(
+    pixels: np.ndarray, titulo: str, instrucao: str
+) -> tuple[int, int, int, int] | None:
+    """Usuario arrasta um retangulo; devolve (x, y, largura, altura) NO ORIGINAL.
+
+    Extraida de `calibrar_selecionando`, que era o unico lugar do projeto com
+    esta mecanica. A calibracao do mercado precisa de tres ou mais selecoes
+    independentes e nao devolve `Calibracao` nenhuma, entao ela nao podia
+    reaproveitar aquela funcao como estava — e duplicar `selectROI` num modulo
+    novo criaria duas mecanicas de recorte que envelheceriam separadas.
+
+    A REESCALA E A PARTE QUE NAO PODE SER DUPLICADA. Uma janela de jogo em
+    3440 px nao cabe na tela onde ela e mostrada, entao a visualizacao e
+    encolhida para caber em 1600 px de largura — e a caixa que o usuario
+    desenha volta multiplicada. Errar essa divisao produz um retangulo
+    plausivel na posicao errada, que e o defeito mais caro que uma ferramenta
+    de calibracao pode ter.
+
+    Caixa degenerada (largura ou altura zero) devolve None, que e como o
+    usuario cancela: `cv2.selectROI` devolve (0,0,0,0) no ESC.
+    """
+    largura_original = pixels.shape[1]
+    escala = min(1.0, 1600 / largura_original)
     visao = (
         cv2.resize(pixels, None, fx=escala, fy=escala) if escala < 1.0 else pixels
     )
 
-    print("\nArraste o mouse em volta da party window e tecle ENTER.")
+    print(f"\n{instrucao}")
     print("ESC cancela.\n")
 
-    caixa = cv2.selectROI("Marque a party window", visao, showCrosshair=False)
+    caixa = cv2.selectROI(titulo, visao, showCrosshair=False)
     cv2.destroyAllWindows()
 
     if caixa[2] == 0 or caixa[3] == 0:
@@ -379,6 +398,20 @@ def calibrar_selecionando(pixels: np.ndarray, ox: int, oy: int) -> Calibracao | 
         return None
 
     x, y, larg, alt = (int(valor / escala) for valor in caixa)
+    return x, y, larg, alt
+
+
+def calibrar_selecionando(pixels: np.ndarray, ox: int, oy: int) -> Calibracao | None:
+    """Usuario arrasta o mouse em volta da party window; o resto e deduzido."""
+    caixa = _selecionar_regiao(
+        pixels,
+        "Marque a party window",
+        "Arraste o mouse em volta da party window e tecle ENTER.",
+    )
+    if caixa is None:
+        return None
+
+    x, y, larg, alt = caixa
     recorte = pixels[y : y + alt, x : x + larg]
 
     # Dentro da area marcada, a deteccao automatica costuma acertar facil
