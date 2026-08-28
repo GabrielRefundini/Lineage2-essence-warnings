@@ -314,14 +314,64 @@ class TestAsRecusasDeGeometria:
 
 
 class TestAEscolhaDoFrame:
-    def test_o_padrao_da_gravacao_e_o_frame_do_MEIO(self, tmp_path: Path):
-        for i in range(5):
-            (tmp_path / f"frame_{i:06d}.png").write_bytes(b"")
-        assert escolher_frame(tmp_path, None, None).name == "frame_000002.png"
+    def test_sem_indice_o_usuario_FOLHEIA_em_vez_de_receber_um_frame_qualquer(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """MEDIDO EM CAMPO 2026-08-28: o frame do meio veio ocluido.
 
-    def test_indice_explicito_manda(self, tmp_path: Path):
+        O padrao antigo era `len(quadros) // 2` -- uma escolha arbitraria que
+        nao tem como saber se ali havia tooltip, marcacao de alvo ou a lista em
+        rolagem por cima do painel. Calibrar sobre um frame ocluido grava
+        retangulos que medem a coisa errada, e o erro so aparece muito depois
+        como leitura ruim (a familia do incidente 27x).
+
+        Agora quem escolhe e o olho do usuario. O meio continua sendo onde o
+        folhear COMECA -- as gravacoes do roteiro abrem com o usuario ainda
+        posicionando a tela --, mas deixou de ser a palavra final.
+        """
         for i in range(5):
             (tmp_path / f"frame_{i:06d}.png").write_bytes(b"")
+
+        visto: dict[str, object] = {}
+
+        def falso_navegador(quadros, comeco):
+            visto["quantos"] = len(quadros)
+            visto["comeco"] = comeco
+            return quadros[4]
+
+        monkeypatch.setattr(
+            "l2scanner.calibrar_mercado.navegar_e_escolher", falso_navegador
+        )
+        escolhido = escolher_frame(tmp_path, None, None)
+
+        assert visto["comeco"] == 2, "o folhear deve COMECAR no meio"
+        assert visto["quantos"] == 5, "o navegador precisa ver a gravacao inteira"
+        assert escolhido.name == "frame_000004.png", (
+            "a escolha do usuario tem de mandar, nao o palpite do meio"
+        )
+
+    def test_indice_explicito_nao_folheia(self, tmp_path: Path, monkeypatch):
+        """`--indice` e uma escolha ja feita: abrir a janela seria atrapalhar."""
+        for i in range(5):
+            (tmp_path / f"frame_{i:06d}.png").write_bytes(b"")
+
+        def nao_deveria_abrir(quadros, comeco):  # pragma: no cover
+            raise AssertionError("--indice explicito nao pode abrir o navegador")
+
+        monkeypatch.setattr(
+            "l2scanner.calibrar_mercado.navegar_e_escolher", nao_deveria_abrir
+        )
+        assert escolher_frame(tmp_path, None, 3).name == "frame_000003.png"
+
+    def test_indice_explicito_manda(self, tmp_path: Path, monkeypatch):
+        for i in range(5):
+            (tmp_path / f"frame_{i:06d}.png").write_bytes(b"")
+        monkeypatch.setattr(
+            "l2scanner.calibrar_mercado.navegar_e_escolher",
+            lambda quadros, comeco: (_ for _ in ()).throw(
+                AssertionError("nao deveria folhear com --indice")
+            ),
+        )
         assert escolher_frame(tmp_path, None, 0).name == "frame_000000.png"
 
     def test_indice_fora_da_faixa_e_recusado_dizendo_a_faixa(self, tmp_path: Path):

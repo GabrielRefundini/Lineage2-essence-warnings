@@ -286,6 +286,97 @@ def carregar_calibracao(caminho: Path) -> Calibracao:
         raise MercadoNaoCalibravel(str(erro)) from erro
 
 
+def navegar_e_escolher(quadros: list[Path], comeco: int) -> Path:
+    """Deixa o usuario FOLHEAR a gravacao e escolher um frame limpo.
+
+    MEDIDO EM CAMPO, 2026-08-28: o usuario rodou a ferramenta e caiu num frame
+    "sujo com outras coisas sobrepondo o mercado". O padrao anterior era o frame
+    do MEIO da pasta -- uma escolha arbitraria que nao tem como saber se ali
+    havia uma tooltip, a marcacao de alvo ou a lista em transicao por cima do
+    painel.
+
+    Calibrar sobre um frame ocluido nasce torto de um jeito silencioso: os
+    retangulos ficam gravados no `calibration.json` medindo a coisa errada, e o
+    erro so aparece muito depois, como leitura ruim. E a mesma familia do
+    incidente 27x -- oclusao parcial produzindo saida confiante e errada.
+
+    A escolha e do OLHO do usuario de proposito. Nao da para pontuar oclusao
+    aqui sem ja ter as ancoras, e as ancoras sao justamente o que esta sendo
+    calibrado. Com a pessoa na frente da tela, folhear resolve sem precisar
+    inventar heuristica.
+    """
+    indice = max(0, min(comeco, len(quadros) - 1))
+    janela = "escolha um frame LIMPO  (D/A ou setas: navegar | ENTER: usar | ESC: cancelar)"
+
+    print(chr(10) + "-" * 60)
+    print("  ESCOLHA O FRAME")
+    print("  Procure um em que o painel do mercado esteja INTEIRO e")
+    print("  SEM NADA POR CIMA: sem tooltip, sem marcacao de alvo, sem")
+    print("  a lista no meio de uma rolagem.")
+    print("")
+    print("    D  ou seta direita  -> proximo frame")
+    print("    A  ou seta esquerda -> frame anterior")
+    print("    W / S               -> pular de 10 em 10")
+    print("    ENTER               -> usar este frame")
+    print("    ESC                 -> cancelar sem gravar nada")
+    print("-" * 60)
+
+    cv2.namedWindow(janela, cv2.WINDOW_NORMAL)
+    try:
+        while True:
+            pixels = cv2.imread(str(quadros[indice]))
+            if pixels is None:
+                raise MercadoNaoCalibravel(
+                    f"nao consegui decodificar {quadros[indice]}"
+                )
+            mostra = _reduzir_para_caber(pixels)
+            etiqueta = f"{indice + 1}/{len(quadros)}  {quadros[indice].name}"
+            cv2.putText(
+                mostra, etiqueta, (12, 28),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4, cv2.LINE_AA,
+            )
+            cv2.putText(
+                mostra, etiqueta, (12, 28),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 1, cv2.LINE_AA,
+            )
+            cv2.imshow(janela, mostra)
+
+            tecla = cv2.waitKey(0) & 0xFF
+            if tecla in (13, 10):  # ENTER
+                cv2.destroyWindow(janela)
+                print(f"  usando {quadros[indice].name}" + chr(10))
+                return quadros[indice]
+            if tecla == 27:  # ESC
+                cv2.destroyWindow(janela)
+                raise MercadoNaoCalibravel(
+                    "escolha de frame cancelada -- nada foi gravado"
+                )
+            if tecla in (ord("d"), ord("D"), 83):
+                indice = min(indice + 1, len(quadros) - 1)
+            elif tecla in (ord("a"), ord("A"), 81):
+                indice = max(indice - 1, 0)
+            elif tecla in (ord("w"), ord("W"), 82):
+                indice = min(indice + 10, len(quadros) - 1)
+            elif tecla in (ord("s"), ord("S"), 84):
+                indice = max(indice - 10, 0)
+    finally:
+        try:
+            cv2.destroyWindow(janela)
+        except cv2.error:
+            pass
+
+
+def _reduzir_para_caber(pixels: np.ndarray, largura_alvo: int = 1400) -> np.ndarray:
+    """Encolhe so para o frame de janela completa caber num monitor."""
+    altura, largura = pixels.shape[:2]
+    if largura <= largura_alvo:
+        return pixels.copy()
+    escala = largura_alvo / largura
+    return cv2.resize(
+        pixels, (largura_alvo, int(altura * escala)), interpolation=cv2.INTER_AREA
+    )
+
+
 def escolher_frame(gravacao: Path | None, frame: Path | None, indice: int | None) -> Path:
     """Qual PNG vai ser calibrado.
 
@@ -317,7 +408,10 @@ def escolher_frame(gravacao: Path | None, frame: Path | None, indice: int | None
             f"--indice {escolhido} fora da faixa: a pasta tem "
             f"{len(quadros)} frames (0 a {len(quadros) - 1})"
         )
-    return quadros[escolhido]
+    # Um `--indice` explicito e uma escolha ja feita: respeita e nao folheia.
+    if indice is not None:
+        return quadros[escolhido]
+    return navegar_e_escolher(quadros, escolhido)
 
 
 def ler_watchlist(caminho: Path) -> list[str]:
