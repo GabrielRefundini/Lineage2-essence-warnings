@@ -250,6 +250,46 @@ class Calibracao:
     # degradado calado.
     mercado_geometria_da_captura: dict | None = None
 
+    # As ANCORAS do painel, cada uma com nome, deslocamento a partir da origem
+    # (o canto da faixa de titulo) e molde empacotado.
+    #
+    # POR QUE MAIS DE UMA, medido nas 8 gravacoes de campo: a tooltip do jogo e
+    # desenhada onde o cursor estiver, INCLUSIVE sobre a faixa de titulo. Com a
+    # faixa sozinha, um frame de painel ABERTO marcou 0.4110 e um de painel
+    # FECHADO marcou 0.4753 — margem NEGATIVA, as classes se sobrepondo. Com
+    # varias ancoras espalhadas e votacao pelo maximo, a margem volta a +0.3700.
+    # Ver `mercado_visao.AncoraDoPainel` e o 01-04-SUMMARY.
+    #
+    # Lista CRUA, sem decodificar, pela mesma razao de `mercado_molde_da_ancora`:
+    # decodificar aqui obrigaria um modulo de configuracao a importar numpy.
+    mercado_ancoras: list | None = None
+
+    # Geometria da grade de negociacao: origem, altura de linha, linhas por
+    # pagina e os retangulos das colunas.
+    #
+    # NAO EXISTE "a grade": existem TRES layouts de coluna (grade de negociacao,
+    # aba Adena, tela de busca), com numeros e significados de coluna
+    # diferentes. Por isso este dict guarda tambem QUAL layout foi calibrado —
+    # ler a coluna errada com confianca e o modo de falha caro aqui.
+    mercado_grade: dict | None = None
+
+    # Um molde por item da watchlist, com o nome COMO RENDERIZADO — prefixo
+    # `+N ` incluso quando houver. O item sem encanto nao escreve `+0`: o molde
+    # dele e o nome puro. Misturar `+3` e `+4` na mesma serie nao acrescenta
+    # ruido, destroi a serie: medido, o mesmo item base valia de 7,02 a 100,00
+    # na mesma pagina conforme o encanto.
+    mercado_templates_de_nome: list | None = None
+
+    # Um molde por glifo: os dez digitos e a virgula, mais as palavras `XM Coin`
+    # e `Adena`. As duas palavras nao sao decoracao — a virgula e separador de
+    # MILHAR e de DECIMAL na mesma linha (`5,000,000 Adena` ao lado de
+    # `62,00 XM Coin`), e quem desambigua e o sufixo, nao o numero.
+    mercado_templates_de_digito: list | None = None
+
+    # O limiar SUGERIDO pela matriz de confusao medida na calibracao, com
+    # margem sobre o pior score inter-classe daquela watchlist.
+    mercado_limiar_de_template: float | None = None
+
     versao: int = VERSAO_DO_ESQUEMA
 
     def regiao_do_nome(self, indice: int) -> Regiao:
@@ -355,6 +395,11 @@ class Calibracao:
             "mercado_molde_da_ancora": self.mercado_molde_da_ancora,
             "mercado_limiar_da_ancora": self.mercado_limiar_da_ancora,
             "mercado_geometria_da_captura": self.mercado_geometria_da_captura,
+            "mercado_ancoras": self.mercado_ancoras,
+            "mercado_grade": self.mercado_grade,
+            "mercado_templates_de_nome": self.mercado_templates_de_nome,
+            "mercado_templates_de_digito": self.mercado_templates_de_digito,
+            "mercado_limiar_de_template": self.mercado_limiar_de_template,
         }
         caminho.write_text(
             json.dumps(dados, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -422,8 +467,40 @@ class Calibracao:
             mercado_molde_da_ancora=dados.get("mercado_molde_da_ancora"),
             mercado_limiar_da_ancora=dados.get("mercado_limiar_da_ancora"),
             mercado_geometria_da_captura=dados.get("mercado_geometria_da_captura"),
+            mercado_ancoras=dados.get("mercado_ancoras"),
+            mercado_grade=dados.get("mercado_grade"),
+            mercado_templates_de_nome=dados.get("mercado_templates_de_nome"),
+            mercado_templates_de_digito=dados.get("mercado_templates_de_digito"),
+            mercado_limiar_de_template=dados.get("mercado_limiar_de_template"),
             versao=versao,
         )
+
+    def conferir_geometria_do_mercado(self, largura: int, altura: int) -> None:
+        """Recusa a leitura de mercado se a JANELA mudou de tamanho.
+
+        O molde da ancora foi recortado sob uma janela de dimensoes conhecidas.
+        Com a janela em outro tamanho, a mesma arte esta desenhada em outra
+        escala: o casamento cai, o painel some, e nao ha uma linha de erro
+        explicando por que. Falhar alto aqui, no arranque, com o usuario olhando
+        o console, e o unico momento em que a mensagem "recalibre o mercado"
+        chega a alguem.
+
+        Sem carimbo gravado nao ha o que conferir: uma instalacao que nunca
+        calibrou o mercado sobe igual, com a feature simplesmente OFF.
+        """
+        if not self.mercado_geometria_da_captura:
+            return
+        gravada = self.mercado_geometria_da_captura
+        esperada = (gravada.get("largura"), gravada.get("altura"))
+        if esperada != (largura, altura):
+            raise CalibracaoInvalida(
+                "A janela do jogo mudou de tamanho desde a calibracao do "
+                "mercado.\n"
+                f"  calibrado sob: {esperada[0]}x{esperada[1]}\n"
+                f"  agora:         {largura}x{altura}\n"
+                "O molde da ancora foi recortado noutra escala e nao vai casar. "
+                "Recalibre o mercado: calibrar-mercado.bat"
+            )
 
     def conferir_geometria(self, atual: str) -> None:
         """Recusa se a tela mudou desde a calibracao (CAPT-07).
@@ -492,6 +569,46 @@ def _conferir_as_chaves_de_mercado(dados: dict) -> None:
         raise CalibracaoInvalida(
             f"mercado_geometria_da_captura precisa ser um objeto, veio "
             f"{type(geometria).__name__}. Recalibre o mercado."
+        )
+
+    limiar_template = dados.get("mercado_limiar_de_template")
+    if limiar_template is not None:
+        if isinstance(limiar_template, bool) or not isinstance(
+            limiar_template, (int, float)
+        ):
+            raise CalibracaoInvalida(
+                f"mercado_limiar_de_template precisa ser um numero, veio "
+                f"{type(limiar_template).__name__} ({limiar_template!r}). "
+                f"Recalibre o mercado."
+            )
+        if not 0.0 < limiar_template <= 1.0:
+            raise CalibracaoInvalida(
+                f"mercado_limiar_de_template={limiar_template} esta fora de "
+                f"(0, 1]. Um limiar <= 0 faz TODO recorte casar com TODO item "
+                f"da watchlist, e um preco lido do item errado corrompe a serie "
+                f"inteira. Recalibre o mercado."
+            )
+
+    # As tres listas e a grade: so a FORMA e conferida aqui. O conteudo de cada
+    # molde e conferido por `mercado_visao.molde_de_hex` / `ancoras_de_calibracao`
+    # na hora de decodificar — e la que a dimensao declarada encontra os bytes.
+    for chave in (
+        "mercado_ancoras",
+        "mercado_templates_de_nome",
+        "mercado_templates_de_digito",
+    ):
+        valor = dados.get(chave)
+        if valor is not None and not isinstance(valor, list):
+            raise CalibracaoInvalida(
+                f"{chave} precisa ser uma lista, veio "
+                f"{type(valor).__name__}. Recalibre o mercado."
+            )
+
+    grade = dados.get("mercado_grade")
+    if grade is not None and not isinstance(grade, dict):
+        raise CalibracaoInvalida(
+            f"mercado_grade precisa ser um objeto, veio "
+            f"{type(grade).__name__}. Recalibre o mercado."
         )
 
     ancora = dados.get("mercado_ancora")
