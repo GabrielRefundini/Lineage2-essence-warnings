@@ -498,6 +498,47 @@ o painel reabre onde foi fechado ou numa posição padrão**. Isso muda o custo 
 palpite bom na posição anterior versus varredura), mas não muda a arquitetura: a busca é
 necessária de qualquer jeito.
 
+### VALIDADO PELO USUÁRIO (2026-08-28) — e o desenho da detecção muda por causa disto
+
+**1. O painel é livre, mas tende a uma região.** O usuário confirma que pode arrastá-lo para
+onde quiser; na prática ele fica numa região habitual. Os 827 x 831 px de deslocamento
+medidos são o alcance possível, não o comportamento típico.
+
+**2. AO FECHAR E REABRIR, ELE VOLTA ONDE ESTAVA.** Esta é a informação de desenho mais
+valiosa desta seção: a posição é ESTÁVEL dentro de uma sessão. Ela só muda quando o usuário
+arrasta, e arrastar é um ato deliberado e raro.
+
+**DECISÃO DE DESENHO — adquirir e depois seguir, em vez de procurar sempre.** A busca na
+janela inteira custa ~45 ms e não pode rodar a cada volta do laço. Com a posição estável:
+
+- **Aquisição** (cara, rara): varredura da janela inteira quando não se sabe onde o painel
+  está — no primeiro tick com o mercado aberto, ou depois de uma perda.
+- **Seguimento** (barato, todo tick): confere a posição já conhecida.
+- **Reaquisição:** só quando o seguimento falha N ticks seguidos, o que na prática significa
+  "o usuário arrastou o painel" ou "fechou".
+
+Isso resolve o custo sem depender do painel ser fixo — que ele comprovadamente não é.
+
+**3. A TOOLTIP, E POR QUE A MITIGAÇÃO DO USUÁRIO NÃO PODE SER A SOLUÇÃO.** O usuário
+observou que a tooltip segue o mouse e se ofereceu para evitar passar o cursor sobre os itens
+no meio da lista, mantendo-a perto da borda de rolagem, longe de cobrir item e valor.
+
+A oferta é útil e reduz a frequência do problema — mas **não pode ser o mecanismo de
+correção**. Este projeto não troca falha-fechada por disciplina do usuário: um dia ele
+esquece, e o modo de falha volta silencioso. A mitigação entra como redução de ruído, não
+como garantia.
+
+**A causa real da margem negativa é outra, e tem conserto estrutural.** O que quebrou a
+medição foi a tooltip cobrindo justamente a FAIXA DE TÍTULO — o único retângulo que a âncora
+olhava. A correção é não depender de um ponto só: usar VÁRIOS pontos de âncora
+independentes (faixa de título, barra de abas, cabeçalho de colunas) e decidir por votação.
+Uma tooltip cobre um deles; cobrir todos ao mesmo tempo é implausível.
+
+**Consequência para a Fase 2 (e para a Wave 4 desta fase):** `mercado_aberto()` deixa de ser
+"casar um retângulo contra um limiar" e passa a ser "aquisição por varredura + seguimento
+barato + votação entre âncoras". O limiar 0,73 medido no 01-02 continua válido POR ÂNCORA;
+o que estava errado era supor que uma âncora só bastava.
+
 ---
 
 ## 9. Opacidade do painel (A5) e o que tooltip e marcação de alvo cobrem
