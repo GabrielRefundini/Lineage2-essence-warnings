@@ -117,12 +117,34 @@ class ResultadoDaConfusao:
     """A matriz de confusao entre os moldes, e o veredito dela."""
 
     aprovado: bool
-    pior_score: float
+    # `None` quando NENHUM par foi comparado. O tipo diz a diferenca entre
+    # "medi e deu zero" e "nao medi nada" -- e o `0.0` que estava aqui apagava
+    # justamente essa diferenca, imprimindo o valor mais tranquilizador
+    # possivel para uma medicao que nao aconteceu.
+    pior_score: float | None
     par_colidente: tuple[str, str] | None
     limiar_sugerido: float | None
     matriz: dict[tuple[str, str], float] = field(default_factory=dict)
 
+    @property
+    def rodou(self) -> bool:
+        """Houve pelo menos UM par comparado.
+
+        Com zero ou um molde a matriz nao tem par nenhum. Aprovar e correto --
+        nao ha o que confundir --, mas AFIRMAR um pior score e um limiar
+        derivado dele nao e: sao numeros inventados com cara de medidos, e o
+        limiar vai para o `calibration.json`, onde a Fase 2 o le como verdade.
+        """
+        return bool(self.matriz)
+
     def explicar(self) -> str:
+        if not self.rodou:
+            return (
+                "Matriz de confusao NAO RODOU: 0 pares para comparar. Com "
+                "menos de dois moldes de nome nao ha o que confundir -- nenhum "
+                "score foi medido e NENHUM limiar de template foi derivado. "
+                "O limiar que ja estiver no calibration.json fica como esta."
+            )
         if self.aprovado:
             return (
                 f"Matriz de confusao APROVADA: o pior score entre dois itens "
@@ -166,15 +188,20 @@ def matriz_de_confusao(moldes: dict[str, np.ndarray]) -> ResultadoDaConfusao:
     nao tomar o maximo sobre deslocamentos, porque cada deslocamento e uma
     chance independente de um alvo errado achar alinhamento sortudo.
 
-    Com menos de dois moldes nao ha o que confundir — aprova com o limiar padrao.
+    Com menos de dois moldes nao ha o que confundir — aprova, mas NAO devolve
+    pior score nem limiar: nao houve par nenhum para comparar, e `(1.0+0.0)/2`
+    saia daqui como 0.5 direto para o `calibration.json`, apresentado como
+    derivado da matriz. Um limiar de 0.5 para casamento de nome casa quase
+    tudo — o pior inter-classe que este modulo TOLERA e 0.85. Numero fabricado
+    com aparencia de medido, na ferramenta que grava a calibracao.
     """
     nomes = list(moldes)
     if len(nomes) < 2:
         return ResultadoDaConfusao(
             aprovado=True,
-            pior_score=0.0,
+            pior_score=None,
             par_colidente=None,
-            limiar_sugerido=(1.0 + 0.0) / 2,
+            limiar_sugerido=None,
         )
 
     matriz: dict[tuple[str, str], float] = {}
@@ -653,7 +680,8 @@ def calibrar(args: argparse.Namespace) -> int:
         {"nome": nome, "molde": molde_para_hex(molde)}
         for nome, molde in moldes_de_nome.items()
     ]
-    cal.mercado_limiar_de_template = resultado.limiar_sugerido
+    if resultado.limiar_sugerido is not None:
+        cal.mercado_limiar_de_template = resultado.limiar_sugerido
 
     # REGRAVA O ARQUIVO INTEIRO. Nada e impresso para o usuario colar: o
     # criterio 3 do ROADMAP e "sem editar JSON a mao".

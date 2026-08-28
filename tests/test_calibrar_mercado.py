@@ -279,6 +279,66 @@ class TestAMatrizDeConfusao:
         assert matriz_de_confusao({}).aprovado
         assert matriz_de_confusao({"so um": molde_de_texto("so um")}).aprovado
 
+    @pytest.mark.parametrize(
+        "moldes,quantos",
+        [({}, "ZERO"), ({"so um": None}, "UM")],
+        ids=["zero-moldes", "um-molde"],
+    )
+    def test_sem_par_para_comparar_NAO_afirma_score_nem_deriva_limiar(
+        self, moldes: dict, quantos: str
+    ):
+        """Aprovar e correto; afirmar uma medicao que nao aconteceu, nao.
+
+        Com menos de dois moldes nao existe par nenhum. A versao anterior
+        devolvia `pior_score=0.0` e `limiar_sugerido=(1.0+0.0)/2` e imprimia
+        "Matriz de confusao APROVADA: o pior score entre dois itens diferentes
+        e 0.0000" -- duas afirmacoes sem lastro numa frase so, e a segunda
+        delas ia direto para o `calibration.json` como
+        `mercado_limiar_de_template`.
+
+        0.5 e permissivo a ponto de casar quase tudo: o pior inter-classe que
+        este modulo TOLERA e 0.85. `_conferir_as_chaves_de_mercado` aceita 0.5
+        sem reclamar (faixa valida `(0, 1]`), entao nada a jusante pegaria isso
+        -- a Fase 2 herdaria um numero fabricado com cara de medido.
+        """
+        if moldes:
+            moldes = {"so um": molde_de_texto("so um")}
+
+        resultado = matriz_de_confusao(moldes)
+
+        assert resultado.aprovado, "sem par nenhum, recusar seria pior"
+        assert resultado.matriz == {}
+        assert resultado.rodou is False
+        assert resultado.limiar_sugerido is None, (
+            f"com {quantos} molde(s) saiu um limiar derivado de zero "
+            f"comparacoes: {resultado.limiar_sugerido}"
+        )
+        assert resultado.pior_score is None, (
+            f"com {quantos} molde(s) saiu um 'pior score' de "
+            f"{resultado.pior_score} sem nenhum score ter sido calculado"
+        )
+
+        texto = resultado.explicar()
+        assert "NAO RODOU" in texto
+        assert "APROVADA" not in texto, (
+            f"a frase de aprovacao afirma um pior score medido; sem par "
+            f"nenhum ela e uma mentira tranquilizadora: {texto!r}"
+        )
+        assert "0.0000" not in texto and "0.5000" not in texto
+
+    def test_o_limiar_so_e_gravado_quando_a_matriz_o_derivou(self):
+        """Tripwire: a gravacao do limiar tem de ser condicional.
+
+        `cal.mercado_limiar_de_template = resultado.limiar_sugerido` sem guarda
+        escrevia `None` (ou, antes, o 0.5 inventado) por cima de um limiar que
+        uma rodada anterior tinha MEDIDO.
+        """
+        fonte = inspect.getsource(l2scanner.calibrar_mercado.calibrar)
+        assert "if resultado.limiar_sugerido is not None:" in fonte, (
+            "a gravacao de mercado_limiar_de_template nao esta protegida por "
+            "uma guarda de 'a matriz derivou isto?'"
+        )
+
     def test_moldes_de_TAMANHOS_diferentes_sao_comparaveis(self):
         """Cortar ao menor comum e o que impede a matriz de aprovar por omissao.
 
