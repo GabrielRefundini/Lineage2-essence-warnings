@@ -202,6 +202,7 @@ def derivar_grade(
     caixa_da_grade: tuple[int, int, int, int],
     caixa_da_primeira_linha: tuple[int, int, int, int],
     layout: str,
+    origem_do_painel: tuple[int, int],
 ) -> dict:
     """Da area da lista e da PRIMEIRA linha sai a grade inteira.
 
@@ -213,8 +214,21 @@ def derivar_grade(
     `layout` e gravado junto porque NAO EXISTE "a grade": sao tres conjuntos de
     coluna diferentes, e ler a coluna errada com confianca corrompe a serie por
     um fator inteiro.
+
+    A GRADE E GUARDADA EM DESLOCAMENTO, PELA MESMA RAZAO DAS ANCORAS. A primeira
+    versao gravava `origem_x`/`origem_y` absolutos, direto do `selectROI`, e isso
+    era um defeito silencioso: o painel ANDA 827x831 px (medido em
+    `SPIKE-RESPOSTAS.md` 8). Uma calibracao feita com o painel num canto
+    apontaria para o vazio assim que o usuario arrastasse — e como o leitor so
+    nasce na Fase 2, ninguem descobriria ate a leitura sair errada com
+    confianca.
+
+    Encontrado quando o usuario comparou a propria tela ao vivo com o frame
+    gravado e viu o painel em outro lugar. As ancoras ja guardavam
+    deslocamento; a grade tinha recebido so a metade certa do tratamento.
     """
     gx, gy, glarg, galt = caixa_da_grade
+    ox, oy = origem_do_painel
     _, _, _, altura_da_linha = caixa_da_primeira_linha
     if altura_da_linha <= 0:
         raise MercadoNaoCalibravel(
@@ -223,8 +237,8 @@ def derivar_grade(
     linhas = max(1, galt // altura_da_linha)
     return {
         "layout": layout,
-        "origem_x": int(gx),
-        "origem_y": int(gy),
+        "dx": int(gx - ox),
+        "dy": int(gy - oy),
         "largura": int(glarg),
         "altura": int(galt),
         "altura_da_linha": int(altura_da_linha),
@@ -520,7 +534,7 @@ def calibrar(args: argparse.Namespace) -> int:
     caixa_linha = _marcar(
         pixels, "Primeira linha", "Marque a PRIMEIRA LINHA da lista e tecle ENTER."
     )
-    grade = derivar_grade(caixa_grade, caixa_linha, layout)
+    grade = derivar_grade(caixa_grade, caixa_linha, layout, origem)
 
     # --- os moldes da watchlist ---
     watchlist = ler_watchlist(ARQUIVO_CONFIG)

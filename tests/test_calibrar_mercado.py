@@ -19,6 +19,7 @@ Isso e o portao humano da Task 2, e a imagem de conferencia existe para ele.
 from __future__ import annotations
 
 import inspect
+import textwrap
 import json
 from pathlib import Path
 
@@ -51,6 +52,27 @@ def calibracao(tmp_path: Path) -> Path:
     destino = tmp_path / "calibration.json"
     destino.write_text(REFERENCIA.read_text(encoding="utf-8"), encoding="utf-8")
     return destino
+
+
+def _codigo_sem_prosa(fonte: str) -> str:
+    """O fonte sem docstrings nem comentarios -- so o que o Python executa.
+
+    Existe para os tripwires estruturais: eles proibem uma MECANICA, nao uma
+    palavra. Varrer o texto cru fazia um docstring que explica a proibicao
+    reprovar por cita-la.
+    """
+    import io
+    import tokenize
+
+    pedacos = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(fonte).readline):
+            if tok.type in (tokenize.COMMENT, tokenize.STRING):
+                continue
+            pedacos.append(tok.string)
+    except tokenize.TokenError:  # pragma: no cover - fonte truncado
+        return fonte
+    return " ".join(pedacos)
 
 
 class TestOsDoisTripwiresDeEscritaDeImagem:
@@ -89,8 +111,18 @@ class TestOsDoisTripwiresDeEscritaDeImagem:
         )
 
     def test_a_selecao_e_COMPARTILHADA_e_nao_duplicada(self):
-        fonte = inspect.getsource(l2scanner.calibrar_mercado)
-        assert "selectROI" not in fonte, (
+        """O tripwire olha CODIGO, nunca prosa.
+
+        A versao anterior varria o fonte cru e reprovava tambem quando a palavra
+        aparecia num docstring explicando por que ela nao pode estar ali -- foi o
+        que aconteceu ao documentar a correcao do deslocamento da grade. Um
+        portao que confunde comentario com chamada ensina a nao comentar, que e
+        o avesso do que este projeto quer. Continua igualmente severo com o
+        defeito de verdade: `test_o_tripwire_ainda_pega_uma_chamada_de_verdade`
+        prova isso por mutacao.
+        """
+        codigo = _codigo_sem_prosa(inspect.getsource(l2scanner.calibrar_mercado))
+        assert "selectROI" not in codigo, (
             "ha uma segunda mecanica de selectROI: duas copias envelhecem "
             "separadas e a pior produz retangulo plausivel na posicao errada"
         )
@@ -99,6 +131,30 @@ class TestOsDoisTripwiresDeEscritaDeImagem:
             is l2scanner.calibrar._selecionar_regiao
         )
 
+    def test_o_tripwire_ainda_pega_uma_chamada_de_verdade(self):
+        """Sem esta prova, tornar o tripwire preciso seria so afrouxa-lo."""
+        so_prosa = textwrap.dedent(
+            """
+            def f(x):
+                "selectROI aqui e so prosa e deve passar."
+                # selectROI aqui tambem
+                return x
+            """
+        )
+        assert "selectROI" not in _codigo_sem_prosa(so_prosa), (
+            "prosa nao pode reprovar"
+        )
+
+        com_chamada = textwrap.dedent(
+            """
+            def f(img):
+                "sem mencao nenhuma."
+                return cv2.selectROI("janela", img)
+            """
+        )
+        assert "selectROI" in _codigo_sem_prosa(com_chamada), (
+            "uma CHAMADA de verdade tem de continuar sendo pega"
+        )
 
 class TestOAuxiliarExtraido:
     """A reescala e a parte que nao podia ser duplicada."""
@@ -391,22 +447,54 @@ class TestAEscolhaDoFrame:
 
 class TestADerivacaoDaGrade:
     def test_dez_linhas_de_45_px_saem_de_uma_linha_so(self):
-        grade = derivar_grade((100, 200, 900, 450), (100, 200, 900, 45), "negociacao")
+        grade = derivar_grade(
+            (100, 200, 900, 450), (100, 200, 900, 45), "negociacao", (60, 150)
+        )
         assert grade["linhas_por_pagina"] == 10
         assert grade["altura_da_linha"] == 45
-        assert grade["origem_x"] == 100 and grade["origem_y"] == 200
+
+    def test_a_grade_e_guardada_em_DESLOCAMENTO_e_nao_em_posicao(self):
+        """O painel anda 827x831 px; posicao absoluta apontaria para o vazio.
+
+        A primeira versao gravava `origem_x`/`origem_y` crus do selectROI. As
+        ancoras ja guardavam deslocamento -- a grade tinha recebido so a metade
+        certa do tratamento. Encontrado quando o usuario comparou a propria tela
+        ao vivo com o frame gravado e viu o painel em outro lugar.
+        """
+        grade = derivar_grade(
+            (100, 200, 900, 450), (100, 200, 900, 45), "negociacao", (60, 150)
+        )
+        assert grade["dx"] == 40, "dx tem de ser 100-60, nao 100"
+        assert grade["dy"] == 50, "dy tem de ser 200-150, nao 200"
+        assert "origem_x" not in grade and "origem_y" not in grade, (
+            "posicao absoluta nao pode voltar: uma calibracao feita com o painel "
+            "num canto apontaria para o vazio depois de um arrasto"
+        )
+
+    def test_a_MESMA_grade_em_posicoes_diferentes_da_o_mesmo_deslocamento(self):
+        """O que prova que a calibracao sobrevive ao painel andar."""
+        num_canto = derivar_grade(
+            (100, 200, 900, 450), (100, 200, 900, 45), "negociacao", (60, 150)
+        )
+        arrastado = derivar_grade(
+            (927, 1031, 900, 450), (927, 1031, 900, 45), "negociacao", (887, 981)
+        )
+        assert num_canto == arrastado
 
     def test_a_tela_de_busca_tem_NOVE(self):
-        grade = derivar_grade((0, 0, 900, 405), (0, 0, 900, 45), "busca")
+        grade = derivar_grade((0, 0, 900, 405), (0, 0, 900, 45), "busca", (0, 0))
         assert grade["linhas_por_pagina"] == 9
 
     def test_o_LAYOUT_e_gravado_junto(self):
         """Sao TRES conjuntos de coluna; ler a coluna errada corrompe a serie."""
-        assert derivar_grade((0, 0, 9, 9), (0, 0, 9, 3), "adena")["layout"] == "adena"
+        assert (
+            derivar_grade((0, 0, 9, 9), (0, 0, 9, 3), "adena", (0, 0))["layout"]
+            == "adena"
+        )
 
     def test_linha_de_altura_zero_e_recusada(self):
         with pytest.raises(MercadoNaoCalibravel, match="remarque"):
-            derivar_grade((0, 0, 900, 450), (0, 0, 900, 0), "negociacao")
+            derivar_grade((0, 0, 900, 450), (0, 0, 900, 0), "negociacao", (0, 0))
 
 
 class TestAsAncorasViramDESLOCAMENTO:
