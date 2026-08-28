@@ -296,6 +296,50 @@ sistema.
 gravar a tela de confirmação que aparece (sem concluir a compra), mais um clique na lupa
 de `Search` da tela de busca, que leva ao detalhe do item. Trinta segundos de gravação.
 
+### VALIDADO PELO USUÁRIO (2026-08-28) — a pergunta perde a urgência
+
+**O usuário confirmou: o jogo não dá o tempo explicitamente.** A pergunta original fica
+respondida por essa confirmação, mas o selo permanece o mais fraco de propósito — não vimos
+a tela de detalhe/confirmação de compra em nenhuma das 8 sessões, então não podemos afirmar
+que ela não mostra nada. O que podemos afirmar: nas telas que o scanner vai ler (a grade),
+não há idade de anúncio.
+
+**A idade deixa de importar, porque a série resolve o mesmo problema por outro caminho.** O
+usuário propôs: em vez de tentar datar cada anúncio, registrar os itens e valores vistos a
+cada abertura do mercado, carimbando com o nosso relógio (GMT-3, que o jogo não fornece).
+Com isso a variação de preço por data sai da própria série.
+
+**Isso é exatamente a arquitetura já travada** — a proposta do usuário e o desenho da
+pesquisa convergiram de forma independente:
+
+| A proposta | Já é |
+|---|---|
+| carimbar com o nosso relógio | PERS-01 — snapshot com carimbo do relógio ancorado (`relogio.py` ancora fora e conta pelo monotônico) |
+| "podemos acabar pegando duplicado" | PERS-02 — `INSERT OR IGNORE` por chave de conteúdo; reabrir a mesma página não duplica |
+| "sabemos a variação por data do preço" | ANAL-03 — tendência por item, sustentada pelo carimbo de cada snapshot |
+
+Nada muda no plano. A convergência é a confirmação.
+
+**RESSALVA DE NOMENCLATURA, no espírito de "menor pedido visível":** o dado é *"o que estava
+na tela quando o usuário abriu o mercado"*, nunca *"o que existia no mercado naquele dia"*.
+Uma única abertura às 9h produz um ponto às 9h, não uma cobertura do dia. A saída da Fase 4
+tem de carregar isso no nome e na recência exibida, como já faz com n e "visto às 14:32".
+
+### IDEIA ADIADA — o anúncio no chat como fonte de evento
+
+O usuário observou que o jogo anuncia no chat quando um item é posto à venda. As linhas
+existem nos frames, por exemplo em
+`recordings/20260828-055323-mercado-scroll/frame_000014.png`:
+`→ Dragon Belt - 1 pcs: added on the market [68,00 XM Coin]`.
+
+Isso captura algo que o snapshot **não pega**: um item anunciado e vendido *entre* duas
+aberturas do mercado. É uma fonte de EVENTO, não de estado.
+
+**Adiada, não descartada.** Dois custos concretos: exige **OCR aberto** de texto arbitrário,
+que está em Out of Scope no REQUIREMENTS.md (a watchlist é conjunto fechado por template — a
+decisão validada do v1); e o chat rola rápido durante o farm, o que o PROJECT.md já
+registra. Reavaliar em v2, se a série por snapshot deixar um buraco que justifique o custo.
+
 ---
 
 ## 7. Renderização do encanto — validação da D-05
