@@ -137,11 +137,11 @@ coverage:
     requirement: "FUND-02"
     verification: []
     human_judgment: true
-    rationale: "PORTAO EXTERNO NAO CUMPRIDO. Exige a conta, o cliente e o servidor do usuario — nao ha caminho de automacao. E o motivo declarado de este plano parar aqui."
+    rationale: "PORTAO EXTERNO CUMPRIDO em 2026-08-28: o usuario gravou os 8 cenarios e `tools/conferir_gravacoes_do_spike.py` saiu APROVADO (335 frames, todos 1720x1392, ~3,4-3,9 MB por frame)."
 
 duration: ~50 min
 completed: 2026-08-27
-status: halted
+status: complete
 ---
 
 # Phase 1 Plan 2: Roteiro do spike e a ancora do mercado, MEDIDA — Summary
@@ -154,12 +154,26 @@ status: halted
 |---|---|---|
 | 1 | `ROTEIRO-SPIKE.md` + `tools/conferir_gravacoes_do_spike.py` | **COMPLETA**, commitada |
 | 2 | Trilho da âncora medido + chaves de calibração | **COMPLETA**, commitada |
-| 3 | O usuário grava as 8 sessões do World Exchange | **ABERTA — `gate="blocking-human"`** |
+| 3 | O usuário grava as 8 sessões do World Exchange | **COMPLETA** — portão aprovado em 2026-08-28 |
 
-A Task 3 é um `checkpoint:human-action` com `gate="blocking-human"`. Ela não foi executada,
-não foi simulada e não foi contornada: as gravações exigem a conta, o cliente e o servidor do
-usuário. O `status: halted` no frontmatter é deliberado — qualquer plano que dependa deste fica
-bloqueado até as gravações existirem e passarem no portão.
+A Task 3 era um `checkpoint:human-action` com `gate="blocking-human"`. Ela não foi executada,
+simulada nem contornada por nenhum agente: as gravações exigem a conta, o cliente e o servidor
+do usuário. **O usuário cumpriu o portão em 2026-08-28** e
+`python tools/conferir_gravacoes_do_spike.py` saiu APROVADO:
+
+| cenário | pasta | frames | dimensão | médio |
+|---|---|---|---|---|
+| mercado-fechado | 20260828-053003-mercado-fechado | 33 | 1720x1392 | 3906 KB |
+| mercado-aberto | 20260828-063752-mercado-aberto | 21 | 1720x1392 | 3380 KB |
+| mercado-scroll | 20260828-055323-mercado-scroll | 94 | 1720x1392 | 3411 KB |
+| mercado-pagina-cheia | 20260828-060622-mercado-pagina-cheia | 35 | 1720x1392 | 3367 KB |
+| mercado-tooltip | 20260828-061253-mercado-tooltip | 39 | 1720x1392 | 3427 KB |
+| mercado-alvo-sobreposto | 20260828-061409-mercado-alvo-sobreposto | 47 | 1720x1392 | 3567 KB |
+| mercado-farm-com-party | 20260828-063240-mercado-farm-com-party | 39 | 1720x1392 | 3480 KB |
+| mercado-scroll-transicao | 20260828-063409-mercado-scroll-transicao | 27 | 1720x1392 | 3403 KB |
+
+335 frames no total. A dimensão 1720x1392 é a janela inteira — nenhuma sessão caiu no recorte
+da party window. Os planos 01-03 e 01-04 estão desbloqueados.
 
 ## Performance
 
@@ -468,5 +482,5 @@ Nenhuma superfície nova além do `<threat_model>` do plano.
 
 ---
 *Phase: 01-funda-o-firewall-gravador-e-spike-de-campo (workstream mercado)*
-*Halted at: Task 3 — portão externo (`gate="blocking-human"`)*
+*Portão externo (Task 3) cumprido pelo usuário em 2026-08-28 — conferência APROVADA*
 *Date: 2026-08-27*
