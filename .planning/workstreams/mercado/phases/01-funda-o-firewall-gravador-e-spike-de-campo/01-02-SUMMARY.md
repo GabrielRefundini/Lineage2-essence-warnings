@@ -445,6 +445,27 @@ Nenhuma superfície nova além do `<threat_model>` do plano.
   - a divergência de 2 px na largura da party window precisa ser conferida antes de qualquer
     recorte de party derivado dos frames `_JANELA`.
 
+## Self-Check: PASSED
+
+- **Arquivos conferidos no disco:** `ROTEIRO-SPIKE.md`, `01-02-SUMMARY.md`,
+  `tools/conferir_gravacoes_do_spike.py`, `l2scanner/mercado_visao.py`,
+  `tests/test_mercado_ancora.py`, `tests/test_calibracao_mercado.py`,
+  `tests/fixtures/mercado/` (13 PNGs) — todos FOUND
+- **Commits conferidos em `git log`:** `2fb8187`, `cbfee55`, `50e68cd`, `fb3aad8`, `14f3fac` — todos FOUND
+- **`<acceptance_criteria>` da Task 1:** 8 de 8 verdes (as 3 provas de vermelho do portão foram
+  executadas contra pastas fabricadas em `tmp`, mais a prova de verde com 8 pastas válidas)
+- **`<acceptance_criteria>` da Task 2:** 5 de 6 verdes. O sexto — *"pelo menos 8 positivos do
+  27x"* — **NÃO É SATISFEITO**, com a razão medida na deviation #1: só 2 dos 9 frames `_JANELA`
+  têm o painel do mercado aberto. Registrado, não contornado.
+- **`<verification>` do plano:**
+  1. `python -m pytest tests/ -q` → **1213 passed, 6 skipped** (baseline do worktree sem as
+     suítes novas: 1179 passed, 4 skipped — +34, zero regressões) ✅
+  2. `ROTEIRO-SPIKE.md` com os 9 rótulos e comandos copiáveis ✅ (re-verificado após as edições)
+  3. Tabela de scores medidos neste SUMMARY, com a margem calculada ✅
+  4. `git diff --name-only f82e33d..HEAD | grep -Ex "l2scanner/(visao|rastreador)\.py"` → **vazio** ✅
+  5. `python tools/conferir_gravacoes_do_spike.py` sair com código 0 → **PENDENTE, por desenho**:
+     depende das gravações da Task 3, que é o portão externo
+
 ---
 *Phase: 01-funda-o-firewall-gravador-e-spike-de-campo (workstream mercado)*
 *Halted at: Task 3 — portão externo (`gate="blocking-human"`)*
