@@ -390,20 +390,7 @@ def _selecionar_regiao(
     print(f"\n{instrucao}")
     print("ESC cancela.\n")
 
-    # A JANELA E CRIADA E POSICIONADA ANTES, DE PROPOSITO.
-    #
-    # MEDIDO EM CAMPO 2026-08-28: o usuario rodou a calibracao de mercado,
-    # passou pelo navegador de frames e relatou que as janelas de selecao
-    # 'nao apareceram'. Elas apareciam -- o log prova que selectROI foi
-    # chamado tres vezes --, mas o cv2.selectROI sozinho nao diz onde se
-    # posiciona, e numa maquina de DOIS MONITORES a janela pode nascer
-    # atras do terminal ou no monitor onde o jogo esta. Uma ferramenta
-    # interativa cuja janela o usuario nao acha e indistinguivel de uma
-    # ferramenta travada.
-    #
-    # namedWindow + moveWindow com o MESMO titulo faz o selectROI REUSAR
-    # esta janela, em vez de criar a dele em lugar nenhum previsivel.
-    # ESVAZIA A FILA DE TECLAS ANTES DE ABRIR A SELECAO.
+    # (1) ESVAZIA A FILA DE TECLAS ANTES DE ABRIR A SELECAO.
     #
     # MEDIDO EM CAMPO 2026-08-28: o usuario confirmava o frame com ENTER no
     # navegador de gravacao e o `selectROI` abria em seguida ja recebendo
@@ -421,7 +408,45 @@ def _selecionar_regiao(
         if cv2.waitKey(1) == -1:
             break
 
-    cv2.namedWindow(titulo, cv2.WINDOW_NORMAL)
+    # (2) A JANELA E CRIADA E POSICIONADA ANTES, DE PROPOSITO -- E EM
+    #     WINDOW_AUTOSIZE, QUE E A METADE QUE IMPORTA DESTA LINHA.
+    #
+    # Por que criar a janela antes: MEDIDO EM CAMPO 2026-08-28, o usuario
+    # rodou a calibracao de mercado, passou pelo navegador de frames e
+    # relatou que as janelas de selecao 'nao apareceram'. Elas apareciam --
+    # o log prova que selectROI foi chamado tres vezes --, mas o
+    # cv2.selectROI sozinho nao diz onde se posiciona, e numa maquina de
+    # DOIS MONITORES a janela pode nascer atras do terminal ou no monitor
+    # onde o jogo esta. Uma ferramenta interativa cuja janela o usuario nao
+    # acha e indistinguivel de uma ferramenta travada. namedWindow +
+    # moveWindow com o MESMO titulo faz o selectROI REUSAR esta janela, em
+    # vez de criar a dele em lugar nenhum previsivel.
+    #
+    # Por que AUTOSIZE e nao NORMAL: uma janela WINDOW_NORMAL **nao se
+    # redimensiona para a imagem** -- ela nasce no tamanho que o Win32
+    # resolver dar, e a imagem e espremida dentro dele. MEDIDO nesta
+    # maquina (cv2 4.14.0, `getWindowImageRect` no caminho real desta
+    # funcao, com o selectROI dublado):
+    #
+    #     visao 1600x1295 | WINDOW_NORMAL   -> janela 120x1440
+    #     visao 1600x1295 | WINDOW_AUTOSIZE -> janela 1600x1295
+    #     visao 1720x1392 | WINDOW_NORMAL   -> janela 120x1440
+    #     visao 1720x1392 | WINDOW_AUTOSIZE -> janela 1720x1392
+    #
+    # O numero do NORMAL nao e estavel entre execucoes (ja saiu 304x281
+    # numa outra medicao) justamente porque nao vem da imagem: vem do
+    # Win32. O AUTOSIZE bate a imagem exatamente, em toda dimensao testada.
+    #
+    # Com a janela encolhida, cada pixel de mouse do usuario vale varios
+    # pixels da visualizacao -- que ja e uma visualizacao reescalada -- e
+    # esse segundo encolhimento nao entra na divisao por `escala` la
+    # embaixo. O resultado e o defeito que o docstring desta funcao chama
+    # de mais caro que existe: 'um retangulo plausivel na posicao errada'.
+    # E a `calibrar_selecionando` da PARTY passa por aqui tambem.
+    #
+    # `moveWindow` posiciona igual sobre AUTOSIZE, entao a janela continua
+    # nascendo onde o usuario a encontra: nada foi perdido.
+    cv2.namedWindow(titulo, cv2.WINDOW_AUTOSIZE)
     cv2.moveWindow(titulo, 40, 40)
     cv2.imshow(titulo, visao)
     cv2.waitKey(1)

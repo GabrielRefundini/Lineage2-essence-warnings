@@ -335,7 +335,16 @@ def navegar_e_escolher(quadros: list[Path], comeco: int) -> Path:
     print("    ESC                 -> cancelar sem gravar nada")
     print("-" * 60)
 
-    cv2.namedWindow(janela, cv2.WINDOW_NORMAL)
+    # WINDOW_AUTOSIZE, nao WINDOW_NORMAL: esta janela existe para o usuario
+    # VER se ha tooltip, marcacao de alvo ou rolagem por cima do painel, e uma
+    # janela NORMAL nao se dimensiona pela imagem -- ela nasce no tamanho que o
+    # Win32 resolver dar e espreme o frame dentro dele. MEDIDO nesta maquina
+    # (cv2 4.14.0): imagem 1720x1392 numa janela NORMAL saiu 120x1440; em
+    # AUTOSIZE sai 1720x1392 exatos. A 8% do tamanho ninguem enxerga tooltip
+    # nenhuma, e o proposito inteiro da funcao vai junto. `moveWindow`
+    # posiciona igual sobre AUTOSIZE, entao a janela continua nascendo onde o
+    # usuario a encontra. `_reduzir_para_caber` ja garante que ela cabe.
+    cv2.namedWindow(janela, cv2.WINDOW_AUTOSIZE)
     cv2.moveWindow(janela, 40, 40)
     try:
         while True:
