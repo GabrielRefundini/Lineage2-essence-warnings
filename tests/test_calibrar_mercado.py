@@ -977,3 +977,96 @@ class TestOAvisoDeDpi:
         l2scanner.calibrar_mercado.main([])
 
         assert "DPI" not in capsys.readouterr().out
+
+
+class TestOMoldeDaAncoraEIndexadoPorNome:
+    """WR-08: `ancoras[0]` era o `titulo` por ACIDENTE de ordem.
+
+    `caixas` preserva a ordem de insercao de `ANCORAS_SUGERIDAS`, e `titulo`
+    esta primeiro. Reordenar aquela constante -- o que a docstring de
+    `localizar_painel` incentiva, "a ordem certa e a mais confiavel primeiro" --
+    passaria a gravar o molde de uma ancora ao lado do retangulo de OUTRA, em
+    `mercado_ancora`. Erro calado.
+    """
+
+    def test_reordenar_as_ancoras_sugeridas_nao_troca_o_molde_gravado(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        import argparse
+
+        destino = tmp_path / "calibration.json"
+        destino.write_text(REFERENCIA.read_text(encoding="utf-8"), encoding="utf-8")
+        frame = tmp_path / "frame_000000.png"
+        pixels = np.random.default_rng(11).integers(
+            0, 255, (1000, 900, 3), dtype=np.uint8
+        )
+        assert cv2.imwrite(str(frame), pixels)
+
+        # A MESMA constante, com `titulo` em ULTIMO. As caixas seguem cada
+        # nome, entao a calibracao correta e identica nas duas ordens.
+        invertida = tuple(
+            reversed(l2scanner.calibrar_mercado.ANCORAS_SUGERIDAS)
+        )
+        caixas_por_nome = {
+            "titulo": (300, 200, 100, 28),
+            "botao_fechar": (794, 190, 60, 60),
+            "canto_inf_dir": (794, 865, 60, 60),
+        }
+
+        def rodar(ancoras_sugeridas):
+            monkeypatch.setattr(
+                l2scanner.calibrar_mercado,
+                "ANCORAS_SUGERIDAS",
+                ancoras_sugeridas,
+            )
+            fila = [caixas_por_nome[a[0]] for a in ancoras_sugeridas] + [
+                (310, 260, 480, 450),
+                (310, 260, 480, 45),
+            ]
+            monkeypatch.setattr(
+                l2scanner.calibrar_mercado,
+                "_selecionar_regiao",
+                lambda *a, **k: fila.pop(0),
+            )
+            monkeypatch.setattr(
+                l2scanner.calibrar_mercado, "ler_watchlist", lambda _c: []
+            )
+            monkeypatch.setattr(
+                l2scanner.calibrar_mercado,
+                "_gravar_conferencia",
+                lambda _img: tmp_path / "conferencia.png",
+            )
+            destino.write_text(
+                REFERENCIA.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            args = argparse.Namespace(
+                calibracao=str(destino), gravacao=None, frame=str(frame),
+                indice=None, layout="negociacao",
+            )
+            assert l2scanner.calibrar_mercado.calibrar(args) == 0
+            return json.loads(destino.read_text(encoding="utf-8"))
+
+        na_ordem = rodar(l2scanner.calibrar_mercado.ANCORAS_SUGERIDAS)
+        fora_de_ordem = rodar(invertida)
+
+        assert (
+            na_ordem["mercado_molde_da_ancora"]
+            == fora_de_ordem["mercado_molde_da_ancora"]
+        ), (
+            "reordenar ANCORAS_SUGERIDAS trocou o molde gravado em "
+            "mercado_molde_da_ancora -- ele ficou ao lado do retangulo de outra "
+            "ancora, e nada avisaria"
+        )
+        assert na_ordem["mercado_ancora"] == fora_de_ordem["mercado_ancora"]
+
+    def test_o_comentario_nao_promete_mais_que_a_ferramenta_desenha(self):
+        """A constante afirmava "a ferramenta mostra cada regiao"; ela nao mostra.
+
+        Os `dx`/`dy` sao desempacotados e descartados, `selectROI` abre vazio, e
+        so o TAMANHO sugerido chega ao usuario -- em texto.
+        """
+        fonte = inspect.getsource(l2scanner.calibrar_mercado)
+        cabecalho = fonte[: fonte.index("ANCORAS_SUGERIDAS = (")]
+        assert "a ferramenta mostra cada regiao e" not in cabecalho, (
+            "o comentario voltou a afirmar um comportamento que nao existe"
+        )

@@ -93,9 +93,20 @@ COLISAO_MAXIMA_ENTRE_TEMPLATES = 0.85
 # Os deslocamentos MEDIDOS das ancoras, a partir da origem do painel (o canto
 # superior esquerdo da faixa de titulo), na janela de 1720x1392 do usuario.
 #
-# Sao SUGESTOES pre-preenchidas, nao verdade: a ferramenta mostra cada regiao e
-# o usuario confirma ou ajusta. Ver `mercado_visao.AncoraDoPainel` para o que
-# cada uma e e para as duas que foram medidas e descartadas.
+# Sao SUGESTOES, nao verdade -- e o que a ferramenta faz com elas hoje e MENOS
+# do que este comentario ja afirmou. A versao anterior dizia "a ferramenta
+# mostra cada regiao e o usuario confirma ou ajusta"; ela nao mostra. Os `dx` e
+# `dy` sao desempacotados e DESCARTADOS no laco de selecao, nada e pre-desenhado
+# sobre o frame, e o `selectROI` abre vazio. A unica coisa que sobrevive das
+# medicoes de campo e o tamanho impresso na instrucao ("sugerido: 100x28").
+#
+# Ficou assim de proposito, e nao por esquecimento: pre-desenhar o retangulo
+# sugerido exigiria mexer em `calibrar._selecionar_regiao`, que e COMPARTILHADA
+# com a calibracao de party e funciona hoje. Enquanto ninguem paga esse custo, o
+# comentario diz o que o codigo faz.
+#
+# Ver `mercado_visao.AncoraDoPainel` para o que cada ancora e e para as duas que
+# foram medidas e descartadas.
 ANCORAS_SUGERIDAS = (
     ("titulo", 0, 0, 100, 28, "a faixa de titulo 'XM Market'"),
     ("botao_fechar", 494, -10, 60, 60, "o 'X' de fechar, canto superior direito"),
@@ -779,7 +790,15 @@ def calibrar(args: argparse.Namespace) -> int:
 
     tx, ty, tlarg, talt = caixas["titulo"]
     cal.mercado_ancora = Regiao(esquerda=tx, topo=ty, largura=tlarg, altura=talt)
-    cal.mercado_molde_da_ancora = molde_para_hex(ancoras[0].molde)
+    # POR NOME, NAO POR POSICAO. `ancoras[0]` so era o `titulo` porque `caixas`
+    # preserva a ordem de insercao de ANCORAS_SUGERIDAS e `titulo` esta
+    # primeiro. Reordenar aquela constante -- o que a docstring de
+    # `localizar_painel` INCENTIVA ("a ordem certa e a mais confiavel
+    # primeiro") -- passaria a gravar o molde de uma ancora ao lado do
+    # retangulo de outra, em `mercado_ancora`. Erro calado, e a duas linhas de
+    # distancia do `caixas["titulo"]` logo acima, que ja acerta por nome.
+    molde_do_titulo = next(a.molde for a in ancoras if a.nome == "titulo")
+    cal.mercado_molde_da_ancora = molde_para_hex(molde_do_titulo)
     cal.mercado_limiar_da_ancora = CASAMENTO_MINIMO_DA_ANCORA
     cal.mercado_geometria_da_captura = {"largura": int(largura), "altura": int(altura)}
     cal.mercado_ancoras = ancoras_para_calibracao(ancoras)
