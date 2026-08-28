@@ -22,11 +22,16 @@ import sys
 import pytest
 
 from l2scanner.ponte_nucleo import (
+    CONSERTO_DA_INTENT,
     ClienteDiscordEmMemoria,
     Decisao,
     MensagemRecebida,
     NucleoDaPonte,
+    VereditoDoPreVoo,
+    intent_ligada_no_painel,
     mensagem_de_teste,
+    parece_intent_desligada,
+    veredito_do_pre_voo,
 )
 
 # Os ids reais da fase, para que o teste falhe se alguem trocar o alvo sem
@@ -322,6 +327,242 @@ class TestAFormaNormalizadaDaMensagem:
         o duble passa a exercitar uma mensagem que nao existe.
         """
         assert isinstance(mensagem_de_teste(), MensagemRecebida)
+
+
+class TestOPredicadoDasDuasFlags:
+    """`gateway_message_content` (1<<18) e `..._limited` (1<<19), com um `or`."""
+
+    def test_as_duas_desligadas_significa_intent_desligada(self):
+        assert intent_ligada_no_painel(False, False) is False
+
+    def test_a_flag_LIMITED_sozinha_ja_conta_e_e_o_caso_REAL_desta_ponte(self):
+        """Esta ponte roda em UM servidor, entao o bit que liga e o `_limited`.
+
+        `gateway_message_content` (1<<18) e o da aplicacao VERIFICADA, que exige
+        100+ servidores e um processo com a Discord. Um pre-voo que so olhasse
+        esse bit recusaria a subida de TODA aplicacao pequena — ou seja, de
+        exatamente esta. Testar os dois com `or` e o que faz o pre-voo servir
+        hoje e continuar servindo no dia em que o bot crescer.
+        """
+        assert intent_ligada_no_painel(False, True) is True
+
+    def test_a_flag_de_aplicacao_verificada_sozinha_tambem_conta(self):
+        assert intent_ligada_no_painel(True, False) is True
+
+    def test_as_duas_ligadas_contam(self):
+        assert intent_ligada_no_painel(True, True) is True
+
+
+class TestOVereditoDoPreVoo:
+    """A DECISAO do arranque, testavel sem `discord` — que e o motivo de existir.
+
+    Ela mora separada do predicado de proposito. Se a decisao vivesse dentro do
+    `setup_hook`, ela so seria conferivel com a biblioteca instalada e um socket
+    aberto — ou seja, nunca seria conferida.
+    """
+
+    def test_flags_LIDAS_com_os_dois_bits_falsos_RECUSA(self):
+        """O criterio 2 da fase: a ponte nao sobe muda replicando branco."""
+        assert (
+            veredito_do_pre_voo(
+                flags_lidas=True, verificada=False, limitada=False, ignorar=False
+            )
+            is VereditoDoPreVoo.RECUSAR
+        )
+
+    @pytest.mark.parametrize(
+        "verificada,limitada", [(True, False), (False, True), (True, True)]
+    )
+    def test_flags_LIDAS_com_qualquer_bit_ligado_SEGUE(self, verificada, limitada):
+        assert (
+            veredito_do_pre_voo(
+                flags_lidas=True,
+                verificada=verificada,
+                limitada=limitada,
+                ignorar=False,
+            )
+            is VereditoDoPreVoo.SEGUIR
+        )
+
+    def test_flags_NAO_LIDAS_seguem_com_aviso_e_NUNCA_recusam(self):
+        """"Nao consegui ler" NAO E "esta desligada", e a diferenca custa o milestone.
+
+        Uma versao diferente da biblioteca, um soluco do `GET /applications/@me`
+        ou um formato de aplicacao que a leitura de fonte nao cobriu fazem o
+        inteiro chegar 0 — e ai os dois bits leem falso. Uma leitura de DUAS
+        saidas recusaria a subida COM A INTENT LIGADA, mostrando ao usuario uma
+        tela em portugues mandando refazer os quatro passos do portao que ele
+        acabou de fazer, sem nenhuma saida.
+
+        A assimetria decide, e ela e enorme: um falso "desligada" custa o
+        milestone inteiro; um falso "ligada" nao custa nada, porque a
+        `PrivilegedIntentsRequired` da biblioteca e a heuristica de runtime
+        continuam de pe atras dele.
+        """
+        assert (
+            veredito_do_pre_voo(
+                flags_lidas=False, verificada=False, limitada=False, ignorar=False
+            )
+            is VereditoDoPreVoo.SEGUIR_COM_AVISO
+        )
+
+    def test_flags_nao_lidas_seguem_com_aviso_mesmo_com_os_bits_verdadeiros(self):
+        """Com as flags ilegiveis, o valor dos bits nao quer dizer nada.
+
+        Eles sao o padrao que a beirada escolheu para "nao sei", nao uma
+        leitura. Devolver SEGUIR aqui esconderia do usuario que a conferencia
+        nao aconteceu.
+        """
+        assert (
+            veredito_do_pre_voo(
+                flags_lidas=False, verificada=True, limitada=True, ignorar=False
+            )
+            is VereditoDoPreVoo.SEGUIR_COM_AVISO
+        )
+
+    def test_ignorar_atropela_ate_a_recusa(self):
+        """A valvula de escape, testada em vez de prometida.
+
+        Uma opcao de escape que ninguem nunca invocou e uma opcao que pode estar
+        escrita errada justamente no dia em que ela for a unica saida.
+        """
+        assert (
+            veredito_do_pre_voo(
+                flags_lidas=True, verificada=False, limitada=False, ignorar=True
+            )
+            is VereditoDoPreVoo.SEGUIR_COM_AVISO
+        )
+
+
+class TestOTextoDoConsertoDaIntent:
+    """A unica coisa que o usuario vai ler com o milestone inteiro travado.
+
+    Sem estes testes a mensagem vira prosa generica na primeira reescrita — e
+    prosa generica aqui significa alguem parado, sem saber onde clicar.
+    """
+
+    def test_o_texto_traz_a_URL_do_painel(self):
+        assert "https://discord.com/developers/applications" in CONSERTO_DA_INTENT
+
+    def test_o_texto_traz_o_nome_EXATO_do_botao(self):
+        """"ligue a intent de conteudo" nao existe na tela; MESSAGE CONTENT sim."""
+        assert "MESSAGE CONTENT" in CONSERTO_DA_INTENT
+
+    def test_o_texto_manda_SALVAR(self):
+        """O painel do Discord NAO salva sozinho: sem "Save Changes" nada muda.
+
+        Este e o passo que as pessoas pulam, e pular ele produz exatamente o
+        mesmo sintoma de nao ter feito nada — o que faz o usuario concluir que a
+        receita nao funciona.
+        """
+        assert "Save Changes" in CONSERTO_DA_INTENT
+
+    def test_o_texto_manda_subir_a_ponte_de_novo(self):
+        """A intent so vale no proximo IDENTIFY: sem reiniciar, nada muda."""
+        assert "de novo" in CONSERTO_DA_INTENT
+
+    def test_o_texto_diz_a_CONSEQUENCIA_antes_dos_passos(self):
+        """Uma receita sem o porque e uma receita que o usuario pula.
+
+        O que faz alguem parar e ler quatro passos e entender que, sem eles, o
+        bot conecta, PARECE saudavel e recebe tudo vazio.
+        """
+        assert "vazio" in CONSERTO_DA_INTENT.lower()
+
+
+class TestAHeuristicaDeRuntimeAvisaENaoDescarta:
+    """A terceira linha, para o dia em que o botao for desligado com a ponte viva.
+
+    O pre-voo e deterministico e roda uma vez; esta e probabilistica e roda
+    sempre. Por isso ela AVISA e nunca decide nada.
+    """
+
+    def test_mensagem_comum_inteiramente_vazia_levanta_suspeita(self):
+        """O Discord nao deixa postar uma mensagem sem nada dentro.
+
+        Uma mensagem comum que chega com texto, anexo, embed, figurinha,
+        componente, enquete e encaminhamento TODOS vazios nao e uma mensagem
+        possivel — e o retrato da intent desligada.
+        """
+        vazia = mensagem_de_teste(canal=CANAL_A, texto="")
+
+        assert parece_intent_desligada(vazia) is True
+
+    def test_com_texto_nao_ha_suspeita(self):
+        assert parece_intent_desligada(mensagem_de_teste(canal=CANAL_A)) is False
+
+    @pytest.mark.parametrize(
+        "campo",
+        [
+            "tem_anexo",
+            "tem_embed",
+            "tem_figurinha",
+            "tem_componente",
+            "tem_enquete",
+            "e_encaminhamento",
+        ],
+    )
+    def test_vazio_mas_LEGITIMO_nao_levanta_suspeita(self, campo):
+        """Um post so-com-imagem e vazio de texto por direito, e e comum.
+
+        Anuncio de guild com print de evento, so-embed de bot, so-figurinha:
+        tratar qualquer um deles como sintoma faria a ponte gritar todo dia, e
+        um aviso que grita todo dia deixa de ser lido exatamente quando importa.
+        """
+        crua = mensagem_de_teste(canal=CANAL_A, texto="", **{campo: True})
+
+        assert parece_intent_desligada(crua) is False
+
+    def test_mensagem_de_SISTEMA_vazia_nao_levanta_suspeita(self):
+        """Entrou no servidor, fixou mensagem, criou thread, deu boost.
+
+        Elas sao vazias POR DIREITO, chegam sozinhas e sao frequentes. Esta
+        linha e a diferenca entre uma heuristica util e um alarme diario.
+        """
+        sistema = mensagem_de_teste(
+            canal=CANAL_A, texto="", e_mensagem_de_sistema=True
+        )
+
+        assert parece_intent_desligada(sistema) is False
+
+    def test_a_mensagem_suspeita_continua_ACEITA(self):
+        """A regressao mais cara possivel seria o detector virar o problema.
+
+        Uma heuristica probabilistica que DESCARTA come anuncio de verdade: o
+        post so-com-imagem da FORM-04 e legitimamente vazio, e um dia a lista de
+        campos vai ficar desatualizada em relacao ao Discord. Avisar erra para o
+        lado barato; descartar erra para o lado que a fase inteira existe para
+        impedir.
+        """
+        resultado = nucleo().receber(mensagem_de_teste(canal=CANAL_A, texto=""))
+
+        assert resultado.decisao is Decisao.ACEITA
+        assert resultado.suspeita_de_intent_desligada is True
+
+    def test_a_mensagem_suspeita_ainda_produz_LINHA_de_console(self):
+        """O usuario tem de VER a linha vazia com o aviso ao lado.
+
+        E ver a linha vazia que faz o sintoma virar diagnostico. Uma mensagem
+        engolida com um aviso solto no log nao mostra nada.
+        """
+        resultado = nucleo().receber(mensagem_de_teste(canal=CANAL_A, texto=""))
+
+        assert resultado.linha
+
+    def test_mensagem_normal_nao_carrega_suspeita(self):
+        resultado = nucleo().receber(mensagem_de_teste(canal=CANAL_A))
+
+        assert resultado.suspeita_de_intent_desligada is False
+
+    def test_mensagem_de_canal_de_fora_nao_ganha_suspeita(self):
+        """A trava de canal corta ANTES. Suspeitar de um canal que nao ouvimos
+        encheria o log com o servidor inteiro — e a heuristica so faz sentido
+        sobre mensagem que a ponte de fato processaria.
+        """
+        resultado = nucleo().receber(mensagem_de_teste(canal=CANAL_DE_FORA, texto=""))
+
+        assert resultado.decisao is Decisao.IGNORADA_CANAL
+        assert resultado.suspeita_de_intent_desligada is False
 
 
 class TestADivisaoEmTresModulos:
