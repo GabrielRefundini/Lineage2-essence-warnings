@@ -469,6 +469,49 @@ class TestODegenerado_SemCalibracaoDeMercadoNadaMuda:
         assert resultado.observacao.ui_visivel
         assert resultado.observacao.mercado_aberto_aparente is None
 
+    def test_o_vigia_que_EXPLODE_avisa_UMA_vez_em_WARNING(
+        self, calibracao, tmp_path, caplog
+    ):
+        """WR-10: a falha saia so em DEBUG, que nao esta ligado num farm normal.
+
+        O desfecho e identico ao do recorte ausente -- que o codigo dez linhas
+        acima ja trata com um WARNING unico, argumentando que "um vigia ligado
+        que nunca recebe pixels e degradacao SILENCIOSA: o console simplesmente
+        nunca fala do mercado e o usuario conclui que o painel nunca abriu".
+
+        Um molde corrompido nao e um tropeco de UM tick: ele falha tambem nos
+        proximos. Uma linha por segundo no log seria a outra forma de nao ser
+        lido, entao e um WARNING e depois DEBUG -- o mesmo trilho do vizinho.
+        """
+        import logging
+
+        class VigiaQueExplode:
+            def observar(self, janela):
+                raise RuntimeError("molde corrompido")
+
+        sessao = nova_sessao(calibracao, tmp_path, mercado=VigiaQueExplode())
+        janela = janela_do_27x("aberto_27x_f000", (912, 350))
+
+        with caplog.at_level(logging.WARNING, logger="l2scanner.sessao"):
+            for i in range(5):
+                sessao.tick(frame_do_27x(barra_viva(), janela), momento=float(i))
+
+        avisos = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(avisos) == 1, (
+            f"sairam {len(avisos)} WARNINGs em 5 ticks. Zero deixa a falha "
+            f"invisivel num farm normal; um por tick e 1 linha por segundo no "
+            f"scanner.log, que e a outra forma de nao ser lido."
+        )
+        texto = avisos[0].getMessage()
+        assert "calibrar-mercado" in texto, "o aviso nao diz o que fazer"
+        assert "resto do scanner continua igual" in texto, (
+            "o aviso nao diz que a deteccao de morte segue de pe -- e o "
+            "usuario tem de saber que nao precisa parar o farm"
+        )
+        assert avisos[0].exc_info is not None, (
+            "sem exc_info nao da para saber QUAL excecao derrubou a leitura"
+        )
+
 
 # ---------------------------------------------------------------------------
 # A SUPERFICIE: o que o usuario ve, e o que a instalacao sem mercado NAO paga

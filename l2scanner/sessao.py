@@ -160,6 +160,13 @@ class Sessao:
         # painel nunca abriu. Repetir o aviso a cada tick seria 1 linha por
         # segundo no `scanner.log`, que e a outra forma de nao ser lido.
         self._ja_avisou_do_mercado_sem_recorte = False
+        # E a mesma pergunta para o OUTRO jeito de o mercado sumir calado: a
+        # leitura explodindo. Um molde corrompido, uma janela num formato
+        # inesperado ou um `cv2.error` persistente produzem o desfecho identico
+        # -- console sem a linha do mercado, para sempre -- e isso saia so em
+        # DEBUG, que nao esta ligado num farm normal. `NUNCA LEVANTA` esta
+        # certo; ficar mudo nao.
+        self._ja_avisou_da_falha_do_mercado = False
         # Chamado a cada mensagem despachada. A casca usa para logar; o teste
         # usa para nada — ele lê o `ResultadoDoTick`.
         self._ao_registrar = ao_registrar or (lambda *_: None)
@@ -313,7 +320,23 @@ class Sessao:
         try:
             return bool(self.mercado.observar(recorte).aberto)
         except Exception:
-            log.debug("Leitura do mercado falhou neste tick", exc_info=True)
+            # MESMO TRILHO DO VIZINHO DEZ LINHAS ACIMA: um WARNING uma vez,
+            # DEBUG nos demais. So `log.debug` deixava esta falha invisivel num
+            # farm normal, e o desfecho e identico ao do recorte ausente -- "o
+            # console simplesmente nunca fala do mercado e o usuario conclui que
+            # o painel nunca abriu". Um molde corrompido nao e um tropeco de um
+            # tick: ele vai falhar tambem nos proximos, e o texto diz isso.
+            if not self._ja_avisou_da_falha_do_mercado:
+                self._ja_avisou_da_falha_do_mercado = True
+                log.warning(
+                    "Leitura do mercado falhando neste frame e provavelmente "
+                    "nos proximos (molde corrompido ou janela em formato "
+                    "inesperado). Rode calibrar-mercado.bat. Todo o resto do "
+                    "scanner continua igual.",
+                    exc_info=True,
+                )
+            else:
+                log.debug("Leitura do mercado falhou neste tick", exc_info=True)
             return None
 
     def _contar_linhas_sem_nome(self, observacao: Observacao) -> None:
