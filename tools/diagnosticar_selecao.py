@@ -24,6 +24,10 @@ As duas fases abaixo separam exatamente isso:
                                   passa a ser o bloco namedWindow/moveWindow.
   as duas passam               -> o defeito ja nao existe no codigo de hoje.
 
+E se qualquer uma das fases devolver um codigo DESCONHECIDO, nao ha conclusao
+nenhuma -- o processo caiu antes de medir. Ver `SAIDA_PASSOU` para por que os
+codigos comecam em 10 e nao em 0.
+
 Uso:
     .venv\\Scripts\\python.exe -m tools.diagnosticar_selecao --gravacao recordings\\<pasta>
 """
@@ -51,6 +55,28 @@ from l2scanner.calibrar_mercado import (  # noqa: E402
 # Abaixo disto o `selectROI` nao esperou por gente nenhuma: ele voltou
 # sozinho. Um arrasto humano nao acontece em meio segundo.
 LIMITE_INSTANTANEO = 0.5
+
+# OS CODIGOS DE SAIDA NAO PODEM COLIDIR COM O DO INTERPRETADOR.
+#
+# Eles eram 0/1/2. Mas `1` e tambem o codigo com que o CPython sai de QUALQUER
+# excecao nao tratada -- um `cv2.error`, um `ImportError`, um `FileNotFoundError`
+# no `--gravacao`. Nesse caso a ferramenta imprimia
+#
+#     "FALHOU -- voltou sozinho, sem esperar ninguem"
+#     "CONCLUSAO: a tecla vem do NAVEGADOR DE FRAMES."
+#
+# ou seja, uma conclusao afirmada sobre uma medicao que NUNCA ACONTECEU -- na
+# ferramenta escrita justamente para trocar "tenta mais um fix" por "mede qual
+# hipotese e a verdadeira". Ler "o processo caiu" como "o defeito foi
+# reproduzido" e o pior erro que este arquivo poderia cometer.
+#
+# Com 10/11/12, qualquer outro valor -- inclusive o 1 do traceback e o
+# 0xC0000005 de um crash nativo -- cai no ramo CRASH, que nao conclui nada.
+SAIDA_PASSOU = 10
+SAIDA_FALHOU = 11
+SAIDA_ERRO = 12
+
+ROTULOS = {SAIDA_PASSOU: "PASSOU", SAIDA_FALHOU: "FALHOU", SAIDA_ERRO: "ERRO"}
 
 
 def _pescar_teclas_pendentes(milissegundos: int = 300) -> list[int]:
@@ -87,12 +113,12 @@ def _rodar_fase(gravacao: Path, fase: str, indice: int) -> int:
             caminho = escolher_frame(gravacao, None, None)
     except MercadoNaoCalibravel as erro:
         print(f"  nao deu para escolher o frame: {erro}")
-        return 2
+        return SAIDA_ERRO
 
     pixels = cv2.imread(str(caminho))
     if pixels is None:
         print(f"  nao consegui decodificar {caminho}")
-        return 2
+        return SAIDA_ERRO
     print(f"  frame: {caminho.name}")
 
     pendentes = _pescar_teclas_pendentes()
@@ -118,9 +144,9 @@ def _rodar_fase(gravacao: Path, fase: str, indice: int) -> int:
     print(f"\n  selectROI devolveu {caixa} em {demorou:.2f}s")
     if demorou < LIMITE_INSTANTANEO:
         print(f"  VEREDITO {fase}: FALHOU -- voltou sozinho, sem esperar ninguem.")
-        return 1
+        return SAIDA_FALHOU
     print(f"  VEREDITO {fase}: PASSOU -- esperou a interacao normalmente.")
-    return 0
+    return SAIDA_PASSOU
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -159,22 +185,33 @@ def main(argv: list[str] | None = None) -> int:
     print("  RESUMO")
     print(f"{'=' * 62}")
     for fase, codigo in vereditos.items():
-        rotulo = {0: "PASSOU", 1: "FALHOU", 2: "ERRO"}.get(codigo, "?")
+        rotulo = ROTULOS.get(codigo, f"CRASH (codigo {codigo})")
         print(f"  {fase:16s} -> {rotulo}")
 
     print()
-    if sem == 0 and com == 1:
+    # SO CONCLUI QUANDO AS DUAS FASES DEVOLVERAM CODIGOS CONHECIDOS. Um
+    # subprocesso que morreu de traceback nao mediu nada, e afirmar sobre ele
+    # seria a mentira que esta ferramenta existe para nao contar.
+    if sem not in ROTULOS or com not in ROTULOS:
+        print("  CONCLUSAO: NENHUMA -- pelo menos uma fase nao chegou a medir.")
+        print("  Um codigo de saida desconhecido significa que o processo caiu")
+        print("  (traceback, cv2.error, arquivo faltando). Role para cima e leia")
+        print("  a saida da fase que quebrou; nada aqui foi medido.")
+        print()
+        return SAIDA_ERRO
+
+    if sem == SAIDA_PASSOU and com == SAIDA_FALHOU:
         print("  CONCLUSAO: a tecla vem do NAVEGADOR DE FRAMES.")
         print("  O bloco namedWindow/moveWindow esta inocente.")
-    elif sem == 1 and com == 1:
+    elif sem == SAIDA_FALHOU and com == SAIDA_FALHOU:
         print("  CONCLUSAO: o navegador esta inocente -- falha ate sem ele.")
         print("  O suspeito passa a ser o namedWindow/moveWindow do")
         print("  _selecionar_regiao, que e o que mudou em 6de5d22.")
-    elif sem == 0 and com == 0:
+    elif sem == SAIDA_PASSOU and com == SAIDA_PASSOU:
         print("  CONCLUSAO: o defeito NAO acontece mais no codigo de hoje.")
         print("  As duas fases esperaram a interacao normalmente.")
     else:
-        print("  CONCLUSAO: resultado misto ou erro de leitura -- veja as fases acima.")
+        print("  CONCLUSAO: resultado misto -- veja as fases acima.")
     print()
     return 0
 
