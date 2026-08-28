@@ -30,15 +30,56 @@ inteira de cada frame de 1720x1392:
     f010..f040  0.32..0.41        painel FECHADO (o f020 mostra o INVENTARIO)
 
 **O painel ANDA.** Entre f000 e f005 ele se deslocou 181 px para a esquerda e
-143 px para baixo, e ainda assim a mesma arte casou 0.9996. Consequencia direta
-para quem consumir este modulo: um retangulo fixo gravado na calibracao NAO
-encontra o painel numa segunda posicao. O consumidor precisa LOCALIZAR (busca
-do molde na faixa, com cadencia limitada — precedente
-`SEGUNDOS_ENTRE_BUSCAS_DO_DIALOGO = 5.0` em `captura_janela.py`) e so entao
-comparar aqui. Este modulo mede o casamento; achar onde comparar e do chamador.
+143 px para baixo, e ainda assim a mesma arte casou 0.9996.
+
+O QUE O CAMPO DESCOBRIU DEPOIS, E QUE MUDOU O DESENHO (01-04)
+-------------------------------------------------------------
+As 8 gravacoes de campo (335 frames, `SPIKE-RESPOSTAS.md` secao 8) desmentiram a
+arquitetura de UMA ancora — nao o limiar dela:
+
+    pior POSITIVO de campo   0.4110   painel ABERTO, tooltip por cima do titulo
+    melhor NEGATIVO de campo 0.4753   painel FECHADO, sessao mercado-fechado
+    MARGEM DE CAMPO         -0.0643
+
+A margem e NEGATIVA: um frame com o painel aberto marca MENOS que um frame com
+o painel fechado. Nenhum limiar sobre a faixa de titulo separa as duas classes.
+A causa nao e o valor 0.73 — e depender de UM retangulo. A tooltip do jogo e
+desenhada onde o cursor estiver, **inclusive sobre a faixa de titulo**, e foi
+exatamente ali que ela caiu em 20 frames de painel aberto.
+
+O painel tambem percorre 827 x 831 px numa janela de 1720 x 1392 (34 posicoes
+distintas), o que descarta tanto o retangulo fixo quanto a busca em faixa: a
+faixa que cobrisse esse alcance E a janela.
+
+DESENHO ATUAL — ADQUIRIR, SEGUIR, VOTAR (validado pelo usuario em 2026-08-28)
+-----------------------------------------------------------------------------
+1. **Aquisicao** (`localizar_painel`, ~45 ms por ancora): varredura da janela
+   inteira. So quando nao se sabe onde o painel esta — primeiro tick com o
+   mercado aberto, ou depois de uma perda.
+2. **Seguimento** (`conferir_painel`, microssegundos): confere as ancoras na
+   posicao ja conhecida. Barato porque compara em UMA posicao.
+3. **Reaquisicao** (`RastreioDoPainel`): so depois de `TICKS_ATE_REAQUISICAO`
+   ticks seguidos perdidos, o que na pratica significa "o usuario arrastou o
+   painel" ou "fechou". O usuario confirmou que **o painel reabre onde foi
+   fechado**: a posicao e estavel dentro da sessao, e so muda por arrasto
+   deliberado. E isso que torna o seguimento o caso comum e a varredura rara.
+4. **Votacao pelo MAXIMO** entre ancoras independentes e espalhadas. Uma
+   tooltip e um retangulo LOCAL perto do cursor; ela cobre uma ancora, e cobrir
+   todas ao mesmo tempo e implausivel.
+
+O limiar de 0.73 continua valido — agora POR ANCORA. Ver
+`CASAMENTO_MINIMO_DA_ANCORA`.
+
+A MITIGACAO QUE FOI RECUSADA: o usuario se ofereceu para nao passar o mouse no
+meio da lista, mantendo a tooltip longe do titulo. Aceito como REDUCAO DE
+RUIDO; recusado como mecanismo de correcao. Este projeto nao troca falha-fechada
+por disciplina do usuario — um dia ele esquece, e o modo de falha volta calado.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Callable
 
 import numpy as np
 
@@ -114,7 +155,30 @@ def casamento_da_ancora(recorte: np.ndarray, molde: np.ndarray) -> float:
 # registered an item on XM Market!" no log do jogo — as MESMAS PALAVRAS na tela,
 # com o painel FECHADO. Um detector que procurasse o texto dispararia ali. Este
 # casa a ARTE do painel, e le 0.4624.
+#
+# REMEDIDO NO CAMPO (01-04), com as 8 gravacoes do usuario mais os 9 frames de
+# janela do incidente 27x. O numero NAO mudou; o que mudou foi o que ele
+# significa — ele agora vale POR ANCORA, e a decisao sai da votacao entre elas:
+#
+#     pior POSITIVO   0.9037   (tooltip cobrindo o titulo; quem salva e o
+#                               botao de fechar, no canto oposto)
+#     melhor NEGATIVO 0.5337   (adversarial: melhor posicao de CADA ancora em
+#                               cada frame sem painel, sobre 91 frames fechados)
+#     MARGEM          0.3700
+#
+# Com a faixa de titulo SOZINHA os mesmos frames dao margem -0.0643. O limiar
+# nao estava errado; a arquitetura estava.
 CASAMENTO_MINIMO_DA_ANCORA = 0.73
+
+# Quantos ticks seguidos o seguimento pode falhar antes de pagar uma varredura
+# nova. Precedente direto: `SEGUNDOS_ENTRE_BUSCAS_DO_DIALOGO = 5.0` em
+# `captura_janela.py:38-43`, onde uma busca na janela inteira tambem custa caro
+# demais para rodar a cada volta.
+#
+# Aqui a cadencia e contada em TICKS e nao em segundos de proposito: este modulo
+# nao tem relogio (ver o charter no topo). Tres ticks e o que separa "uma
+# tooltip passou por cima" de "o usuario arrastou o painel".
+TICKS_ATE_REAQUISICAO = 3
 
 
 def mercado_aberto(recorte: np.ndarray, molde: np.ndarray, limiar: float) -> bool:
@@ -199,3 +263,300 @@ def molde_de_hex(
 
     plano = np.frombuffer(brutos, dtype=np.uint8)
     return plano.reshape(altura, largura).copy()
+
+
+# --------------------------------------------------------------------------
+# Multi-ancora: adquirir, seguir, votar
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AncoraDoPainel:
+    """Um pedaco de arte OPACA do painel, e onde ele fica em relacao a origem.
+
+    A ORIGEM do painel, aqui e em toda a calibracao, e o canto superior esquerdo
+    da FAIXA DE TITULO — a mesma referencia que o 01-02 gravou em
+    `Calibracao.mercado_ancora`. `dx`/`dy` sao deslocamentos a partir dela, e e
+    isso que permite mover todas as ancoras juntas quando o painel anda.
+
+    Deslocamentos MEDIDOS no material de campo (janela 1720x1392), para quem
+    for calibrar do zero:
+
+        titulo          (   0,    0)  100x28   faixa de titulo "XM Market"
+        botao_fechar    ( 494,  -10)   60x60   o "X" do canto superior direito
+        canto_inf_dir   ( 494,  665)   60x60   seta de rolagem, canto de baixo
+
+    DUAS ANCORAS FORAM MEDIDAS E DESCARTADAS: o canto superior esquerdo e o
+    canto inferior esquerdo do painel sao arte CHAPADA (cinza sobre cinza, sem
+    detalhe). Numa varredura da janela inteira sobre frames com o painel
+    FECHADO eles casaram 0.8050 e 0.6881 — contra grama. Uma ancora sem textura
+    encontra o painel em qualquer lugar, inclusive onde ele nao esta.
+    """
+
+    nome: str
+    dx: int
+    dy: int
+    molde: np.ndarray
+
+
+@dataclass(frozen=True)
+class VotoDoPainel:
+    """O que as ancoras responderam neste frame.
+
+    `por_ancora` traz so quem PODE ser conferido. Quem caiu fora da janela vai
+    para `abstiveram` em vez de entrar com 0.0: 0.0 seria uma leitura inventada
+    sobre pixels que nao existem, e o log precisa distinguir "essa ancora nao
+    casou" de "essa ancora nao estava na tela".
+    """
+
+    aberto: bool
+    melhor: float
+    origem: tuple[int, int] | None = None
+    por_ancora: dict[str, float] = field(default_factory=dict)
+    abstiveram: tuple[str, ...] = ()
+
+
+def _recortar(
+    janela: np.ndarray, x: int, y: int, largura: int, altura: int
+) -> np.ndarray | None:
+    """Recorta, ou devolve None se o retangulo nao cabe INTEIRO na janela.
+
+    A checagem de negativo nao e zelo: `janela[-500:, -500:]` e um recorte
+    VALIDO em numpy e devolve o canto oposto da imagem, calado. Um painel
+    arrastado para perto da borda produz exatamente essa coordenada, e o
+    detector passaria a comparar a ancora com um pedaco aleatorio da tela.
+    """
+    if x < 0 or y < 0:
+        return None
+    if y + altura > janela.shape[0] or x + largura > janela.shape[1]:
+        return None
+    return janela[y : y + altura, x : x + largura]
+
+
+def buscar_ancora(
+    janela: np.ndarray, ancora: AncoraDoPainel
+) -> tuple[float, int, int]:
+    """Procura a ancora na JANELA INTEIRA. Devolve (casamento, origem_x, origem_y).
+
+    CARA: ~45 ms por chamada numa janela de 1720x1392. Nao rode a cada tick —
+    e para isso que existe `RastreioDoPainel`.
+
+    A posicao devolvida ja e a ORIGEM DO PAINEL (o canto da faixa de titulo),
+    com o deslocamento da ancora descontado. Devolver a posicao do molde faria
+    cada chamador refazer a mesma subtracao, e um deles a faria com o sinal
+    trocado.
+    """
+    import cv2
+
+    if janela.size == 0 or ancora.molde.size == 0:
+        return 0.0, 0, 0
+
+    alvo = _em_tons_de_cinza(janela)
+    forma = _em_tons_de_cinza(ancora.molde)
+    if forma.shape[0] > alvo.shape[0] or forma.shape[1] > alvo.shape[1]:
+        return 0.0, 0, 0
+
+    fa, fm = alvo.astype(np.float32), forma.astype(np.float32)
+    if fa.std() < 1e-6 or fm.std() < 1e-6:
+        return 0.0, 0, 0
+
+    mapa = cv2.matchTemplate(fa, fm, cv2.TM_CCOEFF_NORMED)
+    _, maximo, _, posicao = cv2.minMaxLoc(mapa)
+    return float(maximo), int(posicao[0]) - ancora.dx, int(posicao[1]) - ancora.dy
+
+
+def localizar_painel(
+    janela: np.ndarray,
+    ancoras: list[AncoraDoPainel],
+    limiar: float,
+    _buscar: Callable[[np.ndarray, AncoraDoPainel], tuple[float, int, int]] = (
+        buscar_ancora
+    ),
+) -> tuple[int, int] | None:
+    """AQUISICAO: onde esta o painel? None = nao esta na tela.
+
+    Varre com cada ancora na ordem dada e **para na primeira que passa do
+    limiar**. Parar cedo nao e otimizacao prematura: cada varredura custa ~45 ms
+    e o caso comum — painel visivel, titulo limpo — resolve na primeira.
+
+    A ordem importa, portanto, e a ordem certa e "a mais confiavel primeiro".
+    As ancoras seguintes existem para o caso em que a primeira esta coberta: foi
+    assim que 20 frames de painel aberto, com a tooltip apagando o titulo,
+    voltaram a ser encontrados.
+    """
+    for ancora in ancoras:
+        casamento, x, y = _buscar(janela, ancora)
+        if casamento >= limiar:
+            return x, y
+    return None
+
+
+def conferir_painel(
+    janela: np.ndarray,
+    origem: tuple[int, int],
+    ancoras: list[AncoraDoPainel],
+    limiar: float,
+) -> VotoDoPainel:
+    """SEGUIMENTO: o painel ainda esta na posicao conhecida?
+
+    Compara cada ancora em UMA posicao — a origem mais o deslocamento dela. E o
+    mesmo alinhamento unico de `casamento_da_ancora`, e pela mesma razao medida:
+    deslizar nao ajuda quem esta certo e ajuda quem esta errado.
+
+    O veredito e o MAXIMO, e nao a media nem o consenso. O ruido esperado aqui e
+    LOCAL: a tooltip cobre um pedaco do painel, perto do cursor. Media puniria o
+    frame inteiro por uma ancora coberta; consenso exigiria que a coberta
+    concordasse. O preco do maximo — cada ancora e uma chance independente de um
+    alvo errado achar alinhamento sortudo — esta pago em medicao: 0.5337 e o
+    melhor que qualquer das tres ancoras conseguiu em 91 frames sem painel.
+    """
+    ox, oy = origem
+    por_ancora: dict[str, float] = {}
+    abstiveram: list[str] = []
+
+    for ancora in ancoras:
+        altura, largura = _em_tons_de_cinza(ancora.molde).shape
+        recorte = _recortar(janela, ox + ancora.dx, oy + ancora.dy, largura, altura)
+        if recorte is None:
+            abstiveram.append(ancora.nome)
+            continue
+        por_ancora[ancora.nome] = casamento_da_ancora(recorte, ancora.molde)
+
+    melhor = max(por_ancora.values(), default=0.0)
+    return VotoDoPainel(
+        aberto=bool(por_ancora) and melhor >= limiar,
+        melhor=melhor,
+        origem=origem,
+        por_ancora=por_ancora,
+        abstiveram=tuple(abstiveram),
+    )
+
+
+class RastreioDoPainel:
+    """Adquire uma vez, segue barato, so reencontra quando realmente perdeu.
+
+    O motivo de existir esta medido: a varredura custa ~45 ms e o painel fica
+    PARADO a maior parte do tempo (255 frames de campo com o painel visivel em
+    apenas 34 posicoes distintas). Varrer a cada tick pagaria caro por uma
+    resposta que quase nunca muda.
+
+    E o motivo de o esquecimento ser LENTO tambem esta medido: uma tooltip por
+    cima do painel derruba UMA ancora por um punhado de ticks. Reaquirir na
+    primeira falha transformaria cada tooltip em ~45 ms por tick.
+
+    Sem ancora nenhuma (instalacao que nunca calibrou o mercado) ele nunca abre
+    — a feature fica OFF, que e o unico padrao seguro para um sinal que a Fase 4
+    vai usar perto do detector de morte.
+    """
+
+    def __init__(
+        self,
+        ancoras: list[AncoraDoPainel],
+        limiar: float = CASAMENTO_MINIMO_DA_ANCORA,
+        ticks_ate_reaquisicao: int = TICKS_ATE_REAQUISICAO,
+    ) -> None:
+        self._ancoras = list(ancoras)
+        self._limiar = limiar
+        self._ticks_ate_reaquisicao = max(1, int(ticks_ate_reaquisicao))
+        self._origem: tuple[int, int] | None = None
+        self._perdidos = 0
+        self.varreduras = 0
+
+    @property
+    def origem(self) -> tuple[int, int] | None:
+        """Onde o painel foi visto pela ultima vez. None = nunca foi adquirido."""
+        return self._origem
+
+    def observar(self, janela: np.ndarray) -> VotoDoPainel:
+        if not self._ancoras:
+            return VotoDoPainel(aberto=False, melhor=0.0)
+
+        if self._origem is not None:
+            voto = conferir_painel(
+                janela, self._origem, self._ancoras, self._limiar
+            )
+            if voto.aberto:
+                self._perdidos = 0
+                return voto
+            self._perdidos += 1
+            if self._perdidos < self._ticks_ate_reaquisicao:
+                return voto
+            self._origem = None
+            self._perdidos = 0
+
+        self.varreduras += 1
+        origem = localizar_painel(janela, self._ancoras, self._limiar)
+        if origem is None:
+            return VotoDoPainel(aberto=False, melhor=0.0)
+
+        self._origem = origem
+        return conferir_painel(janela, origem, self._ancoras, self._limiar)
+
+
+def ancoras_para_calibracao(ancoras: list[AncoraDoPainel]) -> list[dict]:
+    """Empacota as ancoras para dentro do `calibration.json`."""
+    return [
+        {
+            "nome": a.nome,
+            "dx": int(a.dx),
+            "dy": int(a.dy),
+            "molde": molde_para_hex(a.molde),
+        }
+        for a in ancoras
+    ]
+
+
+def ancoras_de_calibracao(dados: list[dict] | None) -> list[AncoraDoPainel]:
+    """Desempacota as ancoras vindas do `calibration.json`.
+
+    ENTRADA NAO CONFIAVEL, pelo mesmo motivo de `molde_de_hex`: o arquivo pode
+    ter sido editado a mao ou gravado errado por uma ferramenta futura. Um
+    deslocamento em texto (`"494"`) so quebraria dentro da aritmetica de recorte,
+    no meio do farm; um nome ausente sumiria do log de diagnostico justamente
+    quando alguem estivesse tentando entender por que o mercado nao e visto.
+
+    `None` e lista vazia devolvem lista vazia: e o estado legitimo de "nao
+    calibrei o mercado", e com ele o `RastreioDoPainel` nunca abre.
+    """
+    if not dados:
+        return []
+
+    ancoras: list[AncoraDoPainel] = []
+    for indice, bruto in enumerate(dados):
+        if not isinstance(bruto, dict):
+            raise ValueError(
+                f"mercado_ancoras[{indice}] precisa ser um objeto, veio "
+                f"{type(bruto).__name__}. Recalibre o mercado."
+            )
+        nome = bruto.get("nome")
+        if not isinstance(nome, str) or not nome:
+            raise ValueError(
+                f"mercado_ancoras[{indice}] esta sem nome utilizavel. O nome e "
+                f"o que aparece no log quando o mercado deixa de ser visto. "
+                f"Recalibre o mercado."
+            )
+        deslocamentos = []
+        for eixo in ("dx", "dy"):
+            valor = bruto.get(eixo)
+            if isinstance(valor, bool) or not isinstance(valor, int):
+                raise ValueError(
+                    f"mercado_ancoras[{indice}] ({nome}): {eixo} precisa ser um "
+                    f"inteiro, veio {type(valor).__name__} ({valor!r}). "
+                    f"Recalibre o mercado."
+                )
+            deslocamentos.append(valor)
+        molde = bruto.get("molde")
+        if not isinstance(molde, dict):
+            raise ValueError(
+                f"mercado_ancoras[{indice}] ({nome}): molde precisa ser um "
+                f"objeto com altura, largura e bytes. Recalibre o mercado."
+            )
+        ancoras.append(
+            AncoraDoPainel(
+                nome=nome,
+                dx=deslocamentos[0],
+                dy=deslocamentos[1],
+                molde=molde_de_hex(molde),
+            )
+        )
+    return ancoras

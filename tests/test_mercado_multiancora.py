@@ -195,6 +195,10 @@ def janela_sintetica(
         for anc in ancoras():
             x, y = ox + anc.dx, oy + anc.dy
             h, w = anc.molde.shape
+            # Ancora que nao cabe simplesmente nao e colada — e o que permite
+            # montar a cena do painel arrastado ate a borda da janela.
+            if x < 0 or y < 0 or y + h > janela.shape[0] or x + w > janela.shape[1]:
+                continue
             janela[y : y + h, x : x + w] = anc.molde
     return janela
 
@@ -276,9 +280,9 @@ class TestSeguimentoNaPosicaoCONHECIDA:
         permite ao titulo sozinho decidir ali; votar 0.0 seria uma leitura
         inventada sobre pixels que nao existem.
         """
-        janela = janela_sintetica((1650, 350))
+        janela = janela_sintetica((1600, 350))
         voto = conferir_painel(
-            janela, (1650, 350), ancoras(), CASAMENTO_MINIMO_DA_ANCORA
+            janela, (1600, 350), ancoras(), CASAMENTO_MINIMO_DA_ANCORA
         )
         assert "botao_fechar" in voto.abstiveram
         assert "botao_fechar" not in voto.por_ancora
