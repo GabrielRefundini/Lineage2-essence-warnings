@@ -58,10 +58,17 @@ if errorlevel 1 (
 
 echo.
 echo  ------------------------------------------------------------
-echo   ABRA a imagem calibracao-conferencia.png e confira se os
-echo   retangulos verdes caem onde voce espera: a faixa de titulo
-echo   do painel, o X de fechar, a seta de rolagem, a area da
-echo   lista e a primeira linha.
+REM O NOME DA IMAGEM NAO PODE SER CITADO AQUI: o .bat nao sabe qual foi.
+REM `_gravar_conferencia` grava em calibracao-conferencia.png, ou num nome
+REM alternativo com horario quando aquele esta travado no visualizador de
+REM fotos, ou em lugar nenhum. Citar o nome de sempre mandava o usuario
+REM conferir A IMAGEM DA CALIBRACAO ANTERIOR -- validar a rodada nova
+REM olhando a antiga. Quem sabe o nome e a ferramenta, e ela ja o diz.
+echo   A MENSAGEM ACIMA diz qual imagem de conferencia abrir, ou
+echo   diz que nao deu para gravar nenhuma. Abra a que ela citou
+echo   e confira se os retangulos verdes caem onde voce espera: a
+echo   faixa de titulo do painel, o X de fechar, a seta de rolagem,
+echo   a area da lista e a primeira linha.
 echo.
 echo   Se a matriz de confusao RECUSOU, ela nomeou o par de itens
 echo   que se confundem: recorte os dois mais largos, ou tire um

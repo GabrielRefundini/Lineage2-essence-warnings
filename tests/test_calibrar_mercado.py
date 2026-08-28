@@ -551,3 +551,94 @@ class TestAImagemDeConferencia:
         saida = desenhar_conferencia(pixels, {"titulo": (10, 20, 100, 28)})
         assert np.array_equal(pixels, copia), "o frame de origem foi alterado"
         assert saida.any(), "nenhum retangulo foi desenhado"
+
+
+class TestOTextoFinalDaConferencia:
+    """O CR-02: a ferramenta so pode mandar abrir uma imagem que existe.
+
+    Este e o FUND-01 verbatim, do outro lado da parede. A linha final era
+    incondicional e o retorno de `_gravar_conferencia` era descartado -- mas
+    aquela funcao devolve `None` quando nao gravou nada, e um caminho
+    ALTERNATIVO (`calibracao-conferencia-HHMMSS.png`) quando o arquivo de sempre
+    estava travado no visualizador de fotos, que e o caso mais comum porque a
+    propria ferramenta manda o usuario abrir a imagem.
+
+    Nos dois casos o usuario era mandado para `calibracao-conferencia.png`, que
+    ou nao existe, ou E A IMAGEM DA CALIBRACAO ANTERIOR.
+
+    Molde copiado de `test_conferencia_gravada.py::
+    test_texto_final_do_solo_so_manda_conferir_quando_ha_imagem`, que ja resolvia
+    isto certo em `calibrar.py`.
+    """
+
+    def test_com_imagem_manda_abrir_O_CAMINHO_QUE_FOI_GRAVADO(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ):
+        # O nome ALTERNATIVO de proposito: e o caso que o codigo velho errava.
+        imagem = tmp_path / "calibracao-conferencia-235959.png"
+        imagem.write_bytes(b"png de mentira")
+
+        l2scanner.calibrar_mercado._texto_final_da_conferencia(
+            imagem, tmp_path / "calibration.json"
+        )
+
+        saida = capsys.readouterr().out
+        assert "ABRA" in saida
+        assert str(imagem) in saida, (
+            "o texto nao citou o caminho REALMENTE gravado"
+        )
+
+    def test_sem_imagem_nao_cita_png_nenhum(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ):
+        import re
+
+        l2scanner.calibrar_mercado._texto_final_da_conferencia(
+            None, tmp_path / "calibration.json"
+        )
+
+        saida = capsys.readouterr().out
+        citados = re.findall(r"\S+\.png", saida)
+        assert citados == [], (
+            f"sem imagem gravada, o texto citou {citados} -- ou o arquivo nao "
+            f"existe, ou e o da calibracao ANTERIOR, que e justamente o que o "
+            f"usuario abriria e conferiria por engano. Mesma regra de "
+            f"`calibrar._gravar_conferencia`: sem imagem, sem nome."
+        )
+        assert "NAO ACONTECEU" in saida
+
+    def test_sem_imagem_admite_que_a_calibracao_JA_FOI_GRAVADA(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ):
+        """`cal.salvar` roda ANTES deste texto -- calar isso e a metade cara.
+
+        Dizer so "a conferencia nao aconteceu" deixaria o usuario achando que
+        nada mudou no disco. Mudou: os retangulos que ninguem olhou estao
+        gravados e o scanner vai usa-los.
+        """
+        arquivo = tmp_path / "calibration.json"
+
+        l2scanner.calibrar_mercado._texto_final_da_conferencia(None, arquivo)
+
+        saida = capsys.readouterr().out
+        assert arquivo.name in saida, (
+            "o texto nao diz onde a calibracao nao-conferida ficou gravada"
+        )
+        assert "NINGUEM" in saida
+
+    def test_o_calibrar_nao_descarta_mais_o_retorno_da_gravacao(self):
+        """O tripwire do defeito exato: a chamada tem de ser atribuida.
+
+        `_gravar_conferencia(...)` como instrucao solta e o bug em uma linha.
+        """
+        fonte = inspect.getsource(l2scanner.calibrar_mercado.calibrar)
+        for linha in fonte.splitlines():
+            despido = linha.strip()
+            if despido.startswith("_gravar_conferencia("):
+                raise AssertionError(
+                    f"o retorno de _gravar_conferencia foi descartado: "
+                    f"{despido!r}. Ele diz QUAL imagem foi gravada, ou que "
+                    f"nenhuma foi -- e sem isso a ferramenta manda abrir um "
+                    f"arquivo que pode nao existir ou ser o da rodada anterior."
+                )
+        assert "_texto_final_da_conferencia(" in fonte

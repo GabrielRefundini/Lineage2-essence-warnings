@@ -509,6 +509,52 @@ def _marcar(
     return caixa
 
 
+def _texto_final_da_conferencia(caminho: Path | None, arquivo: Path) -> None:
+    """Fecha a calibracao de mercado dizendo a VERDADE sobre a conferencia.
+
+    O defeito que isto conserta e o FUND-01 verbatim, do outro lado da parede.
+    A linha final era `print("\nABRA a imagem de conferencia...")`, incondicional,
+    com o retorno de `_gravar_conferencia` descartado. Mas aquela funcao devolve
+    tres coisas diferentes:
+
+    - o caminho padrao, quando gravou onde sempre grava;
+    - um caminho ALTERNATIVO (`calibracao-conferencia-HHMMSS.png`), quando o
+      arquivo de sempre estava travado -- o caso mais comum, porque a propria
+      ferramenta manda o usuario abrir a imagem no visualizador de fotos e ele
+      costuma deixar a imagem aberta;
+    - `None`, quando nao gravou em lugar nenhum.
+
+    Nos dois ultimos casos o usuario era mandado para
+    `calibracao-conferencia.png`, que ou nao existe, ou E A IMAGEM DA CALIBRACAO
+    ANTERIOR. Conferir a imagem velha e validar a calibracao nova: exatamente o
+    desfecho que o docstring de abertura deste modulo diz ter matado.
+
+    A honestidade extra que este caso exige, e que o modo solo nao exige: o
+    `cal.salvar` JA RODOU quando chegamos aqui. Nao da para dizer so "a
+    conferencia nao aconteceu" -- os retangulos estao gravados e ninguem os
+    olhou, e o texto tem de dizer as duas coisas na mesma tela.
+
+    Vive fora do `calibrar()` para poder ser testada sem mouse, no mesmo molde
+    de `calibrar._texto_final_do_solo`.
+    """
+    if caminho is not None:
+        print(f"\nABRA {caminho}")
+        print("e confira se os retangulos verdes caem onde voce espera: a faixa")
+        print("de titulo do painel, o X de fechar, a seta de rolagem, a area da")
+        print("lista e a primeira linha.")
+        return
+
+    print("\nA CONFERENCIA VISUAL NAO ACONTECEU: nenhuma imagem foi gravada.")
+    print(f"Os retangulos acima JA ESTAO em {arquivo.name} e NINGUEM os olhou.")
+    # Nenhum nome de arquivo sai daqui, de proposito: e a mesma regra de
+    # `calibrar._gravar_conferencia`. Um nome citado numa tela onde nao houve
+    # gravacao e mais uma promessa vazia -- e pior, o arquivo de sempre
+    # PROVAVELMENTE existe, de uma rodada anterior, entao o usuario o abriria.
+    print("Se houver alguma imagem de conferencia na pasta, ela e de OUTRA")
+    print("rodada e nao serve para conferir esta.")
+    print("Feche o visualizador de fotos e rode de novo antes de confiar nisto.")
+
+
 def calibrar(args: argparse.Namespace) -> int:
     arquivo = Path(args.calibracao) if args.calibracao else ARQUIVO_CALIBRACAO
     cal = carregar_calibracao(arquivo)
@@ -594,7 +640,7 @@ def calibrar(args: argparse.Namespace) -> int:
     regioes = dict(caixas)
     regioes["grade"] = caixa_grade
     regioes["linha_1"] = caixa_linha
-    _gravar_conferencia(desenhar_conferencia(pixels, regioes))
+    conferencia = _gravar_conferencia(desenhar_conferencia(pixels, regioes))
 
     tx, ty, tlarg, talt = caixas["titulo"]
     cal.mercado_ancora = Regiao(esquerda=tx, topo=ty, largura=tlarg, altura=talt)
@@ -619,7 +665,7 @@ def calibrar(args: argparse.Namespace) -> int:
         f"{grade['altura_da_linha']} px, layout '{grade['layout']}'"
     )
     print(f"  watchlist    : {len(moldes_de_nome)} molde(s) de nome")
-    print("\nABRA a imagem de conferencia e confira os retangulos.")
+    _texto_final_da_conferencia(conferencia, arquivo)
     return 0
 
 

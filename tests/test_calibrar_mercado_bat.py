@@ -25,6 +25,11 @@ import pytest
 RAIZ = Path(__file__).resolve().parent.parent
 BAT = RAIZ / "calibrar-mercado.bat"
 
+# A primeira linha do bloco de sucesso. E so uma ancora de posicao para os
+# testes de ordem -- o conteudo dela e afirmado por
+# `test_o_bloco_de_sucesso_nao_cita_o_nome_da_imagem`.
+ANCORA_DO_SUCESSO = "A MENSAGEM ACIMA diz qual imagem"
+
 
 def _texto() -> str:
     return BAT.read_text(encoding="cp1252")
@@ -62,7 +67,7 @@ def test_o_bloco_de_conferencia_vem_depois_de_uma_guarda_de_erro():
 
     chamada = t.find("l2scanner.calibrar_mercado")
     guarda = t.find("if errorlevel 1", chamada)
-    conferencia = _posicao_do_echo(t, "ABRA a imagem", chamada)
+    conferencia = _posicao_do_echo(t, ANCORA_DO_SUCESSO, chamada)
 
     assert chamada != -1, "o .bat nao chama mais l2scanner.calibrar_mercado"
     assert guarda != -1, "sumiu a guarda `if errorlevel 1` depois da chamada"
@@ -77,7 +82,7 @@ def test_a_guarda_encerra_o_script_com_codigo_de_falha():
     """Sair com 0 depois de falhar mentiria para quem encadeia o .bat."""
     t = _texto()
     guarda = t.find("if errorlevel 1")
-    trecho = t[guarda : _posicao_do_echo(t, "ABRA a imagem", guarda)]
+    trecho = t[guarda : _posicao_do_echo(t, ANCORA_DO_SUCESSO, guarda)]
     assert "exit /b 1" in trecho, (
         "a guarda nao encerra com `exit /b 1`; um chamador veria sucesso"
     )
@@ -87,7 +92,7 @@ def test_a_mensagem_de_falha_diz_que_nada_foi_gravado():
     """O usuario precisa saber que o disco NAO mudou, nao so que 'deu erro'."""
     t = _texto()
     guarda = t.find("if errorlevel 1")
-    trecho = t[guarda : _posicao_do_echo(t, "ABRA a imagem", guarda)]
+    trecho = t[guarda : _posicao_do_echo(t, ANCORA_DO_SUCESSO, guarda)]
     assert re.search(r"[Nn]ada foi gravado", trecho), (
         "a mensagem de falha nao afirma que nada foi gravado"
     )
@@ -110,3 +115,28 @@ def test_os_sinais_de_maior_e_menor_estao_escapados():
                     f"`{sinal}` sem escape num echo do .bat, o cmd trata como "
                     f"redirecionamento: {despido!r}"
                 )
+
+
+def test_o_bloco_de_sucesso_nao_cita_o_nome_da_imagem():
+    """O .bat nao sabe qual imagem foi gravada -- entao nao pode nomear nenhuma.
+
+    `_gravar_conferencia` grava em `calibracao-conferencia.png`, OU num nome
+    alternativo com horario quando aquele esta travado no visualizador de fotos
+    (o caso mais comum, porque a propria ferramenta manda abrir a imagem), OU em
+    lugar nenhum. O .bat imprimia o nome de sempre escrito a mao, nos tres
+    casos.
+
+    Nos dois ultimos, o usuario abria `calibracao-conferencia.png` e via A
+    IMAGEM DA CALIBRACAO ANTERIOR: validava a rodada nova olhando a antiga, que
+    e o defeito que o docstring de `calibrar_mercado` diz ter matado. Quem sabe
+    o nome e a ferramenta, e ela ja o imprime.
+    """
+    t = _texto()
+    for linha in t.splitlines():
+        despido = linha.strip()
+        if not despido.lower().startswith("echo"):
+            continue
+        assert "calibracao-conferencia" not in despido, (
+            f"o .bat nomeia a imagem de conferencia num echo: {despido!r}. "
+            f"Ele nao sabe qual arquivo foi gravado -- so a ferramenta sabe."
+        )
