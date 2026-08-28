@@ -336,6 +336,7 @@ def navegar_e_escolher(quadros: list[Path], comeco: int) -> Path:
     print("-" * 60)
 
     cv2.namedWindow(janela, cv2.WINDOW_NORMAL)
+    cv2.moveWindow(janela, 40, 40)
     try:
         while True:
             pixels = cv2.imread(str(quadros[indice]))
@@ -358,6 +359,8 @@ def navegar_e_escolher(quadros: list[Path], comeco: int) -> Path:
             tecla = cv2.waitKey(0) & 0xFF
             if tecla in (13, 10):  # ENTER
                 cv2.destroyWindow(janela)
+                for _ in range(5):
+                    cv2.waitKey(1)  # deixa o HighGUI assentar
                 print(f"  usando {quadros[indice].name}" + chr(10))
                 return quadros[indice]
             if tecla == 27:  # ESC
@@ -513,6 +516,18 @@ def calibrar(args: argparse.Namespace) -> int:
 
     altura, largura = pixels.shape[:2]
     print(f"\nCalibrando o mercado sobre {caminho.name} ({largura}x{altura})")
+    print("")
+    print("  " + "-" * 58)
+    print("  VAO ABRIR 5 JANELAS DE SELECAO, uma de cada vez, no CANTO")
+    print("  SUPERIOR ESQUERDO do monitor principal.")
+    print("")
+    print("  Se nao ver a janela, ela pode estar ATRAS deste terminal")
+    print("  ou no outro monitor: procure na barra de tarefas pelo")
+    print("  nome que aparece abaixo.")
+    print("")
+    print("  Em cada uma: arraste o mouse e confirme com ENTER ou ESPACO.")
+    print("  NAO feche no X -- fechar no X cancela e nada e gravado.")
+    print("  " + "-" * 58)
     print("Abra o painel do World Exchange no frame antes de marcar as regioes.\n")
 
     # --- as ancoras ---

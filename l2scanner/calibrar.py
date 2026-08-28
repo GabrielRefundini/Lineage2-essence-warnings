@@ -390,6 +390,24 @@ def _selecionar_regiao(
     print(f"\n{instrucao}")
     print("ESC cancela.\n")
 
+    # A JANELA E CRIADA E POSICIONADA ANTES, DE PROPOSITO.
+    #
+    # MEDIDO EM CAMPO 2026-08-28: o usuario rodou a calibracao de mercado,
+    # passou pelo navegador de frames e relatou que as janelas de selecao
+    # 'nao apareceram'. Elas apareciam -- o log prova que selectROI foi
+    # chamado tres vezes --, mas o cv2.selectROI sozinho nao diz onde se
+    # posiciona, e numa maquina de DOIS MONITORES a janela pode nascer
+    # atras do terminal ou no monitor onde o jogo esta. Uma ferramenta
+    # interativa cuja janela o usuario nao acha e indistinguivel de uma
+    # ferramenta travada.
+    #
+    # namedWindow + moveWindow com o MESMO titulo faz o selectROI REUSAR
+    # esta janela, em vez de criar a dele em lugar nenhum previsivel.
+    cv2.namedWindow(titulo, cv2.WINDOW_NORMAL)
+    cv2.moveWindow(titulo, 40, 40)
+    cv2.imshow(titulo, visao)
+    cv2.waitKey(1)
+
     caixa = cv2.selectROI(titulo, visao, showCrosshair=False)
     cv2.destroyAllWindows()
 
