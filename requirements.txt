@@ -36,6 +36,24 @@ winrt-Windows.Globalization>=3.2.1
 winrt-Windows.Foundation>=3.2.1
 winrt-Windows.Foundation.Collections>=3.2.1
 
+# CONTRATO DO PROTOCOLO do gateway do Discord. Nao e "mais uma dependencia":
+# ela carrega handshake, IDENTIFY, RESUME, numero de sequencia, heartbeat,
+# compressao zlib, backoff exponencial de reconexao e a excecao de intent
+# privilegiada. E tudo codigo que este projeto nao vai escrever nem manter, e
+# que um cliente WebSocket a mao teria que acertar INTEIRO antes de a primeira
+# mensagem chegar.
+#
+# Piso 2.7.1: e a versao cujo wheel foi baixado do PyPI e teve o fonte lido
+# arquivo a arquivo na pesquisa desta fase (client.py, flags.py, message.py,
+# errors.py, gateway.py). E o discord.py de Rapptz, MIT — nao os vizinhos de
+# nome parecido `discord` e `discordpy`, que sao outra coisa.
+# Teto <3: o mesmo idioma que o `opencv-python>=4.10,<5` ja usa acima.
+#
+# O vigiar-party.bat continua SEM sondar `discord` na linha de import dele,
+# porque o scanner nunca importa esta biblioteca. Os dois processos so dividem
+# o .venv; quem sobe a ponte e o ponte-discord.bat.
+discord.py>=2.7.1,<3
+
 # NAO ADICIONE AQUI, POR DECISAO DE PROJETO:
 #   pyautogui, pydirectinput, keyboard, pynput ou qualquer lib de input.
 # O scanner e somente leitura. Manter essas libs fora da arvore de dependencias
