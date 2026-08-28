@@ -546,8 +546,37 @@ def ler_watchlist(caminho: Path) -> list[str]:
     """
     if not caminho.exists():
         return []
-    dados = tomllib.loads(caminho.read_text(encoding="utf-8"))
+
+    # AS TRES RECUSAS ABAIXO SAO EXPLICADAS, E NAO TRACEBACK.
+    #
+    # Esta funcao roda DEPOIS das ancoras e da grade -- cinco arrastos de mouse
+    # ja gastos. Um `config.toml` com erro de sintaxe levantava
+    # `TOMLDecodeError`, que `main` nao captura (ele so pega
+    # `MercadoNaoCalibravel`), e o usuario perdia tudo para um traceback.
+    try:
+        texto = caminho.read_text(encoding="utf-8")
+    except OSError as erro:
+        raise MercadoNaoCalibravel(
+            f"nao consegui ler {caminho.name}: {erro}"
+        ) from erro
+    try:
+        dados = tomllib.loads(texto)
+    except tomllib.TOMLDecodeError as erro:
+        raise MercadoNaoCalibravel(
+            f"{caminho.name} nao e um TOML valido: {erro}\n"
+            f"  Conserte o arquivo e rode de novo."
+        ) from erro
+
     itens = dados.get("mercado", {}).get("watchlist", [])
+    # `watchlist = "Bota"` (string em vez de lista) ITERAVA OS CARACTERES: a
+    # ferramenta pedia quatro recortes -- `B`, `o`, `t`, `a` -- e montava uma
+    # matriz de confusao sobre eles. Silenciosamente absurdo.
+    if not isinstance(itens, list):
+        raise MercadoNaoCalibravel(
+            f"[mercado] watchlist precisa ser uma LISTA, veio "
+            f"{type(itens).__name__}.\n"
+            f'  Exemplo: watchlist = ["+3 Bota X", "Chapeu Y"]'
+        )
     return [str(item) for item in itens if str(item).strip()]
 
 
@@ -666,6 +695,15 @@ def calibrar(args: argparse.Namespace) -> int:
         raise MercadoNaoCalibravel(f"nao consegui decodificar {caminho}")
     conferir_o_frame(cal, pixels)
 
+    # A WATCHLIST E LIDA AQUI, ANTES DA PRIMEIRA JANELA DE SELECAO.
+    #
+    # Ela so e USADA la embaixo, depois das ancoras e da grade -- mas e onde ela
+    # era LIDA que estava o problema: um `config.toml` com erro de sintaxe, ou
+    # com `watchlist` do tipo errado, so era descoberto depois de cinco arrastos
+    # de mouse. Falhar antes de o usuario gastar o trabalho e mais barato que
+    # falhar depois, e nao custa nada.
+    watchlist = ler_watchlist(ARQUIVO_CONFIG)
+
     altura, largura = pixels.shape[:2]
     print(f"\nCalibrando o mercado sobre {caminho.name} ({largura}x{altura})")
     print("")
@@ -703,8 +741,7 @@ def calibrar(args: argparse.Namespace) -> int:
     )
     grade = derivar_grade(caixa_grade, caixa_linha, layout, origem)
 
-    # --- os moldes da watchlist ---
-    watchlist = ler_watchlist(ARQUIVO_CONFIG)
+    # --- os moldes da watchlist (lida la em cima, antes das janelas) ---
     if not watchlist:
         print(
             "\nSem watchlist no config.toml ([mercado] watchlist = [...]): "
@@ -778,7 +815,19 @@ def calibrar(args: argparse.Namespace) -> int:
 
     # REGRAVA O ARQUIVO INTEIRO. Nada e impresso para o usuario colar: o
     # criterio 3 do ROADMAP e "sem editar JSON a mao".
-    cal.salvar(arquivo)
+    #
+    # Pasta somente-leitura, disco cheio ou arquivo travado por antivirus
+    # produziam um `OSError` cru -- traceback depois de todo o trabalho de
+    # mouse. `MercadoNaoCalibravel` ja imprime limpo e devolve 1, e o `.bat` ja
+    # trata o `errorlevel`.
+    try:
+        cal.salvar(arquivo)
+    except OSError as erro:
+        raise MercadoNaoCalibravel(
+            f"nao consegui gravar {arquivo}: {erro}\n"
+            f"  A calibracao NAO foi salva. O motivo mais comum e o arquivo "
+            f"estar aberto noutro programa, ou a pasta ser somente-leitura."
+        ) from erro
     print(f"\nCalibracao de mercado gravada em {arquivo.name}")
     print(f"  ancoras      : {', '.join(a.nome for a in ancoras)}")
     print(
@@ -808,6 +857,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--calibracao", help="outro calibration.json (para teste)")
     args = parser.parse_args(argv)
+
+    # O AVISO DE DPI VALE MAIS AQUI DO QUE NOS OUTROS DOIS LUGARES QUE O TEM.
+    #
+    # `calibrar.py` e `__main__.py` ja testavam `_MODO_DPI`; este modulo
+    # calculava a variavel e nunca a conferia -- ela ficava sem uso. Numa falha
+    # de DPI o scanner apenas le errado NAQUELA execucao; o calibrador GRAVA as
+    # coordenadas erradas no calibration.json, onde elas ficam. Era a instancia
+    # em que o aviso mais importa, e a unica das tres que nao o tinha.
+    if _MODO_DPI.startswith("FALHOU"):
+        print("AVISO: nao consegui declarar consciencia de DPI.")
+        print("Se a escala da sua tela nao for 100%, as coordenadas sairao erradas")
+        print("-- e esta ferramenta as GRAVA no calibration.json.\n")
 
     try:
         return calibrar(args)

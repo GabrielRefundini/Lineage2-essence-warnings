@@ -858,3 +858,122 @@ class TestRodarSemWatchlistNaoApagaOsMoldes:
         assert depois["mercado_limiar_de_template"] is not None, (
             "com dois moldes a matriz RODOU e o limiar tinha de ser gravado"
         )
+
+
+class TestAsRecusasExplicadasDaWatchlist:
+    """WR-06: nada aqui pode virar traceback depois de 5 arrastos de mouse.
+
+    `main` so captura `MercadoNaoCalibravel` -- qualquer outra excecao sobe
+    como traceback e o `.bat` nem consegue explicar. E a leitura da watchlist
+    acontecia DEPOIS das ancoras e da grade, maximizando o prejuizo.
+    """
+
+    def test_toml_invalido_recusa_explicando_em_vez_de_estourar(
+        self, tmp_path: Path
+    ):
+        arquivo = tmp_path / "config.toml"
+        arquivo.write_text("[mercado\nwatchlist = [", encoding="utf-8")
+
+        with pytest.raises(MercadoNaoCalibravel) as erro:
+            ler_watchlist(arquivo)
+
+        assert "config.toml" in str(erro.value)
+        assert "TOML" in str(erro.value)
+
+    @pytest.mark.parametrize(
+        "linha,tipo",
+        [
+            ('watchlist = "Bota"', "str"),
+            ("watchlist = 3", "int"),
+            ("watchlist = {a = 1}", "dict"),
+        ],
+        ids=["string", "inteiro", "tabela"],
+    )
+    def test_watchlist_do_tipo_errado_recusa_nomeando_o_tipo(
+        self, tmp_path: Path, linha: str, tipo: str
+    ):
+        """`watchlist = "Bota"` ITERAVA OS CARACTERES.
+
+        A ferramenta pedia quatro recortes -- `B`, `o`, `t`, `a` -- e montava
+        uma matriz de confusao sobre eles.
+        """
+        arquivo = tmp_path / "config.toml"
+        arquivo.write_text(f"[mercado]\n{linha}\n", encoding="utf-8")
+
+        with pytest.raises(MercadoNaoCalibravel) as erro:
+            ler_watchlist(arquivo)
+
+        assert "LISTA" in str(erro.value)
+        assert tipo in str(erro.value)
+
+    def test_uma_lista_de_verdade_continua_passando(self, tmp_path: Path):
+        arquivo = tmp_path / "config.toml"
+        arquivo.write_text(
+            '[mercado]\nwatchlist = ["+3 Bota X", "Chapeu Y"]\n', encoding="utf-8"
+        )
+        assert ler_watchlist(arquivo) == ["+3 Bota X", "Chapeu Y"]
+
+    def test_a_watchlist_e_lida_ANTES_da_primeira_selecao(self):
+        """Tripwire de ordem: falhar antes do trabalho de mouse e mais barato.
+
+        `ler_watchlist` tem de aparecer no fonte de `calibrar()` antes do
+        primeiro `_marcar`.
+        """
+        fonte = inspect.getsource(l2scanner.calibrar_mercado.calibrar)
+        assert fonte.index("ler_watchlist(") < fonte.index("_marcar("), (
+            "a watchlist ainda e lida depois das janelas de selecao: um "
+            "config.toml quebrado so seria descoberto com 5 arrastos ja gastos"
+        )
+
+    def test_falha_de_gravacao_vira_recusa_explicada(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """`cal.salvar` sem `try` produzia `OSError` cru.
+
+        Pasta somente-leitura, disco cheio ou arquivo travado por antivirus.
+        """
+        fonte = inspect.getsource(l2scanner.calibrar_mercado.calibrar)
+        assert "except OSError" in fonte, (
+            "cal.salvar continua sem tratamento; um disco cheio vira traceback"
+        )
+
+
+class TestOAvisoDeDpi:
+    """WR-07: o modulo calculava `_MODO_DPI` e nunca o conferia."""
+
+    def test_falha_de_dpi_avisa_alto_antes_de_calibrar(
+        self, monkeypatch: pytest.MonkeyPatch, capsys
+    ):
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado, "_MODO_DPI", "FALHOU: sem shcore.dll"
+        )
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "calibrar",
+            lambda _args: (_ for _ in ()).throw(MercadoNaoCalibravel("parou aqui")),
+        )
+
+        assert l2scanner.calibrar_mercado.main([]) == 1
+
+        saida = capsys.readouterr().out
+        assert "consciencia de DPI" in saida
+        assert "GRAVA" in saida, (
+            "o aviso nao diz o que torna esta instancia pior que as outras "
+            "duas: aqui as coordenadas erradas vao para o disco e ficam"
+        )
+
+    def test_dpi_ok_nao_polui_a_tela(
+        self, monkeypatch: pytest.MonkeyPatch, capsys
+    ):
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado, "_MODO_DPI", "PerMonitorAwareV2"
+        )
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "calibrar",
+            lambda _args: (_ for _ in ()).throw(MercadoNaoCalibravel("parou aqui")),
+        )
+
+        l2scanner.calibrar_mercado.main([])
+
+        assert "DPI" not in capsys.readouterr().out
