@@ -212,6 +212,44 @@ class Calibracao:
     # conferencia.
     banner_manutencao: Regiao | None = None
 
+    # --- Mercado (World Exchange / "XM Market") ---
+    #
+    # OPCIONAIS de proposito, e por isso a VERSAO_DO_ESQUEMA SEGUE EM 2, pelo
+    # mesmo motivo escrito acima para o `banner_manutencao`: o `carregar` recusa
+    # qualquer versao diferente da constante, entao subir para 3 invalidaria o
+    # `calibration.json` que o usuario mediu a mao e o obrigaria a recalibrar
+    # tudo por causa de campos que ele talvez nem use. Uma instalacao sem
+    # calibracao de mercado carrega igual e a feature simplesmente fica OFF.
+    #
+    # Onde fica a faixa de titulo do painel, em coordenadas da JANELA do jogo.
+    #
+    # ATENCAO, medido em `recordings/inv3/`: o painel ANDA. Entre dois frames da
+    # mesma gravacao ele apareceu 181 px a esquerda e 143 px abaixo, com a mesma
+    # arte casando 0.9996. Este retangulo e a posicao de REFERENCIA de onde o
+    # molde foi cortado — nao a promessa de que o painel estara sempre ali. Quem
+    # consome precisa localizar antes de comparar (ver `mercado_visao`).
+    mercado_ancora: Regiao | None = None
+
+    # O molde da ancora empacotado: {"altura", "largura", "bytes" em hex}.
+    #
+    # Guardado como dict CRU, sem decodificar. Decodificar aqui obrigaria
+    # `calibracao.py` a importar numpy so para carregar um arquivo de
+    # configuracao. Quem decodifica e `mercado_visao.molde_de_hex`, que ja
+    # confere as dimensoes declaradas contra o tamanho real dos bytes.
+    mercado_molde_da_ancora: dict | None = None
+
+    # O limiar de casamento desta instalacao. A calibracao do usuario e a
+    # autoridade sobre a tela dele; `mercado_visao.CASAMENTO_MINIMO_DA_ANCORA`
+    # e so o padrao medido para quem ainda nao calibrou.
+    mercado_limiar_da_ancora: float | None = None
+
+    # Carimbo de contexto da captura: as dimensoes da janela no momento em que o
+    # molde foi cortado. Com a janela em outro tamanho, o molde foi cortado numa
+    # escala diferente e o casamento cai sem explicacao. Isto existe para o
+    # arranque RECUSAR a leitura de mercado com "recalibre", em vez de ler
+    # degradado calado.
+    mercado_geometria_da_captura: dict | None = None
+
     versao: int = VERSAO_DO_ESQUEMA
 
     def regiao_do_nome(self, indice: int) -> Regiao:
@@ -308,6 +346,15 @@ class Calibracao:
             "banner_manutencao": (
                 self.banner_manutencao.como_dict() if self.banner_manutencao else None
             ),
+            # Serializacao condicional, trilho do `banner_manutencao`: um campo
+            # nao preenchido vira `null` e o `.get` do `carregar` o devolve como
+            # None, sem migracao.
+            "mercado_ancora": (
+                self.mercado_ancora.como_dict() if self.mercado_ancora else None
+            ),
+            "mercado_molde_da_ancora": self.mercado_molde_da_ancora,
+            "mercado_limiar_da_ancora": self.mercado_limiar_da_ancora,
+            "mercado_geometria_da_captura": self.mercado_geometria_da_captura,
         }
         caminho.write_text(
             json.dumps(dados, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -362,6 +409,17 @@ class Calibracao:
                 if dados.get("banner_manutencao")
                 else None
             ),
+            # As quatro de mercado seguem o MESMO `.get`: e o que faz um
+            # calibration.json v2 gravado antes desta funcionalidade carregar
+            # sem uma linha de migracao.
+            mercado_ancora=(
+                Regiao.de_dict(dados["mercado_ancora"])
+                if dados.get("mercado_ancora")
+                else None
+            ),
+            mercado_molde_da_ancora=dados.get("mercado_molde_da_ancora"),
+            mercado_limiar_da_ancora=dados.get("mercado_limiar_da_ancora"),
+            mercado_geometria_da_captura=dados.get("mercado_geometria_da_captura"),
             versao=versao,
         )
 

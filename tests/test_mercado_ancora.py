@@ -239,6 +239,21 @@ class TestAsFixturesSaoFIEIS_A_GRAVACAO:
     So roda na maquina que tem `recordings/`: a pasta e gitignored e um clone
     limpo nao a tem. Sem este teste, um recorte editado a mao passaria
     despercebido para sempre.
+
+    ARMADILHA MEDIDA, e ela custou um vermelho para aparecer: as duas maneiras
+    de obter tons de cinza no OpenCV NAO dao o mesmo array.
+
+        cv2.imread(p, IMREAD_GRAYSCALE)        # decodifica direto em cinza
+        cv2.cvtColor(cv2.imread(p), BGR2GRAY)  # decodifica BGR e converte
+
+    Medido neste frame: diferenca maxima de 1 por pixel. Um por pixel e pouco
+    para o olho e suficiente para mover um casamento na terceira casa decimal —
+    ou seja, para deixar vermelho um teste que compara com valor medido.
+
+    O caminho canonico deste projeto e o SEGUNDO, e por um motivo que nao e
+    estetico: e o que o consumidor real faz. A captura entrega BGR e a conversao
+    acontece depois. O resgate das fixtures usou esse caminho; quem re-resgatar
+    precisa usar o mesmo, ou todos os valores medidos deste arquivo mudam.
     """
 
     def test_o_molde_e_o_pedaco_exato_do_f000(self):
@@ -249,7 +264,8 @@ class TestAsFixturesSaoFIEIS_A_GRAVACAO:
                 "existe num clone limpo. As fixtures resgatadas acima cobrem "
                 "positivos, negativos e degenerados."
             )
-        janela = cv2.imread(str(origem), cv2.IMREAD_GRAYSCALE)
+        # BGR2GRAY, nao IMREAD_GRAYSCALE — ver a armadilha na docstring.
+        janela = cv2.cvtColor(cv2.imread(str(origem)), cv2.COLOR_BGR2GRAY)
         assert janela.shape == (1392, 1720), (
             f"a geometria da gravacao mudou ({janela.shape}) e todo recorte "
             f"derivado mediria a regiao errada"
@@ -262,4 +278,21 @@ class TestAsFixturesSaoFIEIS_A_GRAVACAO:
         assert (derivado == recorte("molde_da_ancora")).all(), (
             "molde_da_ancora.png nao e mais o recorte exato de "
             "recordings/inv3/f000_JANELA.png no retangulo registrado"
+        )
+
+    def test_o_positivo_f005_veio_da_posicao_DESLOCADA(self):
+        """Prende a coordenada que sustenta a afirmacao "o painel anda"."""
+        origem = RECORDINGS / "inv3" / "f005_JANELA.png"
+        if not origem.is_file():
+            pytest.skip(
+                "recordings/ e gitignored: a gravacao do incidente 27x nao "
+                "existe num clone limpo."
+            )
+        janela = cv2.cvtColor(cv2.imread(str(origem)), cv2.COLOR_BGR2GRAY)
+        x, y = 731, 493  # 181 px a esquerda e 143 px abaixo do f000
+        r = ANCORA_NO_F000
+        derivado = janela[y : y + r["altura"], x : x + r["largura"]]
+        assert (derivado == recorte("ancora_27x_f005")).all(), (
+            "ancora_27x_f005.png nao e mais o recorte de f005_JANELA.png em "
+            "(731, 493) — a coordenada que prova que o painel se moveu"
         )
