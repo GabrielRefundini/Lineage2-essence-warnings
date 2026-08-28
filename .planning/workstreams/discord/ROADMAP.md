@@ -73,7 +73,7 @@ a dependencia passa limpa — mas isso e para se VER passando, nao para se supor
 **Plans:** 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Fatia ponta a ponta: dependencia auditada, tres modulos novos, `.bat` proprio e o roteiro do portao humano (conecta, filtra os dois canais, imprime o texto real)
+- [x] 01-01-PLAN.md — Fatia ponta a ponta: dependencia auditada, tres modulos novos, `.bat` proprio e o roteiro do portao humano (conecta, filtra os dois canais, imprime o texto real) — **COMPLETO 2026-08-28**, ver `01-01-SUMMARY.md`. O criterio 2 (texto real no console) segue PENDENTE no portao humano.
 - [ ] 01-02-PLAN.md — Morrer alto no arranque: validacao de config e segredo, pre-voo deterministico da intent MESSAGE CONTENT, heuristica de runtime e o modo `--conferir`
 - [ ] 01-03-PLAN.md — Livro de ja-vistos atomico (ENTR-04), log rotativo proprio (OPER-02) e painel de status honesto (OPER-03)
 
@@ -127,7 +127,7 @@ que a Fase 1 provou existir, e a Fase 3 entrega o texto que a Fase 2 formatou).
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Ponte viva — conexao provada e texto real | 0/3 | Planned | - |
+| 1. Ponte viva — conexao provada e texto real | 1/3 | In progress | - |
 | 2. Texto legivel no celular | 0/TBD | Not started | - |
 | 3. Entrega no WhatsApp | 0/TBD | Not started | - |
 

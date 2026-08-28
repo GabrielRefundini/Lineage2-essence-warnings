@@ -152,3 +152,51 @@ silenciar_minutos = 0
 #   "+3 Dragon Belt",
 #   "+4 Dragon Belt",
 # ]
+
+# ---------------------------------------------------------------------------
+# PONTE DO DISCORD — repetir anuncio de guild no WhatsApp
+#
+# Esta secao e de OUTRO programa: o ponte-discord.bat. O vigiar-party.bat nao
+# le nada daqui, e a ponte nao le nada do resto do arquivo. Os dois so dividem
+# o mesmo .venv e este mesmo config.toml.
+#
+# AO CONTRARIO da agenda, esta secao NAO PODE FALTAR. A agenda e um acessorio
+# de um scanner que roda sem ela; a ponte e um programa dedicado que nao tem o
+# que fazer sem saber quais canais ouvir. Apagar uma chave daqui faz a ponte
+# MORRER no arranque dizendo qual chave falta — de proposito, porque subir muda
+# seria pior: voce ficaria olhando um console vivo esperando um anuncio que
+# nunca poderia chegar.
+#
+# O TOKEN DO BOT NAO ENTRA AQUI. Ele mora no .env, que esta no .gitignore.
+# Este arquivo e versionado e e o que voce fotografa quando pede ajuda.
+#
+# Antes do primeiro uso, faca os 4 passos do PORTAO-DISCORD.txt.
+#
+# Campos:
+#
+#   guild                 o id do servidor do Discord (XM Games)
+#   canais                os ids dos canais a ouvir. Mensagem de QUALQUER outro
+#                         canal do servidor e ignorada. Id de thread tambem nao
+#                         passa, porque thread tem id proprio.
+#   conversa_de_destino   para qual conversa do Chatwoot os anuncios vao
+#   simulacao             true = so mostra no console, nao envia nada
+#
+# Para ver os ids no Discord: Configuracoes do usuario > Avancado > Modo de
+# desenvolvedor ligado; depois clique com o botao direito no servidor ou no
+# canal e escolha "Copiar ID".
+
+[discord]
+guild = 936957935572103169
+canais = [1536506379752185953, 1538202612762022020]
+
+# Descubra o id rodando, nesta pasta:
+#     .venv\Scripts\python.exe tools\check_whatsapp.py conversas
+# NAO use uma conversa que ja esteja em CHATWOOT_CONVERSAS_COMANDO no .env:
+# aquela e a conversa de onde o scanner ACEITA COMANDO, e despejar anuncio de
+# guild nela mistura duas coisas que precisam ficar separadas.
+# Na Fase 1 pode ficar vazio: a ponte so simula, nao entrega nada ainda.
+conversa_de_destino = ""
+
+# Na Fase 1 a ponte SO SIMULA: ela mostra a mensagem no console e nao manda
+# nada para o WhatsApp. Deixe true ate o texto de verdade aparecer no console.
+simulacao = true

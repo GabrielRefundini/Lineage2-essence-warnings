@@ -1,0 +1,132 @@
+=============================================================================
+ PORTAO DO DISCORD - os 4 passos que SO VOCE pode dar
+=============================================================================
+
+Este arquivo esta escrito sem acento de proposito: assim ele abre igual em
+qualquer editor e em qualquer janela de console, sem caractere quebrado.
+
+A ponte do Discord ja esta pronta e testada, mas ela nao pode conectar sozinha.
+Faltam 4 coisas que nenhum programa pode fazer por voce, porque as quatro
+acontecem dentro da sua conta do Discord. Levam uns 5 minutos no total.
+
+Depois dos 4 passos, de dois cliques no ponte-discord.bat.
+
+
+-----------------------------------------------------------------------------
+ PASSO 1 - Criar a aplicacao e pegar o token
+-----------------------------------------------------------------------------
+
+  1. Abra https://discord.com/developers/applications
+  2. Clique em "New Application", de um nome (ex.: ponte-xm) e confirme.
+  3. No menu da esquerda, clique em "Bot".
+  4. Clique em "Reset Token" e depois em "Copy".
+
+     ATENCAO: o Discord SO MOSTRA O TOKEN UMA VEZ. Se voce fechar a pagina
+     sem copiar, tera que resetar de novo (o que nao tem problema nenhum).
+
+  5. Abra o arquivo .env desta pasta (se nao existir, copie o ENV-EXEMPLO.txt
+     para .env) e cole o token na linha:
+
+         DISCORD_TOKEN=
+
+     Sem aspas e sem espaco em volta do sinal de igual.
+
+  Esse token e o bot INTEIRO: quem tiver ele pode ler e escrever em todo
+  servidor onde o bot estiver, com o nome do bot. Por isso ele mora no .env,
+  que esta no .gitignore, e nunca no config.toml, que e versionado. Se voce
+  colar o token em algum lugar por engano, volte na pagina Bot e clique em
+  "Reset Token": o antigo morre na hora.
+
+
+-----------------------------------------------------------------------------
+ PASSO 2 - Ligar a intent MESSAGE CONTENT
+-----------------------------------------------------------------------------
+
+  Ainda na pagina "Bot", role ate a secao "Privileged Gateway Intents".
+
+  1. LIGUE a chave MESSAGE CONTENT INTENT.
+  2. Clique em "Save Changes" no rodape da pagina.
+
+  NAO ligue SERVER MEMBERS nem PRESENCE. A ponte nao precisa delas, e cada
+  intent privilegiada a mais e superficie a mais.
+
+  Este e o passo mais importante do arquivo. Sem MESSAGE CONTENT o bot conecta,
+  aparece online, parece perfeitamente saudavel - e recebe TODA mensagem com o
+  texto VAZIO. A ponte repetiria mensagem em branco para sempre.
+
+
+-----------------------------------------------------------------------------
+ PASSO 3 - Convidar o bot para o servidor
+-----------------------------------------------------------------------------
+
+  1. Ainda no painel de desenvolvedor, va em "OAuth2" > "URL Generator".
+  2. Em SCOPES marque: bot
+  3. Em BOT PERMISSIONS marque: View Channel  e  Read Message History
+  4. Copie a URL gerada la embaixo, abra no navegador e escolha o servidor
+     XM Games.
+  5. Confira que o bot enxerga OS DOIS canais listados em `canais` na secao
+     [discord] do config.toml. Se algum canal tiver permissao propria, o bot
+     precisa aparecer na lista de quem pode ver aquele canal.
+
+
+-----------------------------------------------------------------------------
+ PASSO 4 - Escolher a conversa do Chatwoot que vai receber os anuncios
+-----------------------------------------------------------------------------
+
+  Nesta pasta, rode:
+
+      .venv\Scripts\python.exe tools\check_whatsapp.py conversas
+
+  Ele lista as conversas com os ids. Escolha uma e escreva o id em
+  `conversa_de_destino`, na secao [discord] do config.toml.
+
+  A conversa escolhida NAO pode ser nenhuma das que estao em
+  CHATWOOT_CONVERSAS_COMANDO no .env: aquelas sao as conversas de onde o
+  scanner ACEITA COMANDO, e misturar anuncio de guild com canal de comando
+  junta duas coisas que precisam ficar separadas.
+
+  Na Fase 1 este campo pode ficar vazio: a ponte SO SIMULA, ela ainda nao
+  envia nada para o WhatsApp.
+
+
+=============================================================================
+ !!! LEIA ANTES DE TESTAR - A ARMADILHA DE TESTE !!!
+=============================================================================
+
+  A mensagem de teste NAO pode mencionar o bot e NAO pode ser postada pelo
+  proprio bot.
+
+  Poste exatamente
+
+      teste da ponte 1
+
+  sem arroba nenhuma, com a sua conta de pessoa, em um dos dois canais.
+
+  O MOTIVO, por inteiro:
+
+  Uma mensagem que MENCIONA o bot chega com o texto preenchido
+  MESMO COM A INTENT DESLIGADA.
+
+  Essa e uma excecao do proprio Discord, e ela e traicoeira:
+  testar com uma arroba faz o console mostrar verde enquanto o modo de falha
+  mais caro do projeto continua escondido - e ele so apareceria depois, no
+  primeiro anuncio de guild de verdade, que ninguem menciona o bot para
+  escrever.
+
+  Ou seja: testar com `@ponte teste` prova exatamente nada. Teste sem arroba.
+
+
+=============================================================================
+ O QUE VOCE DEVE VER
+=============================================================================
+
+  Ao abrir o ponte-discord.bat, o console diz em qual servidor conectou e
+  quais dois canais esta ouvindo.
+
+  Ao postar `teste da ponte 1` em um dos dois canais, a linha aparece no
+  console em segundos, com o TEXTO DE VERDADE.
+
+  Se o texto aparecer VAZIO, a intent MESSAGE CONTENT nao esta ligada - volte
+  ao passo 2. Se a mensagem nao aparecer, confira se voce postou em um dos
+  DOIS canais listados no config.toml: qualquer outro canal do servidor e
+  ignorado de proposito.

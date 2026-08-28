@@ -4,17 +4,18 @@ milestone: v1.0
 milestone_name: Ponte Discord
 current_phase: 1
 current_phase_name: Ponte viva — conexao provada e texto real
-status: planning
-stopped_at: "Roadmap escrito, aguardando aprovacao do usuario"
-last_updated: "2026-08-28T00:00:00.000Z"
+current_plan: 2
+status: executing
+stopped_at: "Completado 01-01-PLAN.md (onda 1). Ondas 2 e 3 (01-02, 01-03) nao comecaram."
+last_updated: "2026-08-28T17:30:00.000Z"
 last_activity: 2026-08-28
-last_activity_desc: Roadmap criado (3 fases, 21/21 exigencias mapeadas)
+last_activity_desc: "01-01 executado: discord.py auditado e instalado, tres modulos, .bat e roteiro do portao humano"
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 3
+  completed_plans: 1
+  percent: 11
 ---
 
 # Project State
@@ -27,12 +28,12 @@ progress:
 
 ## Current Position
 
-Phase: 1 (Ponte viva — conexao provada e texto real) — PLANNING
-Plan: —
-Status: Roadmap escrito, aguardando aprovacao
-Last activity: 2026-08-28 — Roadmap criado
+Phase: 1 (Ponte viva — conexao provada e texto real) — EXECUTING
+Plan: 01-01 COMPLETO. Proximo: 01-02 (onda 2), depois 01-03 (onda 3)
+Status: A fatia ponta a ponta existe e esta verde. O criterio 2 da fase segue PENDENTE no portao humano.
+Last activity: 2026-08-28 — 01-01 executado (4 commits, 1708 insercoes, zero delecoes)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 11% (1 de 3 planos da Fase 1)
 
 ## Accumulated Context
 
@@ -47,6 +48,13 @@ Progress: [░░░░░░░░░░] 0%
 - Idioma: portugues sem acento em codigo, teste, commit e prosa de planejamento. Modulo no idioma do repo (`ponte_discord`, ao lado de `notificador`, `presenca`, `rastreador`).
 - Slugs de fase levam prefixo `discord-` para nao colidir com escopos de commit dos workstreams `mercado` e `default`.
 - Pesquisa de dominio pulada de proposito: `.planning/research/` e compartilhado e sobrescreveria os 220 KB da pesquisa do workstream `mercado`.
+- **(01-01)** A biblioteca cliente e `discord.py` 2.7.1 de Rapptz, MIT — portao de legitimidade aprovado pelo usuario ("Autorizo, e o pacote certo") depois de os vizinhos `discord`/`discordpy`/`discord-py` terem sido nomeados. Declarada DIRETO no `requirements.txt`; um `-r` faria o firewall de escopo levantar `AssertionError` por construcao.
+- **(01-01)** Instalacao no `.venv` sempre pelo NOME e pela faixa, nunca `-r requirements.txt`: os pinos do scanner sao abertos, e um `-r` durante o farm reescreveria `cv2.pyd` e as DLLs do `numpy` com elas carregadas. Medido: `pip list` antes/depois teve 10 adicoes e ZERO alteracoes.
+- **(01-01)** A divisao em tres modulos e por AMBIENTE, nao por camada: `ponte_config.py` e `ponte_nucleo.py` sao stdlib pura porque o pytest roda no Python GLOBAL (sem `discord`), e so `ponte_discord.py` escreve `import discord`. Ha teste de subprocesso guardando isso.
+- **(01-01)** O `on_ready` chama `definir_id_da_ponte(self.user.id)` ANTES de logar. Sem isso o filtro da PONTE-04 fica verde no teste e morto em producao, e o sintoma so apareceria na Fase 3 como laco de entrega.
+- **(01-01)** O `ponte-discord.bat` CONFERE e RECUSA; quem monta o ambiente e so o `vigiar-party.bat`. Ha teste varrendo as linhas executaveis do `.bat` (descartando `REM`) para que a promessa nao dependa de comentario.
+- **(01-01)** O `.bat` novo e ASCII PURO: medido, a raiz mistura cp1252 (`calibrar-mercado.bat`) e utf-8 (`avisos-tvt.bat`, `vigiar-party.bat`), entao qualquer byte fora do ASCII apareceria quebrado para metade dos leitores.
+- **(01-01)** `conversa_de_destino` vazia continua sendo config VALIDA na Fase 1: exigir o id agora impediria o proprio criterio 2 de ser conferido, ja que a fase so simula.
 
 ### Blockers
 
@@ -55,17 +63,18 @@ Progress: [░░░░░░░░░░] 0%
 ### Todos
 
 - [ ] Aprovacao do roadmap pelo usuario (orquestrador commita depois)
-- [ ] Decidir na Fase 1 o nome do `.bat` da raiz, no padrao dos existentes (`vigiar-party.bat`, `calibrar.bat`, `avisos-tvt.bat`)
-- [ ] Escolher e travar a biblioteca cliente do Discord na Fase 1 (unica dependencia nova do projeto)
+- [x] Decidir na Fase 1 o nome do `.bat` da raiz — ficou `ponte-discord.bat` (01-01)
+- [x] Escolher e travar a biblioteca cliente do Discord — `discord.py>=2.7.1,<3` (01-01)
+- [ ] **O USUARIO precisa dar os 4 passos do `PORTAO-DISCORD.txt`.** Ate la o criterio 2 da Fase 1 fica PENDENTE e PONTE-01/PONTE-05 nao podem ser marcadas.
 
 ## Session Continuity
 
-**Stopped At:** Roadmap escrito, aguardando aprovacao do usuario
-**Resume File:** .planning/workstreams/discord/ROADMAP.md
-**Next:** `/gsd-plan-phase 1` (workstream discord) apos aprovacao
+**Stopped At:** Completado 01-01-PLAN.md (onda 1). As ondas 2 e 3 nao comecaram.
+**Resume File:** .planning/workstreams/discord/phases/01-ponte-viva-conexao-provada-e-texto-real/01-02-PLAN.md
+**Next:** executar `01-02-PLAN.md` (onda 2) e depois `01-03-PLAN.md` (onda 3) — os tres escrevem em `ponte_nucleo.py`/`ponte_discord.py`, entao rodam em serie.
 
 ## Performance Metrics
 
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
-| — | — | — | — |
+| 01-01 | ~28 min | 4 | 11 |
