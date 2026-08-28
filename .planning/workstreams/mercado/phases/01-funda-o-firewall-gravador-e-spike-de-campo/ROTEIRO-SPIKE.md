@@ -86,6 +86,17 @@ python -m l2scanner --janela --record-janela --rotulo mercado-fechado --dry-run
 deixe a interface do jeito de sempre. É deste material que sai a prova de que a detecção do
 painel **não** dispara quando o painel não está lá.
 
+**Pedido extra, e ele vale ouro:**
+
+- [ ] Se aparecer o aviso de sistema **"Someone has registered an item on XM Market!"** no log
+      do jogo durante esta sessão, ótimo — deixe rolar. Se der para provocar (esperando um
+      pouco mais), melhor ainda.
+
+> **Por quê:** já medimos esse aviso num frame antigo. Ele coloca as palavras **"XM Market" na
+> tela com o painel FECHADO** — é a armadilha perfeita para um detector que procurasse o texto.
+> Nossa âncora casa a *arte* do painel e leu 0,4624 ali (bem abaixo do corte de 0,73), mas é o
+> negativo mais difícil que temos e quanto mais exemplos dele, mais firme fica o limiar.
+
 - [ ] Gravado.
 
 ---
@@ -110,16 +121,23 @@ python -m l2scanner --janela --record-janela --rotulo mercado-aberto --dry-run
 > "XM Coin". A aba **Adena** é a que interessa para preçar, e o formato dela ainda é
 > desconhecido. Sem as duas na gravação, os templates de dígito seriam calibrados na aba errada.
 
-**Bloco extra deste cenário — ARRASTE O PAINEL:**
+**Bloco extra deste cenário — ARRASTE O PAINEL (3 posições):**
 
-- [ ] Tentei arrastar o painel pela barra de título para **outra posição** da janela, durante a
-      sessão, e deixei alguns segundos parado na posição nova.
-- [ ] Anote aqui o que aconteceu: `[ ] o painel arrasta   [ ] o painel NÃO arrasta (posição fixa)`
+> **Já sabemos que o painel anda — isto foi MEDIDO, não suposto.** Na gravação do incidente das
+> 27 mortes falsas, o painel aparece em **duas posições diferentes** na mesma sessão: 181 px à
+> esquerda e 143 px abaixo, com a arte casando 0,9996 nas duas. Ou seja: um retângulo fixo
+> **não** encontra o painel, e a detecção vai precisar **procurar**. O que ainda não sabemos é
+> o **alcance**: até onde ele pode ir, e se ele reabre onde foi fechado.
 
-> **Por que isso importa mais que parece:** se o painel abre sempre no mesmo lugar, a detecção
-> pode olhar um retângulo fixo — barato e estável. Se ele arrasta, a detecção precisa
-> **procurar** o painel numa faixa, o que é mais caro e muda o desenho. É a decisão de
-> arquitetura mais cara ainda em aberto nesta fase, e esta gravação é o que a resolve.
+- [ ] Arrastei o painel pela barra de título para uma **segunda** posição e deixei ~10 s parado.
+- [ ] Arrastei para uma **terceira** posição, o mais longe que der (um canto), e deixei ~10 s.
+- [ ] **Fechei e reabri** o painel no fim da sessão, e anotei aqui onde ele reapareceu:
+      `[ ] no lugar onde foi fechado   [ ] sempre no mesmo lugar padrão`
+
+> **Por que as três posições:** com duas posições sabemos que ele anda; com três e com o
+> fecha-reabre sabemos **onde procurar** e **com que frequência**. Procurar o painel na janela
+> inteira custa ~45 ms e por isso não pode rodar a cada volta. A diferença entre "procurar numa
+> faixa" e "procurar na janela toda" é decidida por esta gravação.
 
 - [ ] Gravado.
 
