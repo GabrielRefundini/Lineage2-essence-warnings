@@ -148,7 +148,9 @@ def molde_para_hex(molde: np.ndarray) -> dict:
     }
 
 
-def molde_de_hex(dados: dict) -> np.ndarray:
+def molde_de_hex(
+    dados: dict, forma_esperada: tuple[int, int] | None = None
+) -> np.ndarray:
     """Desempacota o molde vindo do `calibration.json`.
 
     O dict e ENTRADA NAO CONFIAVEL: veio de um arquivo que o usuario pode
@@ -157,8 +159,23 @@ def molde_de_hex(dados: dict) -> np.ndarray:
     reformatar — um `reshape` com dimensao mentida devolveria um molde
     silenciosamente errado, e um molde errado nunca casa com nada: o mercado
     ficaria invisivel sem uma linha de erro.
+
+    `forma_esperada` e `(altura, largura)` do retangulo de onde o molde foi
+    cortado — `Calibracao.mercado_ancora`. **Passe sempre que tiver.** Sem ela
+    a conferencia de bytes e ambigua por construcao: `altura * largura` bate em
+    TODA fatoracao do mesmo produto, entao um 100x28 declarado como 28x100
+    passa e devolve um molde transposto. Ver o comentario abaixo.
     """
     altura, largura = int(dados["altura"]), int(dados["largura"])
+    # Antes do `reshape`: `(-100, -28)` tem produto 2800, passa na conferencia
+    # de bytes, e so quebra la dentro com "can only specify one unknown
+    # dimension" — uma mensagem que nao ajuda ninguem a recalibrar.
+    if altura <= 0 or largura <= 0:
+        raise ValueError(
+            f"molde da ancora com dimensao nao-positiva ({altura}x{largura}). "
+            f"Recalibre o mercado."
+        )
+
     brutos = bytes.fromhex(dados["bytes"])
     if len(brutos) != altura * largura:
         raise ValueError(
@@ -166,5 +183,19 @@ def molde_de_hex(dados: dict) -> np.ndarray:
             f"pedem {altura * largura} bytes, mas ha {len(brutos)}. "
             f"Recalibre o mercado."
         )
+
+    if forma_esperada is not None and (altura, largura) != tuple(forma_esperada):
+        # O produto bate em toda fatoracao: 28x100 e 100x28 pedem os mesmos
+        # 2800 bytes. Um molde transposto sobrevive ao `reshape`, bate no guard
+        # `forma.shape[0] > alvo.shape[0]` de `casamento_da_ancora` e devolve
+        # 0.0 para todo frame, para sempre. O mercado sumiria sem uma linha de
+        # erro — exatamente o desfecho que a conferencia acima existe para
+        # impedir, e que ela sozinha nao impedia.
+        raise ValueError(
+            f"molde da ancora {altura}x{largura} nao bate com o retangulo "
+            f"calibrado {forma_esperada[0]}x{forma_esperada[1]} — parece "
+            f"transposto ou cortado de outra regiao. Recalibre o mercado."
+        )
+
     plano = np.frombuffer(brutos, dtype=np.uint8)
     return plano.reshape(altura, largura).copy()

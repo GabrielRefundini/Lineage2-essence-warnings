@@ -232,6 +232,48 @@ class TestOEmpacotamentoDoMolde:
         with pytest.raises(ValueError, match="altura|largura|bytes"):
             molde_de_hex(dados)
 
+    def test_dimensao_TRANSPOSTA_e_recusada_contra_a_forma_calibrada(self, molde):
+        """`altura * largura` bate em TODA fatoracao — inclusive na trocada.
+
+        A conferencia so olhava o produto: 100x28 e 28x100 pedem os mesmos
+        2800 bytes, e a segunda passava. O `reshape` devolvia um molde
+        transposto, `casamento_da_ancora` batia no guard
+        `forma.shape[0] > alvo.shape[0]` e devolvia 0.0 para todo frame, para
+        sempre — o mercado ficaria INVISIVEL sem uma linha de erro, que e
+        verbatim o desfecho que a docstring de `molde_de_hex` diz impedir.
+
+        A forma esperada nao e adivinhacao: `Calibracao.mercado_ancora` guarda
+        o retangulo de onde o molde foi cortado, e nada cruzava os dois.
+        """
+        dados = molde_para_hex(molde)
+        altura, largura = dados["altura"], dados["largura"]
+        assert altura != largura, "um molde quadrado nao provaria nada aqui"
+
+        dados["altura"], dados["largura"] = largura, altura
+
+        # Sem a forma esperada nao ha como saber: o produto e o mesmo.
+        transposto = molde_de_hex(dados)
+        assert transposto.shape == (largura, altura)
+
+        with pytest.raises(ValueError, match="transposto|nao bate|Recalibre"):
+            molde_de_hex(dados, forma_esperada=(altura, largura))
+
+    def test_a_forma_esperada_certa_passa(self, molde):
+        """Sem isto, recusar tudo deixaria o teste acima verde."""
+        dados = molde_para_hex(molde)
+        devolvido = molde_de_hex(
+            dados, forma_esperada=(dados["altura"], dados["largura"])
+        )
+        assert (devolvido == molde).all()
+
+    @pytest.mark.parametrize("altura,largura", [(0, 28), (100, 0), (-100, -28)])
+    def test_dimensao_nao_positiva_e_recusada(self, molde, altura, largura):
+        """`0 * 28 == 0` bate com zero bytes, e `Regiao.de_dict` aceita negativo."""
+        dados = molde_para_hex(molde)
+        dados["altura"], dados["largura"] = altura, largura
+        with pytest.raises(ValueError, match="nao-positiva|Recalibre"):
+            molde_de_hex(dados)
+
 
 class TestAsFixturesSaoFIEIS_A_GRAVACAO:
     """Os recortes versionados batem com a gravacao de onde sairam?
