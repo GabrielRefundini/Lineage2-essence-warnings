@@ -107,6 +107,36 @@ class MercadoNaoCalibravel(Exception):
     """A ferramenta nao tem como calibrar, e diz por que."""
 
 
+# AS SETAS DO NAVEGADOR DE FRAMES, MEDIDAS -- nao copiadas de um blog.
+#
+# O codigo anterior tratava 81/82/83/84 como as setas. Esses sao os codigos do
+# backend GTK/Linux, e em ASCII eles sao `Q`, `R`, `S`, `T`. Duas consequencias
+# nesta unica plataforma suportada pelo projeto:
+#
+#   * `ord("S") == 83` estava no ramo do "proximo frame" JUNTO com o `d`. Um
+#     `S` maiusculo andava para FRENTE em vez de voltar dez, e o `ord("S")` do
+#     ultimo ramo era codigo morto, inalcancavel.
+#   * As setas nunca chegavam. As quatro linhas de ajuda impressas prometiam
+#     teclas mortas.
+#
+# MEDIDO nesta maquina (cv2 4.14.0, Windows 11), injetando VK_LEFT/RIGHT/UP/
+# DOWN por `PostMessageW` na janela do HighGUI:
+#
+#     seta       cv2.waitKey   cv2.waitKeyEx        (& 0xFF)
+#     direita        0           2555904 (0x270000)     0
+#     esquerda       0           2424832 (0x250000)     0
+#     cima           0           2490368 (0x260000)     0
+#     baixo          0           2621440 (0x280000)     0
+#
+# `waitKey` devolve 0 para todas -- e por isso `& 0xFF` zerava tudo. So o
+# `waitKeyEx` entrega o codigo cheio. Como o byte baixo das quatro e 0, elas
+# nao colidem com letra nenhuma.
+SETA_DIREITA = 2555904
+SETA_ESQUERDA = 2424832
+SETA_CIMA = 2490368
+SETA_BAIXO = 2621440
+
+
 # --------------------------------------------------------------------------
 # Partes PURAS — sao elas que a suite consegue afirmar
 # --------------------------------------------------------------------------
@@ -327,6 +357,20 @@ def carregar_calibracao(caminho: Path) -> Calibracao:
         raise MercadoNaoCalibravel(str(erro)) from erro
 
 
+def _a_janela_sumiu(janela: str) -> bool:
+    """O usuario fechou a janela no X?
+
+    `WND_PROP_VISIBLE` cai abaixo de 1 quando a janela deixa de existir. Um
+    `cv2.error` aqui significa a mesma coisa por outro caminho -- a janela nao
+    responde mais --, entao os dois viram o mesmo `True`: um navegador sem
+    janela nao tem como receber tecla nenhuma.
+    """
+    try:
+        return cv2.getWindowProperty(janela, cv2.WND_PROP_VISIBLE) < 1
+    except cv2.error:  # pragma: no cover - depende do backend
+        return True
+
+
 def navegar_e_escolher(quadros: list[Path], comeco: int) -> Path:
     """Deixa o usuario FOLHEAR a gravacao e escolher um frame limpo.
 
@@ -360,6 +404,8 @@ def navegar_e_escolher(quadros: list[Path], comeco: int) -> Path:
     print("    W / S               -> pular de 10 em 10")
     print("    ENTER               -> usar este frame")
     print("    ESC                 -> cancelar sem gravar nada")
+    print("")
+    print("  NAO feche a janela no X -- use ESC para cancelar.")
     print("-" * 60)
 
     # WINDOW_AUTOSIZE, nao WINDOW_NORMAL: esta janela existe para o usuario
@@ -374,25 +420,49 @@ def navegar_e_escolher(quadros: list[Path], comeco: int) -> Path:
     cv2.namedWindow(janela, cv2.WINDOW_AUTOSIZE)
     cv2.moveWindow(janela, 40, 40)
     try:
+        desenhado: int | None = None
         while True:
-            pixels = cv2.imread(str(quadros[indice]))
-            if pixels is None:
-                raise MercadoNaoCalibravel(
-                    f"nao consegui decodificar {quadros[indice]}"
+            # So redecodifica o PNG quando o indice mudou. O laco agora gira a
+            # cada 50 ms (ver a sondagem de janela fechada abaixo) e reler um
+            # frame de 1720x1392 vinte vezes por segundo seria desperdicio puro.
+            if desenhado != indice:
+                pixels = cv2.imread(str(quadros[indice]))
+                if pixels is None:
+                    raise MercadoNaoCalibravel(
+                        f"nao consegui decodificar {quadros[indice]}"
+                    )
+                mostra = _reduzir_para_caber(pixels)
+                etiqueta = f"{indice + 1}/{len(quadros)}  {quadros[indice].name}"
+                cv2.putText(
+                    mostra, etiqueta, (12, 28),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4, cv2.LINE_AA,
                 )
-            mostra = _reduzir_para_caber(pixels)
-            etiqueta = f"{indice + 1}/{len(quadros)}  {quadros[indice].name}"
-            cv2.putText(
-                mostra, etiqueta, (12, 28),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4, cv2.LINE_AA,
-            )
-            cv2.putText(
-                mostra, etiqueta, (12, 28),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 1, cv2.LINE_AA,
-            )
-            cv2.imshow(janela, mostra)
+                cv2.putText(
+                    mostra, etiqueta, (12, 28),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 1, cv2.LINE_AA,
+                )
+                cv2.imshow(janela, mostra)
+                desenhado = indice
 
-            tecla = cv2.waitKey(0) & 0xFF
+            # LER O CODIGO CHEIO ANTES DE MASCARAR. `waitKey` devolve 0 para
+            # as setas no Windows e `& 0xFF` apagava isso -- ver a medicao em
+            # SETA_DIREITA. `waitKeyEx` entrega os quatro codigos completos.
+            #
+            # E COM PRAZO, nao `0`. `waitKeyEx(0)` bloqueia INDEFINIDAMENTE: se
+            # o usuario fechasse a janela no X -- coisa que o texto acima nao
+            # proibia, ao contrario do bloco de selecao, que avisa "NAO feche no
+            # X" -- nao havia mais janela para receber tecla e a chamada nunca
+            # retornava. O console ficava parado na tela de instrucoes, sem
+            # janela e sem mensagem, e a unica saida era Ctrl-C.
+            bruto = cv2.waitKeyEx(50)
+            if _a_janela_sumiu(janela):
+                raise MercadoNaoCalibravel(
+                    "a janela do navegador foi fechada -- nada foi gravado.\n"
+                    "  Use ESC para cancelar ou ENTER para escolher o frame."
+                )
+            if bruto == -1:
+                continue
+            tecla = bruto & 0xFF
             if tecla in (13, 10):  # ENTER
                 cv2.destroyWindow(janela)
                 for _ in range(5):
@@ -404,13 +474,13 @@ def navegar_e_escolher(quadros: list[Path], comeco: int) -> Path:
                 raise MercadoNaoCalibravel(
                     "escolha de frame cancelada -- nada foi gravado"
                 )
-            if tecla in (ord("d"), ord("D"), 83):
+            if tecla in (ord("d"), ord("D")) or bruto == SETA_DIREITA:
                 indice = min(indice + 1, len(quadros) - 1)
-            elif tecla in (ord("a"), ord("A"), 81):
+            elif tecla in (ord("a"), ord("A")) or bruto == SETA_ESQUERDA:
                 indice = max(indice - 1, 0)
-            elif tecla in (ord("w"), ord("W"), 82):
+            elif tecla in (ord("w"), ord("W")) or bruto == SETA_CIMA:
                 indice = min(indice + 10, len(quadros) - 1)
-            elif tecla in (ord("s"), ord("S"), 84):
+            elif tecla in (ord("s"), ord("S")) or bruto == SETA_BAIXO:
                 indice = max(indice - 10, 0)
     finally:
         try:
