@@ -759,6 +759,29 @@ class TestRegistroEmDisco:
     por dia.
     """
 
+    # -- as chaves destes testes precisam ser DE HOJE ------------------------
+    #
+    # MEDIDO EM 2026-08-28: quatro testes desta classe passaram a falhar
+    # sozinhos, sem ninguem mexer em codigo. A causa: eles cravavam a data
+    # "2026-08-24" na chave, e `RegistroEmDisco.__init__` chama `podar()`, que
+    # apaga marcador com mais de DIAS_DE_MARCADOR (3) dias. No dia 28 o limite
+    # passou a ser 25, o marcador de 24 virou lixo, e o segundo `marcar` da
+    # mesma chave voltou True em vez de False.
+    #
+    # Nao era um bug no `RegistroEmDisco` -- a poda estava certa. Era o teste
+    # apodrecendo com o calendario. Chave ancorada em `date.today()` nao
+    # apodrece, e continua provando exatamente a mesma coisa.
+    #
+    # `test_poda_apaga_o_velho_e_preserva_o_de_hoje` NAO usa isto de proposito:
+    # ele injeta `hoje=` porque o que ele testa E a poda.
+
+    @staticmethod
+    def _chave(sufixo: str) -> str:
+        """Uma chave com a data de hoje, para sobreviver a poda do construtor."""
+        from datetime import date as _date
+
+        return f"{_date.today().isoformat()}_{sufixo}"
+
     def test_duas_instancias_no_mesmo_instante_so_uma_envia(self, tmp_path):
         """A garantia central da tarefa.
 
@@ -769,14 +792,14 @@ class TestRegistroEmDisco:
 
         a = RegistroEmDisco(tmp_path)
         b = RegistroEmDisco(tmp_path)
-        chave = "2026-08-24_tvt-1500_agora"
+        chave = self._chave("tvt-1500_agora")
 
         assert [a.marcar(chave), b.marcar(chave)] == [True, False]
 
     def test_muitas_instancias_competindo_produzem_um_envio_so(self, tmp_path):
         from l2scanner.agenda import RegistroEmDisco
 
-        chave = "2026-08-24_tvt-2150_antes"
+        chave = self._chave("tvt-2150_antes")
         registros = [RegistroEmDisco(tmp_path) for _ in range(8)]
         assert sum(1 for r in registros if r.marcar(chave)) == 1
 
@@ -790,7 +813,7 @@ class TestRegistroEmDisco:
 
         from l2scanner.agenda import RegistroEmDisco
 
-        chave = "2026-08-24_prime-2000_agora"
+        chave = self._chave("prime-2000_agora")
         vencedores = []
         trava = threading.Lock()
         largada = threading.Event()
@@ -815,7 +838,7 @@ class TestRegistroEmDisco:
         """AGEN-06: o marcador esta em disco, entao sobrevive ao processo."""
         from l2scanner.agenda import RegistroEmDisco
 
-        chave = "2026-08-24_tvt-1700_agora"
+        chave = self._chave("tvt-1700_agora")
         assert RegistroEmDisco(tmp_path).marcar(chave) is True
         # processo morre, sobe de novo, do zero
         assert RegistroEmDisco(tmp_path).marcar(chave) is False
@@ -825,8 +848,9 @@ class TestRegistroEmDisco:
 
         a = RegistroEmDisco(tmp_path)
         b = RegistroEmDisco(tmp_path)
-        a.marcar("2026-08-24_tvt-1500_antes")
-        assert "2026-08-24_tvt-1500_antes" in b.enviados()
+        chave = self._chave("tvt-1500_antes")
+        a.marcar(chave)
+        assert chave in b.enviados()
 
     def test_a_agenda_inteira_com_registro_duravel_nao_duplica(self, tmp_path):
         """Ponta a ponta: dois dias de agenda real, duas instancias, um envio."""
@@ -837,8 +861,20 @@ class TestRegistroEmDisco:
         raiz = __import__("pathlib").Path(__file__).resolve().parent.parent
         agenda = ler_agenda(raiz / "config.toml")
 
+        # A SEGUNDA global e uma data fixa; aqui ela precisa ser >= hoje,
+        # senao a poda do construtor apaga os marcadores dentro do proprio
+        # laco e o teste acusa duplicacao que nunca houve. Segunda-feira
+        # continua sendo segunda: o Prime so existe de segunda a quinta.
+        from datetime import date as _date
+
+        _hoje = _date.today()
+        _ate_segunda = (7 - _hoje.weekday()) % 7
+        _segunda = datetime(_hoje.year, _hoje.month, _hoje.day) + timedelta(
+            days=_ate_segunda
+        )
+
         enviados_por = {"A": [], "B": []}
-        instante = SEGUNDA
+        instante = _segunda
         for _ in range(2 * 24 * 60):
             for etiqueta in ("A", "B"):
                 registro = RegistroEmDisco(tmp_path)
@@ -910,7 +946,7 @@ class TestRegistroEmDisco:
 
         from l2scanner.agenda import RegistroEmDisco
 
-        chave = "2026-08-24_solo-boss-2000"
+        chave = self._chave("solo-boss-2000")
         criados = []
         trava = threading.Lock()
         largada = threading.Event()
