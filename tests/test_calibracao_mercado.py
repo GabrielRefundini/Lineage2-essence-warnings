@@ -125,3 +125,104 @@ class TestORoundTripDasChavesNovas:
 
         with pytest.raises(CalibracaoInvalida, match="v3"):
             Calibracao.carregar(destino)
+
+
+class TestAsChavesDeMercadoSaoENTRADA_NAO_CONFIAVEL:
+    """O `calibration.json` e um arquivo que o proprio modulo chama de editavel.
+
+    As tres chaves de mercado saiam de `dados.get(...)` direto para dentro da
+    `Calibracao`, sem uma checagem de tipo ou de faixa. O `molde_de_hex` ja
+    tratava o dict como entrada nao confiavel (`mercado_visao.py:151-159`) e a
+    versao ja tinha portao (`T-02-02`); o LIMIAR nao tinha nada.
+
+    A validacao mora no `carregar`, ao lado do portao de versao, porque e la
+    que a mensagem ainda pode dizer "recalibre" com o usuario olhando para o
+    console — e nao no meio do farm, as duas da manha, dentro de
+    `mercado_aberto`.
+    """
+
+    def _com(self, tmp_path: Path, **chaves) -> Path:
+        dados = json.loads(REFERENCIA.read_text(encoding="utf-8"))
+        dados.update(chaves)
+        destino = tmp_path / "mexido.json"
+        destino.write_text(json.dumps(dados), encoding="utf-8")
+        return destino
+
+    @pytest.mark.parametrize("limiar", [0, 0.0, -1, -0.5, 1.5, 2])
+    def test_limiar_fora_de_0_a_1_e_recusado_no_arranque(self, tmp_path, limiar):
+        """Limiar <= 0 faz `mercado_aberto` devolver True para TODO recorte.
+
+        O detector deixaria de detectar e passaria a afirmar — fail-open no
+        modulo cujo charter inteiro e "um sinal de mercado nunca pode virar um
+        segundo detector de morte".
+        """
+        caminho = self._com(tmp_path, mercado_limiar_da_ancora=limiar)
+        with pytest.raises(CalibracaoInvalida, match="limiar|Recalibre"):
+            Calibracao.carregar(caminho)
+
+    @pytest.mark.parametrize("limiar", ["0.73", True, False, None, [], {}])
+    def test_limiar_que_nao_e_numero_e_recusado_no_arranque(self, tmp_path, limiar):
+        """`"0.73"` — numero entre aspas — e o deslize de edicao mais comum.
+
+        Sem portao ele virava `TypeError: '>=' not supported between 'float'
+        and 'str'` la dentro de `mercado_visao.mercado_aberto`, no meio do
+        farm. `None` e o caso legitimo de "nao calibrado" e passa; os outros
+        nao.
+        """
+        if limiar is None:
+            Calibracao.carregar(self._com(tmp_path, mercado_limiar_da_ancora=None))
+            return
+        caminho = self._com(tmp_path, mercado_limiar_da_ancora=limiar)
+        with pytest.raises(CalibracaoInvalida, match="limiar|numero|Recalibre"):
+            Calibracao.carregar(caminho)
+
+    @pytest.mark.parametrize("limiar", [0.73, 1, 1.0, 0.0001])
+    def test_limiar_valido_passa(self, tmp_path, limiar):
+        """Sem isto, recusar tudo deixaria os testes acima verdes."""
+        cal = Calibracao.carregar(
+            self._com(tmp_path, mercado_limiar_da_ancora=limiar)
+        )
+        assert cal.mercado_limiar_da_ancora == limiar
+
+    @pytest.mark.parametrize("molde", [[1, 2, 3], "abc", 7, 0.5])
+    def test_molde_que_nao_e_objeto_e_recusado_no_arranque(self, tmp_path, molde):
+        """`[1, 2, 3]` virava `TypeError: list indices must be integers`."""
+        caminho = self._com(tmp_path, mercado_molde_da_ancora=molde)
+        with pytest.raises(CalibracaoInvalida, match="molde|Recalibre"):
+            Calibracao.carregar(caminho)
+
+    @pytest.mark.parametrize("geometria", [[1720, 1392], "1720x1392", 3])
+    def test_geometria_que_nao_e_objeto_e_recusada_no_arranque(
+        self, tmp_path, geometria
+    ):
+        caminho = self._com(tmp_path, mercado_geometria_da_captura=geometria)
+        with pytest.raises(CalibracaoInvalida, match="geometria|Recalibre"):
+            Calibracao.carregar(caminho)
+
+    @pytest.mark.parametrize(
+        "ancora",
+        [
+            {"esquerda": 912, "topo": 350, "largura": 0, "altura": 28},
+            {"esquerda": 912, "topo": 350, "largura": 100, "altura": 0},
+            {"esquerda": 912, "topo": 350, "largura": -100, "altura": -28},
+        ],
+    )
+    def test_ancora_com_dimensao_nao_positiva_e_recusada(self, tmp_path, ancora):
+        """Par do WR-04: este retangulo e a conferencia da forma do molde.
+
+        `Regiao.de_dict` aceita largura e altura <= 0 (e faz bem: `esquerda` e
+        `topo` PRECISAM aceitar negativo, por causa de monitor a esquerda do
+        principal). Mas uma ancora de area zero ou negativa nao recorta nada, e
+        e justamente a forma esperada contra a qual o molde e conferido.
+        """
+        caminho = self._com(tmp_path, mercado_ancora=ancora)
+        with pytest.raises(CalibracaoInvalida, match="ancora|Recalibre"):
+            Calibracao.carregar(caminho)
+
+    def test_uma_calibracao_sem_nenhuma_chave_de_mercado_continua_carregando(self):
+        """O teste que mais importa deste arquivo nao pode ter sido quebrado."""
+        cal = Calibracao.carregar(REFERENCIA)
+        assert cal.mercado_ancora is None
+        assert cal.mercado_molde_da_ancora is None
+        assert cal.mercado_limiar_da_ancora is None
+        assert cal.mercado_geometria_da_captura is None

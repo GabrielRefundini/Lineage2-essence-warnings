@@ -380,6 +380,8 @@ class Calibracao:
                 f"mas este scanner espera v{VERSAO_DO_ESQUEMA}. Recalibre."
             )
 
+        _conferir_as_chaves_de_mercado(dados)
+
         return cls(
             party_window=Regiao.de_dict(dados["party_window"]),
             ancora=Regiao.de_dict(dados["ancora"]),
@@ -434,6 +436,82 @@ class Calibracao:
                 f"  calibrado sob: {self.geometria_da_tela}\n"
                 f"  agora:         {atual}\n"
                 "As coordenadas gravadas nao valem mais. Recalibre."
+            )
+
+
+def _conferir_as_chaves_de_mercado(dados: dict) -> None:
+    """As chaves de mercado sao ENTRADA NAO CONFIAVEL. Confere tipo e faixa.
+
+    Mora AQUI, ao lado do portao de versao, e nao no consumidor, porque e no
+    arranque que a mensagem ainda pode dizer "recalibre" com o usuario olhando
+    para o console. O consumidor roda as duas da manha, no meio do farm.
+
+    As tres chaves saiam de `dados.get(...)` direto para dentro da `Calibracao`
+    sem uma checagem. `molde_de_hex` ja tratava o dict como entrada nao
+    confiavel e a versao ja tinha portao; o LIMIAR nao tinha nada, e e o mais
+    perigoso dos tres:
+
+    - `mercado_limiar_da_ancora: 0` ou `-1` faz `mercado_aberto` devolver True
+      para TODO recorte. O detector deixa de detectar e passa a AFIRMAR — o
+      fail-open exato que o charter do `mercado_visao` existe para impedir.
+    - `mercado_limiar_da_ancora: "0.73"` (numero entre aspas, o deslize de
+      edicao mais comum) viraria `TypeError: '>=' not supported between
+      'float' and 'str'` dentro de `mercado_aberto`, no meio do farm.
+    - `mercado_molde_da_ancora: [1, 2, 3]` viraria `TypeError: list indices
+      must be integers` dentro de `molde_de_hex`.
+
+    `None` sempre passa: e o estado legitimo de "nao calibrei o mercado", e uma
+    instalacao sem calibracao de mercado precisa continuar subindo igual.
+    """
+    limiar = dados.get("mercado_limiar_da_ancora")
+    if limiar is not None:
+        # `bool` e subclasse de `int`: `True` passaria como numero e viraria
+        # limiar 1.0 calado.
+        if isinstance(limiar, bool) or not isinstance(limiar, (int, float)):
+            raise CalibracaoInvalida(
+                f"mercado_limiar_da_ancora precisa ser um numero, veio "
+                f"{type(limiar).__name__} ({limiar!r}). Recalibre o mercado."
+            )
+        if not 0.0 < limiar <= 1.0:
+            raise CalibracaoInvalida(
+                f"mercado_limiar_da_ancora={limiar} esta fora de (0, 1]. Um "
+                f"limiar <= 0 faz TODO recorte virar 'mercado aberto'. O "
+                f"padrao medido e 0.73. Recalibre o mercado."
+            )
+
+    molde = dados.get("mercado_molde_da_ancora")
+    if molde is not None and not isinstance(molde, dict):
+        raise CalibracaoInvalida(
+            f"mercado_molde_da_ancora precisa ser um objeto com altura, "
+            f"largura e bytes, veio {type(molde).__name__}. Recalibre o "
+            f"mercado."
+        )
+
+    geometria = dados.get("mercado_geometria_da_captura")
+    if geometria is not None and not isinstance(geometria, dict):
+        raise CalibracaoInvalida(
+            f"mercado_geometria_da_captura precisa ser um objeto, veio "
+            f"{type(geometria).__name__}. Recalibre o mercado."
+        )
+
+    ancora = dados.get("mercado_ancora")
+    if isinstance(ancora, dict):
+        # `Regiao.de_dict` aceita largura/altura <= 0, e faz bem em nao
+        # reclamar de `esquerda`/`topo` negativos (monitor a esquerda do
+        # principal). Mas uma ancora de area zero ou negativa nao recorta nada
+        # — e este retangulo e a forma esperada contra a qual o molde e
+        # conferido (`mercado_visao.molde_de_hex`, argumento `forma_esperada`).
+        try:
+            largura, altura = int(ancora["largura"]), int(ancora["altura"])
+        except (KeyError, TypeError, ValueError) as erro:
+            raise CalibracaoInvalida(
+                f"mercado_ancora nao tem largura/altura inteiras utilizaveis "
+                f"({erro}). Recalibre o mercado."
+            ) from erro
+        if largura <= 0 or altura <= 0:
+            raise CalibracaoInvalida(
+                f"mercado_ancora tem dimensao nao-positiva "
+                f"({largura}x{altura}). Recalibre o mercado."
             )
 
 
