@@ -637,9 +637,16 @@ def _conferir_as_chaves_de_mercado(dados: dict) -> None:
     if isinstance(ancora, dict):
         # `Regiao.de_dict` aceita largura/altura <= 0, e faz bem em nao
         # reclamar de `esquerda`/`topo` negativos (monitor a esquerda do
-        # principal). Mas uma ancora de area zero ou negativa nao recorta nada
-        # — e este retangulo e a forma esperada contra a qual o molde e
-        # conferido (`mercado_visao.molde_de_hex`, argumento `forma_esperada`).
+        # principal). Mas uma ancora de area zero ou negativa nao recorta nada.
+        #
+        # ONDE A FORMA DO MOLDE E CONFERIDA, PARA O COMENTARIO NAO MENTIR: nao
+        # e aqui, e nao e contra este retangulo. `mercado_ancora` e a REGIAO na
+        # janela; a conferencia de forma acontece em
+        # `mercado_visao.ancoras_de_calibracao`, que passa `forma_esperada` a
+        # `molde_de_hex` a partir dos campos `altura`/`largura` gravados ao
+        # lado de cada molde em `mercado_ancoras`. Este comentario ja afirmou o
+        # contrario enquanto NENHUM chamador de producao passava o argumento
+        # (WR-01).
         try:
             largura, altura = int(ancora["largura"]), int(ancora["altura"])
         except (KeyError, TypeError, ValueError) as erro:

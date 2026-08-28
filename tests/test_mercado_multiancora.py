@@ -422,6 +422,69 @@ class TestOEmpacotamentoParaACalibracao:
         with pytest.raises(ValueError, match="dx"):
             ancoras_de_calibracao(dados)
 
+    # ---------------------------------------------------------------
+    # WR-01: o guard `forma_esperada` existia e NENHUM chamador de
+    # producao o usava -- so os testes. Este e o caminho que o
+    # `RastreioDoPainel` percorre de verdade.
+    # ---------------------------------------------------------------
+
+    def test_a_forma_do_molde_e_GRAVADA_ao_lado_do_molde(self):
+        """`AncoraDoPainel` nao guarda largura/altura separadas.
+
+        Sem estes dois campos nao ha de onde tirar a forma esperada, e a
+        conferencia fica impossivel por construcao: uma dimensao que mora so
+        DENTRO do proprio molde nao pode conferi-lo -- o dado se declararia
+        correto sozinho.
+        """
+        for bruto, original in zip(ancoras_para_calibracao(ancoras()), ancoras()):
+            assert bruto["altura"] == original.molde.shape[0]
+            assert bruto["largura"] == original.molde.shape[1]
+
+    def test_um_molde_TRANSPOSTO_e_recusado_no_caminho_de_PRODUCAO(self):
+        """100x28 declarado como 28x100 pede os mesmos 2800 bytes.
+
+        Ele sobrevivia ao `reshape`, batia no guard
+        `forma.shape[0] > alvo.shape[0]` de `casamento_da_ancora` e devolvia
+        0.0 para TODO frame, para sempre: o mercado sumia sem uma linha de
+        log. Verbatim o desfecho que `molde_de_hex` diz impedir -- e que ele
+        nao impedia aqui, porque `ancoras_de_calibracao` chamava
+        `molde_de_hex(molde)` sem `forma_esperada`.
+        """
+        dados = ancoras_para_calibracao(ancoras())
+        molde = dados[0]["molde"]
+        assert molde["altura"] != molde["largura"], (
+            "um molde quadrado nao provaria nada aqui"
+        )
+        molde["altura"], molde["largura"] = molde["largura"], molde["altura"]
+
+        with pytest.raises(ValueError, match="transposto|nao bate|Recalibre"):
+            ancoras_de_calibracao(dados)
+
+    def test_um_calibration_json_ANTIGO_sem_a_forma_continua_carregando(self):
+        """Compatibilidade, pelo mesmo criterio do `.get` do banner_manutencao.
+
+        Um arquivo gravado antes desta mudanca nao tem `altura`/`largura` nas
+        `mercado_ancoras`. Ele nao ganha a conferencia -- recalibrar o mercado
+        a acrescenta --, mas nao pode deixar de carregar.
+        """
+        dados = ancoras_para_calibracao(ancoras())
+        for bruto in dados:
+            del bruto["altura"]
+            del bruto["largura"]
+
+        voltaram = ancoras_de_calibracao(dados)
+
+        assert [a.nome for a in voltaram] == [a.nome for a in ancoras()]
+        for antes, depois in zip(ancoras(), voltaram):
+            assert np.array_equal(antes.molde, depois.molde)
+
+    def test_uma_forma_do_tipo_errado_e_ignorada_em_vez_de_estourar(self):
+        """`"28"` em texto nao pode virar `TypeError` no meio do farm."""
+        dados = ancoras_para_calibracao(ancoras())
+        dados[0]["altura"] = "28"
+        voltaram = ancoras_de_calibracao(dados)
+        assert len(voltaram) == len(ancoras())
+
 
 class TestOsNumerosDeCampoContraAsGRAVACOES:
     """O censo inteiro dos 335 frames — so roda onde `recordings/` existe."""

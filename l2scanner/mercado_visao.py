@@ -516,12 +516,24 @@ class RastreioDoPainel:
 
 
 def ancoras_para_calibracao(ancoras: list[AncoraDoPainel]) -> list[dict]:
-    """Empacota as ancoras para dentro do `calibration.json`."""
+    """Empacota as ancoras para dentro do `calibration.json`.
+
+    `altura`/`largura` sao gravadas AO LADO do molde, e nao dentro dele, de
+    proposito: elas sao a FORMA ESPERADA contra a qual o molde sera conferido
+    na volta. Uma dimensao que mora so dentro do proprio molde nao pode
+    conferi-lo -- o dado se declararia correto sozinho.
+
+    `AncoraDoPainel` nao guarda largura/altura separadas, entao sem estes dois
+    campos nao havia de onde tirar a forma esperada, e `ancoras_de_calibracao`
+    chamava `molde_de_hex(molde)` sem ela. Ver WR-01.
+    """
     return [
         {
             "nome": a.nome,
             "dx": int(a.dx),
             "dy": int(a.dy),
+            "altura": int(a.molde.shape[0]),
+            "largura": int(a.molde.shape[1]),
             "molde": molde_para_hex(a.molde),
         }
         for a in ancoras
@@ -573,12 +585,38 @@ def ancoras_de_calibracao(dados: list[dict] | None) -> list[AncoraDoPainel]:
                 f"mercado_ancoras[{indice}] ({nome}): molde precisa ser um "
                 f"objeto com altura, largura e bytes. Recalibre o mercado."
             )
+        # A FORMA ESPERADA, quando o arquivo a traz.
+        #
+        # `molde_de_hex` ganhou `forma_esperada` e a docstring dele diz "Passe
+        # sempre que tiver" -- mas NENHUM chamador de producao passava: so os
+        # testes. Este e o caminho que o `RastreioDoPainel` usa de verdade,
+        # entao o guard existia sem proteger nada. Um molde transposto (100x28
+        # declarado como 28x100) carregava sem erro, batia no guard de tamanho
+        # de `casamento_da_ancora` e devolvia 0.0 para todo frame: o mercado
+        # sumia sem uma linha de log -- verbatim o desfecho que o guard existe
+        # para impedir.
+        #
+        # `None` quando o arquivo nao traz os campos, e nao recusa: um
+        # `calibration.json` gravado antes deste commit continua carregando,
+        # pelo mesmo criterio de compatibilidade do `.get` do
+        # `banner_manutencao`. Ele so nao ganha a conferencia -- recalibrar o
+        # mercado a acrescenta.
+        forma = None
+        alt, larg = bruto.get("altura"), bruto.get("largura")
+        if (
+            isinstance(alt, int)
+            and isinstance(larg, int)
+            and not isinstance(alt, bool)
+            and not isinstance(larg, bool)
+        ):
+            forma = (alt, larg)
+
         ancoras.append(
             AncoraDoPainel(
                 nome=nome,
                 dx=deslocamentos[0],
                 dy=deslocamentos[1],
-                molde=molde_de_hex(molde),
+                molde=molde_de_hex(molde, forma_esperada=forma),
             )
         )
     return ancoras
