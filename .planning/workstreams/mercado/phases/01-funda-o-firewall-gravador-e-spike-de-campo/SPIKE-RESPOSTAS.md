@@ -218,7 +218,11 @@ unitário é só o número, sem sufixo.
 
 ## 5. Preço médio embutido: onde fica?
 
-**Selo: PARCIAL**
+**Selo: VERIFICADO**
+
+> Promovido na validação do usuário (era um selo fraco): a pergunta tem resposta definitiva
+> — não existe preço médio — e a fonte vizinha foi explicitamente recusada. Não há mais nada
+> em aberto aqui.
 
 **Não existe preço MÉDIO em nenhum dos 335 frames.** O que existe é um **mínimo**, e é
 outra coisa.
@@ -237,10 +241,36 @@ Duas ressalvas que valem mais que a resposta:
 2. **É inteiro.** `73` na tela de busca não distingue 73,00 de 73,99. A precisão de duas
    casas que a grade de negociação dá está perdida aqui.
 
-O selo acima é o mais fraco de propósito: a pergunta era sobre preço **médio** e a resposta
-honesta é que ele não aparece. O que encontrei foi um vizinho útil, não o que foi
-perguntado. Se existe uma média em algum lugar — numa tela de detalhe do anúncio, num
-histórico — ela não está em nenhuma das telas que estas 8 sessões abriram.
+A pergunta era sobre preço **médio** e a resposta honesta é que ele não aparece. Se existe
+uma média em algum lugar, ela não está em nenhuma das telas que estas 8 sessões abriram.
+
+### VALIDADO PELO USUÁRIO (2026-08-28)
+
+**1. A ausência é confirmada, e é a razão de o projeto existir.** O usuário confirmou que o
+jogo não tem preço médio, nem histórico, nem as outras informações necessárias para avaliar
+preço e negociar. Isso não é uma lacuna do spike — é o problema que este milestone resolve.
+Alinha com o que a pesquisa já havia lido do código Mobius: o cliente não tem histórico, e o
+"preço médio" nativo de outras bases é média não-ponderada de lotes ativos.
+
+**2. DECISÃO TRAVADA — a tela de busca é RECUSADA como fonte de dados.** O usuário
+classificou `Minimal price (per unit)` + `Auction List` como **informação não confiável** e
+decidiu: ignorar esses dados, usar apenas a **lista completa** (a grade de negociação).
+
+Consequências que valem para as Fases 2, 3 e 4:
+
+- Não existe tabela `sondagem`, nem segunda fonte de preço. O schema tem UMA origem de
+  observação: a grade.
+- `ler_pagina()` só parseia a grade de negociação. Se o frame estiver na tela de busca, a
+  página é ignorada — não é erro, é uma tela que não nos interessa.
+- "Menor pedido visível" (ANAL-01) sai sempre da grade, com as 2 casas decimais. Nunca do
+  inteiro truncado da busca.
+- Os dois motivos da recusa continuam registrados: é um **mínimo** (dominado por um único
+  anúncio barato, mede o outlier e não o mercado) e é **inteiro** (`73` não distingue 73,00
+  de 73,99, perdendo a precisão que a grade dá).
+
+**Nota de escopo:** isto é uma pré-recusa deliberada, no mesmo espírito das entradas de Out
+of Scope do REQUIREMENTS.md — a tela de busca vai parecer tentadora na Fase 4 (nove itens de
+uma vez, sem paginar), e a decisão de não usá-la está tomada com a evidência na mão.
 
 ---
 
