@@ -35,7 +35,9 @@ do outro), a pesquisa custaria a pesquisa do mercado e nao compraria nada.
 | Guild | `936957935572103169` (XM Games) |
 | Canal A | `1536506379752185953` |
 | Canal B | `1538202612762022020` |
-| Destino | UMA conversa do Chatwoot, propria, separada dos avisos de party |
+| Destino | Conversa **28** do Chatwoot — a MESMA dos avisos de party (ver ENTR-02, revogado) |
+| Conta Chatwoot | `2`, em `https://kiwi.colaboreai.com.br` |
+| Conversa de comando | `1` — nao colide com a 28, a guarda de arranque continua valendo |
 
 ## v1 Requirements
 
@@ -73,9 +75,20 @@ do outro), a pesquisa custaria a pesquisa do mercado e nao compraria nada.
 
 - [ ] **ENTR-01**: A entrega reusa `NotificadorChatwoot` sem alterar
       `l2scanner/notificador.py`.
-- [ ] **ENTR-02**: Os anuncios caem numa conversa do Chatwoot separada da que
+- [x] ~~**ENTR-02**: Os anuncios caem numa conversa do Chatwoot separada da que
       recebe morte e saida de party — anuncio de guild nao pode diluir alerta de
-      morte.
+      morte.~~ **REVOGADO em 2026-08-28 pelo usuario.**
+
+      Os anuncios vao para a conversa **28**, a MESMA que ja recebe morte e saida
+      de party. O usuario foi apresentado ao custo (anuncio de guild passa a
+      dividir o grupo com alerta de morte) e escolheu assim mesmo, por nao querer
+      manter uma segunda conversa.
+
+      O que a revogacao NAO afeta: a guarda de arranque que recusa uma
+      `conversa_de_destino` igual a `CHATWOOT_CONVERSAS_COMANDO` continua de pe e
+      continua necessaria. Ela existe por outro motivo (gente respondendo numa
+      conversa de comando manda `incoming`, que VIRA comando) e a conversa 28 nao
+      colide com a 1, que e a de comando.
 - [ ] **ENTR-03**: Falha transitoria de entrega (5xx, 429, rede) e repetida com
       espera crescente; falha definitiva (4xx) e registrada e a ponte segue viva.
 - [ ] **ENTR-04**: Um mesmo anuncio nunca e entregue duas vezes, mesmo se a ponte

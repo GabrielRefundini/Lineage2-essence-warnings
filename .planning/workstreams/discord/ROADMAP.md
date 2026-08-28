@@ -113,7 +113,7 @@ isso depois custaria reescrever o caminho de recebimento inteiro.
 **Success Criteria** (what must be TRUE):
 
   1. Com o modo simulacao DESLIGADO, o usuario posta no canal do Discord e le a mensagem ja formatada no grupo do WhatsApp em segundos
-  2. O anuncio cai na conversa dedicada do Chatwoot e a conversa que recebe morte e saida de party nao recebe NADA de anuncio de guild — o usuario confere abrindo as duas conversas lado a lado
+  2. O anuncio cai na conversa **28** — a mesma dos avisos de party, por decisao do usuario em 2026-08-28 que REVOGOU o ENTR-02. O usuario confere abrindo a conversa 28 e vendo o anuncio do Discord ao lado dos avisos de morte. A conversa de comando (`1`) continua sem receber nada, e o arranque continua recusando uma `conversa_de_destino` igual a ela
   3. `l2scanner/notificador.py` fica byte-identico ao fim do milestone: `git diff` nesse arquivo volta vazio, e a entrega e uma chamada de `NotificadorChatwoot.enviar(texto, conversa_alvo)` com a conversa dedicada como alvo
   4. Com o Chatwoot fora do ar (5xx, timeout, rede), o anuncio e reentregue com espera crescente e chega quando o Chatwoot volta; com um `conversation_id` errado (4xx), o erro aparece no console e no log da ponte e a ponte SEGUE VIVA recebendo as proximas mensagens
   5. Uma reentrega apos falha transitoria nao gera mensagem dobrada no grupo — o usuario derruba o Chatwoot no meio de um envio, deixa voltar, e conta UMA mensagem no WhatsApp
