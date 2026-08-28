@@ -1070,3 +1070,62 @@ class TestOMoldeDaAncoraEIndexadoPorNome:
         assert "a ferramenta mostra cada regiao e" not in cabecalho, (
             "o comentario voltou a afirmar um comportamento que nao existe"
         )
+
+
+class TestAGradeDegeneradaNaoVira1:
+    """WR-09: `max(1, galt // altura_da_linha)` disfarcava um retangulo errado.
+
+    "A area da lista e MENOR que uma linha" so acontece se os dois retangulos
+    estiverem trocados, ou se um deles sair minusculo. Isso virava
+    `linhas_por_pagina: 1`, gravado com a mesma confianca de um valor correto --
+    e a Fase 2 leria uma linha por pagina para sempre.
+    """
+
+    def test_linha_mais_alta_que_a_grade_e_recusada(self):
+        with pytest.raises(MercadoNaoCalibravel) as erro:
+            derivar_grade((0, 0, 480, 20), (0, 0, 480, 45), "negociacao", (0, 0))
+
+        texto = str(erro.value)
+        assert "20 px" in texto and "45 px" in texto, (
+            "a recusa nao diz os dois numeros que o usuario precisa comparar"
+        )
+        assert "trocados" in texto, "a recusa nao diz o erro mais provavel"
+
+    def test_grade_e_linha_do_mesmo_tamanho_ainda_dao_uma_linha(self):
+        """O limite exato NAO e degenerado: uma lista de uma linha e legitima."""
+        grade = derivar_grade((0, 0, 480, 45), (0, 0, 480, 45), "busca", (0, 0))
+        assert grade["linhas_por_pagina"] == 1
+
+    @pytest.mark.parametrize(
+        "layout,esperado", [("negociacao", 10), ("adena", 10), ("busca", 9)]
+    )
+    def test_a_contagem_de_campo_passa_calada(
+        self, layout: str, esperado: int, capsys
+    ):
+        """Bater com a medicao do spike nao imprime nada."""
+        grade = derivar_grade(
+            (0, 0, 480, 45 * esperado), (0, 0, 480, 45), layout, (0, 0)
+        )
+        assert grade["linhas_por_pagina"] == esperado
+        assert "ATENCAO" not in capsys.readouterr().out
+
+    def test_divergir_do_numero_MEDIDO_em_campo_avisa_alto(self, capsys):
+        """9 linhas onde o campo mediu 10: 5 px de erro na primeira linha bastam.
+
+        Nao e recusa -- a medicao veio de UMA janela, e outra resolucao muda os
+        pixels. Mas sair calado deixaria a Fase 2 lendo uma linha a menos por
+        pagina para sempre.
+        """
+        grade = derivar_grade((0, 0, 480, 450), (0, 0, 480, 50), "negociacao", (0, 0))
+
+        assert grade["linhas_por_pagina"] == 9
+        saida = capsys.readouterr().out
+        assert "ATENCAO" in saida
+        assert "9 linhas" in saida and "10" in saida, (
+            "o aviso nao confronta o que saiu com o que foi medido"
+        )
+        assert "negociacao" in saida
+
+    def test_um_layout_desconhecido_nao_inventa_expectativa(self, capsys):
+        derivar_grade((0, 0, 480, 450), (0, 0, 480, 50), "inventado", (0, 0))
+        assert "ATENCAO" not in capsys.readouterr().out

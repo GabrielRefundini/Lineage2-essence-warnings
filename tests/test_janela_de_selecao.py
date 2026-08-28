@@ -234,14 +234,24 @@ class TestODrenoDaFilaDeTeclas:
     def test_dreno_por_tempo_e_nao_por_numero_de_sondagens(
         self, monkeypatch: pytest.MonkeyPatch
     ):
-        """Com a fila sempre vazia, ele continua bombeando ate o prazo."""
+        """Com a fila sempre vazia, ele continua bombeando ate o prazo.
+
+        O `waitKey` dublado gasta o tempo NUMA ESPERA OCUPADA, e nao em
+        `time.sleep`. Nao e preciosismo: `tests/test_agenda.py` substitui
+        `time.sleep` no modulo global por uma funcao que levanta
+        `KeyboardInterrupt` -- e um teste que dependa do `time.sleep` de
+        verdade fica refem de qualquer vazamento daquele duble. O que este
+        teste mede e o RELOGIO, e `perf_counter` basta.
+        """
         import time
 
         contador = {"n": 0}
 
         def waitKey_falso(_ms):
             contador["n"] += 1
-            time.sleep(0.001)
+            alvo = time.perf_counter() + 0.001
+            while time.perf_counter() < alvo:
+                pass
             return -1
 
         monkeypatch.setattr(cv2, "waitKey", waitKey_falso)

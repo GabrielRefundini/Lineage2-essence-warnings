@@ -118,6 +118,16 @@ class MercadoNaoCalibravel(Exception):
     """A ferramenta nao tem como calibrar, e diz por que."""
 
 
+# Quantas linhas cada layout tem, MEDIDO em campo (SPIKE-RESPOSTAS.md 1): 10 na
+# grade de negociacao (abas Adena, Equipment, Enhancement), com passo de 45 px
+# exatos; 9 na tela de busca, porque a caixa de busca come a altura de uma.
+#
+# Serve para CONFERIR o que saiu do arrasto do mouse, nao para substitui-lo: a
+# medicao veio de UMA janela, e uma resolucao diferente muda os pixels. Por isso
+# a divergencia e AVISO alto, e nao recusa.
+LINHAS_ESPERADAS = {"negociacao": 10, "adena": 10, "busca": 9}
+
+
 # AS SETAS DO NAVEGADOR DE FRAMES, MEDIDAS -- nao copiadas de um blog.
 #
 # O codigo anterior tratava 81/82/83/84 como as setas. Esses sao os codigos do
@@ -302,7 +312,37 @@ def derivar_grade(
         raise MercadoNaoCalibravel(
             "a primeira linha ficou com altura zero — remarque o retangulo"
         )
-    linhas = max(1, galt // altura_da_linha)
+    # UMA GRADE DEGENERADA E UM RETANGULO MARCADO ERRADO, NAO UMA GRADE DE 1.
+    #
+    # O `max(1, ...)` transformava "a area da lista e MENOR que uma linha" --
+    # que so acontece se os dois retangulos estiverem trocados ou se um deles
+    # sair minusculo -- em `linhas_por_pagina: 1`, gravado com a mesma
+    # confianca de um valor correto. Confirmado: grade de 20 px com linha de
+    # 45 px devolvia 1.
+    if altura_da_linha > galt:
+        raise MercadoNaoCalibravel(
+            f"a primeira linha ({altura_da_linha} px) e mais alta que a area "
+            f"da lista ({galt} px) — os dois retangulos parecem trocados. "
+            f"Remarque: primeiro a LISTA INTEIRA, depois SO a primeira linha."
+        )
+    linhas = galt // altura_da_linha
+
+    # E A DIVERGENCIA DO NUMERO MEDIDO SAI ALTA, mesmo quando nao e recusa.
+    #
+    # A docstring desta funcao JA sabe a resposta certa (SPIKE-RESPOSTAS 1: 10
+    # linhas na grade de negociacao, passo de 45 px exatos; 9 na busca), mas
+    # `layout` so era gravado, nunca usado para conferir. Errar a altura da
+    # primeira linha em 5 px sobre 450 px de grade ja troca 10 por 9 --
+    # silenciosamente, e a Fase 2 leria uma linha a menos por pagina para
+    # sempre. Nao e recusa porque a medicao veio de UMA janela; e aviso porque
+    # divergir do campo e a hipotese mais provavel de erro de marcacao.
+    esperado = LINHAS_ESPERADAS.get(layout)
+    if esperado is not None and linhas != esperado:
+        print(
+            f"\nATENCAO: sairam {linhas} linhas por pagina, e o layout "
+            f"'{layout}' foi MEDIDO em campo com {esperado} (passo de 45 px).\n"
+            f"  Confira a imagem de conferencia antes de confiar nesta grade."
+        )
     return {
         "layout": layout,
         "dx": int(gx - ox),
