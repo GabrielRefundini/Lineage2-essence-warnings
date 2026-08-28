@@ -117,6 +117,40 @@ class Observacao:
     # evento.
     estado_do_cliente: EstadoDoCliente | None = None
 
+    # O painel do World Exchange esta aberto por cima do jogo? SO PARA MOSTRAR.
+    #
+    # `None` significa "ninguem perguntou" — instalacao sem calibracao de
+    # mercado, ou o recorte da janela nao chegou neste tick. `False` significa
+    # "olhei e ele nao esta". Os dois NAO sao a mesma coisa e nao podem ser
+    # achatados: sem a distincao o console calaria justamente quando tem
+    # resposta, e a Fase 4 nao conseguiria separar "mercado fechado" de
+    # "mercado nao calibrado".
+    #
+    # VEM DE FORA DE `extrair`, pela mesma razao escrita ao lado de
+    # `estado_do_cliente`: o painel nao esta na party window. Ele e procurado na
+    # JANELA INTEIRA por `mercado_visao.RastreioDoPainel`, que tem ESTADO (onde
+    # o painel foi visto da ultima vez) e cadencia propria — e `extrair` e uma
+    # funcao pura, mesmo frame mesma saida. Quem preenche e `sessao.tick`.
+    #
+    # POR QUE ELE NAO PODE VIRAR DECISAO, e por que isso e a Fase 4 e nao esta:
+    # promover um sinal de "tem uma janela por cima" a consumidor do detector de
+    # morte e LITERALMENTE a manobra que produziu o incidente 27x — 27 mortes e
+    # 27 ressurreicoes falsas, porque o inventario cobria a barra de vida e a
+    # leitura de 0% virou alerta. A licao esta medida logo acima, em
+    # `hp_proprio_aparente`.
+    #
+    # Ligar a oclusao de mercado ao rastreador na mesma fase em que a ancora
+    # nasce significaria confiar num limiar recem-medido para SUPRIMIR alertas
+    # de morte. O consumidor de oclusao chega na Fase 4, junto do DETC-02, com
+    # a ancora ja rodada em campo. Ver o bloco `<detc01_reconciliation>` do
+    # `01-04-PLAN.md`.
+    #
+    # A seguranca aqui NAO vem de guardas no rastreador — vem de esta leitura
+    # NAO EXISTIR para ele. `rastreador.py` nao le este campo, e
+    # `tests/test_mercado_27x.py` tem o tripwire de arquitetura que quebra se
+    # ele passar a ler.
+    mercado_aberto_aparente: bool | None = None
+
     @property
     def membros_presentes(self) -> int:
         return sum(1 for l in self.linhas if l.estado is EstadoDaLinha.COM_MEMBRO)

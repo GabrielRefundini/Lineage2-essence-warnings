@@ -37,6 +37,7 @@ Agora chamam: `tick()` recebe um frame fabricado e devolve o que aconteceu.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 
@@ -48,6 +49,8 @@ from .notificador import Categoria
 from .presenca import fechar_e_narrar
 from .rastreador import Evento
 from .visao import EstadoDaLinha, Observacao, extrair
+
+log = logging.getLogger("l2scanner")
 
 
 @dataclass
@@ -117,6 +120,7 @@ class Sessao:
         loot=None,
         manutencao=None,
         membros=(),
+        mercado=None,
     ) -> None:
         self.cal = cal
         self.rastreador = rastreador
@@ -140,6 +144,22 @@ class Sessao:
         # tick simplesmente exibe a lista com a caixa do slug — cosmetico, e
         # nunca mudo.
         self.membros = membros
+        # O `mercado_visao.RastreioDoPainel`. Default None pela mesma razao do
+        # `loot` e do `manutencao`: sem calibracao de mercado o recurso fica
+        # inteiro OFF e nada mais no tick muda.
+        #
+        # ELE MORA AQUI, e nao dentro de `extrair`, porque tem ESTADO: onde o
+        # painel foi visto da ultima vez, e ha quantos ticks nao se varre. O
+        # `extrair` e uma funcao pura por contrato — mesmo frame, mesma saida —
+        # e essa pureza e o que torna o resto da leitura testavel sem laco.
+        self.mercado = mercado
+        # Ja avisamos que o recorte da janela nao chega? Uma vez, e so uma.
+        #
+        # Um vigia ligado que nunca recebe pixels e degradacao SILENCIOSA — o
+        # console simplesmente nunca fala do mercado e o usuario conclui que o
+        # painel nunca abriu. Repetir o aviso a cada tick seria 1 linha por
+        # segundo no `scanner.log`, que e a outra forma de nao ser lido.
+        self._ja_avisou_do_mercado_sem_recorte = False
         # Chamado a cada mensagem despachada. A casca usa para logar; o teste
         # usa para nada — ele lê o `ResultadoDoTick`.
         self._ao_registrar = ao_registrar or (lambda *_: None)
@@ -226,6 +246,17 @@ class Sessao:
             resultado.falhou_ao_analisar = True
             return resultado
 
+        # O MERCADO ENTRA DEPOIS DO RASTREADOR JA TER DECIDIDO, de proposito.
+        #
+        # Nao e ordem estetica: nesta posicao e IMPOSSIVEL o sinal do mercado
+        # influenciar a lista de eventos deste tick, porque ela ja existe. A
+        # protecao contra repetir o incidente 27x fica na forma do codigo, e nao
+        # numa regra que alguem precisa lembrar de seguir.
+        observacao = replace(
+            observacao, mercado_aberto_aparente=self._olhar_o_mercado(frame)
+        )
+        self.ultima_observacao = observacao
+
         resultado.observacao = observacao
 
         if not observacao.ui_visivel:
@@ -241,6 +272,49 @@ class Sessao:
             self._despachar(texto_do_evento(evento), resultado=resultado)
 
         return resultado
+
+    def _olhar_o_mercado(self, frame: Frame) -> bool | None:
+        """O painel do World Exchange esta aberto? `None` = ninguem olhou.
+
+        SO PRODUZ TEXTO. O retorno vai para `Observacao.mercado_aberto_aparente`
+        e de la para o console — nenhuma decisao de alerta sai daqui nesta fase.
+        Ver o comentario do campo em `visao.py` e o bloco
+        `<detc01_reconciliation>` do `01-04-PLAN.md`.
+
+        O extra e a JANELA INTEIRA e nao um retangulo fixo porque o painel ANDA:
+        entre dois frames do proprio incidente 27x ele apareceu 181 px a
+        esquerda e 143 px abaixo, com a mesma arte casando 0.9996. Um recorte
+        fixo mediria grama na maior parte dos frames.
+
+        NUNCA LEVANTA. Um campo de mostrar nao pode custar a deteccao de morte:
+        se o molde estiver corrompido ou a janela vier num formato inesperado, o
+        certo e o console ficar sem a linha do mercado — e nao o tick inteiro
+        virar `falhou_ao_analisar`, que apagaria a party junto.
+        """
+        if self.mercado is None:
+            return None
+
+        recorte = frame.extras.get("mercado_janela")
+        if recorte is None:
+            # `captura_janela._extra_para_janela` devolve `None` quando a regiao
+            # nao cabe inteira na janela — falha FECHADA que ja existe. Inventar
+            # `False` aqui faria o console afirmar "mercado fechado" sobre
+            # pixels que ninguem capturou.
+            if not self._ja_avisou_do_mercado_sem_recorte:
+                self._ja_avisou_do_mercado_sem_recorte = True
+                log.warning(
+                    "Mercado calibrado, mas o recorte da janela nao esta "
+                    "chegando: a janela do jogo provavelmente mudou de tamanho "
+                    "desde a calibracao. Rode calibrar-mercado.bat. Todo o "
+                    "resto do scanner continua igual."
+                )
+            return None
+
+        try:
+            return bool(self.mercado.observar(recorte).aberto)
+        except Exception:
+            log.debug("Leitura do mercado falhou neste tick", exc_info=True)
+            return None
 
     def _contar_linhas_sem_nome(self, observacao: Observacao) -> None:
         """Quanto tempo cada linha ocupada esta sem ser reconhecida.

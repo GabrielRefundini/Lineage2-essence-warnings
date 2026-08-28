@@ -276,3 +276,300 @@ class TestOReplayCOMPLETO:
             )
         janelas = sorted((RECORDINGS / "inv3").glob("f*_JANELA.png"))
         assert len(janelas) >= 9, "o material do 27x mudou de forma"
+
+
+# ---------------------------------------------------------------------------
+# METADE 3 — o sinal chega ao caminho da party, e chega COMO INFORMACAO
+# ---------------------------------------------------------------------------
+
+
+class SilencioFalso:
+    """O minimo que o `Sessao.tick` pede do silencio. Sem relogio."""
+
+    janela = None
+
+    def ativo(self) -> bool:
+        return False
+
+    def atualizar(self, agora):
+        return None
+
+
+def nova_sessao(calibracao, tmp_path, mercado=None):
+    from l2scanner.agenda import RegistroEmDisco
+    from l2scanner.sessao import Sessao
+
+    return Sessao(
+        cal=calibracao,
+        rastreador=Rastreador(
+            nomes=list(calibracao.nomes),
+            nome_proprio=calibracao.nome_proprio,
+            ajustes=Ajustes(),
+        ),
+        eventos_agendados=[],
+        registro=RegistroEmDisco(tmp_path),
+        silencio=SilencioFalso(),
+        mercado=mercado,
+    )
+
+
+def frame_do_27x(barra: np.ndarray, janela: np.ndarray | None = None) -> Frame:
+    """Party window real + barra propria + (opcional) a janela do mercado.
+
+    O extra do mercado e a JANELA INTEIRA, e nao um retangulo fixo: o painel
+    ANDA (181 px entre `f000` e `f005` do proprio incidente), entao um recorte
+    fixo mediria grama na maior parte dos frames.
+    """
+    pixels = cv2.imread(str(PARTY / "limpo.png"))
+    assert pixels is not None
+    extras: dict[str, np.ndarray] = {"hp_proprio": barra}
+    if janela is not None:
+        extras["mercado_janela"] = janela
+    return Frame(pixels=pixels, indice=0, saude=SaudeDoFrame.OK, extras=extras)
+
+
+def barra_viva() -> np.ndarray:
+    px = cv2.imread(str(PARTY / "limpo__hp_proprio.png"))
+    assert px is not None
+    return px
+
+
+class TestMetade3_OCampoEExibicional:
+    """O sinal entra na `Observacao` e NAO sai de la como decisao."""
+
+    def test_o_sinal_chega_a_observacao_e_ZERO_eventos_saem_dele(
+        self, calibracao, tmp_path
+    ):
+        """As duas afirmacoes no mesmo teste, de proposito.
+
+        Um teste que so afirmasse `is True` deixaria passar a promocao do campo
+        a consumidor de decisao — que e o defeito inteiro que o bloco
+        `<detc01_reconciliation>` do 01-04-PLAN.md existe para impedir.
+        """
+        from l2scanner.mercado_visao import RastreioDoPainel
+
+        sessao = nova_sessao(
+            calibracao, tmp_path, mercado=RastreioDoPainel(ancoras())
+        )
+        janela = janela_do_27x("aberto_27x_f000", (912, 350))
+
+        resultado = sessao.tick(frame_do_27x(barra_viva(), janela), momento=0.0)
+
+        assert resultado.observacao is not None
+        assert resultado.observacao.mercado_aberto_aparente is True
+        assert resultado.eventos == [], (
+            "o mercado aberto produziu evento — o campo virou decisao"
+        )
+
+    def test_o_painel_FECHADO_da_False_e_nao_None(self, calibracao, tmp_path):
+        """`False` e "olhei e nao esta"; `None` e "ninguem olhou". Nao e o mesmo.
+
+        Achatar os dois num `None` faria o console calar exatamente quando ele
+        tem resposta — e faria a Fase 4 nao conseguir distinguir "mercado
+        fechado" de "mercado nao calibrado".
+        """
+        from l2scanner.mercado_visao import RastreioDoPainel
+
+        sessao = nova_sessao(
+            calibracao, tmp_path, mercado=RastreioDoPainel(ancoras())
+        )
+        janela = janela_do_27x("fechado_27x_f020", (912, 350))
+
+        resultado = sessao.tick(frame_do_27x(barra_viva(), janela), momento=0.0)
+        assert resultado.observacao.mercado_aberto_aparente is False
+
+    def test_a_sequencia_do_27x_COM_o_mercado_ligado_segue_em_ZERO_eventos(
+        self, calibracao, tmp_path
+    ):
+        """O criterio 4 do ROADMAP com as duas metades no MESMO laco.
+
+        As metades 1 e 2 acima medem os dois lados separados. Este mede o que o
+        usuario roda: o mesmo tick vendo o painel E as barras cobertas. Se
+        alguem ligar o sinal ao rastreador, e aqui que aparece.
+        """
+        from l2scanner.mercado_visao import RastreioDoPainel
+
+        sessao = nova_sessao(
+            calibracao, tmp_path, mercado=RastreioDoPainel(ancoras())
+        )
+        janela = janela_do_27x("aberto_27x_f000", (912, 350))
+        viva = barra_viva()
+
+        for i in range(20):
+            sessao.tick(frame_do_27x(viva, janela), momento=float(i))
+
+        eventos = []
+        vistas = []
+        for i, rotulo in enumerate(COBERTAS * 10):
+            r = sessao.tick(
+                frame_do_27x(recorte_da_barra(rotulo), janela),
+                momento=100.0 + i,
+            )
+            eventos.extend(r.eventos)
+            vistas.append(r.observacao.mercado_aberto_aparente)
+
+        assert all(v is True for v in vistas), (
+            "o painel deixou de ser reconhecido no meio da sequencia"
+        )
+        assert eventos == [], (
+            f"40 ticks com o painel aberto por cima da barra emitiram "
+            f"{[e.tipo.name for e in eventos]} — o incidente 27x voltou"
+        )
+
+
+class TestODegenerado_SemCalibracaoDeMercadoNadaMuda:
+    def test_sem_vigia_o_campo_fica_None(self, calibracao, tmp_path):
+        """Instalacao que nunca calibrou o mercado: o campo nao existe de fato.
+
+        `None` e "ninguem perguntou" — o mesmo contrato de `estado_do_cliente`.
+        Nunca vira evento e nunca vira linha no console.
+        """
+        sessao = nova_sessao(calibracao, tmp_path, mercado=None)
+        resultado = sessao.tick(frame_do_27x(barra_viva()), momento=0.0)
+        assert resultado.observacao.mercado_aberto_aparente is None
+
+    def test_com_vigia_mas_SEM_o_extra_o_campo_fica_None(
+        self, calibracao, tmp_path
+    ):
+        """O extra some quando a regiao cai fora da janela (falha fechada).
+
+        `captura_janela._extra_para_janela` devolve `None` nesse caso. Inventar
+        `False` ali faria o console afirmar "mercado fechado" sobre pixels que
+        ninguem capturou.
+        """
+        from l2scanner.mercado_visao import RastreioDoPainel
+
+        sessao = nova_sessao(
+            calibracao, tmp_path, mercado=RastreioDoPainel(ancoras())
+        )
+        resultado = sessao.tick(frame_do_27x(barra_viva()), momento=0.0)
+        assert resultado.observacao.mercado_aberto_aparente is None
+
+    def test_um_vigia_que_EXPLODE_nao_derruba_a_leitura_da_party(
+        self, calibracao, tmp_path
+    ):
+        """Um campo de mostrar nao pode custar a deteccao de morte.
+
+        Se a leitura do mercado levantar, o tick tem de seguir com a party lida
+        e o campo em `None`. O contrario — `falhou_ao_analisar` — trocaria um
+        enfeite de console pela funcionalidade inteira do scanner.
+        """
+
+        class VigiaQueExplode:
+            def observar(self, janela):
+                raise RuntimeError("molde corrompido")
+
+        sessao = nova_sessao(calibracao, tmp_path, mercado=VigiaQueExplode())
+        janela = janela_do_27x("aberto_27x_f000", (912, 350))
+
+        resultado = sessao.tick(frame_do_27x(barra_viva(), janela), momento=0.0)
+
+        assert not resultado.falhou_ao_analisar
+        assert resultado.observacao is not None
+        assert resultado.observacao.ui_visivel
+        assert resultado.observacao.mercado_aberto_aparente is None
+
+
+# ---------------------------------------------------------------------------
+# A SUPERFICIE: o que o usuario ve, e o que a instalacao sem mercado NAO paga
+# ---------------------------------------------------------------------------
+
+
+class TestAMontagemDoVigiaNoArranque:
+    """`montar_vigia_do_mercado` — o mesmo contrato do vigia de manutencao."""
+
+    def test_sem_ancoras_calibradas_nao_ha_vigia(self, calibracao):
+        from l2scanner.__main__ import montar_vigia_do_mercado
+
+        assert calibracao.mercado_ancoras in (None, [])
+        assert montar_vigia_do_mercado(calibracao, na_janela=True) is None
+
+    def test_sem_janela_nao_ha_vigia_mesmo_com_ancoras(self, calibracao):
+        """No caminho `mss` cada extra custa uma captura PROPRIA por tick.
+
+        Capturar 1720x1392 a cada segundo para escrever uma linha de console
+        seria caro pelo motivo errado — e a varredura da janela inteira nem faz
+        sentido sem a janela inteira.
+        """
+        from dataclasses import replace as _replace
+
+        from l2scanner.__main__ import montar_vigia_do_mercado
+        from l2scanner.mercado_visao import ancoras_para_calibracao
+
+        com_ancoras = _replace(
+            calibracao, mercado_ancoras=ancoras_para_calibracao(ancoras())
+        )
+        assert montar_vigia_do_mercado(com_ancoras, na_janela=False) is None
+
+    def test_ancoras_corrompidas_desligam_o_recurso_sem_derrubar_o_scanner(
+        self, calibracao
+    ):
+        """O `calibration.json` e entrada NAO confiavel — e o scanner nao e opcional.
+
+        `ancoras_de_calibracao` recusa alto e com o nome do campo, que e certo
+        para uma ferramenta de calibracao. No arranque do scanner essa mesma
+        recusa nao pode virar excecao: ela apagaria a deteccao de morte inteira
+        por causa de um campo de mostrar.
+        """
+        from dataclasses import replace as _replace
+
+        from l2scanner.__main__ import montar_vigia_do_mercado
+
+        podre = _replace(calibracao, mercado_ancoras=[{"nome": "titulo"}])
+        assert montar_vigia_do_mercado(podre, na_janela=True) is None
+
+    def test_com_ancoras_e_janela_o_vigia_sobe_com_o_limiar_da_calibracao(
+        self, calibracao
+    ):
+        """A calibracao do usuario e a autoridade sobre a tela dele."""
+        from dataclasses import replace as _replace
+
+        from l2scanner.__main__ import montar_vigia_do_mercado
+        from l2scanner.mercado_visao import ancoras_para_calibracao
+
+        pronta = _replace(
+            calibracao,
+            mercado_ancoras=ancoras_para_calibracao(ancoras()),
+            mercado_limiar_da_ancora=0.81,
+        )
+        vigia = montar_vigia_do_mercado(pronta, na_janela=True)
+        assert vigia is not None
+        assert vigia._limiar == 0.81
+
+
+class TestASuperficieNoConsole:
+    """O sinal vira TEXTO, com marca — e some quando nao ha o que dizer."""
+
+    def _status(self, calibracao, valor):
+        from l2scanner.__main__ import desenhar_status
+
+        rastreador = Rastreador(
+            nomes=list(calibracao.nomes), nome_proprio=calibracao.nome_proprio
+        )
+        observacao = extrair(
+            frame_de_party(cv2.imread(str(PARTY / "limpo__hp_proprio.png"))),
+            calibracao,
+        )
+        rastreador.observar(observacao, 0.0)
+        from dataclasses import replace as _replace
+
+        return desenhar_status(
+            rastreador,
+            calibracao,
+            _replace(observacao, mercado_aberto_aparente=valor),
+        )
+
+    def test_aberto_aparece_MARCADO_como_aparente(self, calibracao):
+        """Sem a marca, o numero no `scanner.log` vira evidencia falsa depois."""
+        status = self._status(calibracao, True)
+        assert "WORLD EXCHANGE ABERTO" in status
+        assert "(aparente)" in status
+
+    @pytest.mark.parametrize("valor", [False, None])
+    def test_fechado_e_nao_perguntado_NAO_ocupam_linha(self, calibracao, valor):
+        """`False` e o estado normal do farm inteiro.
+
+        Uma linha permanente dizendo "mercado fechado" empurraria para fora da
+        tela justamente as linhas de HP que o usuario abre o console para ver.
+        """
+        assert "WORLD EXCHANGE" not in self._status(calibracao, valor)
