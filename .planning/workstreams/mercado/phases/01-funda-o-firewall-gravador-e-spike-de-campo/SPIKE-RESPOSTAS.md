@@ -344,7 +344,10 @@ registra. Reavaliar em v2, se a série por snapshot deixar um buraco que justifi
 
 ## 7. Renderização do encanto — validação da D-05
 
-**Selo: PARCIAL**
+**Selo: VERIFICADO**
+
+> Promovido na validação do usuário: a metade que faltava (truncamento) foi respondida por
+> conhecimento de campo dele, e a trava estrutural abaixo cobre o caso mesmo se o jogo mudar.
 
 **A parte que a D-05 depende está confirmada; a parte do truncamento não apareceu.**
 
@@ -394,6 +397,27 @@ Então: **não sei o que acontece com um nome mais longo que 263 px.** O que fal
 um item de nome realmente longo (`Enhanced ...`, `Blessed ...`, um nome com sufixo de
 grau) **com** prefixo de encanto. Isso importa porque truncamento é a única forma de dois
 itens diferentes virarem a mesma string e se fundirem numa série só.
+
+### VALIDADO PELO USUÁRIO (2026-08-28) — o truncamento não tem população
+
+**O usuário respondeu por conhecimento de campo: nenhum item tem nome com reticências, nem
+nome tão grande.** A dúvida não é uma lacuna de gravação — é uma preocupação sem população.
+Bate com o que foi medido: o nome legítimo mais longo dos 335 frames ocupa ~168 px numa
+coluna de 263 px, e ninguém chegou perto do limite.
+
+**TRAVA ESTRUTURAL ASSIM MESMO — nunca truncar do nosso lado.** Aceita porque custa zero e
+não depende de a afirmação continuar verdadeira depois de um patch do jogo: o casamento do
+nome exige a linha inteira até a borda da coluna `Goods`. Se o pixel na borda não for fundo
+— isto é, se houver texto encostando no limite — a linha é DESCARTADA, não lida pela metade.
+
+Isso transforma um desconhecido em falha-fechada: mesmo que o jogo passe a truncar um dia, o
+scanner recusa a linha em vez de fundir duas séries de preço. É a mesma disciplina da
+LEIT-02 (frame ilegível é descartado, preço nunca é inventado) aplicada ao nome.
+
+**Consequência para a Fase 2:** o template de cada entrada da watchlist é o nome COMO
+RENDERIZADO, prefixo `+N ` incluso, e o casamento é rejection-first contra a borda da
+coluna. O ícone com a etiqueta `+N` no canto inferior esquerdo fica como conferência cruzada
+disponível, não obrigatória.
 
 ---
 
