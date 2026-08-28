@@ -148,12 +148,53 @@ coverage:
 
 duration: ~2 h
 completed: 2026-08-28
-status: halted
+status: in_progress
 ---
 
 # Phase 1 Plan 4: A âncora do mercado por votação, e o critério 4 fechado — Summary
 
 **A âncora do painel deixou de ser um retângulo e virou uma votação entre três: a margem de campo saiu de −0,0643 para +0,3700 sem que o limiar 0,73 mudasse uma casa decimal. No replay do incidente 27x o painel é reconhecido nos dois frames em que está aberto e o rastreador emite ZERO eventos — as duas metades do critério 4 presas pelo mesmo arquivo. O plano para aqui, no portão humano da Task 2.**
+
+## PORTAO DE CALIBRACAO CUMPRIDO (2026-08-28)
+
+A Task 2 (`checkpoint:human-action`, `gate="blocking-human"`) esta cumprida.
+
+**Como, e por que nao foi pelo mouse.** As tres tentativas do usuario abortaram por um
+defeito real: o ENTER com que ele confirmava o frame no navegador vazava para o `selectROI`
+seguinte, que o lia como "confirmar selecao" e devolvia caixa vazia. Diagnosticado e
+corrigido em `.planning/debug/resolved/selectroi-devolve-caixa-vazia.md` (fix 03b3e26,
+verificado por `tools/diagnosticar_selecao.py`).
+
+Depois disso o usuario delegou explicitamente ("use voce mesmo o calibrar"). As cinco
+regioes foram MEDIDAS, nao marcadas a olho:
+
+- ancora do titulo: `cv2.matchTemplate` contra `tests/fixtures/mercado/ancora_27x_f000.png`
+  casou **0.9999** em (1176, 362) — o mesmo molde do incidente 27x
+- `botao_fechar` e `canto_inf_dir`: derivados pelos deslocamentos de `ANCORAS_SUGERIDAS`, e
+  CONFERIDOS visualmente recorte a recorte antes de aceitar
+- bordas da grade: perfil de intensidade vertical — o fundo das linhas alterna 48/66 com
+  passo de **45 px exatos**, o que confirma de forma independente o numero que o
+  `SPIKE-RESPOSTAS.md` secao 1 ja tinha medido
+
+A imagem de conferencia foi aberta e conferida antes de aceitar o resultado.
+
+**O que ficou gravado em `calibration.json`:**
+
+```
+mercado_ancoras   : titulo, botao_fechar, canto_inf_dir (com molde de cada uma)
+mercado_grade     : dx -432, dy 256, 943x450, linha 45 px, 10 linhas, layout "adena"
+mercado_geometria : 1720x1392
+mercado_limiar_da_ancora : 0.73
+```
+
+A grade em DESLOCAMENTO (`dx`/`dy`), nao em posicao absoluta — a correcao do mesmo dia que
+faz a calibracao sobreviver ao painel andar.
+
+**O que NAO ficou, e por que:** `mercado_templates_de_nome` esta vazio, porque o
+`config.toml` ainda nao tem `[mercado] watchlist`. O `mercado_limiar_de_template: 0.5`
+gravado veio de uma matriz de confusao VAZIA e nao significa nada — ele so passa a valer
+quando houver moldes. Recalibrar depois de escrever a watchlist e um passo esperado, nao
+retrabalho.
 
 ## ESTADO: PARADO NO PORTÃO HUMANO (por desenho, não por falha)
 
