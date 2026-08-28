@@ -58,6 +58,13 @@ log = logging.getLogger(__name__)
 # nunca se perde: o resumo final o reporta.
 FALHAS_ENTRE_GRITOS = 10
 
+# Quantos nomes tentar antes de desistir de criar a pasta da sessao.
+#
+# So entra em jogo quando varios gravadores arrancam no MESMO segundo com o
+# mesmo rotulo. Duas instancias e o caso real; cem seria outro problema, e
+# nesse caso desistir com erro e melhor que girar para sempre.
+TENTATIVAS_DE_NOME_DE_PASTA = 100
+
 
 class Gravador:
     """Grava frames e metadados de uma sessao em disco."""
@@ -69,16 +76,63 @@ class Gravador:
         fonte_completa: "Callable[[], np.ndarray | None] | None" = None,
     ) -> None:
         carimbo = datetime.now().strftime("%Y%m%d-%H%M%S")
-        nome = f"{carimbo}-{rotulo}" if rotulo else carimbo
-        self.pasta = pasta_base / nome
-        self.pasta.mkdir(parents=True, exist_ok=True)
+        self.pasta = self._criar_pasta(pasta_base, carimbo, rotulo)
 
+        # `"x"` e nao `"w"`: a pasta acabou de ser criada por nos, entao o
+        # indice NAO pode existir. Se existir, alguma coisa esta muito errada e
+        # truncar em silencio seria a pior resposta possivel.
         self._arquivo_meta = (self.pasta / "observacoes.jsonl").open(
-            "w", encoding="utf-8"
+            "x", encoding="utf-8"
         )
         self.frames_gravados = 0
         self.falhas_de_gravacao = 0
         self._fonte_completa = fonte_completa
+
+    @staticmethod
+    def _criar_pasta(pasta_base: Path, carimbo: str, rotulo: str | None) -> Path:
+        """Uma pasta NOVA, sempre. Nunca reutiliza uma que ja existe.
+
+        O carimbo tem resolucao de UM SEGUNDO, e este projeto suporta
+        explicitamente duas instancias rodando ao mesmo tempo
+        (`__main__.py:112-114`: "Compartilhada pelas DUAS instancias que o
+        usuario roda"). Dois gravadores que arrancam no mesmo segundo com o
+        mesmo `--rotulo` — duas instancias, ou um duplo-clique no `.bat` —
+        caiam na mesma pasta: o segundo truncava o indice do primeiro para zero
+        enquanto os PNGs dele continuavam no disco, e os dois passavam a
+        escrever `frame_000000.png`, `frame_000001.png`... por cima um do
+        outro, cada um confiando no proprio contador.
+
+        Ninguem reportava nada. Para sessoes que sao "o recurso escasso desta
+        fase, porque so ele pode grava-las", destruir a anterior em silencio e
+        o default errado.
+
+        O sufixo entra no MEIO (`{carimbo}-{n}-{rotulo}`) e nao no fim de
+        proposito: `pastas_do_sufixo` em `tools/conferir_gravacoes_do_spike.py`
+        procura por `*-{rotulo}`, entao um `-1` no fim tornaria a pasta
+        invisivel para o portao do spike — a gravacao existiria e o conferidor
+        diria que o cenario nao foi gravado.
+        """
+        for tentativa in range(TENTATIVAS_DE_NOME_DE_PASTA):
+            partes = [carimbo]
+            if tentativa:
+                partes.append(str(tentativa))
+            if rotulo:
+                partes.append(rotulo)
+            candidata = pasta_base / "-".join(partes)
+            try:
+                # `exist_ok=False` E o conserto. Qualquer outro erro de disco
+                # (somente-leitura, caminho ocupado por arquivo) sobe e vira
+                # "GRAVACAO DESATIVADA" em `montar_gravador`.
+                candidata.mkdir(parents=True, exist_ok=False)
+            except FileExistsError:
+                continue
+            return candidata
+
+        raise OSError(
+            f"nao consegui criar uma pasta de gravacao em {pasta_base} depois "
+            f"de {TENTATIVAS_DE_NOME_DE_PASTA} tentativas com o carimbo "
+            f"{carimbo}"
+        )
 
     def gravar(self, frame: Frame, momento: float) -> bool:
         """Grava UM frame. Devolve se a escrita foi confirmada no disco.

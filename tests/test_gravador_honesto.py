@@ -24,6 +24,7 @@ import inspect
 import json
 import logging
 import threading
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -359,6 +360,103 @@ def test_sem_fonte_completa_o_comportamento_e_o_de_hoje(tmp_path: Path) -> None:
 
     imagem = cv2.imread(str(_pngs_no_disco(gravador.pasta)[0]))
     assert imagem.shape == (ALTURA_DA_PARTY, LARGURA_DA_PARTY, 3)
+
+
+# -- duas sessoes no mesmo segundo nao se destroem ---------------------------
+
+
+class _RelogioParado:
+    """`datetime.now()` cravado, para os dois gravadores colidirem sempre.
+
+    Sem isto o teste dependeria de os dois `Gravador` nascerem dentro do mesmo
+    segundo de parede — verdadeiro quase sempre, e por isso um teste que
+    falharia sozinho de vez em quando.
+    """
+
+    @staticmethod
+    def now() -> datetime:
+        return datetime(2026, 8, 27, 10, 15, 0)
+
+
+def test_duas_sessoes_no_mesmo_segundo_nao_compartilham_pasta(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O `--rotulo` do roteiro e fixo, e o carimbo tem resolucao de 1 segundo.
+
+    Duas instancias do scanner (que este projeto suporta de proposito) ou um
+    duplo-clique no `.bat` caiam na MESMA pasta: o segundo gravador abria o
+    `observacoes.jsonl` em `"w"` e truncava o indice do primeiro para zero,
+    enquanto os PNGs dele seguiam no disco. Os dois entao escreviam
+    `frame_000000.png` por cima um do outro, cada um confiando no proprio
+    contador, e ninguem reportava nada.
+    """
+    import l2scanner.gravador as modulo
+
+    monkeypatch.setattr(modulo, "datetime", _RelogioParado)
+
+    primeiro = Gravador(tmp_path, "mercado-aberto")
+    for indice in range(3):
+        assert primeiro.gravar(_frame(indice), float(indice)) is True
+
+    segundo = Gravador(tmp_path, "mercado-aberto")
+    assert segundo.pasta != primeiro.pasta, (
+        "o segundo gravador reutilizou a pasta do primeiro e truncou o indice "
+        "dele — uma sessao do spike destruida em silencio"
+    )
+
+    assert segundo.gravar(_frame(0), 0.0) is True
+    primeiro.fechar()
+    segundo.fechar()
+
+    # O primeiro sobreviveu inteiro.
+    assert len(_linhas_do_jsonl(primeiro.pasta)) == 3
+    assert len(_pngs_no_disco(primeiro.pasta)) == 3
+    assert primeiro.frames_gravados == 3
+    # E o segundo tem so o que ele proprio gravou.
+    assert len(_linhas_do_jsonl(segundo.pasta)) == 1
+    assert len(_pngs_no_disco(segundo.pasta)) == 1
+
+
+def test_a_pasta_da_colisao_continua_visivel_para_o_portao_do_spike(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O sufixo entra no MEIO, nunca no fim.
+
+    `pastas_do_sufixo` em `tools/conferir_gravacoes_do_spike.py` procura por
+    `*-{rotulo}`. Um nome terminando em `-1` deixaria a gravacao invisivel para
+    o portao: a sessao existiria no disco e o conferidor diria que o cenario
+    nao foi gravado — trocar um modo de perda silenciosa por outro.
+    """
+    import l2scanner.gravador as modulo
+
+    monkeypatch.setattr(modulo, "datetime", _RelogioParado)
+
+    primeiro = Gravador(tmp_path, "mercado-aberto")
+    segundo = Gravador(tmp_path, "mercado-aberto")
+    primeiro.fechar()
+    segundo.fechar()
+
+    assert segundo.pasta.name.endswith("-mercado-aberto"), (
+        f"{segundo.pasta.name} nao termina no rotulo: o glob `*-mercado-aberto` "
+        f"do portao do spike nao encontraria esta sessao"
+    )
+    encontradas = sorted(p.name for p in tmp_path.glob("*-mercado-aberto"))
+    assert encontradas == sorted([primeiro.pasta.name, segundo.pasta.name])
+
+
+def test_sem_rotulo_a_colisao_tambem_e_resolvida(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import l2scanner.gravador as modulo
+
+    monkeypatch.setattr(modulo, "datetime", _RelogioParado)
+
+    primeiro = Gravador(tmp_path)
+    segundo = Gravador(tmp_path)
+    primeiro.fechar()
+    segundo.fechar()
+
+    assert primeiro.pasta != segundo.pasta
 
 
 # -- um gravador que nao monta nao derruba o produto --------------------------
