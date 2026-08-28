@@ -70,7 +70,12 @@ a dependencia passa limpa — mas isso e para se VER passando, nao para se supor
   4. O usuario mata a ponte e sobe de novo: as mensagens que ela ja tinha visto antes do restart nao reaparecem, e o log rotativo proprio da ponte (separado do log do scanner) mostra a mesma sessao do console
   5. Apagar o token do `.env`, ou uma chave da secao do `config.toml` (guild, canal, conversa de destino), faz a ponte MORRER no arranque dizendo qual chave falta e como consertar — nunca subir muda. E `tests/test_firewall_escopo.py` continua verde com a dependencia nova do Discord na arvore
 
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Fatia ponta a ponta: dependencia auditada, tres modulos novos, `.bat` proprio e o roteiro do portao humano (conecta, filtra os dois canais, imprime o texto real)
+- [ ] 01-02-PLAN.md — Morrer alto no arranque: validacao de config e segredo, pre-voo deterministico da intent MESSAGE CONTENT, heuristica de runtime e o modo `--conferir`
+- [ ] 01-03-PLAN.md — Livro de ja-vistos atomico (ENTR-04), log rotativo proprio (OPER-02) e painel de status honesto (OPER-03)
 
 **Bloqueio externo — explicito:** os 4 passos do portao humano (criar a aplicacao,
 ligar MESSAGE CONTENT, convidar o bot com `View Channel` + `Read Message History`,
@@ -122,7 +127,7 @@ que a Fase 1 provou existir, e a Fase 3 entrega o texto que a Fase 2 formatou).
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Ponte viva — conexao provada e texto real | 0/TBD | Not started | - |
+| 1. Ponte viva — conexao provada e texto real | 0/3 | Planned | - |
 | 2. Texto legivel no celular | 0/TBD | Not started | - |
 | 3. Entrega no WhatsApp | 0/TBD | Not started | - |
 
