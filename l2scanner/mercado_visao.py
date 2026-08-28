@@ -170,15 +170,27 @@ def casamento_da_ancora(recorte: np.ndarray, molde: np.ndarray) -> float:
 # nao estava errado; a arquitetura estava.
 CASAMENTO_MINIMO_DA_ANCORA = 0.73
 
-# Quantos ticks seguidos o seguimento pode falhar antes de pagar uma varredura
-# nova. Precedente direto: `SEGUNDOS_ENTRE_BUSCAS_DO_DIALOGO = 5.0` em
-# `captura_janela.py:38-43`, onde uma busca na janela inteira tambem custa caro
-# demais para rodar a cada volta.
+# Cadencia da varredura OCIOSA: quando nao se sabe onde o painel esta, quantos
+# ticks esperar entre uma tentativa e a proxima. Precedente direto:
+# `SEGUNDOS_ENTRE_BUSCAS_DO_DIALOGO = 5.0` em `captura_janela.py:38-43`, onde
+# uma busca na janela inteira tambem custa caro demais para rodar a cada volta.
 #
-# Aqui a cadencia e contada em TICKS e nao em segundos de proposito: este modulo
-# nao tem relogio (ver o charter no topo). Tres ticks e o que separa "uma
-# tooltip passou por cima" de "o usuario arrastou o painel".
-TICKS_ATE_REAQUISICAO = 3
+# Contada em TICKS e nao em segundos de proposito: este modulo nao tem relogio
+# (ver o charter no topo).
+#
+# ELA NAO SE APLICA A PERDA DO SEGUIMENTO, e essa distincao foi MEDIDA. A
+# primeira versao esperava tres ticks tambem depois de perder a posicao, e o
+# replay das gravacoes reais mostrou o preco: na sessao `alvo-sobreposto`, em
+# que o usuario arrasta o painel o tempo todo, o rastreio deu 20 de 33 frames
+# abertos, e no replay do incidente 27x o `f005` — painel aberto, 181 px a
+# esquerda — foi dado como FECHADO. Perder a posicao e a evidencia mais forte
+# que existe de que o painel se MEXEU, e adiar a busca justamente ai troca
+# precisao por uma economia que nao acontece: um arrasto e um evento raro.
+#
+# O que a cadencia protege e o caso comum e caro: o mercado fica FECHADO a maior
+# parte do tempo, e ali as tres varreduras (~135 ms) sairiam a cada volta do
+# laco.
+TICKS_ENTRE_VARREDURAS_OCIOSAS = 3
 
 
 def mercado_aberto(recorte: np.ndarray, molde: np.ndarray, limiar: float) -> bool:
@@ -433,16 +445,22 @@ def conferir_painel(
 
 
 class RastreioDoPainel:
-    """Adquire uma vez, segue barato, so reencontra quando realmente perdeu.
+    """Adquire, segue barato, e volta a procurar no instante em que perde.
 
-    O motivo de existir esta medido: a varredura custa ~45 ms e o painel fica
-    PARADO a maior parte do tempo (255 frames de campo com o painel visivel em
-    apenas 34 posicoes distintas). Varrer a cada tick pagaria caro por uma
-    resposta que quase nunca muda.
+    O motivo de seguir em vez de varrer esta medido: a varredura custa ~45 ms
+    por ancora e o painel fica PARADO a maior parte do tempo (255 frames de
+    campo com o painel visivel em apenas 34 posicoes distintas). Varrer a cada
+    tick pagaria caro por uma resposta que quase nunca muda.
 
-    E o motivo de o esquecimento ser LENTO tambem esta medido: uma tooltip por
-    cima do painel derruba UMA ancora por um punhado de ticks. Reaquirir na
-    primeira falha transformaria cada tooltip em ~45 ms por tick.
+    DUAS CADENCIAS, e a diferenca entre elas foi medida no replay das gravacoes:
+
+    - **Perdeu o seguimento -> varre AGORA, na mesma volta.** Perder a posicao
+      conhecida e a evidencia mais forte que existe de que o painel se mexeu.
+      Esperar ali custou, na versao anterior, 13 dos 33 frames abertos da sessao
+      em que o usuario arrasta o painel — e custou o `f005` do incidente 27x.
+    - **Nao sabe onde ele esta -> varre a cada
+      `TICKS_ENTRE_VARREDURAS_OCIOSAS`.** E o caso comum e caro: com o mercado
+      fechado, varrer a cada volta gastaria ~135 ms por tick para sempre.
 
     Sem ancora nenhuma (instalacao que nunca calibrou o mercado) ele nunca abre
     — a feature fica OFF, que e o unico padrao seguro para um sinal que a Fase 4
@@ -453,18 +471,18 @@ class RastreioDoPainel:
         self,
         ancoras: list[AncoraDoPainel],
         limiar: float = CASAMENTO_MINIMO_DA_ANCORA,
-        ticks_ate_reaquisicao: int = TICKS_ATE_REAQUISICAO,
+        ticks_entre_varreduras: int = TICKS_ENTRE_VARREDURAS_OCIOSAS,
     ) -> None:
         self._ancoras = list(ancoras)
         self._limiar = limiar
-        self._ticks_ate_reaquisicao = max(1, int(ticks_ate_reaquisicao))
+        self._ticks_entre_varreduras = max(1, int(ticks_entre_varreduras))
         self._origem: tuple[int, int] | None = None
-        self._perdidos = 0
+        self._desde_a_varredura = self._ticks_entre_varreduras
         self.varreduras = 0
 
     @property
     def origem(self) -> tuple[int, int] | None:
-        """Onde o painel foi visto pela ultima vez. None = nunca foi adquirido."""
+        """Onde o painel foi visto pela ultima vez. None = nao esta rastreado."""
         return self._origem
 
     def observar(self, janela: np.ndarray) -> VotoDoPainel:
@@ -476,14 +494,18 @@ class RastreioDoPainel:
                 janela, self._origem, self._ancoras, self._limiar
             )
             if voto.aberto:
-                self._perdidos = 0
                 return voto
-            self._perdidos += 1
-            if self._perdidos < self._ticks_ate_reaquisicao:
-                return voto
+            # Saiu de onde estava. Procurar AGORA — nao na proxima volta.
             self._origem = None
-            self._perdidos = 0
+            return self._varrer(janela)
 
+        self._desde_a_varredura += 1
+        if self._desde_a_varredura < self._ticks_entre_varreduras:
+            return VotoDoPainel(aberto=False, melhor=0.0)
+        return self._varrer(janela)
+
+    def _varrer(self, janela: np.ndarray) -> VotoDoPainel:
+        self._desde_a_varredura = 0
         self.varreduras += 1
         origem = localizar_painel(janela, self._ancoras, self._limiar)
         if origem is None:

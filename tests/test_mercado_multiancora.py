@@ -45,7 +45,7 @@ import pytest
 
 from l2scanner.mercado_visao import (
     CASAMENTO_MINIMO_DA_ANCORA,
-    TICKS_ATE_REAQUISICAO,
+    TICKS_ENTRE_VARREDURAS_OCIOSAS,
     AncoraDoPainel,
     RastreioDoPainel,
     ancoras_de_calibracao,
@@ -343,28 +343,45 @@ class TestORastreioAdquireDepoisSegue:
             assert rastreio.observar(com_tooltip).aberto
         assert rastreio.varreduras == 1
 
-    def test_so_reaquire_depois_de_N_ticks_seguidos_perdidos(self):
+    def test_depois_de_o_usuario_ARRASTAR_o_painel_o_MESMO_tick_reencontra(self):
+        """Perder a posicao e a prova de que o painel se MEXEU. Procurar ja.
+
+        A primeira versao esperava tres ticks tambem aqui, e o replay das
+        gravacoes cobrou: 20 de 33 frames abertos na sessao em que o usuario
+        arrasta o painel, e o `f005` do incidente 27x dado como fechado.
+        """
+        rastreio = RastreioDoPainel(ancoras())
+        assert rastreio.observar(janela_sintetica((912, 350))).aberto
+
+        voto = rastreio.observar(janela_sintetica((412, 79)))
+        assert voto.aberto
+        assert voto.origem == (412, 79)
+        assert rastreio.varreduras == 2
+
+    def test_com_o_painel_FECHADO_a_varredura_e_RATEADA(self):
+        """O caso comum e caro: sem mercado na tela, ~135 ms por volta e demais."""
+        rastreio = RastreioDoPainel(ancoras())
+        vazia = janela_sintetica((0, 0), com_painel=False)
+
+        for _ in range(TICKS_ENTRE_VARREDURAS_OCIOSAS * 3):
+            assert not rastreio.observar(vazia).aberto
+        assert rastreio.varreduras == 3, (
+            f"{rastreio.varreduras} varreduras em 9 ticks ociosos: a cadencia "
+            f"de {TICKS_ENTRE_VARREDURAS_OCIOSAS} ticks nao esta valendo"
+        )
+
+    def test_fechar_o_painel_custa_UMA_varredura_e_depois_entra_na_cadencia(self):
         rastreio = RastreioDoPainel(ancoras())
         assert rastreio.observar(janela_sintetica((912, 350))).aberto
 
         vazia = janela_sintetica((0, 0), com_painel=False)
-        for _ in range(TICKS_ATE_REAQUISICAO - 1):
-            assert not rastreio.observar(vazia).aberto
-        assert rastreio.varreduras == 1, (
-            "reaquisicao cedo demais: uma tooltip de dois ticks pagaria ~45 ms "
-            "por tick sem precisar"
-        )
         assert not rastreio.observar(vazia).aberto
-        assert rastreio.varreduras == 2
+        assert rastreio.varreduras == 2, "a perda precisa varrer na hora"
+        assert rastreio.origem is None
 
-    def test_depois_de_o_usuario_ARRASTAR_o_painel_o_rastreio_reencontra(self):
-        rastreio = RastreioDoPainel(ancoras())
-        assert rastreio.observar(janela_sintetica((912, 350))).aberto
-
-        arrastado = janela_sintetica((412, 79))
-        votos = [rastreio.observar(arrastado) for _ in range(TICKS_ATE_REAQUISICAO + 1)]
-        assert votos[-1].aberto
-        assert votos[-1].origem == (412, 79)
+        for _ in range(TICKS_ENTRE_VARREDURAS_OCIOSAS - 1):
+            assert not rastreio.observar(vazia).aberto
+        assert rastreio.varreduras == 2, "a cadencia ociosa nao segurou nada"
 
     def test_sem_ancora_nenhuma_nunca_abre(self):
         """Instalacao sem calibracao de mercado: a feature fica OFF, nao ON."""
