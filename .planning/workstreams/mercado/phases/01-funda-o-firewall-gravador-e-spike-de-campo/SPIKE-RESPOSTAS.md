@@ -114,6 +114,37 @@ decimais, sem sufixo de moeda.
 `XM Coin` e `Adena` como palavras inteiras (para saber qual convenção aplicar). Nenhum
 ponto apareceu como separador em nenhum dos 335 frames.
 
+### VALIDADO PELO USUÁRIO (2026-08-28) — e o enquadramento corrigido
+
+O usuário revisou esta seção e confirmou o fato: **o jogo usa vírgula para tudo, ponto em
+lugar nenhum.** Confirmou também o enquadramento correto, que corrige o exagero da redação
+original: isto **não é um problema**, é uma especificação. Só seria perigoso para um parser
+ingênuo que escolhesse uma regra global; com as duas convenções conhecidas e distinguíveis,
+a leitura é determinística.
+
+**O ganho real, que a redação original não destacou:** a regra de agrupamento vira uma
+TRAVA DE VALIDAÇÃO, não só uma regra de parsing. Milhar agrupa sempre em blocos de
+exatamente 3 dígitos; decimal tem sempre exatamente 2. Um dígito perdido pelo template
+matching (`5,00,000` ou `62,000`) viola a regra e a linha é DESCARTADA — em vez de virar um
+número plausível e errado no banco. É a falha-fechada da LEIT-02 saindo de graça do formato.
+
+**DECISÃO DE EXIBIÇÃO — padrão brasileiro no nosso console.** O jogo mostra `5,000,000` e
+`62,00`; nós mostramos `5.000.000` e `62,00`. Só o separador de milhar muda — o decimal já
+coincide, porque em pt-BR a vírgula também é decimal.
+
+**DECISÃO DE ARMAZENAMENTO — inteiros, nunca float.** `62,00 XM Coin` é guardado como o
+inteiro `6200` (centésimos); `5,000,000 Adena` como o inteiro `5000000` na coluna de
+quantidade. Guardar como ponto flutuante reintroduziria por acumulação o erro que o parsing
+acabou de evitar. Isso alinha com as colunas INTEGER separadas (total e quantidade) que a
+pesquisa já exigia para a Fase 3.
+
+**O RISCO QUE PERMANECE NESTA TELA NÃO É A VÍRGULA.** Na linha destacada de
+`recordings/20260828-055323-mercado-scroll/frame_000014.png`, `10,000,000 Adena` custa
+`135,00 XM Coin` — e a terceira coluna mostra `67,50`, que é o preço NORMALIZADO por 5
+milhões, calculado pelo jogo. Confundir a coluna normalizada com o preço total corrompe a
+série por um fator de 2, e nenhuma regra de vírgula protege disso: é preciso ler a coluna
+certa. Ver a seção 4, que trata total vs unitário.
+
 ---
 
 ## 3. Colunas da grade e sua ordem
