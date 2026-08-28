@@ -1,689 +1,974 @@
 ---
 phase: 01-funda-o-firewall-gravador-e-spike-de-campo
-reviewed: 2026-08-27T00:00:00Z
+reviewed: 2026-08-28T00:00:00Z
 depth: standard
-files_reviewed: 9
+files_reviewed: 8
 files_reviewed_list:
-  - l2scanner/gravador.py
-  - l2scanner/__main__.py
+  - l2scanner/calibrar_mercado.py
+  - l2scanner/calibrar.py
   - l2scanner/mercado_visao.py
-  - l2scanner/calibracao.py
-  - tools/conferir_gravacoes_do_spike.py
-  - tests/test_gravador_honesto.py
-  - tests/test_firewall_escopo.py
-  - tests/test_mercado_ancora.py
-  - tests/test_calibracao_mercado.py
+  - l2scanner/sessao.py
+  - l2scanner/visao.py
+  - tools/conferir_spike_respostas.py
+  - tools/diagnosticar_selecao.py
+  - calibrar-mercado.bat
 findings:
-  critical: 2
-  warning: 8
-  info: 5
-  total: 15
-status: fixed
+  critical: 5
+  warning: 13
+  info: 6
+  total: 24
+status: issues_found
 ---
 
-# Phase 01: Code Review Report
+# Phase 01: Code Review Report (incremental — wave 2)
 
-**Reviewed:** 2026-08-27
+**Reviewed:** 2026-08-28
 **Depth:** standard
-**Files Reviewed:** 9
+**Files Reviewed:** 8
 **Status:** issues_found
+
+## Nota sobre a revisao anterior
+
+Esta revisao SUBSTITUI a de 2026-08-27, que cobria `gravador.py`, `__main__.py`,
+`test_gravador_honesto.py`, `test_firewall_escopo.py` e a primeira versao de
+`mercado_visao.py`/`calibracao.py`. Os 2 BLOCKERs e 8 WARNINGs de la foram
+corrigidos. Os dois que caem dentro do escopo de arquivos desta rodada foram
+conferidos no codigo de hoje:
+
+- **WR-04 (molde transposto)** — `molde_de_hex` agora tem o guard de dimensao
+  nao-positiva e o parametro `forma_esperada` (`mercado_visao.py:227-278`). O
+  guard existe; **nenhum chamador de producao o usa** — ver WR-01 abaixo.
+- **WR-07 (campos de mercado sem validacao)** — `_conferir_as_chaves_de_mercado`
+  (`calibracao.py:519-632`) confere tipo e faixa de todas as chaves. Fechado.
+
+Suite: `1457 passed, 2 skipped`. Verde nao e evidencia de correcao — cinco dos
+achados abaixo estao em caminhos que a suite nao exercita (o `calibrar()`
+ponta-a-ponta, o navegador de frames, e o portao do spike, que nao tem arquivo
+de teste nenhum).
 
 ## Summary
 
-The phase delivers what it claims on the four axes the charter names, and the
-four narrow claims hold up under probing:
+O firewall do incidente 27x **aguenta**, e essa e a parte boa: `visao.py` so
+recebeu o campo `mercado_aberto_aparente` (o diff e aditivo puro — nada em
+`barra_propria_legivel`, `_moldura_da_barra_propria` ou
+`_bordas_da_barra_intactas` foi tocado), `sessao.tick` calcula o sinal DEPOIS de
+`rastreador.observar` ja ter devolvido a lista de eventos, e o unico consumidor
+do campo no projeto inteiro e uma linha de console. A garantia e estrutural, e
+nao uma regra a lembrar.
 
-- `mercado_visao.py` is genuinely standalone — it imports only `numpy` and
-  `cv2` and no production module imports `visao.py` or `rastreador.py` from it.
-  No coupling to the own-health-bar brightness gate exists.
-- The market keys in `calibracao.py` follow the `banner_manutencao` rail
-  exactly (`| None = None`, conditional serialization, `.get` on load),
-  `VERSAO_DO_ESQUEMA` stays at 2, and the reference fixture loads unmigrated.
-- `is_file()` guards are consistent in all three places disk truth is computed
-  (`gravador`'s test helper, `tools/conferir_gravacoes_do_spike.pngs_de_frame`,
-  and the end-of-session summary in `__main__.py:1730-1732`).
-- The firewall's mutation proof is real on both halves: `_banidas_presentes`
-  for the predicate, and a fabricated `dist-info` under `tmp_path` for the
-  `distributions(path=...)` mechanism that actually covers the `.venv`.
-- 53/53 tests in the four new test files pass.
+O problema esta em toda a **superficie de calibracao**, e ele e do tipo caro:
 
-That said, the module that exists to make lying impossible still has two
-provable paths where it lies or dies, and the executable gate that decides
-whether eight irreplaceable sessions were well spent prints `APROVADO` for a
-recording that can contain a single unique frame repeated N times.
+1. **A janela onde o usuario desenha os retangulos encolheu 5x, e isso e
+   medido.** `namedWindow(..., WINDOW_NORMAL)` — o workaround de posicionamento
+   que a propria medicao de campo declarou inocente do sintoma, e que foi
+   mantido — mostra um frame de 1600x1295 dentro de **304x281 px** nesta
+   maquina. Antes da mudanca, `selectROI` sozinho abria em `WINDOW_AUTOSIZE`, a
+   1600x1295. Isso atinge a calibracao de party COMPARTILHADA, que funcionava.
+2. **A ferramenta de mercado promete uma imagem de conferencia que pode nao
+   existir** — o retorno de `_gravar_conferencia` e descartado e o `.bat` cita o
+   nome do arquivo na mao. E o defeito FUND-01, verbatim, do outro lado da
+   parede.
+3. **Duas afirmacoes sem lastro sao impressas e gravadas:** uma matriz de
+   confusao "APROVADA" com zero pares comparados, e o limiar 0.5 que sai dela
+   direto para o `calibration.json`.
+4. **O portao do spike aceita `NAO VERIFICADO` como selo VERIFICADO** — medido,
+   nao suposto. O arquivo que existe para tornar evidencia fabricada impossivel
+   promove uma resposta explicitamente negativa a positiva.
 
-Two BLOCKERs and eight WARNINGs follow. Both BLOCKERs are in the recorder
-path, which is exactly where the phase promised there would be none.
+Cinco BLOCKERs, treze WARNINGs, seis INFOs.
 
 ## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-01: `Gravador.gravar` breaks its "Nunca levanta" contract on the JSONL write — and kills the whole scanner
+### CR-01: `WINDOW_NORMAL` encolhe a area de desenho de 1600x1295 para 304x281 — medido — e isso regride a calibracao de party
 
-**File:** `l2scanner/gravador.py:115-125` (write/flush), contract claim at `l2scanner/gravador.py:86-90`
+**File:** `l2scanner/calibrar.py:424-429` (o site compartilhado),
+`l2scanner/calibrar_mercado.py:338-357` (o navegador de frames)
 
-**Issue:** The `cv2.imwrite` half is wrapped (`_escrever`, lines 127-138), but
-the metadata half is not. Lines 121-122 do a raw
-`self._arquivo_meta.write(...)` + `.flush()` with no guard. The docstring at
-lines 86-90 states flatly:
+**Issue:** `_selecionar_regiao` cria a janela com `cv2.WINDOW_NORMAL` antes de
+chamar `selectROI` no MESMO titulo. Uma janela `WINDOW_NORMAL` **nao se
+redimensiona para a imagem** — ela nasce no tamanho padrao do Win32 e a imagem e
+espremida dentro dele. `selectROI` chama `namedWindow` internamente, e
+`namedWindow` sobre uma janela existente **nao faz nada** (comportamento
+documentado do OpenCV), entao a janela pequena e a que o usuario recebe.
 
-> "Nunca levanta. `Sessao.tick` chama este metodo ANTES do seu proprio
-> try/except, e o laco principal nao envolve o tick em try/except nenhum — uma
-> excecao aqui derrubaria o scanner inteiro por causa de disco cheio, levando
-> os alertas de morte da party junto."
-
-That is exactly what happens. `sessao.py:199-200` calls `gravar` above the
-`try:` at `sessao.py:217`, and `__main__.py:1633` calls `sessao.tick` with no
-`try` around it — so the exception unwinds through `laco_principal`, past
-`main()`'s two narrow handlers (`JanelaNaoEncontrada`, `ConfiguracaoPerigosa`
-at `__main__.py:1969-1979`) and out as a traceback.
-
-Proven on this machine by injecting `OSError(28, 'No space left on device')`
-on the metadata handle:
+Medido nesta maquina, OpenCV 4.14.0, com uma imagem de 1600x1295:
 
 ```
-LEVANTOU: OSError [Errno 28] No space left on device
-frames_gravados 0 falhas 0
+AUTOSIZE  : (268, 291, 1600, 1295)     <- o que o codigo fazia ANTES
+NORMAL    : (164, 187,  304,  281)     <- o que o codigo faz HOJE
+NORMAL x2 : (190, 213,  304,  281)     <- um segundo imshow nao corrige
 ```
 
-Three separate defects in one line of output:
+`getWindowImageRect` = 304x281 para uma imagem de 1600x1295: **fator 5,26x na
+horizontal e 4,61x na vertical.** Cada pixel de mouse do usuario vale ~5,3 px da
+visualizacao — que ja e uma visualizacao reescalada — e depois mais 1/`escala`
+para voltar ao original. Numa janela de 1720 px, um pixel de mouse vale ~5,7 px
+gravados no `calibration.json`.
 
-1. Disk-full — the single scenario the module names — kills the scanner and
-   takes the party death alerts with it. The exact outcome the docstring
-   promises cannot happen.
-2. `falhas_de_gravacao` stays `0`. The counter that exists to never lie
-   reports zero failures for a failed frame.
-3. The PNG was already written before the JSONL line was attempted, so the
-   folder now holds a `frame_*.png` with no index line. Check 4 of
-   `conferir_gravacoes_do_spike.py` (lines == PNGs) will then condemn the whole
-   session with "Regrave este cenario" over one metadata hiccup.
+Isso ataca exatamente o que a docstring da propria funcao chama de "o defeito
+mais caro que uma ferramenta de calibracao pode ter":
 
-`FALHAS_ENTRE_GRITOS` is also unreachable for this class of failure: the
-throttle only fires from `_contabilizar_falha`, which this path never reaches.
+> "Errar essa divisao produz um retangulo plausivel na posicao errada"
 
-**Fix:** Route the metadata write through the same failure path, and write the
-index *before* claiming the frame — or roll the PNG back when the index fails,
-so the disk and the index can never disagree.
+Consequencias concretas, nas duas metades:
+
+- **Party (COMPARTILHADO, funcionava antes desta fase):** `calibrar_selecionando`
+  passou a herdar a janela de 304 px. A party window, a ancora e o passo entre
+  membros — tudo que a deteccao de morte usa — saem de um arrasto com 5,7 px de
+  granularidade. Antes desta mudanca esse arrasto era 1:1.
+- **Mercado:** as ancoras sao recortes de 100x28 e 60x60. Com ±6 px de erro em
+  cada borda, o molde de 60x60 do `botao_fechar` sai com ate 20% da area errada,
+  e `dx`/`dy` saem deslocados — e `conferir_painel` compara em UMA posicao so, de
+  proposito. Um `dx` errado por 6 px derruba o casamento de seguimento sem uma
+  linha de erro.
+- **Navegador de frames (`calibrar_mercado.py:338`):** o mesmo `WINDOW_NORMAL`.
+  Um frame de 1720x1392 reduzido para 1400 e depois espremido em 304x281 e
+  ~18% do tamanho real. A funcao inteira existe para o usuario **ver** se ha
+  tooltip por cima do painel — a propria docstring diz que calibrar sobre frame
+  ocluido "e a mesma familia do incidente 27x". A 18% ninguem ve uma tooltip.
+
+O bloco de comentario diz que `namedWindow`+`moveWindow` existe para a janela
+nascer onde o usuario a encontre. O objetivo e legitimo; o flag e que esta
+errado — `moveWindow` funciona igual sobre `WINDOW_AUTOSIZE`.
+
+**Fix:** manter o posicionamento, devolver o tamanho.
 
 ```python
-if not self._escrever(caminho, imagem):
-    self._contabilizar_falha(caminho, "o cv2.imwrite nao confirmou a escrita")
-    return False
-
-linha = {
-    "indice": frame.indice,
-    "momento": momento,
-    "saude": frame.saude.value,
-    "arquivo": caminho.name,
-}
-try:
-    self._arquivo_meta.write(json.dumps(linha, ensure_ascii=False) + "\n")
-    self._arquivo_meta.flush()
-except Exception:  # noqa: BLE001 - mesmo caminho de falha do imwrite
-    # O PNG ja esta no disco e o indice nao vai cita-lo. Um PNG orfao faz a
-    # conferencia 4 condenar a sessao inteira, entao ele sai junto.
-    caminho.unlink(missing_ok=True)
-    self._contabilizar_falha(caminho, "o indice nao aceitou a linha do frame")
-    return False
-
-self.frames_gravados += 1
-return True
+# WINDOW_AUTOSIZE: `moveWindow` posiciona igual, e a imagem aparece 1:1.
+# Com WINDOW_NORMAL a janela nasce em 304x281 (medido, cv2 4.14) e o
+# usuario desenha num quinto da resolucao — o retangulo sai plausivel e
+# no lugar errado, que e o defeito que esta funcao existe para evitar.
+cv2.namedWindow(titulo, cv2.WINDOW_AUTOSIZE)
+cv2.moveWindow(titulo, 40, 40)
 ```
 
-Add the matching test to `tests/test_gravador_honesto.py` — the current suite
-proves `imwrite` explosions are contained (`test_gravar_nunca_levanta_nem_
-quando_o_imwrite_explode`) but never touches the metadata handle, which is why
-this survived.
+Se por algum motivo `WINDOW_NORMAL` precisar ficar (monitor menor que o frame),
+entao o tamanho tem de ser declarado explicitamente logo depois:
+
+```python
+cv2.resizeWindow(titulo, visao.shape[1], visao.shape[0])
+```
+
+Aplicar nos dois sites. E um teste estrutural barato fecha a porta: afirmar que
+o modulo nao chama `namedWindow` com `WINDOW_NORMAL` sem um `resizeWindow` ao
+lado.
 
 ---
 
-### CR-02: In `--record-janela` the PNG and its JSONL line come from two different captures
+### CR-02: A calibracao de mercado manda ABRIR uma imagem que pode nao existir — e o `.bat` cita o nome velho
 
-**File:** `l2scanner/gravador.py:99-121`, driven from `l2scanner/__main__.py:1484` and `l2scanner/__main__.py:1592-1633`
+**File:** `l2scanner/calibrar_mercado.py:588` e `613`, `calibrar-mercado.bat:60-69`
 
-**Issue:** The index line asserts a fact about the file it names that was not
-measured on that file.
-
-The tick captures once at `__main__.py:1592` (`frame = fonte.capturar()`).
-`frame.pixels`, `frame.saude` and `frame.indice` are all derived from *that*
-snapshot of `JanelaSource._ultimo`. The recorder then calls
-`self._fonte_completa()` (`gravador.py:101`), which is
-`JanelaSource.capturar_completo` (`captura_janela.py:303-311`) — a **second,
-independent read** of `_ultimo` under the lock, returning whatever the WGC
-callback thread has stored by then.
-
-Between the two reads the tick performs `atender_comandos(...)`
-(`__main__.py:1622-1631`), which does a Chatwoot HTTP round-trip. The WGC
-callback (`captura_janela.py:257-266`) overwrites `_ultimo` at roughly 38 fps.
-So the PNG on disk is routinely tens to hundreds of milliseconds — potentially
-a full second, when the network is slow — newer than the pixels that produced
-the `saude` recorded beside it.
-
-Consequences, both aimed at this phase's stated purpose:
-
-- The recording is the "base de calibracao e teste de regressao permanente"
-  (`gravador.py:3-10`). Replaying `frame_NNNNNN.png` cannot reproduce the
-  `saude` the index recorded for it, because that value came from a different
-  image. That is a reproducibility hole in the artifact the whole phase exists
-  to produce.
-- The `momento` field carries the same defect.
-- It defeats the fail-closed guard directly above it: `capturar()` can have
-  returned `FALHA_DE_CAPTURA` (stale `_ultimo is None`) while
-  `capturar_completo()` a moment later returns a real frame, or the reverse.
-
-**Fix:** Capture the window once per tick and derive both the crop and the
-recorded PNG from that single array. The cheapest shape that preserves the
-current seams is to have `JanelaSource.capturar()` stash the full frame it
-actually used and have `fonte_completa` return that same object:
+**Issue:** Linha 588:
 
 ```python
-# captura_janela.py, dentro de capturar(), logo apos ler `completo`:
-self._completo_do_ultimo_frame = completo   # o MESMO array que gerou o recorte
-
-def completo_do_frame_atual(self) -> np.ndarray | None:
-    """A janela QUE PRODUZIU o frame corrente — nao a mais recente.
-
-    `capturar_completo` le `_ultimo` de novo e devolve um frame mais novo:
-    o PNG gravado deixaria de ser a imagem de onde saiu a linha do indice.
-    """
-    return self._completo_do_ultimo_frame
+_gravar_conferencia(desenhar_conferencia(pixels, regioes))
 ```
 
-and in `__main__.py:1484` bind `fonte_completa = fonte.completo_do_frame_atual`.
-A regression test should assert that the recorded PNG is byte-identical to the
-window that contained `frame.pixels` even when the source produces new frames
-between `capturar()` and `gravar()`.
+O retorno e **descartado**. Linha 613, incondicional:
+
+```python
+print("\nABRA a imagem de conferencia e confira os retangulos.")
+```
+
+E o `.bat`, no caminho de sucesso (`errorlevel` 0), imprime uma terceira vez,
+agora **com o nome do arquivo escrito na mao**:
+
+```
+ABRA a imagem calibracao-conferencia.png e confira se os
+retangulos verdes caem onde voce espera
+```
+
+`_gravar_conferencia` devolve `None` quando nao conseguiu gravar em lugar
+nenhum, e devolve um caminho **alternativo** (`calibracao-conferencia-HHMMSS.png`)
+quando o destino padrao esta travado — o cenario que a docstring dela diz ser o
+mais comum, porque a propria ferramenta manda o usuario abrir a imagem no
+visualizador de fotos. Nos dois casos o usuario e mandado para
+`calibracao-conferencia.png`, que ou nao existe, ou **e a imagem da calibracao
+anterior**. Literalmente o defeito que o modulo diz ter matado, na sua propria
+docstring de abertura:
+
+> "o calibrador anunciava uma imagem que nao existia — o usuario conferia
+> A IMAGEM VELHA e validando uma calibracao errada"
+
+E `cal.salvar(arquivo)` (linha 605) ja rodou: a calibracao **foi gravada** e o
+unico passo de conferencia foi substituido por uma promessa vazia.
+
+`calibrar.py` trata isto certo nos dois consumidores dele
+(`conferir_visualmente:571-575` e `_texto_final_do_solo:622-644`, com o teste
+`test_texto_final_do_solo_so_manda_conferir_quando_ha_imagem`). O modulo novo
+importou a funcao e deixou o tratamento para tras.
+
+**Fix:** capturar o caminho, e so prometer o que existe.
+
+```python
+conferencia = _gravar_conferencia(desenhar_conferencia(pixels, regioes))
+...
+cal.salvar(arquivo)
+...
+if conferencia is None:
+    print("\nA CONFERENCIA VISUAL NAO ACONTECEU: nenhuma imagem foi gravada.")
+    print("Os retangulos acima estao no calibration.json e NINGUEM os olhou.")
+    print("Feche o visualizador de fotos e rode de novo antes de confiar nisto.")
+else:
+    print(f"\nABRA {conferencia}")
+    print("e confira se os retangulos verdes caem onde voce espera.")
+```
+
+E o `.bat` nao pode citar o nome: ele nao sabe qual foi. Trocar o bloco final
+por "a mensagem acima diz qual imagem abrir". Um teste no molde do
+`test_texto_final_do_solo_*` prende o comportamento.
+
+---
+
+### CR-03: Uma watchlist de 0 ou 1 item imprime "matriz APROVADA" sobre zero comparacoes — e grava limiar 0.5
+
+**File:** `l2scanner/calibrar_mercado.py:171-178`, `125-131`, `601`
+
+**Issue:** Com menos de dois moldes, `matriz_de_confusao` devolve
+`pior_score=0.0` e `limiar_sugerido=(1.0 + 0.0) / 2`. Executado:
+
+```
+ZERO moldes: aprovado=True limiar=0.5
+   Matriz de confusao APROVADA: o pior score entre dois itens diferentes e 0.0000. Limiar sugerido: 0.5000.
+UM molde:    aprovado=True limiar=0.5
+   Matriz de confusao APROVADA: o pior score entre dois itens diferentes e 0.0000. Limiar sugerido: 0.5000.
+```
+
+Duas mentiras numa frase so:
+
+1. **"o pior score entre dois itens diferentes e 0.0000"** — nao houve par
+   nenhum. Nenhum score foi calculado. A frase afirma uma medicao que nao
+   aconteceu, e afirma o valor mais tranquilizador possivel. Com a watchlist
+   vazia, ela sai depois do aviso "nenhum molde de nome foi cortado", o que
+   torna a contradicao visivel na mesma tela.
+2. **`limiar_sugerido = 0.5` vai para o disco** (linha 601,
+   `cal.mercado_limiar_de_template`) apresentado como derivado da matriz. Um
+   limiar de 0.5 para casamento de nome e permissivo a ponto de casar quase
+   tudo — o proprio modulo mede o pior inter-classe tolerado em 0.85 e a margem
+   em 0.075. `_conferir_as_chaves_de_mercado` aceita 0.5 sem reclamar (a faixa
+   valida e `(0, 1]`), entao nada a jusante vai pegar isso: a Fase 2 herda um
+   numero fabricado com aparencia de medido.
+
+Este e o padrao que o `<threat_model>` da fase chama de afirmacao confiante sem
+lastro, dentro da ferramenta que grava a calibracao.
+
+**Fix:** nao aprovar o que nao foi medido, e nao gravar limiar sem matriz.
+
+```python
+if len(nomes) < 2:
+    # NAO ha par para comparar. Aprovar e correto; afirmar um "pior score"
+    # medido nao e, e um limiar derivado de zero comparacoes e um numero
+    # inventado com cara de medido.
+    return ResultadoDaConfusao(
+        aprovado=True, pior_score=0.0, par_colidente=None, limiar_sugerido=None
+    )
+```
+
+```python
+def explicar(self) -> str:
+    if self.aprovado and self.limiar_sugerido is None:
+        return (
+            f"Matriz de confusao NAO RODOU: {len(self.matriz)} pares para "
+            f"comparar. Com menos de dois moldes nao ha o que confundir, e "
+            f"nenhum limiar de template foi derivado."
+        )
+```
+
+e na gravacao, so mexer no campo quando ha o que dizer:
+
+```python
+if resultado.limiar_sugerido is not None:
+    cal.mercado_limiar_de_template = resultado.limiar_sugerido
+```
+
+---
+
+### CR-04: Rodar de novo sem watchlist APAGA os moldes de nome ja calibrados, calado
+
+**File:** `l2scanner/calibrar_mercado.py:555-562`, `597-601`
+
+**Issue:** `cal.mercado_templates_de_nome` recebe uma lista construida a partir
+de `moldes_de_nome`, **sem condicao**:
+
+```python
+cal.mercado_templates_de_nome = [
+    {"nome": nome, "molde": molde_para_hex(molde)}
+    for nome, molde in moldes_de_nome.items()
+]
+```
+
+Com a watchlist vazia isso e `[]`, e `cal.salvar` regrava o arquivo inteiro. Os
+moldes de uma calibracao anterior desaparecem. O caminho e trivial de alcancar:
+
+- `ler_watchlist` devolve `[]` quando **o `config.toml` nao existe** (linha
+  441-442) — por exemplo rodando de outro checkout ou de um worktree;
+- ou quando o usuario comentou a watchlist para reajustar so uma ancora;
+- ou quando ele escreveu `[mercado]` sem a chave `watchlist`.
+
+O console diz apenas:
+
+> "Sem watchlist no config.toml: nenhum molde de nome foi cortado.
+>  **As ancoras e a grade acima ja ficam gravadas**"
+
+O que afirma um comportamento aditivo que nao e o que acontece. A ferramenta se
+descreve, no cabecalho do modulo, como "muta so os campos de mercado" — mutar
+para vazio e destruir, e este e o unico caminho do projeto que apaga trabalho de
+calibracao sem perguntar. O prejuizo e proporcional a watchlist: cada molde
+custou um arrasto de mouse sobre um frame gravado.
+
+**Fix:** so escrever o que foi cortado; preservar o que nao foi.
+
+```python
+if moldes_de_nome:
+    cal.mercado_templates_de_nome = [...]
+elif cal.mercado_templates_de_nome:
+    # Sem watchlist NAO significa "apague os moldes que ja existiam": esta
+    # ferramenta ACRESCENTA campos, e o usuario que roda so para reajustar
+    # uma ancora nao esta pedindo para perder os recortes de nome.
+    print(
+        f"\nMantidos os {len(cal.mercado_templates_de_nome)} molde(s) de nome "
+        f"da calibracao anterior — nenhum foi recortado nesta rodada."
+    )
+```
+
+O mesmo raciocinio vale para `mercado_limiar_de_template` (ver CR-03).
+
+---
+
+### CR-05: O portao do spike conta `NAO VERIFICADO` como selo `VERIFICADO`
+
+**File:** `tools/conferir_spike_respostas.py:160-173`
+
+**Issue:** `Secao.selos` procura os selos por substring, na ordem de `SELOS`, que
+comeca por `"VERIFICADO"`. Executado contra uma secao real:
+
+```
+texto:  "NAO VERIFICADO em campo -- nao deu tempo."
+selos:  ['VERIFICADO']
+```
+
+Uma resposta que o usuario **rebaixou explicitamente** e contada como selo
+POSITIVO. O efeito em cascata e todo na direcao errada:
+
+- passa na conferencia 2 (exatamente um selo);
+- entra em `SELO_POSITIVO`, entao a conferencia 3 exige um frame — e qualquer
+  frame que exista serve;
+- e a tabela final do relatorio **imprime `VERIFICADO`** ao lado do numero da
+  secao, que e a saida que um leitor futuro vai usar como resumo.
+
+A docstring do proprio metodo diz que isto e prevenido:
+
+> "`NAO RESPONDIDO` e procurado antes e removido do texto, senao ... o
+> `VERIFICADO` dentro de 'NAO VERIFICADO' seria [o problema]"
+
+O codigo faz o oposto (`for selo in SELOS` = VERIFICADO primeiro), e mesmo a
+ordem descrita nao resolveria: `"NAO RESPONDIDO"` nao contem `"VERIFICADO"`, e
+remove-lo antes nao apaga o `"NAO VERIFICADO"` de outra frase. A protecao nunca
+existiu; a docstring afirma que sim.
+
+Num arquivo cujo proposito declarado e "que a mesma mentira nao volte pela porta
+da analise", promover um selo negativo a positivo e o modo de falha exato que
+ele existe para impedir — e o `<threat_model>` T-03-01 e literalmente isto.
+
+**Fix:** casar o selo com fronteira, e recusar a negacao explicitamente.
+
+```python
+import re
+
+# `(?<![A-Z])` impede que o `VERIFICADO` de "NAO VERIFICADO" conte como selo
+# positivo: o usuario que rebaixa uma resposta escrevendo a negacao seria
+# promovido de volta, e a tabela final imprimiria VERIFICADO para ele.
+_NEGACAO = re.compile(r"\bNAO\s+(VERIFICADO|PARCIAL)\b")
+
+@property
+def selos(self) -> list[str]:
+    achados: list[str] = []
+    restante = _NEGACAO.sub("NAO RESPONDIDO", sem_acento(self.texto))
+    for selo in ("NAO RESPONDIDO", "VERIFICADO", "PARCIAL"):
+        n = restante.count(selo)
+        achados.extend([selo] * n)
+        restante = restante.replace(selo, "")
+    return achados
+```
+
+(Rebaixar `NAO VERIFICADO` para `NAO RESPONDIDO` e a leitura conservadora, e e a
+que o resto do modulo ja assume: falhar para o lado do selo mais fraco.) Um
+arquivo `tests/test_conferir_spike_respostas.py` com este caso, o de dois selos
+e o da legenda fora da contagem — ver WR-11.
 
 ---
 
 ## Warnings
 
-### WR-01: `conferir_gravacoes_do_spike.py` prints APROVADO for a session of frozen frames
+### WR-01: O guard `forma_esperada` foi adicionado e NENHUM chamador de producao o usa
 
-**File:** `tools/conferir_gravacoes_do_spike.py:107-215`, verdict at line 270
+**File:** `l2scanner/mercado_visao.py:581`, `l2scanner/calibracao.py:462-474` e `614-631`
 
-**Issue:** All five checks are structural (suffix present, index non-empty, no
-orphans, count parity, dimensions). None of them looks at `saude`, which the
-recorder already writes into every line (`gravador.py:118`).
+**Issue:** `molde_de_hex` ganhou `forma_esperada` (a correcao do WR-04 anterior)
+e a docstring dele e enfatica: "**Passe sempre que tiver.**". Varredura do
+projeto: o unico lugar que passa o argumento sao os testes
+(`tests/test_mercado_ancora.py:259,264`). Em producao:
 
-The failure is reachable, not hypothetical.
-`JanelaSource._ultimo` is never cleared, so when the game window stops
-producing WGC frames (minimize mid-session, client hang, alt-tab into a
-fullscreen app), `capturar_completo()` keeps returning the last good frame
-forever. The recorder writes N identical 3.5 MB PNGs, all confirmed, all
-correctly dimensioned, all indexed. `_ClassificadorDeSaude`
-(`frames.py:131-140`) marks them `CONGELADO` in the JSONL — the evidence is
-right there in the file — and the gate ignores it and prints:
+- `ancoras_de_calibracao:581` chama `molde_de_hex(molde)` — sem forma. E este e o
+  caminho **usado de verdade** pelo `RastreioDoPainel`;
+- `Calibracao.carregar` nem decodifica `mercado_molde_da_ancora`, so o repassa
+  cru.
 
-> `APROVADO — as 8 gravacoes do spike servem.`
+Pior, `calibracao.py:619-620` afirma o contrario num comentario:
 
-For a 60-second "mercado-aberto" session containing one unique frame. This is
-the checkpoint that decides whether the user's eight irreplaceable sessions
-were well spent; a green verdict over an unusable recording is the same class
-of failure the tool was written to prevent, one level up.
+> "o molde e conferido (`mercado_visao.molde_de_hex`, argumento
+> `forma_esperada`)"
 
-**Fix:** Add a sixth check reading the field that already exists.
+Nao e. O molde transposto — 100x28 declarado como 28x100 — continua carregando
+sem erro, e `conferir_painel` devolve 0.0 para sempre: o mercado some sem uma
+linha de log, que e verbatim o desfecho que o guard existe para impedir.
 
-```python
-SAUDE_INUTIL = {"congelado", "falha_de_captura"}
-# Uma sessao majoritariamente congelada tem UM frame util repetido N vezes.
-FRACAO_MAXIMA_INUTIL = 0.25
-
-# dentro de conferir_o_indice, no laco que ja faz json.loads(linha):
-saudes.append(str(registro.get("saude", "")).lower())
-...
-ruins = sum(1 for s in saudes if s in SAUDE_INUTIL)
-if ruins > len(saudes) * FRACAO_MAXIMA_INUTIL:
-    raise Problema(
-        f"{pasta.name}: {ruins} de {len(saudes)} frames estao CONGELADO/"
-        f"FALHA_DE_CAPTURA. A janela parou de produzir frames e os PNGs sao "
-        f"a mesma imagem repetida. Regrave com o jogo visivel e ativo."
-    )
-```
-
-Consider also asserting that the first and last PNG are not byte-identical —
-cheap, and it catches the fully-frozen session outright.
-
----
-
-### WR-02: The end-of-session summary displays the divergence instead of detecting it
-
-**File:** `l2scanner/__main__.py:1730-1744`
-
-**Issue:** The block computes `no_disco` correctly (with the `is_file()` guard)
-and prints it next to `gravador.frames_gravados`, but never compares the two.
-The severity is chosen solely by `gravador.falhas_de_gravacao`:
-
-```python
-registrar = log.error if gravador.falhas_de_gravacao else log.info
-```
-
-So a session where the counter says 118 and the disk says 40 — the exact
-scenario named in `tests/test_gravador_honesto.py:9-12` — is emitted at INFO,
-in the same style as every routine line, after an hour of farming. The
-in-memory counter is precisely the witness that cannot be trusted here (CR-01
-shows a path where it stays 0 through a real failure), so deriving the alarm
-level from it is fail-open. Printing two numbers side by side is only a check
-if something reads both.
+`AncoraDoPainel` nao guarda largura/altura separadas do molde, entao a forma
+esperada precisa vir da calibracao. O caminho mais barato e gravar as dimensoes
+ao lado de `dx`/`dy`:
 
 **Fix:**
 
 ```python
-divergiu = no_disco != gravador.frames_gravados
-registrar = log.error if (gravador.falhas_de_gravacao or divergiu) else log.info
-registrar(
-    "Sessao gravada: %d frames confirmados, %d falhas de escrita, "
-    "em %s (no disco: %d frame_*.png)%s",
-    gravador.frames_gravados,
-    gravador.falhas_de_gravacao,
-    gravador.pasta,
-    no_disco,
-    "  <-- DIVERGIU: o contador e o disco discordam, nao confie nesta sessao"
-    if divergiu
-    else "",
-)
+# ancoras_para_calibracao
+{"nome": a.nome, "dx": ..., "dy": ...,
+ "altura": int(a.molde.shape[0]), "largura": int(a.molde.shape[1]),
+ "molde": molde_para_hex(a.molde)}
+
+# ancoras_de_calibracao
+forma = None
+if isinstance(bruto.get("altura"), int) and isinstance(bruto.get("largura"), int):
+    forma = (bruto["altura"], bruto["largura"])
+molde=molde_de_hex(molde, forma_esperada=forma)
 ```
+
+E, no minimo, corrigir o comentario de `calibracao.py:619-620`, que hoje diz que
+uma checagem acontece quando ela nao acontece.
 
 ---
 
-### WR-03: The orphan check accepts any path, and count parity is not set parity
+### WR-02: O portao do spike resolve `recordings/../qualquer/coisa.png` e aceita um diretorio como evidencia
 
-**File:** `tools/conferir_gravacoes_do_spike.py:133-151`
+**File:** `tools/conferir_spike_respostas.py:118`, `242`, `291`
 
-**Issue:** Two gaps in the anti-orphan assertion:
+**Issue:** duas frouxidoes na resolucao de evidencia:
 
-1. `nome = registro.get("arquivo")` is joined with no shape validation:
-   `(pasta / nome).is_file()`. On an index that has been hand-edited or written
-   by a future tool, `"arquivo": "../mercado-aberto/frame_000001.png"` or an
-   absolute path resolves outside the session folder and passes. The check that
-   exists to prove "the index does not cite files that do not exist" would
-   confirm the existence of a file in another session.
-2. Check 4 compares cardinalities (`no_disco != len(linhas)`), not sets. An
-   index with a duplicated `arquivo` plus one stray PNG has 10 lines and 10
-   files and passes both checks while covering one lost frame.
+1. `CAMINHO_DE_FRAME = re.compile(r"recordings/[^\s)`]+\.png")` aceita `..` no
+   meio. Confirmado nesta maquina: `(raiz / "recordings/../l2scanner/visao.py")`
+   resolve `True`. Uma citacao `recordings/../tests/fixtures/x.png` satisfaz o
+   portao inteiro sem tocar em gravacao nenhuma. O prefixo `recordings/` da a
+   impressao de que o escopo esta contido; ele nao esta.
+2. `.exists()` em vez de `.is_file()` (linhas 242 e 291). Um **diretorio**
+   chamado `frame_000012.png` passa — e o modo de falha deterministico dos
+   testes deste projeto e exatamente esse (ver o comentario em
+   `__main__.py:1735`, onde `is_file` foi escolhido de proposito pelo mesmo
+   motivo). Um arquivo de 0 byte tambem passa.
 
-**Fix:** Constrain the name and compare sets against the same `is_file()`-
-filtered listing the count already uses.
-
-```python
-import re
-NOME_DE_FRAME = re.compile(r"^frame_\d{6}\.png$")
-
-no_disco = {p.name for p in pngs_de_frame(pasta)}
-citados: list[str] = []
-for numero, linha in enumerate(linhas, start=1):
-    ...
-    nome = registro.get("arquivo")
-    if not isinstance(nome, str) or not NOME_DE_FRAME.match(nome):
-        orfaos.append(f"<linha {numero}: 'arquivo' invalido ({nome!r})>")
-        continue
-    citados.append(nome)
-
-faltando = sorted(set(citados) - no_disco)
-sobrando = sorted(no_disco - set(citados))
-repetidos = len(citados) - len(set(citados))
-# ...cada um com sua Problema propria, nomeando o que aconteceu
-```
-
----
-
-### WR-04: `molde_de_hex` validates only the byte *count*, so transposed dimensions pass
-
-**File:** `l2scanner/mercado_visao.py:151-170`
-
-**Issue:** The docstring promises the guard prevents a silently wrong molde:
-
-> "um `reshape` com dimensao mentida devolveria um molde silenciosamente
-> errado, e um molde errado nunca casa com nada: o mercado ficaria invisivel
-> sem uma linha de erro."
-
-The implementation only checks `len(brutos) != altura * largura`. Every
-factorization of the same product passes. Verified:
-
-```
-transposto aceito: (100, 28)
-```
-
-A 28x100 anchor whose declared dimensions were swapped decodes to a 100x28
-array. `casamento_da_ancora` then hits the `forma.shape[0] > alvo.shape[0]`
-guard and returns `0.0` for every frame forever — the market becomes invisible
-without a single error line, which is verbatim the outcome the docstring says
-is prevented. The same holds for 50x56, 70x40, 14x200, and so on.
-
-The information needed to close this is already in the calibration:
-`Calibracao.mercado_ancora` carries the rectangle the molde was cut from
-(`calibracao.py:231`), and nothing cross-checks the two.
-
-**Fix:** Take the expected shape as an argument and verify both dimensions.
-
-```python
-def molde_de_hex(dados: dict, forma_esperada: tuple[int, int] | None = None) -> np.ndarray:
-    altura, largura = int(dados["altura"]), int(dados["largura"])
-    if altura <= 0 or largura <= 0:
-        raise ValueError(
-            f"molde da ancora com dimensao nao-positiva ({altura}x{largura}). "
-            f"Recalibre o mercado."
-        )
-    brutos = bytes.fromhex(dados["bytes"])
-    if len(brutos) != altura * largura:
-        raise ValueError(...)  # como hoje
-    if forma_esperada is not None and (altura, largura) != forma_esperada:
-        # O produto bate em toda fatoracao: 28x100 e 100x28 tem 2800 bytes.
-        # Um molde transposto nunca casa e o mercado some sem uma linha de erro.
-        raise ValueError(
-            f"molde da ancora {altura}x{largura} nao bate com o retangulo "
-            f"calibrado {forma_esperada[0]}x{forma_esperada[1]}. Recalibre."
-        )
-    ...
-```
-
-and extend `test_dimensao_declarada_mentindo_e_recusada_ALTO` with the
-transposed case, which today passes silently.
-
----
-
-### WR-05: The firewall's declared-requirements sweep is bypassed by PEP 508 direct references and by `-r`/`-e`
-
-**File:** `tests/test_firewall_escopo.py:65`, `tests/test_firewall_escopo.py:113-131`
-
-**Issue:** `_FIM_DO_NOME = re.compile(r"[=<>!~\[\];(,\s]")` does not include
-`@`, and line 125 skips every line starting with `-`. Verified against the
-real parser:
-
-```
-'pyautogui@git+https://github.com/asweigart/pyautogui'
-    -> {'pyautogui@git+https://github-com/asweigart/pyautogui'}  banidas: set()
-'keyboard@https://example.com/keyboard-0.13.5-py3-none-any.whl'
-    -> {'keyboard@https://example-com/...'}                      banidas: set()
-'-r extra-requirements.txt' -> set()   banidas: set()
-'-e ./vendor/pynput'        -> set()   banidas: set()
-```
-
-All four are legal, pip-installable ways to add a banned library to
-`requirements.txt` while the declared sweep stays green. The two other sweeps
-(running environment, `.venv`) would still catch it *after installation*, but
-the declared sweep is the one that is supposed to catch the transitive and the
-not-yet-installed — it is described in the module docstring as pegging
-"a transitiva DECLARADA antes mesmo de ela ser instalada". A control whose
-stated job is pre-installation detection should not be defeated by a syntax
-pip accepts.
+O cabecalho do modulo promete "RESOLVE cada caminho no sistema de arquivos". Um
+caminho que sai da arvore de gravacoes foi resolvido, mas nao e evidencia.
 
 **Fix:**
 
 ```python
-# `@` fecha o nome numa referencia direta PEP 508 (`keyboard@https://...`).
-# Sem ele o nome vira "keyboard@https://..." e nao casa com a banlist.
-_FIM_DO_NOME = re.compile(r"[=<>!~@\[\];(,\s]")
+# `..` sairia da arvore de gravacoes: `recordings/../tests/x.png` existe e
+# nao e evidencia de spike nenhum. `is_file` porque um diretorio com nome de
+# PNG e o modo de falha deterministico dos testes deste projeto.
+def _resolvido(raiz: Path, citado: str) -> bool:
+    if ".." in Path(citado).parts:
+        return False
+    return (raiz / citado).is_file()
 ```
 
-and, for the `-` lines, handle the two that carry package names instead of
-skipping the whole class:
+e usar nos dois pontos, com a mensagem de recusa distinguindo "nao existe" de
+"aponta para fora de recordings/".
+
+---
+
+### WR-03: As teclas do navegador de frames colidem: `S` maiusculo anda para FRENTE, e as setas nao funcionam no Windows
+
+**File:** `l2scanner/calibrar_mercado.py:371-378`
+
+**Issue:**
 
 ```python
-if linha.startswith(("-r", "--requirement")):
-    raise AssertionError(
-        f"{linha}: o firewall nao segue includes. Declare tudo no "
-        f"requirements.txt, ou ensine a varredura a abrir o arquivo incluido."
+if tecla in (ord("d"), ord("D"), 83):     # 83 == ord("S")
+elif tecla in (ord("a"), ord("A"), 81):   # 81 == ord("Q")
+elif tecla in (ord("w"), ord("W"), 82):   # 82 == ord("R")
+elif tecla in (ord("s"), ord("S"), 84):   # ord("S") == 83, ja consumido acima
+```
+
+Os codigos 81-84 sao as setas do backend **GTK/Linux**. Em ASCII eles sao
+`Q`, `R`, `S`, `T`. Duas consequencias:
+
+- **`S` maiusculo faz o oposto do `s` minusculo**: cai no primeiro ramo e avanca
+  um frame, em vez de voltar dez. `ord("S")` no ultimo ramo e **codigo morto** —
+  nunca alcancavel.
+- **No Windows as setas nao chegam.** `waitKey` devolve `0x250000` e derivados
+  para as setas; `& 0xFF` (linha 359) zera isso. As quatro linhas de ajuda
+  impressas em 331-332 ("seta direita -> proximo frame") anunciam teclas mortas
+  na unica plataforma suportada pelo projeto.
+
+**Fix:** ler o codigo cheio antes de mascarar, e tirar os codigos GTK.
+
+```python
+bruto = cv2.waitKey(0)
+tecla = bruto & 0xFF
+# Setas no Windows: waitKeyEx devolve 2555904 (dir), 2424832 (esq),
+# 2490368 (cima), 2621440 (baixo). Os codigos 81-84 sao as setas do GTK e
+# colidem com Q/R/S/T em ASCII: com eles, 'S' maiusculo andava para frente.
+SETA_DIR, SETA_ESQ, SETA_CIMA, SETA_BAIXO = 2555904, 2424832, 2490368, 2621440
+if tecla in (ord("d"), ord("D")) or bruto == SETA_DIR:
+    ...
+```
+
+ou, mais simples, remover as setas da ajuda e suportar so D/A/W/S.
+
+---
+
+### WR-04: Fechar o navegador de frames no X trava a ferramenta para sempre
+
+**File:** `l2scanner/calibrar_mercado.py:359`
+
+**Issue:** `cv2.waitKey(0)` bloqueia indefinidamente. Se o usuario fecha a janela
+no X — coisa que o texto impresso nao proibe, ao contrario do bloco de selecao,
+que avisa "NAO feche no X" (linha 529) — nao ha mais janela para receber tecla e
+o `waitKey(0)` nunca retorna. O console fica parado na tela de instrucoes, sem
+janela e sem mensagem, e a unica saida e Ctrl-C.
+
+**Fix:** usar timeout e conferir se a janela ainda existe.
+
+```python
+tecla = cv2.waitKey(50)
+if cv2.getWindowProperty(janela, cv2.WND_PROP_VISIBLE) < 1:
+    raise MercadoNaoCalibravel(
+        "a janela do navegador foi fechada -- nada foi gravado. "
+        "Use ESC para cancelar ou ENTER para escolher o frame."
     )
-if linha.startswith(("-e", "--editable")):
-    linha = linha.split(None, 1)[-1]  # o alvo do -e ainda e um pacote
-elif linha.startswith("-"):
+if tecla == -1:
     continue
 ```
 
-Add the four strings above to
-`test_o_detector_acusa_uma_distribuicao_banida_injetada` as parser-level cases.
+e acrescentar "NAO feche no X" ao bloco de ajuda, como ja existe para a selecao.
 
 ---
 
-### WR-06: A folder-name collision silently truncates a previous session's index
+### WR-05: O dreno da fila de teclas para no PRIMEIRO `-1` — mais fraco que o diagnostico que achou o bug
 
-**File:** `l2scanner/gravador.py:71-78`
+**File:** `l2scanner/calibrar.py:420-422`, contra `tools/diagnosticar_selecao.py:75-88`
 
-**Issue:** `self.pasta.mkdir(parents=True, exist_ok=True)` followed by
-`(self.pasta / "observacoes.jsonl").open("w", ...)`. The folder name has
-one-second resolution (`"%Y%m%d-%H%M%S"`), so two recorders that start within
-the same second with the same `--rotulo` — two scanner instances, which this
-project explicitly supports (`__main__.py:112-114`: "Compartilhada pelas DUAS
-instancias que o usuario roda"), or a `run.bat` double-click — land in the same
-folder. The second one truncates the first's index to zero while its PNGs stay
-on disk, and both then write `frame_000000.png`, `frame_000001.png`, ...
-over each other, each believing its own counter.
-
-The result is a corrupted recording that neither process reports. For sessions
-described as "o recurso escasso desta fase, porque so ele pode grava-las"
-(`gravador.py:104-106`), silent destruction of a prior session is the wrong
-default.
-
-**Fix:** Refuse to reuse a folder. The recorder is being created, not resumed.
+**Issue:** a correcao do vazamento de ENTER e:
 
 ```python
-self.pasta = pasta_base / nome
-try:
-    # `exist_ok=False`: duas instancias no mesmo segundo com o mesmo rotulo
-    # truncariam o indice uma da outra e sobrescreveriam os PNGs, calado.
-    self.pasta.mkdir(parents=True, exist_ok=False)
-except FileExistsError:
-    sufixo = 1
-    while True:
-        candidata = pasta_base / f"{nome}-{sufixo}"
-        try:
-            candidata.mkdir(parents=True, exist_ok=False)
-        except FileExistsError:
-            sufixo += 1
-            continue
-        self.pasta = candidata
+for _ in range(20):
+    if cv2.waitKey(1) == -1:
         break
 ```
 
-`"x"` instead of `"w"` on the JSONL open makes the invariant explicit as well.
-Note that `pastas_do_sufixo` in the checker globs `*-{sufixo}`, so a
-`-1`-suffixed folder would not be picked up — pick a naming scheme that keeps
-the label last (e.g. `{carimbo}-{n}-{rotulo}`) or teach the glob about it.
+Sai na primeira sondagem vazia — ~1 ms de bombeamento. A ferramenta que
+diagnosticou o defeito documenta, MEDIDO, que isso nao basta:
+
+> "ele nao para no primeiro -1 (**uma tecla pode chegar alguns milissegundos
+> depois**) e ele IMPRIME o que achou"
+
+e usa 300 ms. O caminho de risco nao e so o navegador: `calibrar()` faz **5 + N**
+selecoes seguidas, e a tecla que confirma a selecao *k* e candidata a vazar para
+a selecao *k+1*. Quando isso acontece, `_selecionar_regiao` devolve `(0,0,0,0)`,
+`_marcar` levanta `MercadoNaoCalibravel("selecao cancelada — nada foi gravado")`
+e **todos** os retangulos ja marcados sao perdidos. E o sintoma original, so que
+agora no meio do fluxo em vez de no comeco.
+
+**Fix:** drenar por tempo, nao por primeira leitura vazia.
+
+```python
+# NAO parar no primeiro -1: medido em `tools/diagnosticar_selecao`, a tecla
+# pode chegar alguns ms depois da janela anterior fechar. Parar cedo deixa
+# o ENTER vazar para a proxima selecao, que devolve (0,0,0,0) e joga fora
+# todos os retangulos ja marcados.
+fim = time.perf_counter() + 0.15
+while time.perf_counter() < fim:
+    cv2.waitKey(1)
+```
 
 ---
 
-### WR-07: The market calibration fields load with zero validation
+### WR-06: `config.toml` invalido, `watchlist` com o tipo errado, ou falha de gravacao viram traceback depois de todo o trabalho de mouse
 
-**File:** `l2scanner/calibracao.py:415-422`
+**File:** `l2scanner/calibrar_mercado.py:443-445`, `605`, `636-640`
 
-**Issue:** `mercado_molde_da_ancora`, `mercado_limiar_da_ancora` and
-`mercado_geometria_da_captura` come straight out of `dados.get(...)` with no
-type or range check, into a file the module itself calls user-editable. Three
-concrete outcomes:
+**Issue:** tres superficies sem tratamento, todas depois de o usuario ja ter
+marcado 5+ retangulos:
 
-- `mercado_limiar_da_ancora: 0` or `-1` makes `mercado_aberto` return `True`
-  for every crop — a fail-open detector, in the module whose entire charter is
-  "a market signal must never become a second death-detector".
-- `mercado_limiar_da_ancora: "0.73"` (a quoted number, the single most common
-  hand-edit slip) raises `TypeError: '>=' not supported between 'float' and
-  'str'` deep inside `mercado_visao.mercado_aberto`, mid-farm, instead of at
-  startup with "recalibre".
-- `mercado_molde_da_ancora: [1, 2, 3]` raises `TypeError: list indices must be
-  integers` inside `molde_de_hex`.
+1. `tomllib.loads(caminho.read_text(...))` (linha 443) sem `try`. Um
+   `config.toml` com erro de sintaxe levanta `TOMLDecodeError`, que `main` nao
+   captura (linha 638 so pega `MercadoNaoCalibravel`) — traceback, tudo perdido.
+   E a leitura acontece **depois** das ancoras e da grade (linha 555), maximizando
+   o prejuizo.
+2. `[str(item) for item in itens ...]` (linha 445) sem checar o tipo. Com
+   `watchlist = "Bota"` (string em vez de lista), itera **caracteres**: a
+   ferramenta pede quatro recortes, `B`, `o`, `t`, `a`, e monta uma matriz de
+   confusao sobre eles.
+3. `cal.salvar(arquivo)` (linha 605) sem `try`. Pasta somente-leitura, disco
+   cheio ou arquivo travado por antivirus produzem `OSError` cru.
 
-`tests/test_calibracao_mercado.py:115-127` is explicit that the version gate is
-"a defesa de entrada (T-02-02)", and `mercado_visao.molde_de_hex:151-159`
-states the dict "e ENTRADA NAO CONFIAVEL". The threshold got no equivalent
-guard. Nothing consumes these fields yet, which is why this is a WARNING and
-not a BLOCKER — but the consumer arrives in Phase 4 and will inherit the hole.
-
-**Fix:** Validate in `carregar`, next to the version gate, where the message
-can still say "recalibre" while the user is looking at the console.
+**Fix:** encaixar tudo em `MercadoNaoCalibravel`, que ja imprime limpo e devolve
+1 (e o `.bat` ja trata o `errorlevel`).
 
 ```python
-limiar = dados.get("mercado_limiar_da_ancora")
-if limiar is not None:
-    if not isinstance(limiar, (int, float)) or isinstance(limiar, bool):
-        raise CalibracaoInvalida(
-            f"mercado_limiar_da_ancora precisa ser um numero, veio "
-            f"{type(limiar).__name__}. Recalibre o mercado."
-        )
-    if not 0.0 < limiar <= 1.0:
-        # Limiar <= 0 faz TODO recorte virar "mercado aberto" — o detector
-        # deixaria de detectar e passaria a afirmar.
-        raise CalibracaoInvalida(
-            f"mercado_limiar_da_ancora={limiar} fora de (0, 1]. O padrao "
-            f"medido e {0.73}. Recalibre o mercado."
-        )
-
-molde = dados.get("mercado_molde_da_ancora")
-if molde is not None and not isinstance(molde, dict):
-    raise CalibracaoInvalida(
-        f"mercado_molde_da_ancora precisa ser um objeto com altura/largura/"
-        f"bytes, veio {type(molde).__name__}. Recalibre o mercado."
+try:
+    dados = tomllib.loads(caminho.read_text(encoding="utf-8"))
+except (tomllib.TOMLDecodeError, OSError) as erro:
+    raise MercadoNaoCalibravel(
+        f"nao consegui ler {caminho.name}: {erro}\n"
+        f"  Conserte o config.toml e rode de novo."
+    ) from erro
+itens = dados.get("mercado", {}).get("watchlist", [])
+if not isinstance(itens, list):
+    raise MercadoNaoCalibravel(
+        f"[mercado] watchlist precisa ser uma LISTA, veio "
+        f"{type(itens).__name__}. Exemplo: watchlist = [\"+3 Bota X\"]"
     )
 ```
 
-Also worth pairing with WR-04: reject a `mercado_ancora` whose
-`largura`/`altura` are `<= 0` (`Regiao.de_dict` at `frames.py:93-99` accepts
-them), since that rectangle is the cross-check for the molde's shape.
+E ler a watchlist **antes** de abrir a primeira janela de selecao: falhar antes
+de o usuario gastar cinco arrastos e mais barato que falhar depois.
 
 ---
 
-### WR-08: A recorder that cannot be constructed takes the whole scanner down
+### WR-07: `_MODO_DPI` e calculado e nunca conferido — justamente na ferramenta que PERSISTE coordenadas
 
-**File:** `l2scanner/__main__.py:1485-1489`, `l2scanner/gravador.py:71-78`
+**File:** `l2scanner/calibrar_mercado.py:49-51`
 
-**Issue:** `Gravador.__init__` calls `mkdir` and `open` with no guard, and it
-is constructed at `__main__.py:1486` outside any `try`. `main()` only catches
-`JanelaNaoEncontrada` and `ConfiguracaoPerigosa` (`__main__.py:1969-1979`), so
-a read-only `recordings/`, a full disk, a path locked by an antivirus scanner,
-or `recordings` occupied by a file instead of a directory produces a raw
-traceback and no scanner at all.
-
-This inverts the doctrine the same file states twice — `montar_despachante`
-(`__main__.py:200-205`) and `montar_vigia_de_manutencao`
-(`__main__.py:217-222`) both "tenta, degrada com log, devolve None e deixa o
-scanner subir. O recurso e opcional; o scanner nao e." Recording is the most
-optional feature in the project; it should not be the only one that can refuse
-to let the product start.
-
-**Fix:** Give the recorder the same `montar_*` treatment as its two neighbours.
+**Issue:** o modulo abre com
 
 ```python
-def montar_gravador(args, fonte) -> Gravador | None:
-    """Monta o gravador, ou explica por que nao montou. Nunca levanta.
-
-    Mesmo trilho de `montar_despachante` e `montar_vigia_de_manutencao`:
-    gravar e opcional, o scanner nao e.
-    """
-    if not args.record:
-        return None
-    fonte_completa = fonte.capturar_completo if args.record_janela else None
-    try:
-        return Gravador(PASTA_GRAVACOES, args.rotulo, fonte_completa=fonte_completa)
-    except OSError as erro:
-        log.error("GRAVACAO DESATIVADA — nao consegui criar a pasta: %s", erro)
-        log.error(
-            "Todo o resto do scanner continua igual: morte, saida e "
-            "ressurreicao seguem sendo detectadas e entregues."
-        )
-        return None
+_MODO_DPI = tornar_consciente_de_dpi()
 ```
 
-Note this must log at ERROR, not WARNING: a user running the spike roteiro
-needs to abort and fix rather than farm for 60 seconds into nothing.
+e o comentario acima diz "DPI PRIMEIRO, pelo mesmo motivo de `calibrar.py`: a
+ferramenta e o scanner precisam concordar sobre o que e um pixel". Mas
+`calibrar.py:824` e `__main__.py:2078` fazem mais que chamar — os dois testam
+`_MODO_DPI.startswith("FALHOU")` e avisam:
+
+> "AVISO: nao consegui declarar consciencia de DPI. Se a escala da sua tela nao
+> for 100%, as coordenadas sairao erradas."
+
+`calibrar_mercado.py` nao testa nada; a variavel fica sem uso. Numa falha de DPI
+o scanner apenas le errado naquela execucao — mas o **calibrador grava** as
+coordenadas erradas no `calibration.json`, onde elas ficam. E a instancia em que
+o aviso vale mais, e e a unica das tres que nao o tem.
+
+**Fix:** copiar o bloco de `calibrar.py:824-826` para dentro de `main()`, antes
+de `calibrar(args)`.
+
+---
+
+### WR-08: `ANCORAS_SUGERIDAS` diz que a ferramenta "mostra cada regiao e o usuario confirma" — ela nao mostra
+
+**File:** `l2scanner/calibrar_mercado.py:95-103`, `535-542`, `592`
+
+**Issue:** a constante carrega `dx`/`dy` medidos em campo e a docstring afirma:
+
+> "Sao SUGESTOES pre-preenchidas, nao verdade: **a ferramenta mostra cada regiao
+> e o usuario confirma ou ajusta**."
+
+No laco de 535-540, `_dx` e `_dy` sao desempacotados e descartados; nada e
+pre-desenhado; `_marcar` abre um `selectROI` vazio. A unica coisa que sobrevive
+das medicoes e o texto `(sugerido: 100x28)`. Num codebase cuja docstring e o
+contrato, isto e uma afirmacao de comportamento inexistente — e ela importa
+porque a alternativa (desenhar o retangulo sugerido sobre o frame antes do
+arrasto) e uma defesa real contra CR-01.
+
+Acoplamento relacionado, na linha 592:
+
+```python
+cal.mercado_molde_da_ancora = molde_para_hex(ancoras[0].molde)
+```
+
+`ancoras[0]` so e o `titulo` porque `caixas` preserva a ordem de insercao de
+`ANCORAS_SUGERIDAS` e `titulo` esta primeiro. Reordenar a constante — o que a
+propria docstring de `localizar_painel` incentiva ("a ordem certa e a mais
+confiavel primeiro") — passa a gravar o molde de uma ancora ao lado do retangulo
+de outra, em `mercado_ancora`.
+
+**Fix:** ou desenhar a sugestao (e cumprir a docstring), ou corrigir a docstring
+para "sugestoes impressas no texto". E indexar por nome:
+
+```python
+molde_do_titulo = next(a.molde for a in ancoras if a.nome == "titulo")
+cal.mercado_molde_da_ancora = molde_para_hex(molde_do_titulo)
+```
+
+---
+
+### WR-09: `derivar_grade` devolve "1 linha" para uma grade degenerada e nunca confere contra o numero medido do layout
+
+**File:** `l2scanner/calibrar_mercado.py:237`
+
+**Issue:**
+
+```python
+linhas = max(1, galt // altura_da_linha)
+```
+
+O `max(1, ...)` transforma "a area da lista e menor que uma linha" — um retangulo
+obviamente marcado errado — em `linhas_por_pagina: 1`, gravado com a mesma
+confianca de um valor correto. Confirmado: grade de 20 px de altura com linha de
+45 px devolve `linhas_por_pagina: 1`.
+
+E a docstring **ja sabe a resposta certa**:
+
+> "10 linhas na grade de negociacao, passo de 45 px exatos; 9 na tela de busca"
+
+mas `layout` so e gravado, nunca usado para conferir. Com CR-01 em vigor (arrasto
+com ~5,7 px de granularidade), errar a altura da primeira linha em 5 px sobre
+450 px de grade ja troca 10 por 9 — silenciosamente, e a Fase 2 le uma linha a
+menos por pagina para sempre.
+
+**Fix:** recusar o degenerado e avisar alto sobre a divergencia do esperado.
+
+```python
+LINHAS_ESPERADAS = {"negociacao": 10, "adena": 10, "busca": 9}
+
+if altura_da_linha > galt:
+    raise MercadoNaoCalibravel(
+        f"a primeira linha ({altura_da_linha} px) e mais alta que a area da "
+        f"lista ({galt} px) — os dois retangulos parecem trocados. Remarque."
+    )
+linhas = galt // altura_da_linha
+esperado = LINHAS_ESPERADAS.get(layout)
+if esperado is not None and linhas != esperado:
+    print(
+        f"\nATENCAO: sairam {linhas} linhas por pagina, e o layout "
+        f"'{layout}' foi MEDIDO em campo com {esperado} (passo de 45 px). "
+        f"Confira a imagem de conferencia antes de confiar nesta grade."
+    )
+```
+
+---
+
+### WR-10: A leitura de mercado que EXPLODE some no `DEBUG` — sem o aviso unico que o vizinho tem
+
+**File:** `l2scanner/sessao.py:313-317`
+
+**Issue:**
+
+```python
+except Exception:
+    log.debug("Leitura do mercado falhou neste tick", exc_info=True)
+    return None
+```
+
+Dez linhas acima, o caminho irmao (recorte ausente) usa
+`_ja_avisou_do_mercado_sem_recorte` + `log.warning`, com um comentario que
+argumenta exatamente contra o que este `except` faz:
+
+> "Um vigia ligado que nunca recebe pixels e degradacao SILENCIOSA — o console
+> simplesmente nunca fala do mercado e o usuario conclui que o painel nunca
+> abriu."
+
+Um molde corrompido, uma janela num formato inesperado ou um `cv2.error`
+persistente produzem exatamente esse desfecho, para sempre, em `DEBUG` — que nao
+esta ligado num farm normal. `NUNCA LEVANTA` esta certo; ficar mudo nao.
+
+**Fix:** mesmo trilho do vizinho — um `WARNING` uma vez, `DEBUG` nos demais.
+
+```python
+except Exception:
+    if not self._ja_avisou_da_falha_do_mercado:
+        self._ja_avisou_da_falha_do_mercado = True
+        log.warning(
+            "Leitura do mercado falhando neste frame e provavelmente nos "
+            "proximos (molde corrompido ou janela em formato inesperado). "
+            "Rode calibrar-mercado.bat. Todo o resto do scanner continua igual.",
+            exc_info=True,
+        )
+    else:
+        log.debug("Leitura do mercado falhou neste tick", exc_info=True)
+    return None
+```
+
+---
+
+### WR-11: O portao do spike nao tem um unico teste
+
+**File:** `tools/conferir_spike_respostas.py` (modulo inteiro)
+
+**Issue:** o irmao dele, `tools/conferir_gravacoes_do_spike.py`, tem
+`tests/test_conferir_gravacoes_do_spike.py`. Este nao tem nada — nenhum arquivo
+de teste no repositorio o importa. E ele decide se as 9 respostas que sustentam
+a grade, os glifos e a forma da ancora se sustentam.
+
+CR-05 sobreviveu por causa disso: um unico teste com o texto `"NAO VERIFICADO"`
+o teria pego. O mesmo vale para a legenda-fora-da-contagem e para o
+fechamento-por-nivel-de-cabecalho, dois comportamentos que os comentarios do
+modulo descrevem como resultado de teste por mutacao — mas a mutacao foi feita a
+mao e nao ficou presa.
+
+**Fix:** `tests/test_conferir_spike_respostas.py` com, no minimo: selo negado
+(`NAO VERIFICADO`), zero selos, dois selos, secao positiva sem frame, frame
+citado inexistente, `..` no caminho, legenda com as tres palavras fora da
+contagem, e numeracao com um numero pulado.
+
+---
+
+### WR-12: `calibrar_mercado` reescreve o `calibration.json` inteiro sem escrita atomica nem backup
+
+**File:** `l2scanner/calibrar_mercado.py:605`, mecanismo em `l2scanner/calibracao.py:405-407`
+
+**Issue:** `Calibracao.salvar` faz `caminho.write_text(...)` direto sobre o
+arquivo final. Uma interrupcao no meio (Ctrl-C impaciente, disco cheio, antivirus
+segurando o handle) deixa um JSON truncado, e a proxima carga levanta
+"esta corrompido: recalibre" — para o **scanner de party inteiro**, nao so para o
+mercado. O que se perde e a party window, os limiares HSV afinados a mao contra o
+`Gamma=1.16` do usuario, o `hp_proprio` e as assinaturas de nome.
+
+Isso ja existia, mas esta fase muda o perfil de risco: o `calibration.json` era
+escrito uma vez, na calibracao inicial; agora ha um segundo escritor que o
+usuario roda repetidamente, com uma matriz de confusao que pode recusar no meio.
+
+**Fix:** escrita atomica, no lugar onde todos os escritores herdam.
+
+```python
+def salvar(self, caminho: Path) -> None:
+    dados = {...}
+    temporario = caminho.with_suffix(".json.tmp")
+    temporario.write_text(json.dumps(dados, indent=2, ensure_ascii=False), encoding="utf-8")
+    # os.replace e atomico no mesmo volume: ou o arquivo antigo inteiro, ou o
+    # novo inteiro. Um JSON truncado aqui derruba a calibracao de PARTY junto,
+    # e com ela os limiares HSV afinados a mao.
+    os.replace(temporario, caminho)
+```
+
+---
+
+### WR-13: `diagnosticar_selecao` le "processo caiu" como "defeito reproduzido"
+
+**File:** `tools/diagnosticar_selecao.py:161-186`
+
+**Issue:** o veredito de cada fase vem do `returncode` do subprocesso: `0` =
+PASSOU, `1` = FALHOU, `2` = ERRO. Mas `1` tambem e o codigo com que o CPython sai
+de **qualquer excecao nao tratada** — um `cv2.error`, um `ImportError`, um
+`FileNotFoundError` no `--gravacao`. Nesse caso a ferramenta imprime
+
+> "FALHOU -- voltou sozinho, sem esperar ninguem"
+> "CONCLUSAO: a tecla vem do NAVEGADOR DE FRAMES."
+
+que e uma conclusao afirmada sobre uma medicao que nunca aconteceu, na ferramenta
+escrita justamente para trocar "tenta mais um fix" por "mede qual hipotese e a
+verdadeira".
+
+**Fix:** codigos distintos e nao sobrepostos ao default do interpretador (por
+exemplo 10 = passou, 11 = falhou, 12 = erro esperado), e tratar qualquer outro
+valor como `ERRO` explicito:
+
+```python
+rotulo = {10: "PASSOU", 11: "FALHOU", 12: "ERRO"}.get(codigo, f"CRASH ({codigo})")
+```
+
+e so tirar conclusao quando as duas fases devolveram codigos conhecidos.
 
 ---
 
 ## Info
 
-### IN-01: `mercado_visao.py` has no production consumer, and neither does `mercado_geometria_da_captura`
+### IN-01: `_selecionar_regiao` chama `destroyAllWindows`, nao `destroyWindow`
 
-**File:** `l2scanner/mercado_visao.py` (whole module), `l2scanner/calibracao.py:251`
+**File:** `l2scanner/calibrar.py:430`
 
-**Issue:** Nothing under `l2scanner/` imports `mercado_visao`; only
-`tests/test_mercado_ancora.py` does. `mercado_geometria_da_captura` is
-documented as existing so that "o arranque RECUSAR a leitura de mercado com
-'recalibre'", but no startup path reads it. This is correct for a
-measurement-only phase and is not a defect today — flagged so it is tracked and
-does not quietly become dead code if Phase 4 changes direction.
+**Issue:** destroi janelas que a funcao nao criou. Hoje ninguem mantem janela
+aberta durante a selecao, entao e inofensivo — mas o `navegar_e_escolher` ja tem
+o cuidado de destruir so a sua (`calibrar_mercado.py:361`), e a assimetria e uma
+armadilha para o proximo chamador.
 
-**Fix:** None now. If Phase 4 slips, add a note in the module docstring naming
-the phase that will consume it.
+**Fix:** `cv2.destroyWindow(titulo)` dentro de um `try/except cv2.error`.
 
 ---
 
-### IN-02: "sem calibration.json" is reported when the file exists but is unreadable
+### IN-02: Dois blocos de comentario fundidos e deslocados do codigo que explicam
 
-**File:** `tools/conferir_gravacoes_do_spike.py:92-104` and `188-194`
+**File:** `l2scanner/calibrar.py:390-419`
 
-**Issue:** `dimensao_do_recorte_da_party` returns `None` for four different
-causes — file missing, unreadable, invalid JSON, and no `party_window` key —
-and `conferir_a_dimensao` then reports all four as "sem calibration.json nao da
-para provar...". A user with a corrupted `calibration.json` is told to run a
-calibration they may have already run.
+**Issue:** o paragrafo do `namedWindow/moveWindow` termina em
+"...em lugar nenhum previsivel." e a linha seguinte, sem linha em branco, abre
+"# ESVAZIA A FILA DE TECLAS ANTES DE ABRIR A SELECAO." — dois workarounds
+diferentes, de duas investigacoes diferentes, num bloco so. E o bloco inteiro
+esta **acima** do laco de dreno, enquanto o `namedWindow` que a primeira metade
+descreve so aparece 4 linhas depois. Num arquivo cujo comentario e o registro da
+medicao, isso e o rastro visivel de dois fixes empilhados — e o primeiro deles e
+o CR-01.
 
-**Fix:** Return a reason alongside the value, or print the swallowed
-`OSError`/`JSONDecodeError` to stderr before returning `None`.
-
----
-
-### IN-03: The structural contract test depends on PEP 563 string annotations
-
-**File:** `tests/test_gravador_honesto.py:81`
-
-**Issue:** `inspect.signature(Gravador.gravar).return_annotation == "bool"`
-compares against the *string* `"bool"`, which only holds because
-`gravador.py` has `from __future__ import annotations`. Removing that import —
-a plausible cleanup once the module drops its `TYPE_CHECKING` block — turns the
-annotation into the `bool` type and fails the test for a reason unrelated to
-the contract it guards.
-
-**Fix:** `assert inspect.signature(Gravador.gravar).return_annotation in ("bool", bool)`.
+**Fix:** separar os dois blocos e por cada um colado no seu codigo.
 
 ---
 
-### IN-04: `--record-janela` is silently ignored by `--so-agenda` and `--testar-manutencao`
+### IN-03: Escrita morta em `sessao.tick`
 
-**File:** `l2scanner/__main__.py:1883-1898`, `1909-1926`, `1960-1965`
+**File:** `l2scanner/sessao.py:244`
 
-**Issue:** The parse-time validation covers `--replay` and the missing
-`--janela`, but `--so-agenda` returns at line 1923 and `--testar-manutencao` at
-line 1962, both before `laco_principal` — so `python -m l2scanner --so-agenda
---record-janela --rotulo mercado-aberto` runs happily and records nothing. In
-the middle of the eight-session roteiro, that costs a session.
+**Issue:** `self.ultima_observacao = observacao` e a ultima instrucao do `try` e
+e sobrescrita incondicionalmente na linha 258 pela versao com
+`mercado_aberto_aparente`. Nenhum caminho le o valor intermediario.
 
-**Fix:** Add to the same validation block:
+**Fix:** remover a linha 244; o `except` acima ja garante que nada e publicado
+quando a extracao falha.
+
+---
+
+### IN-04: `calibrar-mercado.bat` — `%*` sem aspas e um byte corrompido no comentario
+
+**File:** `calibrar-mercado.bat:37`, `:41`
+
+**Issue:** (a) `".venv\Scripts\python.exe" -m l2scanner.calibrar_mercado %*` — um
+caminho de gravacao com espaco chega quebrado em dois argumentos. Hoje as pastas
+sao `recordings\AAAAMMDD-HHMMSS-rotulo`, sem espaco, mas `--frame` aceita
+qualquer caminho. (b) A linha 41 tem um byte fora do encoding (`0x97`) (`—` gravado em
+UTF-8 num arquivo lido como CP1252 pelo `cmd`), o que suja o comentario.
+
+**Fix:** (a) documentar que caminhos com espaco precisam de aspas, ou passar
+`%*` ja entre aspas; (b) usar `--` em vez de travessao nos `.bat`.
+
+---
+
+### IN-05: `matriz_de_confusao` pode gravar um limiar 0.0 que o proprio carregador recusa
+
+**File:** `l2scanner/calibrar_mercado.py:181-196`
+
+**Issue:** `pior = -1.0` e sentinela. Se todo par pontuar exatamente `-1.0`
+(moldes perfeitamente anticorrelacionados), o `if score > pior` nunca dispara:
+`par` fica `None` e `limiar_sugerido` sai `(1.0 + -1.0) / 2 == 0.0`. Gravado,
+`_conferir_as_chaves_de_mercado` recusa `0.0` (faixa valida `(0, 1]`) e a
+calibracao acabada de gravar nao carrega mais — sem caminho de saida, ja que o
+criterio do ROADMAP e "sem editar JSON a mao". Improvavel, mas o custo e o
+arquivo inutilizado.
+
+**Fix:** usar `pior = None` e `if par is None or score > pior`.
+
+---
+
+### IN-06: `RastreioDoPainel._varrer` guarda a origem mesmo quando o voto sai FECHADO
+
+**File:** `l2scanner/mercado_visao.py:509-514`
+
+**Issue:** quando `localizar_painel` acha uma origem cujas ancoras todas
+abstem-se (painel encostado na borda da janela), `self._origem = origem` e
+gravado e o voto devolvido tem `aberto=False`. A propriedade publica `origem`
+passa a dizer "rastreado" para um painel que o modulo acabou de declarar
+invisivel, e o proximo tick paga uma conferencia inutil antes de varrer de novo.
+
+**Fix:** so persistir a origem quando o voto confirma:
 
 ```python
-if args.record and (args.so_agenda or args.testar_manutencao):
-    parser.error(
-        "--record/--record-janela nao valem com --so-agenda nem com "
-        "--testar-manutencao: nenhum dos dois entra no laco que grava."
-    )
+voto = conferir_painel(janela, origem, self._ancoras, self._limiar)
+if voto.aberto:
+    self._origem = origem
+return voto
 ```
 
 ---
 
-### IN-05: The `.venv` sweep skips on a bare directory check
-
-**File:** `tests/test_firewall_escopo.py:186-192`
-
-**Issue:** `test_o_venv_de_producao_nao_tem_biblioteca_de_input` skips whenever
-`.venv/Lib/site-packages` is absent. The skip message frames it as "num clone
-limpo ou em CI", but it also fires if the venv is relocated or created with a
-non-Windows layout — and the sweep that the module docstring calls "a varredura
-que fecha o buraco" then reports green-by-skip forever. Low severity here
-because `vigiar-party.bat:48-55` hardcodes the same `.venv\Scripts` path and
-the directory exists on this machine.
-
-**Fix:** Skip only when no `.venv` exists at all, and fail loudly when a
-`.venv` is present but its `site-packages` cannot be located:
-
-```python
-if (RAIZ / ".venv").is_dir() and not SITE_PACKAGES_DO_VENV.is_dir():
-    candidatos = list((RAIZ / ".venv").glob("**/site-packages"))
-    assert candidatos, (
-        f"existe um .venv mas nao achei site-packages nele — a varredura que "
-        f"cobre o ambiente de producao esta cega, nao verde"
-    )
-```
-
----
-
-_Reviewed: 2026-08-27_
+_Reviewed: 2026-08-28_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
