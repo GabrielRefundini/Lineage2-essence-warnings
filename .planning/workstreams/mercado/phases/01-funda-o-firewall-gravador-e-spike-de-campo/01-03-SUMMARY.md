@@ -44,7 +44,7 @@ key-decisions:
   - "mercado_grade precisa gravar QUAL layout esta lendo: sao tres conjuntos de coluna diferentes"
   - "O banco da Fase 3 guarda Total e Quantity e DERIVA o unitario -- o unitario exibido e arredondado a 2 casas e nao reconstroi o total"
   - "A desambiguacao da virgula vem do sufixo (XM Coin / Adena), nao do numero"
-  - "status: halted -- a Task 2 e o portao humano de D-04 e nada do 01-04 roda antes dele"
+  - "Portao D-04 cumprido pelo usuario em 2026-08-28: 4 secoes corrigidas, 3 decisoes de desenho novas, 01-04 desbloqueado"
 
 patterns-established:
   - "Prova de vermelho por mutacao antes de confiar no verde: 3 mutacoes, e uma delas encontrou um bug REAL no proprio portao"
@@ -61,7 +61,7 @@ coverage:
         ref: "python tools/conferir_spike_respostas.py --raiz <checkout> -> exit 0, 41 caminhos resolvidos, tabela de 9 secoes"
         status: pass
     human_judgment: true
-    rationale: "O portao prova que os frames citados EXISTEM; ele nao prova que a resposta descreve corretamente o que o frame mostra. So quem conhece o jogo compara a resposta com a realidade -- e e exatamente isso que a Task 2 (D-04, gate blocking-human) existe para colher. Ate o 'validado' do usuario, todo selo positivo deste documento e uma PROPOSTA."
+    rationale: "CUMPRIDO em 2026-08-28. O usuario revisou secao por secao e validou; as respostas deixaram de ser proposta. Placar final 8 VERIFICADO + 1 NAO RESPONDIDO (secao 6, fraca de proposito). Quatro secoes mudaram no processo -- ver a lista de correcoes abaixo."
   - id: D2
     description: "Portao executavel que recusa evidencia nao confirmada: caminho inventado, selo positivo sem frame, e legenda contando como resposta"
     requirement: "FUND-02"
@@ -111,7 +111,7 @@ coverage:
 
 duration: ~75 min
 completed: 2026-08-28
-status: halted
+status: complete
 ---
 
 # Phase 1 Plan 3: As respostas do spike, e a medição que derruba a âncora — Summary
@@ -123,13 +123,53 @@ status: halted
 | Task | O que é | Estado |
 |---|---|---|
 | 1 | `SPIKE-RESPOSTAS.md` + `tools/conferir_spike_respostas.py` | **COMPLETA**, commitada em `10b3b50` |
-| 2 | `checkpoint:human-action` `gate="blocking-human"` — o usuário valida ou corrige | **AGUARDANDO O USUÁRIO** |
+| 2 | `checkpoint:human-action` `gate="blocking-human"` — o usuário valida ou corrige | **COMPLETA** — cumprida em 2026-08-28 |
 
 A Task 2 é a decisão travada D-04: eu analiso os frames e **proponho**; quem valida é o
-usuário. Ela não foi executada, simulada nem contornada. `status: halted` no frontmatter é
-deliberado e mecânico: o `01-04` declara `depends_on` deste plano, então enquanto este
-resumo não disser `complete` o `01-04` não é oferecido ao executor. É a D-04 virando
-trava, em vez de recomendação.
+usuário. Ela não foi executada, simulada nem contornada por nenhum agente — **o usuário a
+cumpriu**, revisando seção por seção numa conversa. Placar final: **8 VERIFICADO,
+1 NAO RESPONDIDO**.
+
+### O que a validação humana mudou (e por que ela existia)
+
+Quatro seções mudaram, e três decisões de desenho novas saíram daqui. Nenhuma delas era
+alcançável por análise de frame — todas dependiam de conhecimento de jogo:
+
+**Seção 2 — o enquadramento estava exagerado.** Eu havia escrito que a vírgula servindo de
+milhar e decimal na mesma linha era "o achado mais perigoso". O usuário corrigiu: não é um
+problema, é uma especificação; só seria perigoso para um parser ingênuo. O ganho real, que
+minha redação não viu: a regra de agrupamento (3 dígitos = milhar, 2 = decimal) vira uma
+TRAVA DE VALIDAÇÃO — um dígito perdido pelo template matching viola a regra e a linha é
+descartada em vez de virar número plausível. Decisões travadas: exibição no padrão
+brasileiro (`5.000.000` e `62,00`) e armazenamento em inteiros, nunca float.
+
+**Seção 5 — a tela de busca foi RECUSADA como fonte.** `Minimal price (per unit)` +
+`Auction List` classificados pelo usuário como informação não confiável. Consequência: uma
+única origem de observação no schema, sem tabela de sondagem. Pré-recusa deliberada, porque
+essa tela vai parecer tentadora na Fase 4.
+
+**Seção 6 — a idade do anúncio perdeu a urgência.** O usuário confirmou que o jogo não dá o
+tempo, e propôs registrar itens e valores a cada abertura do mercado, carimbando com o nosso
+relógio. Isso converge com PERS-01/PERS-02/ANAL-03 já travados — inclusive o duplicado que
+ele previu já tem solução (`INSERT OR IGNORE`). O anúncio no chat ficou registrado como
+ideia adiada: é fonte de EVENTO (pega o item vendido entre duas aberturas), mas exige OCR
+aberto, que está em Out of Scope.
+
+**Seção 7 — o truncamento não tem população.** O usuário respondeu por conhecimento de
+campo: nenhum item tem nome com reticências nem nome tão grande. A trava estrutural foi
+aceita mesmo assim, porque custa zero: nome encostando na borda da coluna descarta a linha.
+
+**Seção 8 — a descoberta que muda a Wave 4.** O usuário confirmou que o painel **reabre onde
+foi fechado**. A posição é estável dentro da sessão, e isso destrava o desenho: aquisição por
+varredura da janela inteira (cara, rara) + seguimento barato da posição conhecida (todo
+tick) + reaquisição só quando o seguimento falha. Resolve os ~45 ms sem supor painel fixo —
+que ele comprovadamente não é (827 x 831 px, 34 posições).
+
+E o diagnóstico da margem negativa mudou: a culpa não era do limiar 0,73, era de depender de
+UM retângulo — a faixa de título, justamente o que a tooltip cobriu. A correção é várias
+âncoras independentes com votação. O usuário se ofereceu para evitar o mouse no meio da
+lista; isso foi aceito como redução de ruído e **explicitamente recusado como mecanismo de
+correção**, porque este projeto não troca falha-fechada por disciplina do usuário.
 
 ## Performance
 
@@ -404,7 +444,7 @@ Nenhuma superfície nova além do `<threat_model>` do plano.
 | Ameaça | Estado |
 |---|---|
 | T-03-01 Repudiation no selo de evidência | **MITIGADA** — o portão resolve os 41 caminhos com `Path.exists()`, exige ao menos um frame por selo positivo, e conta selos só dentro das 9 seções numeradas. Prova de vermelho nas três frentes |
-| T-03-02 Tampering: respostas consumidas sem validação humana | **ATIVA POR DESENHO** — a Task 2 (`gate="blocking-human"`) não foi executada nem contornada, e `status: halted` trava o `01-04` mecanicamente |
+| T-03-02 Tampering: respostas consumidas sem validação humana | **MITIGADA** — a Task 2 (`gate="blocking-human"`) foi cumprida pelo usuário em 2026-08-28, seção por seção, antes de qualquer código do `01-04` ler as respostas |
 | T-03-03 Information Disclosure nos caminhos citados | **MITIGADA** — só caminhos entram no documento; zero PNG commitado, conferido no `git status` (só os 2 arquivos do plano) |
 | T-03-04 DoS sobre caminho hostil | **MITIGADA** — o portão só chama `Path.exists()`; não abre, não decodifica e não executa nada |
 | T-03-SC Tampering na árvore de dependências | **VAZIA por construção** — zero instalações; `requirements.txt` byte-idêntico |
