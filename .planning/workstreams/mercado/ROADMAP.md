@@ -85,7 +85,7 @@ Plans:
 
   1. Após uma sessão, o usuário consulta `mercado.db` e vê snapshots com carimbo do relógio ancorado e observações com preço total e quantidade em colunas separadas (unitário derivado, nunca confundido)
   2. Reler ou revisitar a mesma página não aumenta a contagem de observações — o usuário pode contar antes e depois e ver o mesmo número (`INSERT OR IGNORE` por chave de conteúdo)
-  3. Duas instâncias escrevendo na mesma pasta ao mesmo tempo não corrompem nem travam o banco — o teste de martelo com 2 processos passa (WAL + `busy_timeout`)
+  3. Duas instâncias escrevendo na mesma pasta ao mesmo tempo não corrompem nem travam o banco — o teste de martelo com 2 processos passa (WAL + `busy_timeout`). **Rebaixado de exigência de desenho a seguro barato em 2026-08-28**: o usuário corrigiu que o mercado lê SEMPRE do Yazalaque, então há um único escritor. O teste continua porque custa pouco e cobre o `--mercado` aberto duas vezes por engano
   4. Com o banco propositalmente quebrado (arquivo travado ou read-only), o usuário vê o aviso alto de que a feature de mercado desligou — e os alertas de party continuam chegando normalmente
 
 **Plans**: TBD

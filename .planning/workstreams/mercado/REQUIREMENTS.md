@@ -31,7 +31,25 @@ Requisitos do milestone v1-mercado. Cada um mapeia para uma fase do roadmap.
 
 ### Persistência
 
-- [ ] **PERS-01**: Observações gravadas como snapshots com carimbo do relógio ancorado, em SQLite (WAL) compartilhável entre as duas instâncias
+- [ ] **PERS-01**: Observações gravadas como snapshots com carimbo do relógio ancorado, em SQLite
+
+> **CORRIGIDO PELO USUÁRIO (2026-08-28): o mercado lê SEMPRE do Yazalaque, nunca da
+> Faerlina.** A redação original dizia "compartilhável entre as duas instâncias" e usava a
+> escrita concorrente como justificativa do SQLite. Isso estava errado: há **um único
+> escritor**. As duas instâncias de party seguem existindo (é a razão da AGEN-07), mas
+> nenhuma delas escreve dado de mercado.
+>
+> **O SQLite continua, por outros três motivos, e cada um sozinho já basta:** a dedup da
+> PERS-02 em CSV exigiria reler o arquivo inteiro a cada escrita (custo linear que cresce
+> com o histórico) contra um índice `UNIQUE` de custo constante; as consultas de ANAL-01 a
+> ANAL-03 rodam a cada tick com o mercado aberto e em CSV seriam um reparse completo; e um
+> append de CSV interrompido no meio trunca a última linha e corrompe o arquivo em silêncio
+> — a classe de falha que a Fase 1 inteira combateu.
+>
+> **WAL + `busy_timeout` ficam mesmo assim**, rebaixados de exigência de desenho a seguro
+> barato: custam duas linhas e protegem do usuário abrir `--mercado` duas vezes sem querer,
+> ou de um processo velho não ter morrido. O que muda é que deixaram de ser o motivo da
+> escolha.
 - [ ] **PERS-02**: Revisitar uma página não duplica observações (dedup por chave de conteúdo na inserção, `INSERT OR IGNORE`)
 - [ ] **PERS-03**: Falha de banco desliga só a feature de mercado e avisa — nunca derruba o núcleo de alertas
 
