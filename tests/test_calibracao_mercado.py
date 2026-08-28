@@ -226,3 +226,84 @@ class TestAsChavesDeMercadoSaoENTRADA_NAO_CONFIAVEL:
         assert cal.mercado_molde_da_ancora is None
         assert cal.mercado_limiar_da_ancora is None
         assert cal.mercado_geometria_da_captura is None
+
+
+class TestAEscritaAtomicaDoCalibrationJson:
+    """WR-12: um JSON truncado aqui derruba a calibracao de PARTY junto.
+
+    `Calibracao.salvar` fazia `caminho.write_text(...)` direto sobre o arquivo
+    final. Uma interrupcao no meio -- Ctrl-C impaciente, disco cheio, antivirus
+    segurando o handle -- deixa um JSON truncado, e a proxima carga levanta
+    "esta corrompido: recalibre" para o SCANNER INTEIRO. O que se perde e a
+    party window, os limiares HSV afinados a mao contra o Gamma da tela do
+    usuario, o `hp_proprio` e as assinaturas de nome.
+
+    O risco ja existia; esta fase mudou o PERFIL dele. O calibration.json era
+    escrito uma vez, na calibracao inicial; agora ha um segundo escritor que o
+    usuario roda repetidamente.
+    """
+
+    def _referencia(self, destino: Path):
+        from l2scanner.calibracao import Calibracao
+
+        origem = Path(__file__).parent / "fixtures" / "calibracao_de_referencia.json"
+        destino.write_text(origem.read_text(encoding="utf-8"), encoding="utf-8")
+        return Calibracao.carregar(destino)
+
+    def test_uma_escrita_interrompida_preserva_o_arquivo_ANTERIOR(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        import json as _json
+        import os
+
+        destino = tmp_path / "calibration.json"
+        cal = self._referencia(destino)
+        antes = destino.read_text(encoding="utf-8")
+
+        def morrer(_origem, _destino):
+            raise KeyboardInterrupt("o usuario perdeu a paciencia")
+
+        monkeypatch.setattr(os, "replace", morrer)
+
+        with pytest.raises(KeyboardInterrupt):
+            cal.salvar(destino)
+
+        assert destino.read_text(encoding="utf-8") == antes, (
+            "a calibracao anterior foi danificada por uma escrita interrompida"
+        )
+        # O que importa e o arquivo carregar; o temporario e detrito visivel.
+        _json.loads(destino.read_text(encoding="utf-8"))
+
+    def test_uma_escrita_normal_nao_deixa_temporario_para_tras(
+        self, tmp_path: Path
+    ):
+        destino = tmp_path / "calibration.json"
+        cal = self._referencia(destino)
+
+        cal.salvar(destino)
+
+        sobrando = [p.name for p in tmp_path.iterdir() if p.name != destino.name]
+        assert sobrando == [], f"a gravacao deixou lixo na pasta: {sobrando}"
+
+    def test_o_conteudo_gravado_continua_o_mesmo(self, tmp_path: Path):
+        """A troca de mecanica nao pode mudar o que sai no arquivo."""
+        import json as _json
+
+        from l2scanner.calibracao import Calibracao
+
+        destino = tmp_path / "calibration.json"
+        cal = self._referencia(destino)
+        cal.salvar(destino)
+
+        recarregada = Calibracao.carregar(destino)
+        assert recarregada.party_window == cal.party_window
+        assert recarregada.limiares_hp == cal.limiares_hp
+        assert _json.loads(destino.read_text(encoding="utf-8"))["versao"] == (
+            _json.loads(
+                (
+                    Path(__file__).parent
+                    / "fixtures"
+                    / "calibracao_de_referencia.json"
+                ).read_text(encoding="utf-8")
+            )["versao"]
+        )

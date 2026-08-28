@@ -13,6 +13,7 @@ coisa — e o scanner se recusa a iniciar em vez de medir a regiao errada calado
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -401,9 +402,30 @@ class Calibracao:
             "mercado_templates_de_digito": self.mercado_templates_de_digito,
             "mercado_limiar_de_template": self.mercado_limiar_de_template,
         }
-        caminho.write_text(
+        # ESCRITA ATOMICA, NO LUGAR ONDE TODOS OS ESCRITORES HERDAM.
+        #
+        # `caminho.write_text` direto sobre o arquivo final deixa um JSON
+        # TRUNCADO se a escrita for interrompida no meio -- Ctrl-C impaciente,
+        # disco cheio, antivirus segurando o handle. A proxima carga levanta
+        # "esta corrompido: recalibre", e nao so para o mercado: para o SCANNER
+        # DE PARTY INTEIRO. O que se perde e a party window, os limiares HSV
+        # afinados a mao contra o Gamma da tela do usuario, o `hp_proprio` e as
+        # assinaturas de nome -- tudo desconhecivel a priori e caro de refazer.
+        #
+        # O risco ja existia; o que mudou foi o PERFIL dele. O calibration.json
+        # era escrito uma vez, na calibracao inicial. Agora ha um segundo
+        # escritor (`calibrar_mercado`) que o usuario roda repetidamente, e que
+        # pode recusar no meio do caminho.
+        #
+        # `os.replace` e atomico no mesmo volume: ou fica o arquivo antigo
+        # inteiro, ou o novo inteiro. Nunca meio. O temporario vive ao lado do
+        # destino, e nao no %TEMP%, porque `os.replace` entre volumes
+        # diferentes nao e atomico (e no Windows nem funciona).
+        temporario = caminho.with_name(caminho.name + ".tmp")
+        temporario.write_text(
             json.dumps(dados, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+        os.replace(temporario, caminho)
 
     @classmethod
     def carregar(cls, caminho: Path) -> "Calibracao":
