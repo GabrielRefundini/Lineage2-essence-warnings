@@ -43,11 +43,11 @@ do outro), a pesquisa custaria a pesquisa do mercado e nao compraria nada.
 
 - [ ] **PONTE-01**: A ponte conecta no Discord com um token de bot proprio e
       permanece conectada enquanto o processo roda.
-- [ ] **PONTE-02**: A ponte le mensagens novas dos dois canais configurados e
+- [x] **PONTE-02**: A ponte le mensagens novas dos dois canais configurados e
       ignora todo o resto do servidor.
-- [ ] **PONTE-03**: TODA mensagem postada nesses canais e replicada — sem filtro
+- [x] **PONTE-03**: TODA mensagem postada nesses canais e replicada — sem filtro
       de autor, de cargo ou de mencao.
-- [ ] **PONTE-04**: A ponte ignora as mensagens que ela mesma enviou, mas ACEITA
+- [x] **PONTE-04**: A ponte ignora as mensagens que ela mesma enviou, mas ACEITA
       mensagens de outros bots e webhooks — anuncio de guild costuma ser postado
       por bot, e descartar bot descartaria o caso principal.
 - [ ] **PONTE-05**: A ponte roda como processo separado do scanner. Subir, cair
@@ -83,9 +83,9 @@ do outro), a pesquisa custaria a pesquisa do mercado e nao compraria nada.
 
 ### Configuracao
 
-- [ ] **CONF-01**: O token do bot do Discord fica no `.env`, nunca no
+- [x] **CONF-01**: O token do bot do Discord fica no `.env`, nunca no
       `config.toml` — mesma regra que ja vale para o token do Chatwoot.
-- [ ] **CONF-02**: Guild, canais e conversa de destino ficam no `config.toml`,
+- [x] **CONF-02**: Guild, canais e conversa de destino ficam no `config.toml`,
       em secao propria.
 - [ ] **CONF-03**: Config invalida ou faltando falha no ARRANQUE, alto e claro,
       dizendo qual chave falta e como consertar. Nunca silenciosamente sem
@@ -95,7 +95,7 @@ do outro), a pesquisa custaria a pesquisa do mercado e nao compraria nada.
 
 ### Operacao
 
-- [ ] **OPER-01**: A ponte sobe por um `.bat` proprio, no mesmo padrao dos
+- [x] **OPER-01**: A ponte sobe por um `.bat` proprio, no mesmo padrao dos
       `.bat` que ja existem na raiz.
 - [ ] **OPER-02**: A ponte escreve log rotativo proprio, separado do log do
       scanner.
@@ -128,11 +128,11 @@ Preenchida na criacao do roadmap (2026-08-28).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PONTE-01 | Phase 1 | Pending |
-| PONTE-02 | Phase 1 | Pending |
-| PONTE-03 | Phase 1 | Pending |
-| PONTE-04 | Phase 1 | Pending |
-| PONTE-05 | Phase 1 | Pending |
+| PONTE-01 | Phase 1 | Pending (bloqueada no portao humano; codigo pronto no 01-01) |
+| PONTE-02 | Phase 1 | Complete (01-01) |
+| PONTE-03 | Phase 1 | Complete (01-01) |
+| PONTE-04 | Phase 1 | Complete (01-01) |
+| PONTE-05 | Phase 1 | Pending (bloqueada no portao humano; codigo pronto no 01-01) |
 | FORM-01 | Phase 2 | Pending |
 | FORM-02 | Phase 2 | Pending |
 | FORM-03 | Phase 2 | Pending |
@@ -142,11 +142,11 @@ Preenchida na criacao do roadmap (2026-08-28).
 | ENTR-02 | Phase 3 | Pending |
 | ENTR-03 | Phase 3 | Pending |
 | ENTR-04 | Phase 1 | Pending |
-| CONF-01 | Phase 1 | Pending |
-| CONF-02 | Phase 1 | Pending |
+| CONF-01 | Phase 1 | Complete (01-01) |
+| CONF-02 | Phase 1 | Complete (01-01) |
 | CONF-03 | Phase 1 | Pending |
 | CONF-04 | Phase 1 | Pending |
-| OPER-01 | Phase 1 | Pending |
+| OPER-01 | Phase 1 | Complete (01-01) |
 | OPER-02 | Phase 1 | Pending |
 | OPER-03 | Phase 1 | Pending |
 
