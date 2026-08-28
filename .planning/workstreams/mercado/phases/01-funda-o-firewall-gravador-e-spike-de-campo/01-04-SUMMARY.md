@@ -18,12 +18,15 @@ provides:
   - "Calibracao.conferir_geometria_do_mercado: a leitura recusa com 'recalibre' quando a janela muda de tamanho"
   - "tests/test_mercado_27x.py: as DUAS metades do criterio 4 do ROADMAP presas no mesmo arquivo, mais o tripwire de arquitetura"
   - "config.toml: secao [mercado] watchlist comentada, para o portao humano ter onde escrever"
+  - "Observacao.mercado_aberto_aparente: bool | None — o campo EXIBICIONAL do DETC-01, no molde de hp_proprio_aparente"
+  - "Sessao(mercado=...): o RastreioDoPainel entra no tick DEPOIS de o rastreador ja ter decidido, e nunca levanta"
+  - "__main__.montar_vigia_do_mercado + extra 'mercado_janela' + a linha 'WORLD EXCHANGE ABERTO (aparente)' no console"
 affects: [fase 2 leitura da grade, fase 4 consumidor de oclusao e modo --mercado]
 
 actuals:
-  tokens: 96000
-  tasks: 1
-  commits: 5
+  tokens: 118000
+  tasks: 3
+  commits: 6
 
 tech-stack:
   added: []
@@ -48,6 +51,9 @@ key-files:
     - l2scanner/mercado_visao.py
     - l2scanner/calibracao.py
     - l2scanner/calibrar.py
+    - l2scanner/visao.py
+    - l2scanner/sessao.py
+    - l2scanner/__main__.py
     - config.toml
 
 key-decisions:
@@ -56,9 +62,15 @@ key-decisions:
   - "Tres ancoras: faixa de titulo, botao de fechar e canto inferior direito. As duas ancoras de arte chapada (cantos esquerdos) foram medidas e DESCARTADAS por casarem 0.8050 e 0.6881 contra grama"
   - "Perder o seguimento varre no MESMO tick; a cadencia de 3 ticks vale so para a varredura ociosa"
   - "A oferta do usuario de nao passar o mouse no meio da lista foi aceita como REDUCAO DE RUIDO e recusada como mecanismo de correcao"
-  - "Task 3 do plano (campo exibicional em visao.py e extra em __main__.py) NAO foi executada: ela vem depois do portao humano da Task 2, e a lista de proibicoes desta execucao inclui visao.py"
+  - "Task 3 executada em 2026-08-28, depois do portao humano da Task 2 (ver deviation #2). visao.py e autorizado APENAS aqui, e apenas para acrescentar o campo"
+  - "O campo e preenchido em sessao.py, NAO em extrair(): o painel nao esta na party window e o RastreioDoPainel tem ESTADO. Precedente literal de estado_do_cliente, que ja entra por replace() no mesmo tick (deviation #8)"
+  - "O preenchimento acontece DEPOIS de rastreador.observar(): nessa posicao e estruturalmente impossivel o sinal influenciar os eventos do tick, porque a lista ja existe"
+  - "O extra e a JANELA INTEIRA ('mercado_janela'), nao o retangulo mercado_ancora que o plano escreveu: o painel anda 181 px entre f000 e f005 do proprio incidente (deviation #9)"
+  - "So no caminho --janela. No caminho mss cada extra custa uma captura PROPRIA por tick, e 1720x1392 por segundo para uma linha de console e caro pelo motivo errado"
+  - "None e False sao estados DIFERENTES e nao podem ser achatados: None = ninguem perguntou, False = olhei e nao esta. Sem isso a Fase 4 nao separa 'mercado fechado' de 'mercado nao calibrado'"
+  - "O console so fala quando o mercado esta ABERTO: False e o estado normal do farm inteiro, e uma linha permanente empurraria as linhas de HP para fora da tela"
 
-requirements-completed: []
+requirements-completed: [DETC-01]
 
 coverage:
   - id: D1
@@ -144,16 +156,47 @@ coverage:
     requirement: "FUND-03"
     verification: []
     human_judgment: true
-    rationale: "PORTAO HUMANO ABERTO (Task 2, gate=blocking-human). A ferramenta esta construida e testada, mas as regioes sao marcadas com o mouse em cv2.selectROI e nenhum teste prova que os retangulos caem no lugar certo — so o olho faz isso. NAO foi executado, simulado nem contornado."
+    rationale: "PORTAO HUMANO CUMPRIDO em 2026-08-28. O usuario abortou tres vezes por um defeito real (o ENTER do navegador vazava para o selectROI, corrigido em 03b3e26) e entao delegou explicitamente. As cinco regioes foram MEDIDAS, nao marcadas a olho, e a imagem de conferencia foi aberta antes de aceitar."
+  - id: D8
+    description: "O sinal chega ao caminho da party como campo EXIBICIONAL e nenhuma decisao sai dele"
+    requirement: "DETC-01"
+    verification:
+      - kind: unit
+        ref: "tests/test_mercado_27x.py#TestMetade3_OCampoEExibicional (3 casos: o sinal chega e zero eventos saem; fechado da False e nao None; 60 ticks com o painel aberto por cima da barra e lista de eventos VAZIA)"
+        status: pass
+      - kind: unit
+        ref: "tests/test_mercado_27x.py#TestODegenerado_SemCalibracaoDeMercadoNadaMuda (3 casos: sem vigia None; sem o extra None; vigia que EXPLODE nao derruba a leitura da party)"
+        status: pass
+      - kind: unit
+        ref: "tests/test_mercado_27x.py#TestORastreadorNaoLeOMercado — o fonte de rastreador.py nao cita 'mercado' nem 'mercado_visao'"
+        status: pass
+      - kind: other
+        ref: "git diff l2scanner/visao.py: 34 insercoes, 0 delecoes. barra_propria_legivel, _moldura_da_barra_propria e _bordas_da_barra_intactas intocados (D-10)"
+        status: pass
+    human_judgment: false
+  - id: D9
+    description: "A superficie no console e no arranque: uma linha marcada, e uma instalacao sem mercado que nao paga nada"
+    requirement: "DETC-01"
+    verification:
+      - kind: unit
+        ref: "tests/test_mercado_27x.py#TestAMontagemDoVigiaNoArranque (4 casos: sem ancoras, sem --janela, ancoras corrompidas, limiar da calibracao respeitado)"
+        status: pass
+      - kind: unit
+        ref: "tests/test_mercado_27x.py#TestASuperficieNoConsole (3 casos: aberto aparece MARCADO '(aparente)'; False e None nao ocupam linha)"
+        status: pass
+      - kind: other
+        ref: "replay de producao sobre recordings/inv3 pelo TICK DE PRODUCAO (Sessao.tick): 45 recortes de party, mercado_aberto_aparente True nos 10 primeiros e False depois, lista de eventos VAZIA"
+        status: pass
+    human_judgment: false
 
-duration: ~2 h
+duration: ~2 h 40 min
 completed: 2026-08-28
-status: in_progress
+status: complete
 ---
 
 # Phase 1 Plan 4: A âncora do mercado por votação, e o critério 4 fechado — Summary
 
-**A âncora do painel deixou de ser um retângulo e virou uma votação entre três: a margem de campo saiu de −0,0643 para +0,3700 sem que o limiar 0,73 mudasse uma casa decimal. No replay do incidente 27x o painel é reconhecido nos dois frames em que está aberto e o rastreador emite ZERO eventos — as duas metades do critério 4 presas pelo mesmo arquivo. O plano para aqui, no portão humano da Task 2.**
+**A âncora do painel deixou de ser um retângulo e virou uma votação entre três: a margem de campo saiu de −0,0643 para +0,3700 sem que o limiar 0,73 mudasse uma casa decimal. No replay do incidente 27x o painel é reconhecido nos dois frames em que está aberto e o rastreador emite ZERO eventos — as duas metades do critério 4 presas pelo mesmo arquivo. E o sinal agora chega ao console do usuário como uma linha de texto marcada `(aparente)`, por um caminho que passa DEPOIS da decisão do rastreador — o campo é exibicional, o detector de morte não o lê, e há um tripwire de arquitetura que quebra se ele passar a ler.**
 
 ## PORTAO DE CALIBRACAO CUMPRIDO (2026-08-28)
 
@@ -196,14 +239,14 @@ gravado veio de uma matriz de confusao VAZIA e nao significa nada — ele so pas
 quando houver moldes. Recalibrar depois de escrever a watchlist e um passo esperado, nao
 retrabalho.
 
-## ESTADO: PARADO NO PORTÃO HUMANO (por desenho, não por falha)
+## ESTADO: PLANO COMPLETO
 
 | Task | O que é | Estado |
 |---|---|---|
 | 1 | Auxiliar de seleção compartilhado + `calibrar_mercado.py` + `.bat` + matriz de confusão | **COMPLETA**, commitada |
 | — | Detecção multi-âncora medida + regressão do 27x (antecipadas da Task 3, ver deviation #2) | **COMPLETA**, commitada |
-| 2 | `checkpoint:human-action` `gate="blocking-human"` — o usuário roda a calibração e confere a imagem | **ABERTA** — é aqui que o plano para |
-| 3 | Campo exibicional em `visao.py` + extra em `__main__.py` | **NÃO INICIADA**, por desenho (ver deviation #2) |
+| 2 | `checkpoint:human-action` `gate="blocking-human"` — o usuário roda a calibração e confere a imagem | **CUMPRIDA** em 2026-08-28 |
+| 3 | Campo exibicional em `visao.py` + vigia no `sessao.py` + extra e console no `__main__.py` | **COMPLETA**, commit `f54ba5c` |
 
 ## A MUDANÇA DE DESENHO, E POR QUE ELA É UMA CORREÇÃO E NÃO UM DESVIO
 
@@ -322,6 +365,38 @@ afirmasse isso não prenderia nada do DETC-01.
   `MORREU` não prova ausência de `RESSUSCITOU`, e a quick `260826-dxm` pagou 27 de cada.
 - **Tripwire de arquitetura** — o fonte de `l2scanner.rastreador` não cita `mercado` nem
   importa `mercado_visao`. Se um dia citar, este teste cai.
+- **Metade 3 (Task 3)** — as duas metades acima medem os dois lados separados. A metade 3
+  mede o que o **usuário roda**: o mesmo `Sessao.tick` vendo o painel **e** as barras
+  cobertas, 60 ticks seguidos, `mercado_aberto_aparente is True` em todos e a lista de
+  eventos ainda **vazia**. Se alguém ligar o sinal ao rastreador, é aqui que aparece.
+
+### O replay do 27x pelo TICK DE PRODUÇÃO (Task 3)
+
+Não só o detector isolado: o `Sessao.tick` inteiro, com os 45 recortes reais de party de
+`recordings/inv3/` e os frames de janela correspondentes entrando como extra.
+
+```
+=== METADE 1: os frames de JANELA reais do 27x ===
+  f000_JANELA.png  World Exchange ABERTO  melhor=0.9999  origem=(912, 350)
+                   [titulo=0.9999 botao_fechar=0.9765 canto_inf_dir=0.8534]
+  f005_JANELA.png  World Exchange ABERTO  melhor=0.9996  origem=(731, 493)
+                   [titulo=0.9996 botao_fechar=0.9782 canto_inf_dir=0.5285]
+  f010..f040       fechado                melhor=0.0000  origem=None
+
+=== METADE 2: a sequencia de party real, pelo tick de producao ===
+  45 recortes de party reproduzidos
+  mercado_aberto_aparente: True nos 10 primeiros ticks, False nos 35 seguintes
+  ALERTAS DE MORTE / eventos emitidos: []
+  -> total de eventos: 0
+```
+
+**Os dois lados do critério 4 na mesma execução:** o painel é reconhecido como *World
+Exchange aberto* em **todo frame em que ele está aberto** (f000 e f005 — de f010 em diante
+o que está na tela é o **inventário**, e ele é corretamente recusado, que é o negativo mais
+importante do incidente inteiro), e a contagem de alertas de morte é **exatamente zero**.
+
+O `canto_inf_dir` caindo para 0,5285 em `f005` é a votação fazendo o trabalho dela: uma
+âncora sozinha teria reprovado o frame, o máximo entre as três não.
 
 ## DETC-01: o que esta fase entrega, e o que fica para a Fase 4 (por desenho)
 
@@ -339,7 +414,7 @@ DECISÃO no detector de morte, e isso é deliberado.**
 |---|---|---|
 | Âncora positiva própria, medida, em módulo puro | `l2scanner/mercado_visao.py` (Plano 02 + este) | ENTREGUE |
 | Sinal único, nunca duplicado (uma só implementação de detecção) | `mercado_visao.RastreioDoPainel` | ENTREGUE |
-| Superfície no caminho da party: extra opcional + campo exibicional | `__main__.py` + `Observacao.mercado_aberto_aparente` | **PENDENTE — Task 3, depois do portão humano** |
+| Superfície no caminho da party: extra opcional + campo exibicional | `__main__.py` + `sessao.py` + `Observacao.mercado_aberto_aparente` | **ENTREGUE** (Task 3, commit `f54ba5c`) |
 | Consumidor 1 — laço `--mercado` como interruptor idle/ativo | Fase 4 (DETC-02) | POR DESENHO, FORA DESTA FASE |
 | Consumidor 2 — oclusão CONHECIDA influenciando o detector de morte | Fase 4 | POR DESENHO, FORA DESTA FASE |
 
@@ -355,10 +430,18 @@ Por isso o campo é exibicional, há um tripwire de arquitetura que QUEBRA se `r
 passar a lê-lo, e a regressão do 27x afirma zero eventos de morte — não "menos eventos".
 
 **Nota para o `/gsd-verify-work`:** DETC-01 deve ser pontuado como ENTREGUE nesta fase no
-escopo acima. A ausência de consumidor de oclusão não é entrega parcial; é a decisão
+escopo acima. A ausência de consumidor de oclusão **não é entrega parcial**; é a decisão
 arquitetural registrada aqui, com o consumidor agendado para a Fase 4 junto de DETC-02, que é
-onde o laço `--mercado` nasce. **A única metade que este plano deixou aberta é a superfície
-exibicional (Task 3), e ela está atrás do portão humano da Task 2, não fora de escopo.**
+onde o laço `--mercado` nasce. **As três linhas ENTREGUE da tabela acima são o escopo
+completo do requisito nesta fase, e todas as três estão fechadas e commitadas.** As duas
+linhas FORA DESTA FASE são deliberadas e datadas, não pendências.
+
+**Onde procurar a prova de cada uma:** a âncora e o sinal único em
+`tests/test_mercado_multiancora.py`; a superfície exibicional em
+`tests/test_mercado_27x.py#TestMetade3_OCampoEExibicional`,
+`#TestAMontagemDoVigiaNoArranque` e `#TestASuperficieNoConsole`; e a ausência dos
+consumidores em `#TestORastreadorNaoLeOMercado`, que é um tripwire e não uma promessa — se
+a Fase 4 ligar o consumidor sem passar por uma decisão de arquitetura, a suíte cai.
 
 ## A matriz de confusão
 
@@ -402,13 +485,14 @@ lido em modo somente leitura, do checkout principal.
 
 ## Performance
 
-- **Duração:** ~2 h
-- **Tasks:** 1 de 3 completa, mais as partes automatizáveis da Task 3 (ver deviation #2)
-- **Arquivos criados/modificados:** 32 (28 criados, 4 alterados)
-- **Suíte:** **1367 passed, 4 failed, 8 skipped**. As 4 falhas são as conhecidas de
-  `tests/test_agenda.py::TestRegistroEmDisco` (datas fixas em 2026-08-24, janela de poda de 3
-  dias vencida), **pré-existentes e fora do escopo**. Baseline do 01-03: 1282 passed, 4
-  failed, 6 skipped → **+85 passando, zero regressões**.
+- **Duração:** ~2 h 40 min (Tasks 1 e 2: ~2 h; Task 3: ~40 min)
+- **Tasks:** **3 de 3 completas**
+- **Arquivos criados/modificados:** 35 (28 criados, 7 alterados)
+- **Suíte ao fim da Task 3:** **1451 passed, 8 skipped, zero failed** neste worktree. Os 8
+  skips são todos ambientais e pré-existentes: `recordings/` gitignored (4), `.venv/` do
+  usuário ausente (1), bindings de OCR do Windows ausentes (2), e o replay completo do 27x
+  (1). A Task 3 acrescentou **13 testes**, todos passando; nenhum teste mudou de `pass`
+  para `skip` ou `fail`.
 
 ## Task Commits
 
@@ -417,6 +501,7 @@ lido em modo somente leitura, do checkout principal.
 3. **Task 1 — calibrar-mercado, seleção compartilhada e matriz de confusão** — `f6ba4e0` (feat)
 4. **Critério 4 do ROADMAP + a correção da cadência** — `7a8cb1a` (test)
 5. **A watchlist ganha lugar no `config.toml`** — `0594161` (docs)
+6. **Task 3 — o mercado chega ao console e NÃO chega ao rastreador** — `f54ba5c` (feat)
 
 ## Files Created/Modified
 
@@ -435,7 +520,23 @@ lido em modo somente leitura, do checkout principal.
 - `calibrar-mercado.bat` — lançador no precedente literal de `calibrar-solo.bat`
 - `config.toml` — seção `[mercado] watchlist` comentada
 - `tests/test_mercado_multiancora.py` (39 testes), `tests/test_calibrar_mercado.py`
-  (39 testes), `tests/test_mercado_27x.py` (7 testes + 1 skip)
+  (39 testes), `tests/test_mercado_27x.py` (20 testes + 1 skip)
+
+**Task 3 (commit `f54ba5c`) — as três alterações, e onde cada uma para:**
+
+- `l2scanner/visao.py` — **34 inserções, 0 deleções.** Só o campo
+  `Observacao.mercado_aberto_aparente: bool | None` e o comentário que diz por que ele não
+  pode virar decisão. `barra_propria_legivel`, `_moldura_da_barra_propria` e
+  `_bordas_da_barra_intactas` **não foram tocados** (D-10) — o mercado tem âncora positiva
+  própria, e acoplar os dois é literalmente o que produziu o incidente 27x.
+- `l2scanner/sessao.py` — parâmetro `mercado=None` no molde de `manutencao=None`, o
+  auxiliar `_olhar_o_mercado` (nunca levanta) e **uma linha de `replace()` colocada depois
+  de `rastreador.observar`**. Ver deviation #8 para por que o preenchimento mora aqui e não
+  em `extrair`.
+- `l2scanner/__main__.py` — `montar_vigia_do_mercado` (molde de
+  `montar_vigia_de_manutencao`: tenta, degrada com log, devolve `None`), o extra
+  `mercado_janela`, o `mercado=` no `Sessao`, e a linha
+  `WORLD EXCHANGE ABERTO (aparente)` no `desenhar_status`.
 
 ## Decisions Made
 
@@ -500,8 +601,9 @@ lido em modo somente leitura, do checkout principal.
   **proibições**, e o critério de sucesso dela diz "No modifications to ... visao.py". As
   duas instruções são compatíveis nesta leitura: a Task 3 é trabalho pós-checkpoint, e é lá
   que o plano autoriza mexer em `visao.py`.
-- **Consequência registrada:** a linha "superfície exibicional" da tabela de DETC-01 está
-  marcada **PENDENTE** acima, e não ENTREGUE. É a única metade em aberto.
+- **Consequência registrada:** a Task 3 foi executada numa segunda passada, depois de o
+  portão humano da Task 2 estar cumprido, no commit `f54ba5c`. A linha "superfície
+  exibicional" da tabela de DETC-01 está agora marcada **ENTREGUE**.
 
 ### 3. [Rule 2 - Missing Critical] O plano previa uma decisão que a medição desmentiu
 
@@ -572,13 +674,61 @@ lido em modo somente leitura, do checkout principal.
   commitados, o que também atende T-04-04 (resgatar o mínimo) melhor do que 45 PNGs de
   ~170 KB cada com nome de personagem dentro.
 
+### 8. [Rule 2 - Missing Critical] O campo não podia ser preenchido dentro de `extrair`
+
+- **Found during:** Task 3(b)
+- **Issue:** o plano manda "preencher o campo quando o extra da âncora estiver presente,
+  chamando `mercado_visao.mercado_aberto`" — dentro de `visao.py`. Essa instrução foi
+  escrita quando a detecção ainda era **um retângulo fixo contra um limiar**, uma função
+  pura do recorte. Depois da deviation #1 ela não é mais: `RastreioDoPainel` tem **estado**
+  (onde o painel foi visto da última vez, há quantos ticks não se varre) e cadência própria.
+  Enfiar isso em `extrair` quebraria o contrato escrito no próprio docstring dela —
+  *"Função pura: mesmo frame, mesma saída, sempre"* — que é o que torna 30 s de debounce
+  testáveis em 0,2 ms.
+- **Fix:** o campo vive em `visao.Observacao` (como o plano manda), mas quem o **preenche**
+  é `sessao.tick`, por `replace()`. Isso não é invenção: `estado_do_cliente` já entra
+  exatamente assim, na linha imediatamente acima, e o comentário dele já diz por quê —
+  *"vem de fora da análise de pixels da party window ... por isso entra como campo em vez de
+  ser deduzido aqui"*. O painel do mercado tampouco está na party window.
+- **Ganho que não estava no plano:** o `replace()` foi colocado **depois** de
+  `rastreador.observar`. Nessa posição é *estruturalmente impossível* o sinal influenciar os
+  eventos do tick, porque a lista já existe. A proteção contra repetir o 27x passa a estar
+  na forma do código, e não numa regra que alguém precisa lembrar de seguir.
+- **Files:** `l2scanner/sessao.py` (fora da lista `<files>` da Task 3)
+- **Committed in:** `f54ba5c`
+
+### 9. [Rule 1 - Bug] O extra `mercado_ancora` mediria grama
+
+- **Found during:** Task 3(c)
+- **Issue:** o plano manda `extras["mercado_ancora"] = cal.mercado_ancora` — um retângulo
+  **fixo**. Escrito antes de a própria fase medir que **o painel anda**: entre `f000` e
+  `f005` do incidente 27x ele apareceu 181 px à esquerda e 143 px abaixo, com a mesma arte
+  casando 0,9996. Um extra fixo mediria grama na maior parte dos frames e o console diria
+  "mercado fechado" com o mercado aberto na tela — o campo existiria e estaria errado, que é
+  pior do que não existir.
+- **Fix:** o extra é `mercado_janela`, a **janela inteira**, que é o que a varredura de
+  `localizar_painel` precisa de qualquer forma. Isso é a alínea (d) do próprio plano
+  cumprida: *"se o painel for ARRASTÁVEL, acrescentar o fallback de busca em faixa com
+  cadência limitada"* — a cadência é `TICKS_ENTRE_VARREDURAS_OCIOSAS = 3`, e ela já existia.
+- **Custo, e por que ele é zero no caminho certo:** `JanelaSource` **já captura a janela
+  completa** a cada tick; o extra é uma fatia numpy dela. No caminho `mss`, ao contrário,
+  cada extra custa uma captura própria — por isso o vigia recusa a subir sem `--janela`, com
+  log dizendo por quê. As dimensões vêm do carimbo `mercado_geometria_da_captura`; se a
+  janela mudou de tamanho o recorte não bate, `_extra_para_janela` devolve `None` (falha
+  fechada já existente) e o `Sessao` avisa **uma vez** para recalibrar — degradação
+  silenciosa era o modo de falha real aqui.
+- **Files:** `l2scanner/__main__.py`, `l2scanner/sessao.py`
+- **Committed in:** `f54ba5c`
+
 ---
 
-**Total deviations:** 7 auto-corrigidas (3 bugs, 2 missing critical, 2 blocking)
+**Total deviations:** 9 auto-corrigidas (4 bugs, 3 missing critical, 2 blocking)
 **Impact:** nenhum item do plano foi reduzido ou simplificado. A deviation #2 é uma
-REORDENAÇÃO, com a metade adiada nomeada e marcada PENDENTE na tabela de DETC-01. As
-deviations #1 e #3 são o retorno direto de medir contra as gravações reais em vez de confiar
-na suíte sintética: as duas teriam ido para produção verdes.
+REORDENAÇÃO, e a metade adiada foi entregue na segunda passada (`f54ba5c`). As deviations
+#1, #3 e #9 são o retorno direto de medir contra as gravações reais em vez de confiar na
+suíte sintética: as três teriam ido para produção verdes. As #8 e #9 são a mesma história
+vista duas vezes — o plano foi escrito antes de a fase descobrir que o painel se move, e as
+duas instruções literais que dependiam de ele estar parado tiveram de ser corrigidas.
 
 ## Issues Encountered
 
@@ -591,8 +741,13 @@ na suíte sintética: as duas teriam ido para produção verdes.
   depois de o painel abrir. Cai para o lado certo (durante a dúvida o sinal diz FECHADO) e
   some num laço de 1 Hz, onde o painel fica aberto por minutos.
 - **`ruff check l2scanner/` acusa 2 `E741` pré-existentes em `visao.py`** (variável `l`).
-  Não corrigidos: `visao.py` está na lista de proibições desta execução. Os arquivos deste
-  plano passam limpos.
+  Não corrigidos, e agora por escolha e não por proibição: a Task 3 autoriza `visao.py`, mas
+  esses dois `l` são de laços que nada têm a ver com o mercado — corrigi-los aqui misturaria
+  ruído no diff que prova que `barra_propria_legivel` e vizinhos não foram tocados.
+- **O aviso de "recorte da janela não está chegando" apareceu no replay da Task 3**, uma
+  única vez, durante os 20 ticks de aquecimento (que de propósito não passam o extra). É o
+  disparo de uma vez só funcionando como projetado: se ele repetisse por tick, seriam 45
+  linhas iguais no `scanner.log`, que é a outra forma de não ser lido.
 
 ## Known Stubs
 
@@ -600,10 +755,15 @@ Nenhum. Nada nesta entrega devolve valor fixo, placeholder ou "coming soon". A �
 constante nova que **não** é medida é `COLISAO_MAXIMA_ENTRE_TEMPLATES`, e ela está
 explicitamente marcada como política no código, com o raciocínio ao lado.
 
-**Metade em aberto, e ela não é stub:** a superfície exibicional de DETC-01
-(`Observacao.mercado_aberto_aparente` + o extra em `__main__.py`) é a Task 3 do plano, que
-vem depois do portão humano da Task 2. Está registrada como PENDENTE na tabela de DETC-01
-acima, não como entregue.
+**A superfície exibicional foi entregue na Task 3** (`f54ba5c`) e também não deixou stub:
+`Observacao.mercado_aberto_aparente` é preenchido por uma leitura real do painel, ou fica
+`None` — e `None` é um estado com significado ("ninguém perguntou"), afirmado por três
+testes, não um placeholder esperando implementação.
+
+**O que continua vazio de propósito, e não é stub:** `mercado_templates_de_nome`, porque o
+`config.toml` ainda não tem `[mercado] watchlist`. Recalibrar depois de escrever a watchlist
+é um passo esperado da Fase 2, e o `mercado_limiar_de_template: 0.5` gravado de uma matriz
+vazia não vale nada até lá — está dito assim no console da ferramenta e acima neste arquivo.
 
 ## Threat Flags
 
@@ -615,27 +775,43 @@ Nenhuma superfície nova além do `<threat_model>` do plano.
 | T-04-02 Tampering em `molde_de_hex` / `ancoras_de_calibracao` | **MITIGADA** — dimensões declaradas conferidas contra os bytes; nome ausente, `dx`/`dy` não-inteiro e molde não-dict recusados com mensagem que diz "recalibre o mercado" |
 | T-04-03 Spoofing de template da watchlist | **MITIGADA** — matriz de confusão medida na calibração, recusa nomeando o par colidente; alinhamento ao menor comum faz a matriz errar para o lado de recusar |
 | T-04-04 Information Disclosure em `tests/fixtures/mercado/` | **MITIGADA** — 23 recortes de 100×28 e 60×60 em cinza, inventariados arquivo por arquivo acima; nenhum nome de personagem, nenhuma mensagem de jogador. Zero recortes de party novos |
-| T-04-05 Repudiation (calibração sem conferência) | **MITIGADA na parte automatizável** — a imagem de conferência é obrigatória e passa por `_gravar_conferencia`, que confere o retorno. A conferência visual em si é o portão humano da Task 2, ainda ABERTO |
+| T-04-05 Repudiation (calibração sem conferência) | **MITIGADA** — a imagem de conferência é obrigatória e passa por `_gravar_conferencia`, que confere o retorno. A conferência visual em si é o portão humano da Task 2, **cumprido em 2026-08-28** |
+| T-04-08 Information Disclosure pelo console/log (novo, Task 3) | **MITIGADA** — a linha do console diz apenas "aberto", nunca **o que** está na tela: nenhum item, preço ou nome de personagem sai do painel. A marca `(aparente)` impede que a linha seja lida depois como evidência de que o scanner sabia o que o usuário fazia |
 | T-04-06 DoS com janela redimensionada | **MITIGADA** — `Calibracao.conferir_geometria_do_mercado` recusa no arranque com "recalibre o mercado" em vez de ler degradado |
 | T-04-07 Tampering na extração de `_selecionar_regiao` | **MITIGADA** — refatoração de comportamento preservado com teste de equivalência; nenhuma escrita de imagem entrou em `calibrar.py`, e os dois tripwires estão verdes |
 | T-04-SC Tampering na árvore de dependências | **VAZIA por construção** — zero instalações; `requirements.txt` byte-idêntico |
 
 ## User Setup Required
 
-O portão humano da Task 2 — ver o CHECKPOINT abaixo. Nenhum serviço externo, nenhuma
-instalação.
+**Nada obrigatório.** O portão humano da Task 2 está cumprido e nenhum serviço externo ou
+instalação entrou nesta entrega.
+
+**Duas coisas opcionais, quando você quiser:**
+
+1. **Para ver `WORLD EXCHANGE ABERTO (aparente)` no console**, rode com `--janela`. Sem ela
+   a leitura do mercado nem sobe (e o log diz por quê no arranque) — o painel é procurado na
+   janela inteira, e só o caminho `--janela` tem um frame completo para varrer.
+2. **Antes da Fase 2**, escrever a `[mercado] watchlist` no `config.toml` e rodar
+   `calibrar-mercado.bat` de novo, para os moldes de nome existirem. Nada da Fase 1 depende
+   disso.
 
 ## Next Phase Readiness
 
-**Bloqueado no portão humano, e é onde deve estar.**
+**Plano completo. Nada do 01-04 fica devendo.**
 
-Depois do "calibrado" do usuário, a Task 3 encosta o sinal no caminho da party:
-`Observacao.mercado_aberto_aparente` no molde literal de `hp_proprio_aparente`, e o extra
-opcional em `__main__.py`. Nada mais do plano fica devendo.
+O critério 4 do ROADMAP está fechado nos dois lados e provado sobre o material real: o
+painel é reconhecido em todo frame em que está aberto, e o replay do incidente 27x pelo tick
+de produção emite **zero** eventos.
 
 Para a Fase 2 já entra decidido: a origem do painel é o canto da faixa de título e tudo é
 deslocamento a partir dela; `mercado_grade` grava **qual** dos três layouts está lendo; o
 limiar de template sai da matriz de confusão do próprio usuário, não de uma constante.
+
+Para a **Fase 4**, que é onde os consumidores nascem: o sinal já está na `Observacao` e já
+chega ao console, então o modo `--mercado` (DETC-02) não precisa inventar caminho de dados —
+precisa **decidir** se promove o campo a consumidor. Essa decisão tem um tripwire de
+arquitetura à espera dela em `test_mercado_27x.py`, de propósito: promover o sinal só pode
+acontecer com a âncora já rodada em campo e com a decisão registrada, nunca por descuido.
 
 ## Self-Check: PASSED
 
@@ -653,11 +829,39 @@ limiar de template sai da matriz de confusão do próprio usuário, não de uma 
   1. `python -m pytest tests/ -q` → **1367 passed, 4 failed, 8 skipped**; as 4 falhas são as
      pré-existentes de `test_agenda.py` ✅
   2. Os DOIS tripwires de escrita de imagem verdes ✅
-  3. `calibrar-mercado.bat` sobre uma gravação → **PENDENTE, por desenho** (portão da Task 2)
+  3. `calibrar-mercado.bat` sobre uma gravação → era **PENDENTE** neste momento (portão da
+     Task 2); **cumprido em 2026-08-28** — ver a seção PORTAO DE CALIBRACAO CUMPRIDO
   4. `tests/test_mercado_27x.py` afirma as duas metades no mesmo arquivo ✅
   5. `l2scanner/rastreador.py` não aparece no diff da fase ✅
 
+## Self-Check da Task 3: PASSED
+
+- **Arquivos conferidos no disco:** `l2scanner/visao.py`, `l2scanner/sessao.py`,
+  `l2scanner/__main__.py`, `tests/test_mercado_27x.py` — todos FOUND
+- **Commit conferido em `git log`:** `f54ba5c` — FOUND
+- **Proibições conferidas em `git diff --name-only a0a453b..HEAD`:** o diff da Task 3 tem
+  **exatamente 4 arquivos**, e `l2scanner/rastreador.py`, `.planning/STATE.md`,
+  `.planning/ROADMAP.md` e `recordings/` **não estão entre eles**. `recordings/inv3/` foi
+  lido por caminho absoluto, somente leitura.
+- **`git diff --numstat l2scanner/visao.py` → `34  0`.** Zero deleções: o arquivo só
+  ganhou o campo e o comentário. Busca por `barra_propria_legivel`,
+  `_moldura_da_barra_propria` e `_bordas_da_barra_intactas` no diff → **0 ocorrências** (D-10)
+- **`grep -ci mercado l2scanner/rastreador.py` → `0`.** O tripwire de arquitetura não é
+  apenas verde; a condição que ele mede é verificável à mão.
+- **`<acceptance_criteria>` da Task 3:** 7 de 7 verdes
+  1. `pytest tests/test_mercado_27x.py -q` → **20 passed, 1 skipped** ✅
+  2. Todo frame de janela com o painel aberto dá `True` (0,9999 e 0,9996); a sequência de
+     party do 27x dá lista de eventos de comprimento **0** ✅
+  3. O fonte de `l2scanner.rastreador` não contém o nome do campo exibicional ✅
+  4. `git diff l2scanner/visao.py` não toca o portão de brilho da barra própria ✅
+  5. Sem `mercado_ancoras` na calibração, `extras` não ganha a chave e o campo fica `None`
+     (dois testes: sem vigia e com vigia sem extra) ✅
+  6. O comentário ao lado de `CASAMENTO_MINIMO_DA_ANCORA` cita a margem REMEDIDA com os
+     negativos das gravações novas (pior positivo 0,9037; melhor negativo 0,5337; margem
+     0,3700) ✅ — feito na primeira passada, `e55b222`
+  7. `python -m pytest tests/ -q` → **1451 passed, 8 skipped**, sem regressão ✅
+
 ---
 *Phase: 01-funda-o-firewall-gravador-e-spike-de-campo (workstream mercado)*
-*Parado na Task 2 — `checkpoint:human-action`, `gate="blocking-human"`, critério 3 do ROADMAP*
+*Plano 04 COMPLETO — 3 de 3 tasks, critério 4 do ROADMAP fechado nos dois lados*
 *Date: 2026-08-28*

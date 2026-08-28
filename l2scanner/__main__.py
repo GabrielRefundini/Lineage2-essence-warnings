@@ -335,6 +335,68 @@ def montar_vigia_de_manutencao(regiao) -> VigiaDeManutencao | None:
     )
 
 
+def montar_vigia_do_mercado(cal: Calibracao, na_janela: bool):
+    """Liga a leitura do painel do World Exchange, ou diz por que nao ligou.
+
+    Mesmo formato de `montar_vigia_de_manutencao`: tenta, degrada com log,
+    devolve `None` e deixa o scanner subir. O recurso e opcional; o scanner nao
+    e — e este em particular so produz TEXTO no console (DETC-01 entrega o sinal
+    e a superficie dele; o consumidor de oclusao e a Fase 4).
+
+    SO NO CAMINHO `--janela`. O painel e procurado na janela INTEIRA do jogo, e
+    e so ali que existe um frame completo para varrer. No caminho `mss` cada
+    extra custa uma captura propria por tick — capturar 1720x1392 a cada
+    segundo para escrever uma linha de console seria caro pelo motivo errado.
+
+    NUNCA LEVANTA: os moldes vem de `calibration.json`, que e entrada nao
+    confiavel. `ancoras_de_calibracao` recusa alto e com nome do campo — e essa
+    recusa nao pode derrubar a deteccao de morte, que e o scanner inteiro.
+    """
+    if not cal.mercado_ancoras:
+        return None
+
+    if not na_janela:
+        log.info(
+            "Leitura do mercado desligada: ela precisa da janela inteira do "
+            "jogo. Rode com --janela para ver 'MERCADO ABERTO' no console."
+        )
+        return None
+
+    from .mercado_visao import (
+        CASAMENTO_MINIMO_DA_ANCORA,
+        TICKS_ENTRE_VARREDURAS_OCIOSAS,
+        RastreioDoPainel,
+        ancoras_de_calibracao,
+    )
+
+    try:
+        ancoras = ancoras_de_calibracao(cal.mercado_ancoras)
+    except (ValueError, TypeError) as erro:
+        log.warning("Leitura do mercado DESATIVADA — %s", erro)
+        log.warning(
+            "Todo o resto do scanner continua igual: morte, saida e "
+            "ressurreicao seguem sendo detectadas e entregues."
+        )
+        return None
+
+    limiar = cal.mercado_limiar_da_ancora or CASAMENTO_MINIMO_DA_ANCORA
+
+    # A LINHA DE ARRANQUE CONTA O ORCAMENTO, no precedente do vigia de
+    # manutencao: quem le o log precisa saber o que o recurso custa antes de o
+    # farm comecar. ~45 ms por ancora numa varredura da janela inteira, e por
+    # isso ela nao roda a cada volta.
+    log.info(
+        "Leitura do mercado ativa — %d ancoras (%s), limiar %.2f por ancora, "
+        "varredura ociosa a cada %d ticks (~45 ms por ancora). "
+        "SO MOSTRA no console: nenhum alerta sai deste sinal.",
+        len(ancoras),
+        ", ".join(a.nome for a in ancoras),
+        limiar,
+        TICKS_ENTRE_VARREDURAS_OCIOSAS,
+    )
+    return RastreioDoPainel(ancoras, limiar=limiar)
+
+
 def _duracao_legivel(segundos: float) -> str:
     """Segundos viram "3h02min" — "10920s" nao ajuda ninguem a reconhecer o
     proprio problema de dual boot."""
@@ -495,6 +557,24 @@ def desenhar_status(
             f"  {rotulo:<12s} {simbolos[estado_proprio]:<6s} "
             f"HP ~{obs.hp_proprio_aparente:4.0%} (aparente)"
         )
+
+    # ESTA LINHA E A UNICA CONSUMIDORA DE `mercado_aberto_aparente` no projeto
+    # inteiro, e e essa unicidade que a mantem inofensiva — a mesma garantia que
+    # `hp_proprio_aparente` tem logo acima. O sinal pode virar TEXTO e nada
+    # mais; `rastreador.py` nao le o campo e a suite tem um tripwire de
+    # arquitetura que quebra se ele passar a ler.
+    #
+    # SO FALA QUANDO ESTA ABERTO. `False` e o estado normal — o mercado fica
+    # fechado a maior parte do farm — e uma linha permanente dizendo "mercado
+    # fechado" empurraria para fora da tela justamente as linhas de HP que o
+    # usuario abre o console para ver.
+    #
+    # A MARCA `(aparente)` e obrigatoria, pela mesma razao escrita acima: um
+    # veredito sem marca no `scanner.log` vira evidencia falsa numa
+    # investigacao pos-farm. O proximo leitor precisa saber que o scanner viu
+    # arte de painel — nao que o scanner sabe o que voce estava fazendo.
+    if obs.mercado_aberto_aparente:
+        linhas.append("  WORLD EXCHANGE ABERTO (aparente)")
 
     return "\n".join(linhas)
 
@@ -1515,6 +1595,33 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
             na_janela=bool(args.janela)
         )
 
+    # O MERCADO PEDE A JANELA INTEIRA, e nao o retangulo da ancora.
+    #
+    # O painel ANDA: entre dois frames do incidente 27x ele apareceu 181 px a
+    # esquerda e 143 px abaixo, com a mesma arte casando 0.9996. Um extra fixo
+    # no retangulo calibrado mediria grama na maior parte dos frames e o console
+    # diria "mercado fechado" com o mercado aberto na tela.
+    #
+    # O tamanho vem do CARIMBO da calibracao (`mercado_geometria_da_captura`),
+    # que e a janela sob a qual os moldes foram recortados. Com a janela em
+    # outro tamanho o recorte nao bate, `_extra_para_janela` devolve `None`
+    # (falha fechada ja existente) e o `Sessao` avisa UMA vez para recalibrar.
+    vigia_mercado = montar_vigia_do_mercado(cal, na_janela=bool(args.janela))
+    if vigia_mercado is not None:
+        carimbo = cal.mercado_geometria_da_captura or {}
+        largura, altura = carimbo.get("largura"), carimbo.get("altura")
+        if isinstance(largura, int) and isinstance(altura, int):
+            extras["mercado_janela"] = Regiao(
+                esquerda=0, topo=0, largura=largura, altura=altura
+            )
+        else:
+            log.warning(
+                "Leitura do mercado DESATIVADA — a calibracao nao guarda as "
+                "dimensoes da janela sob a qual os moldes foram recortados. "
+                "Rode calibrar-mercado.bat."
+            )
+            vigia_mercado = None
+
     if args.replay:
         fonte = ReplaySource(Path(args.replay))
         log.info("Reproduzindo %s (%d frames)", args.replay, len(fonte))
@@ -1630,6 +1737,10 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         ao_registrar=_registrar_evento_no_console,
         loot=registro_de_loot,
         manutencao=vigia_manutencao,
+        # O sinal do mercado entra por AQUI e sai no console, e so. O
+        # `rastreador` nao o recebe, nao o le e nao tem como: ver o tripwire de
+        # arquitetura em `tests/test_mercado_27x.py`.
+        mercado=vigia_mercado,
         # Os `[[membro]]` chegam ate a lista fechada por AQUI. Sem esta linha o
         # mapa `nomes_dos_membros` existe, tem teste verde, e a lista sai com a
         # caixa do slug — o mesmo modo de falha que deixou o nivel de membro
