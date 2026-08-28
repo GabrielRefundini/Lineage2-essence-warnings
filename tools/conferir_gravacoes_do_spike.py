@@ -6,19 +6,33 @@ deveria haver ~3,5 MB, ou seja, o recorte da party window gravado no lugar da
 janela inteira — e verificavel por programa. Descobrir isso pelo olho custaria
 abrir um PNG de cada pasta; descobrir tarde custaria as oito sessoes.
 
-Cinco conferencias, por pasta, cada uma nomeando o problema:
+Sete conferencias, por pasta, cada uma nomeando o problema:
 
   1. Os 8 sufixos do ROTEIRO-SPIKE.md tem pelo menos uma pasta em recordings/.
   2. `observacoes.jsonl` existe e tem mais de zero linhas.
-  3. Todo `arquivo` citado no JSONL existe no disco (a mesma assertiva
-     anti-orfao do FUND-01, agora aplicada as gravacoes de verdade).
-  4. ZERO falhas de escrita, provado SEM depender de contador em memoria:
-     linhas do JSONL == quantidade de `frame_*.png` no disco. Depois do FUND-01
-     o JSONL so recebe frame confirmado, entao qualquer divergencia denuncia
-     perda de escrita que ninguem viu passar.
+  3. Todo `arquivo` citado no JSONL e um `frame_NNNNNN.png` DESTA pasta e
+     existe no disco (a mesma assertiva anti-orfao do FUND-01, agora aplicada
+     as gravacoes de verdade). A forma vem antes da existencia: `is_file()`
+     sozinho aceitaria `../outra-sessao/frame_000001.png`.
+  4. ZERO falhas de escrita, provado SEM depender de contador em memoria: o
+     CONJUNTO de nomes citados no JSONL == o conjunto de `frame_*.png` no
+     disco, sem repetidos. Depois do FUND-01 o JSONL so recebe frame
+     confirmado, entao qualquer divergencia denuncia perda de escrita que
+     ninguem viu passar. Conjuntos e nao contagens: um `arquivo` repetido mais
+     um PNG solto empatam na cardinalidade e cobrem um frame perdido.
   5. Dimensao correta: o primeiro e o ultimo `frame_*.png` sao lidos com
      `cv2.imread` e a forma precisa ser a da JANELA — nunca a do recorte da
      party window, que vem do `calibration.json`.
+  6. A sessao mostra alguma coisa: no maximo 25% dos frames podem estar
+     CONGELADO ou FALHA_DE_CAPTURA. As cinco conferencias acima sao todas
+     ESTRUTURAIS e nenhuma olhava o `saude` que o gravador ja escreve em toda
+     linha — uma janela que para de produzir frames rendia N PNGs identicos,
+     todos confirmados, todos bem dimensionados, todos indexados, e o portao
+     imprimia APROVADO para uma gravacao inutilizavel.
+  7. O primeiro e o ultimo PNG nao sao o mesmo arquivo byte a byte. Cobre o
+     buraco que a 6 nao alcanca: o classificador so marca CONGELADO depois de
+     30 frames identicos, entao uma sessao de 30 segundos a 1 Hz totalmente
+     congelada tem ZERO linhas com `saude` ruim.
 
 `is_file()` em todo glob de PNG, e nao o glob cru: um DIRETORIO ocupando o nome
 `frame_000007.png` e justamente o modo de falha deterministico que os testes do
@@ -38,10 +52,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
+
+# A forma que o `Gravador` escreve, e a UNICA que o indice pode citar.
+#
+# Sem esta forma, `(pasta / nome).is_file()` aceita qualquer caminho: um
+# `"../20260827-101500-mercado-aberto/frame_000001.png"` resolve para OUTRA
+# sessao e a conferencia anti-orfao confirma, satisfeita, a existencia de um
+# arquivo que nao e desta gravacao.
+NOME_DE_FRAME = re.compile(r"^frame_\d{6}\.png$")
+
+# As duas saudes que significam "este frame nao mostra nada de util".
+SAUDE_INUTIL = {"congelado", "falha_de_captura"}
+
+# Acima desta fracao, a sessao nao e uma gravacao — e uma imagem repetida.
+FRACAO_MAXIMA_INUTIL = 0.25
 
 # Os rotulos fixos do ROTEIRO-SPIKE.md, na ordem em que ele os grava. O `pre-voo`
 # NAO entra: ele e a sessao de 5 segundos que prova o modo de gravacao e pode ser
@@ -121,7 +150,9 @@ def conferir_o_indice(pasta: Path) -> int:
             f"confirmado nesta sessao. Regrave este cenario."
         )
 
-    orfaos = []
+    invalidos: list[str] = []
+    citados: list[str] = []
+    saudes: list[str] = []
     for numero, linha in enumerate(linhas, start=1):
         try:
             registro = json.loads(linha)
@@ -130,26 +161,76 @@ def conferir_o_indice(pasta: Path) -> int:
                 f"{pasta.name}: observacoes.jsonl linha {numero} esta "
                 f"corrompida ({erro})"
             ) from erro
+        saudes.append(str(registro.get("saude", "")).lower())
         nome = registro.get("arquivo")
-        if not nome or not (pasta / nome).is_file():
-            orfaos.append(nome or f"<linha {numero} sem campo 'arquivo'>")
+        # A forma vem ANTES da existencia: `is_file()` sozinho aceita
+        # `../outra-sessao/frame_000001.png` e confirma um arquivo que nao e
+        # desta gravacao.
+        if not isinstance(nome, str) or not NOME_DE_FRAME.match(nome):
+            invalidos.append(f"<linha {numero}: 'arquivo' invalido ({nome!r})>")
+            continue
+        citados.append(nome)
 
-    if orfaos:
+    if invalidos:
         raise Problema(
-            f"{pasta.name}: o indice cita {len(orfaos)} arquivo(s) que NAO "
-            f"existem no disco (ex.: {orfaos[0]}). O indice esta mentindo "
+            f"{pasta.name}: o indice tem {len(invalidos)} linha(s) cujo campo "
+            f"'arquivo' nao e um nome de frame desta pasta (ex.: "
+            f"{invalidos[0]}). O indice so pode citar `frame_NNNNNN.png` — um "
+            f"caminho com barra ou `..` apontaria para fora da sessao."
+        )
+
+    no_disco = {caminho.name for caminho in pngs_de_frame(pasta)}
+    # Conjuntos, e nao cardinalidades: um indice com um `arquivo` repetido MAIS
+    # um PNG solto tem 10 linhas e 10 arquivos, e passaria numa comparacao de
+    # contagens cobrindo um frame perdido.
+    faltando = sorted(set(citados) - no_disco)
+    sobrando = sorted(no_disco - set(citados))
+    repetidos = len(citados) - len(set(citados))
+
+    if faltando:
+        raise Problema(
+            f"{pasta.name}: o indice cita {len(faltando)} arquivo(s) que NAO "
+            f"existem no disco (ex.: {faltando[0]}). O indice esta mentindo "
             f"sobre a propria gravacao — regrave este cenario."
         )
-
-    no_disco = len(pngs_de_frame(pasta))
-    if no_disco != len(linhas):
+    if sobrando:
         raise Problema(
-            f"{pasta.name}: {len(linhas)} linhas no observacoes.jsonl mas "
-            f"{no_disco} frame_*.png no disco. Depois do FUND-01 o indice so "
-            f"recebe escrita CONFIRMADA, entao esta diferenca denuncia frames "
-            f"perdidos. Regrave este cenario com espaco em disco sobrando."
+            f"{pasta.name}: ha {len(sobrando)} frame_*.png no disco que o "
+            f"indice NAO cita (ex.: {sobrando[0]}). Depois do FUND-01 todo PNG "
+            f"confirmado ganha linha, entao um PNG orfao denuncia escrita "
+            f"perdida. Regrave este cenario com espaco em disco sobrando."
         )
+    if repetidos:
+        raise Problema(
+            f"{pasta.name}: o indice cita {repetidos} arquivo(s) mais de uma "
+            f"vez. Duas linhas apontando para o mesmo PNG cobrem um frame que "
+            f"se perdeu. Regrave este cenario."
+        )
+
+    conferir_a_saude(pasta, saudes)
     return len(linhas)
+
+
+def conferir_a_saude(pasta: Path, saudes: list[str]) -> None:
+    """Conferencia 6: a sessao mostra alguma coisa, e nao a mesma coisa N vezes.
+
+    As cinco conferencias acima sao ESTRUTURAIS — sufixo, indice, orfaos,
+    paridade, dimensao. Nenhuma olhava o `saude`, que o gravador ja escreve em
+    toda linha. E o modo de falha e alcancavel, nao hipotetico:
+    `JanelaSource._ultimo` nunca era limpo, entao com a janela parando de
+    produzir frames (minimizar no meio da sessao, cliente travado, alt-tab para
+    um app em tela cheia) a gravacao virava N PNGs identicos de 3,5 MB — todos
+    confirmados, todos na dimensao certa, todos indexados. O `saude` dizia
+    CONGELADO na propria linha e o portao imprimia APROVADO.
+    """
+    ruins = sum(1 for saude in saudes if saude in SAUDE_INUTIL)
+    if ruins > len(saudes) * FRACAO_MAXIMA_INUTIL:
+        raise Problema(
+            f"{pasta.name}: {ruins} de {len(saudes)} frames estao CONGELADO ou "
+            f"FALHA_DE_CAPTURA. A janela parou de produzir frames e os PNGs sao "
+            f"a mesma imagem repetida. Regrave com o jogo visivel e ativo (nao "
+            f"minimizado, e sem outro app em tela cheia por cima)."
+        )
 
 
 def conferir_a_dimensao(
@@ -161,6 +242,27 @@ def conferir_a_dimensao(
     frames = pngs_de_frame(pasta)
     if not frames:
         raise Problema(f"{pasta.name}: nenhum frame_*.png no disco")
+
+    # Conferencia 7: o primeiro e o ultimo PNG nao podem ser o MESMO arquivo,
+    # byte a byte.
+    #
+    # Isto nao e redundante com a conferencia 6, e a aritmetica e o motivo:
+    # `_ClassificadorDeSaude` so marca CONGELADO depois de
+    # `FRAMES_IDENTICOS_PARA_CONGELADO = 30` frames identicos seguidos. Numa
+    # sessao de 30 segundos a 1 Hz — a duracao que o proprio ROTEIRO-SPIKE.md
+    # prescreve — uma janela TOTALMENTE congelada do inicio ao fim produz 30
+    # frames e ZERO linhas com `saude` ruim. A fracao da conferencia 6 nao ve
+    # nada, e o portao aprovaria uma imagem repetida 30 vezes.
+    #
+    # Uma janela viva nunca da dois PNGs byte-identicos separados por dezenas
+    # de segundos: a arte do jogo anima mesmo com o painel do mercado parado.
+    if len(frames) > 1 and frames[0].read_bytes() == frames[-1].read_bytes():
+        raise Problema(
+            f"{pasta.name}: {frames[0].name} e {frames[-1].name} sao o MESMO "
+            f"arquivo byte a byte. A janela parou de produzir frames e a sessao "
+            f"inteira e uma imagem so, repetida {len(frames)} vezes. Regrave "
+            f"com o jogo visivel e ativo."
+        )
 
     # Primeiro E ultimo: uma sessao que comecou certa e degradou no meio (janela
     # minimizada, jogo reiniciado) precisa cair aqui, e nao passar pelo primeiro.
