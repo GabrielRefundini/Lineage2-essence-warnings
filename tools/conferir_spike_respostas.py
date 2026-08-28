@@ -18,7 +18,9 @@ volte pela porta da analise.
 Nesta fase, cujo proposito declarado e que "evidencia nao-confirmada e o
 pesadelo documentado deste projeto", o portao do spike nao pode aceitar
 evidencia nao confirmada. Entao ele RESOLVE cada caminho no sistema de
-arquivos com `Path.exists()`, um por um, e nomeia os que nao existem.
+arquivos com `Path.is_file()`, um por um, e nomeia os que nao existem. Um
+caminho com `..` no meio e RECUSADO mesmo existindo: `recordings/../x.png`
+sai da arvore de gravacoes e nao e evidencia de spike nenhum.
 
 E o que este documento sustenta e caro: a grade e os glifos do `calibration.json`
 saem das respostas 1, 2 e 3; a forma da ancora sai da resposta 8; o recorte dos
@@ -216,6 +218,29 @@ class Secao:
         return CAMINHO_DE_FRAME.findall(self.texto)
 
 
+def evidencia_resolvida(raiz: Path, citado: str) -> bool:
+    """O caminho citado aponta para um ARQUIVO, DENTRO da arvore de gravacoes?
+
+    Duas frouxidoes que o `(raiz / citado).exists()` anterior deixava passar, as
+    duas MEDIDAS nesta maquina:
+
+    1. `..` NO MEIO DO CAMINHO. `CAMINHO_DE_FRAME` exige o prefixo
+       `recordings/`, o que da a impressao de que o escopo esta contido -- e nao
+       esta: `recordings/../l2scanner/visao.py` resolvia `True`. Uma citacao
+       como `recordings/../tests/fixtures/x.png` satisfazia o portao inteiro sem
+       tocar em gravacao nenhuma.
+    2. `.exists()` ACEITA DIRETORIO. Um diretorio chamado `frame_000012.png`
+       passava. E o modo de falha deterministico dos testes deste projeto e
+       exatamente esse -- ver o comentario em `__main__.py`, onde `is_file` foi
+       escolhido de proposito pelo mesmo motivo.
+
+    O cabecalho deste modulo promete "RESOLVE cada caminho no sistema de
+    arquivos". Um caminho que sai da arvore de gravacoes foi resolvido, mas nao
+    e evidencia de spike nenhum.
+    """
+    return ".." not in Path(citado).parts and (raiz / citado).is_file()
+
+
 def separar_secoes(texto: str) -> list[Secao]:
     secoes: list[Secao] = []
     corrente: Secao | None = None
@@ -278,7 +303,7 @@ def conferir_a_secao(secao: Secao, raiz: Path) -> tuple[str, int, list[str]]:
 
     selo = selos[0]
     frames = secao.frames
-    faltando = [c for c in frames if not (raiz / c).exists()]
+    faltando = [c for c in frames if not evidencia_resolvida(raiz, c)]
 
     if selo in SELO_POSITIVO and not frames:
         raise Problema(
@@ -327,7 +352,7 @@ def conferir(documento: Path, raiz: Path) -> int:
     # inexistente -- nem uma secao NAO RESPONDIDO, nem a secao de impacto, nem
     # uma nota de rodape.
     todos = CAMINHO_DE_FRAME.findall(texto)
-    orfaos = sorted({c for c in todos if not (raiz / c).exists()})
+    orfaos = sorted({c for c in todos if not evidencia_resolvida(raiz, c)})
     ja_apontados = {c for p in problemas for c in CAMINHO_DE_FRAME.findall(p)}
     restantes = [c for c in orfaos if c not in ja_apontados]
     if restantes:

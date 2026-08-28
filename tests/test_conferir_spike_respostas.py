@@ -35,6 +35,7 @@ from tools.conferir_spike_respostas import (
     conferir,
     conferir_a_numeracao,
     conferir_a_secao,
+    evidencia_resolvida,
     separar_secoes,
 )
 
@@ -68,10 +69,12 @@ def _documento(corpos: list[str]) -> str:
 
 @pytest.fixture
 def raiz_com_frame(tmp_path: Path) -> Path:
-    """Uma arvore com UM frame de verdade."""
+    """Uma arvore com UM frame de verdade, e um arquivo fora de `recordings/`."""
     pasta = tmp_path / "recordings" / "20260828-060622-mercado-pagina-cheia"
     pasta.mkdir(parents=True)
     (pasta / "frame_000010.png").write_bytes(b"png de mentira")
+    (tmp_path / "l2scanner").mkdir()
+    (tmp_path / "l2scanner" / "visao.py").write_text("# fora de recordings")
     return tmp_path
 
 
@@ -162,6 +165,37 @@ class TestOSeloPositivoPrecisaDeFrame:
         secao = _secao(f"**Selo: VERIFICADO**\n\n`{FRAME_BOM}`")
         selo, confirmados, faltando = conferir_a_secao(secao, raiz_com_frame)
         assert (selo, confirmados, faltando) == ("VERIFICADO", 1, [])
+
+
+class TestAResolucaoDeEvidencia:
+    """WR-02: o prefixo `recordings/` NAO garante que o caminho fique na arvore."""
+
+    def test_um_caminho_com_dois_pontos_e_recusado_mesmo_existindo(
+        self, raiz_com_frame: Path
+    ):
+        fugitivo = "recordings/../l2scanner/visao.py"
+        assert (raiz_com_frame / fugitivo).exists(), (
+            "o proprio teste precisa que o alvo EXISTA -- senao ele passaria "
+            "por acidente e nao provaria nada"
+        )
+        assert not evidencia_resolvida(raiz_com_frame, fugitivo), (
+            "um caminho que sai da arvore de gravacoes foi resolvido, mas nao e "
+            "evidencia de spike nenhum"
+        )
+
+    def test_um_DIRETORIO_com_nome_de_png_nao_e_evidencia(self, tmp_path: Path):
+        """O modo de falha deterministico dos testes deste projeto.
+
+        `.exists()` aceitava; `is_file()` nao. Mesma escolha, pelo mesmo motivo,
+        que ja foi feita a mao em `__main__.py`.
+        """
+        (tmp_path / "recordings" / "x" / "frame_000012.png").mkdir(parents=True)
+        assert not evidencia_resolvida(
+            tmp_path, "recordings/x/frame_000012.png"
+        )
+
+    def test_um_arquivo_de_verdade_e_evidencia(self, raiz_com_frame: Path):
+        assert evidencia_resolvida(raiz_com_frame, FRAME_BOM)
 
 
 class TestOsCabecalhos:
@@ -255,6 +289,23 @@ class TestOPortaoInteiro:
 
         assert conferir(doc, raiz_com_frame) == 1
         assert "frame_000012.png" in capsys.readouterr().err
+
+    def test_um_caminho_com_dois_pontos_reprova_o_documento(
+        self, tmp_path: Path, raiz_com_frame: Path
+    ):
+        """O portao inteiro era satisfeito por `recordings/../qualquer/coisa`."""
+        doc = tmp_path / "SPIKE.md"
+        doc.write_text(
+            _documento(
+                self._nove(
+                    "**Selo: VERIFICADO**\n\n`recordings/../l2scanner/visao.py.png`"
+                )
+            ),
+            encoding="utf-8",
+        )
+        (raiz_com_frame / "l2scanner" / "visao.py.png").write_bytes(b"existe")
+
+        assert conferir(doc, raiz_com_frame) == 1
 
     def test_documento_inexistente_reprova_sem_estourar(
         self, tmp_path: Path, raiz_com_frame: Path
