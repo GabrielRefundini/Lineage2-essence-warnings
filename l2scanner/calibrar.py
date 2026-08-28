@@ -403,6 +403,24 @@ def _selecionar_regiao(
     #
     # namedWindow + moveWindow com o MESMO titulo faz o selectROI REUSAR
     # esta janela, em vez de criar a dele em lugar nenhum previsivel.
+    # ESVAZIA A FILA DE TECLAS ANTES DE ABRIR A SELECAO.
+    #
+    # MEDIDO EM CAMPO 2026-08-28: o usuario confirmava o frame com ENTER no
+    # navegador de gravacao e o `selectROI` abria em seguida ja recebendo
+    # AQUELE MESMO ENTER, ainda pendente na fila do HighGUI. Para o
+    # `selectROI`, ENTER significa 'confirmar a selecao' -- e como nao havia
+    # selecao nenhuma, ele devolvia (0,0,0,0) e a ferramenta abortava com
+    # 'Nada selecionado' antes de o usuario poder encostar no mouse.
+    #
+    # O sintoma era indistinguivel de 'a janela nao abriu': o console dizia
+    # que abriu, a janela piscava, e nada era gravado.
+    #
+    # `waitKey(1)` devolve -1 quando nao ha tecla. O laco e limitado porque
+    # uma tecla segurada geraria eventos para sempre.
+    for _ in range(20):
+        if cv2.waitKey(1) == -1:
+            break
+
     cv2.namedWindow(titulo, cv2.WINDOW_NORMAL)
     cv2.moveWindow(titulo, 40, 40)
     cv2.imshow(titulo, visao)
