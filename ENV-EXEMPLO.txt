@@ -75,6 +75,18 @@ CHATWOOT_TELEFONES_COMANDO=
 # Antes do primeiro uso faltam mais 3 passos alem deste. Estao todos no
 # PORTAO-DISCORD.txt, na raiz do projeto — inclusive o aviso da armadilha de
 # teste, que e o erro mais caro que da para cometer aqui.
+#
+# A ponte RECUSA SUBIR se esta linha faltar, estiver vazia ou ainda tiver o
+# texto de exemplo. Ela diz qual e o problema dos tres, porque os consertos sao
+# diferentes: copiar este arquivo, preencher a linha, ou trocar o placeholder.
+# Nenhuma dessas mensagens mostra o valor do token — nem truncado.
+#
+# CUIDADO COM A CONVERSA DE DESTINO. Ela mora no config.toml, na secao
+# [discord], e NAO pode ser uma das conversas listadas em
+# CHATWOOT_CONVERSAS_COMANDO aqui em cima: o arranque recusa se forem a mesma.
+# O motivo e o sentido de VOLTA — quem RESPONDE numa conversa compartilhada
+# manda uma mensagem de entrada, e numa conversa de comando essa resposta seria
+# lida como comando do scanner.
 DISCORD_TOKEN=
 
 # OPCIONAL: etiqueta do Chatwoot que liga o canal de comando.
