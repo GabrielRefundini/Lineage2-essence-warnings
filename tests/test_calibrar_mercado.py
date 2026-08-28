@@ -702,3 +702,159 @@ class TestOTextoFinalDaConferencia:
                     f"arquivo que pode nao existir ou ser o da rodada anterior."
                 )
         assert "_texto_final_da_conferencia(" in fonte
+
+
+class TestRodarSemWatchlistNaoApagaOsMoldes:
+    """CR-04: o unico caminho do projeto que apagava calibracao sem perguntar.
+
+    `cal.mercado_templates_de_nome = [...]` era incondicional. Com a watchlist
+    vazia isso e `[]`, e `cal.salvar` regrava o arquivo INTEIRO -- os moldes de
+    uma calibracao anterior somem. O caminho e trivial: `ler_watchlist` devolve
+    `[]` quando o `config.toml` nao existe (outro checkout, um worktree),
+    quando o usuario comentou a watchlist para reajustar so uma ancora, ou
+    quando escreveu `[mercado]` sem a chave.
+
+    E o console afirmava o contrario -- "as ancoras e a grade ja ficam
+    gravadas" descreve um comportamento ADITIVO.
+
+    Estes testes rodam o `calibrar()` de ponta a ponta, com dubles so nas duas
+    coisas que exigem mao humana ou disco: `_selecionar_regiao` e
+    `_gravar_conferencia`. E o primeiro teste do projeto a exercitar essa
+    funcao inteira -- ela nao tinha nenhum.
+    """
+
+    CAIXAS = [
+        (300, 200, 100, 28),   # titulo
+        (794, 190, 60, 60),    # botao_fechar
+        (794, 865, 60, 60),    # canto_inf_dir
+        (310, 260, 480, 450),  # area da lista
+        (310, 260, 480, 45),   # primeira linha
+    ]
+
+    @pytest.fixture
+    def cenario(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """calibration.json + frame de janela completa + dubles instalados."""
+        import argparse
+
+        destino = tmp_path / "calibration.json"
+        destino.write_text(REFERENCIA.read_text(encoding="utf-8"), encoding="utf-8")
+
+        frame = tmp_path / "frame_000000.png"
+        pixels = np.random.default_rng(7).integers(
+            0, 255, (1000, 900, 3), dtype=np.uint8
+        )
+        assert cv2.imwrite(str(frame), pixels), "nao gravei o frame de teste"
+
+        fila = list(self.CAIXAS)
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "_selecionar_regiao",
+            lambda *a, **k: fila.pop(0),
+        )
+        # NUNCA deixar o teste escrever na raiz do repositorio: o proprio
+        # `_gravar_conferencia` grava em RAIZ/calibracao-conferencia.png, que e
+        # o arquivo que engana o usuario. Aqui ele devolve um caminho de
+        # mentira, dentro do tmp_path.
+        imagem = tmp_path / "conferencia.png"
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado, "_gravar_conferencia", lambda _img: imagem
+        )
+
+        args = argparse.Namespace(
+            calibracao=str(destino),
+            gravacao=None,
+            frame=str(frame),
+            indice=None,
+            layout="negociacao",
+        )
+        return destino, args
+
+    def test_sem_watchlist_os_moldes_da_rodada_anterior_SOBREVIVEM(
+        self, cenario, monkeypatch: pytest.MonkeyPatch, capsys
+    ):
+        destino, args = cenario
+        anteriores = [
+            {"nome": "+3 Bota X", "molde": "0a:0a:" + "00" * 100},
+            {"nome": "Chapeu Y", "molde": "0a:0a:" + "ff" * 100},
+        ]
+        dados = json.loads(destino.read_text(encoding="utf-8"))
+        dados["mercado_templates_de_nome"] = anteriores
+        dados["mercado_limiar_de_template"] = 0.93
+        destino.write_text(json.dumps(dados), encoding="utf-8")
+
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado, "ler_watchlist", lambda _c: []
+        )
+
+        assert l2scanner.calibrar_mercado.calibrar(args) == 0
+
+        depois = json.loads(destino.read_text(encoding="utf-8"))
+        assert depois["mercado_templates_de_nome"] == anteriores, (
+            "rodar sem watchlist APAGOU os moldes de nome ja calibrados. Cada "
+            "um custou um arrasto de mouse sobre um frame gravado, e o console "
+            "prometia um comportamento aditivo."
+        )
+        assert depois["mercado_limiar_de_template"] == 0.93, (
+            "o limiar MEDIDO numa rodada anterior foi sobrescrito por uma "
+            "matriz que nao rodou"
+        )
+        # As ancoras e a grade, que e o que esta rodada de fato marcou, foram.
+        assert depois["mercado_grade"]["linhas_por_pagina"] == 10
+        assert depois["mercado_ancora"]["largura"] == 100
+
+        saida = capsys.readouterr().out
+        assert "Mantidos os 2 molde(s)" in saida, (
+            "a ferramenta preservou os moldes mas nao disse ao usuario"
+        )
+
+    def test_sem_watchlist_e_sem_moldes_anteriores_nao_promete_nada(
+        self, cenario, monkeypatch: pytest.MonkeyPatch, capsys
+    ):
+        """O caso limpo: nao ha o que preservar, e nao ha o que anunciar."""
+        destino, args = cenario
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado, "ler_watchlist", lambda _c: []
+        )
+
+        assert l2scanner.calibrar_mercado.calibrar(args) == 0
+
+        depois = json.loads(destino.read_text(encoding="utf-8"))
+        assert depois["mercado_templates_de_nome"] is None
+        assert depois["mercado_limiar_de_template"] is None
+        assert "Mantidos os" not in capsys.readouterr().out
+
+    def test_com_watchlist_os_moldes_novos_SUBSTITUEM_os_velhos(
+        self, cenario, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A guarda nao pode virar 'nunca sobrescreve'.
+
+        Recortar de novo e exatamente como o usuario conserta um molde ruim.
+        """
+        destino, args = cenario
+        dados = json.loads(destino.read_text(encoding="utf-8"))
+        dados["mercado_templates_de_nome"] = [
+            {"nome": "velho", "molde": "0a:0a:" + "00" * 100}
+        ]
+        destino.write_text(json.dumps(dados), encoding="utf-8")
+
+        # Duas caixas a mais na fila: uma por item da watchlist.
+        fila = list(self.CAIXAS) + [(320, 270, 120, 20), (320, 320, 120, 20)]
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "_selecionar_regiao",
+            lambda *a, **k: fila.pop(0),
+        )
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "ler_watchlist",
+            lambda _c: ["+3 Bota X", "Chapeu Y"],
+        )
+
+        assert l2scanner.calibrar_mercado.calibrar(args) == 0
+
+        depois = json.loads(destino.read_text(encoding="utf-8"))
+        nomes = [t["nome"] for t in depois["mercado_templates_de_nome"]]
+        assert nomes == ["+3 Bota X", "Chapeu Y"]
+        assert depois["mercado_limiar_de_template"] is not None, (
+            "com dois moldes a matriz RODOU e o limiar tinha de ser gravado"
+        )

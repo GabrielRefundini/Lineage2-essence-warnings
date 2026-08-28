@@ -639,8 +639,9 @@ def calibrar(args: argparse.Namespace) -> int:
         print(
             "\nSem watchlist no config.toml ([mercado] watchlist = [...]): "
             "nenhum molde de nome foi cortado.\n"
-            "As ancoras e a grade acima ja ficam gravadas; rode de novo depois "
-            "de escrever a watchlist."
+            "As ancoras e a grade ficam gravadas e os moldes de nome de uma "
+            "calibracao ANTERIOR sao preservados; rode de novo depois de "
+            "escrever a watchlist."
         )
     moldes_de_nome: dict[str, np.ndarray] = {}
     cinza = cv2.cvtColor(pixels, cv2.COLOR_BGR2GRAY)
@@ -676,10 +677,32 @@ def calibrar(args: argparse.Namespace) -> int:
     cal.mercado_geometria_da_captura = {"largura": int(largura), "altura": int(altura)}
     cal.mercado_ancoras = ancoras_para_calibracao(ancoras)
     cal.mercado_grade = grade
-    cal.mercado_templates_de_nome = [
-        {"nome": nome, "molde": molde_para_hex(molde)}
-        for nome, molde in moldes_de_nome.items()
-    ]
+    # SO ESCREVE O QUE FOI CORTADO NESTA RODADA.
+    #
+    # Sem a guarda, uma rodada sem watchlist atribuia `[]` aqui e o
+    # `cal.salvar` logo abaixo regravava o arquivo INTEIRO: os moldes de uma
+    # calibracao anterior desapareciam, calados. O caminho e trivial de
+    # alcancar -- `ler_watchlist` devolve `[]` quando o `config.toml` nao
+    # existe (outro checkout, um worktree), quando o usuario comentou a
+    # watchlist para reajustar so uma ancora, ou quando ele escreveu
+    # `[mercado]` sem a chave.
+    #
+    # E o console dizia o contrario: "as ancoras e a grade ja ficam gravadas"
+    # afirma um comportamento ADITIVO. Este era o unico caminho do projeto que
+    # apagava trabalho de calibracao sem perguntar, e o prejuizo e proporcional
+    # a watchlist: cada molde custou um arrasto de mouse sobre um frame
+    # gravado. O cabecalho deste modulo promete "muta so os campos de mercado"
+    # -- mutar para vazio e destruir.
+    if moldes_de_nome:
+        cal.mercado_templates_de_nome = [
+            {"nome": nome, "molde": molde_para_hex(molde)}
+            for nome, molde in moldes_de_nome.items()
+        ]
+    elif cal.mercado_templates_de_nome:
+        print(
+            f"\nMantidos os {len(cal.mercado_templates_de_nome)} molde(s) de "
+            f"nome da calibracao anterior — nenhum foi recortado nesta rodada."
+        )
     if resultado.limiar_sugerido is not None:
         cal.mercado_limiar_de_template = resultado.limiar_sugerido
 
