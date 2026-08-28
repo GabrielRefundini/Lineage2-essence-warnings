@@ -124,36 +124,40 @@ do outro), a pesquisa custaria a pesquisa do mercado e nao compraria nada.
 
 ## Traceability
 
-Preenchida na criacao do roadmap.
+Preenchida na criacao do roadmap (2026-08-28).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PONTE-01 | — | Pending |
-| PONTE-02 | — | Pending |
-| PONTE-03 | — | Pending |
-| PONTE-04 | — | Pending |
-| PONTE-05 | — | Pending |
-| FORM-01 | — | Pending |
-| FORM-02 | — | Pending |
-| FORM-03 | — | Pending |
-| FORM-04 | — | Pending |
-| FORM-05 | — | Pending |
-| ENTR-01 | — | Pending |
-| ENTR-02 | — | Pending |
-| ENTR-03 | — | Pending |
-| ENTR-04 | — | Pending |
-| CONF-01 | — | Pending |
-| CONF-02 | — | Pending |
-| CONF-03 | — | Pending |
-| CONF-04 | — | Pending |
-| OPER-01 | — | Pending |
-| OPER-02 | — | Pending |
-| OPER-03 | — | Pending |
+| PONTE-01 | Phase 1 | Pending |
+| PONTE-02 | Phase 1 | Pending |
+| PONTE-03 | Phase 1 | Pending |
+| PONTE-04 | Phase 1 | Pending |
+| PONTE-05 | Phase 1 | Pending |
+| FORM-01 | Phase 2 | Pending |
+| FORM-02 | Phase 2 | Pending |
+| FORM-03 | Phase 2 | Pending |
+| FORM-04 | Phase 2 | Pending |
+| FORM-05 | Phase 2 | Pending |
+| ENTR-01 | Phase 3 | Pending |
+| ENTR-02 | Phase 3 | Pending |
+| ENTR-03 | Phase 3 | Pending |
+| ENTR-04 | Phase 1 | Pending |
+| CONF-01 | Phase 1 | Pending |
+| CONF-02 | Phase 1 | Pending |
+| CONF-03 | Phase 1 | Pending |
+| CONF-04 | Phase 1 | Pending |
+| OPER-01 | Phase 1 | Pending |
+| OPER-02 | Phase 1 | Pending |
+| OPER-03 | Phase 1 | Pending |
 
 **Coverage:**
 - v1 requirements: 21 total
-- Mapped to phases: 0
-- Unmapped: 21 (roadmap pendente)
+- Mapped to phases: 21
+- Unmapped: 0
+
+Por fase: Fase 1 = 13 (PONTE-01..05, CONF-01..04, ENTR-04, OPER-01..03),
+Fase 2 = 5 (FORM-01..05), Fase 3 = 3 (ENTR-01, ENTR-02, ENTR-03).
+Ver `.planning/workstreams/discord/ROADMAP.md`.
 
 ## Portao humano — o que so voce pode fazer
 
