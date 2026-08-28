@@ -30,6 +30,7 @@ import cv2
 import numpy as np
 import pytest
 
+from l2scanner.__main__ import alarme_de_divergencia, montar_gravador
 from l2scanner.captura_janela import JanelaSource
 from l2scanner.frames import Frame, Regiao, SaudeDoFrame, _ClassificadorDeSaude
 from l2scanner.gravador import FALHAS_ENTRE_GRITOS, Gravador
@@ -358,6 +359,119 @@ def test_sem_fonte_completa_o_comportamento_e_o_de_hoje(tmp_path: Path) -> None:
 
     imagem = cv2.imread(str(_pngs_no_disco(gravador.pasta)[0]))
     assert imagem.shape == (ALTURA_DA_PARTY, LARGURA_DA_PARTY, 3)
+
+
+# -- um gravador que nao monta nao derruba o produto --------------------------
+#
+# `Gravador.__init__` faz `mkdir` e `open`, e era construido fora de qualquer
+# try. `main()` so pega `JanelaNaoEncontrada` e `ConfiguracaoPerigosa`, entao um
+# `recordings/` somente-leitura, um disco cheio ou um ARQUIVO ocupando o nome
+# `recordings` produziam um traceback cru e nenhum scanner. Gravar e a feature
+# mais opcional do projeto e era a unica capaz de impedir o produto de subir —
+# a inversao da doutrina que o proprio `__main__.py` enuncia duas vezes, em
+# `montar_despachante` e `montar_vigia_de_manutencao`.
+
+
+class _ArgsDeGravacao:
+    def __init__(self, record: bool = True, record_janela: bool = False) -> None:
+        self.record = record
+        self.record_janela = record_janela
+        self.rotulo = "mercado-aberto"
+
+
+def test_um_recordings_que_nao_da_para_criar_nao_derruba_o_scanner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Um ARQUIVO ocupando o nome `recordings` — falha deterministica em todo SO.
+
+    Mesmo padrao do diretorio-com-nome-de-PNG usado acima: nao depende de
+    permissao, que varia entre maquinas.
+    """
+    import l2scanner.__main__ as principal
+
+    ocupado = tmp_path / "recordings"
+    ocupado.write_text("nao sou uma pasta", encoding="utf-8")
+    monkeypatch.setattr(principal, "PASTA_GRAVACOES", ocupado)
+
+    with caplog.at_level(logging.ERROR, logger="l2scanner.__main__"):
+        gravador = montar_gravador(_ArgsDeGravacao(), fonte=None)
+
+    assert gravador is None, "a gravacao desliga; o scanner segue"
+    erros = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert erros, "sair calado faria o usuario farmar 60 segundos para nada"
+    assert any("GRAVACAO DESATIVADA" in r.getMessage() for r in erros)
+    assert any(
+        "continua igual" in r.getMessage() for r in erros
+    ), "o log precisa dizer que morte, saida e ressurreicao seguem valendo"
+
+
+def test_sem_record_o_gravador_nem_e_construido(tmp_path: Path) -> None:
+    assert montar_gravador(_ArgsDeGravacao(record=False), fonte=None) is None
+
+
+def test_o_gravador_montado_usa_a_janela_do_frame_atual(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fiacao do CR-02, presa no ponto onde ela e feita.
+
+    `capturar_completo` le `_ultimo` DE NOVO e devolve um frame mais novo que o
+    da volta corrente. Se alguem religar o parametro nele, o PNG volta a nao
+    ser a imagem de onde saiu a linha do indice — e nada quebraria.
+    """
+    import l2scanner.__main__ as principal
+
+    monkeypatch.setattr(principal, "PASTA_GRAVACOES", tmp_path / "recordings")
+    regiao = Regiao(
+        esquerda=0, topo=0, largura=LARGURA_DA_PARTY, altura=ALTURA_DA_PARTY
+    )
+    fonte = _janela_de_mentira(
+        np.full((ALTURA_DA_JANELA, LARGURA_DA_JANELA, 3), 77, dtype=np.uint8),
+        regiao,
+    )
+
+    gravador = montar_gravador(
+        _ArgsDeGravacao(record_janela=True), fonte=fonte
+    )
+    assert gravador is not None
+    gravador.fechar()
+
+    assert gravador._fonte_completa == fonte.completo_do_frame_atual
+    assert gravador._fonte_completa != fonte.capturar_completo
+
+
+# -- o resumo final compara os dois numeros que imprime -----------------------
+
+
+def test_o_resumo_acusa_quando_o_contador_e_o_disco_discordam() -> None:
+    """118 contados e 40 no disco nao pode sair em INFO.
+
+    O bloco de encerramento calculava `no_disco` certinho, imprimia os dois
+    numeros lado a lado e nunca os comparava: a severidade saia SO de
+    `falhas_de_gravacao`. Imprimir dois numeros lado a lado so e uma
+    conferencia se alguma coisa ler os dois.
+    """
+    assert alarme_de_divergencia(118, 40), (
+        "o cenario que abre a docstring deste modulo precisa disparar alarme"
+    )
+    assert "DIVERGIU" in alarme_de_divergencia(118, 40)
+    assert "nao confie nesta sessao" in alarme_de_divergencia(118, 40)
+
+
+def test_o_resumo_fica_calado_quando_os_numeros_fecham() -> None:
+    """Sem isto, o jeito facil de passar seria alarmar sempre."""
+    assert alarme_de_divergencia(0, 0) == ""
+    assert alarme_de_divergencia(40, 40) == ""
+
+
+def test_o_alarme_dispara_para_os_dois_lados_da_divergencia() -> None:
+    """Sobrar PNG no disco tambem e divergir.
+
+    Depois do fix do CR-01 um PNG orfao e descartado, mas um `--record` de uma
+    sessao anterior na mesma pasta (ou uma escrita que o SO completou depois da
+    falha) ainda pode deixar arquivo a mais. O contador nunca e a autoridade.
+    """
+    assert alarme_de_divergencia(40, 41)
+    assert alarme_de_divergencia(41, 40)
 
 
 # -- UMA captura por volta ---------------------------------------------------

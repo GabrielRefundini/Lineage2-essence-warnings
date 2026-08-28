@@ -214,6 +214,80 @@ def montar_despachante(args: argparse.Namespace) -> Despachante | None:
     )
 
 
+def montar_gravador(args, fonte) -> Gravador | None:
+    """Monta o gravador, ou explica por que nao montou. Nunca levanta.
+
+    Mesmo trilho de `montar_despachante` e `montar_vigia_de_manutencao`: tenta,
+    degrada com log, devolve None e deixa o scanner subir. O recurso e
+    opcional; o scanner nao e.
+
+    `Gravador.__init__` faz `mkdir` e `open`, e era construido fora de qualquer
+    try. `main()` so pega `JanelaNaoEncontrada` e `ConfiguracaoPerigosa`, entao
+    um `recordings/` somente-leitura, um disco cheio, um caminho travado pelo
+    antivirus ou um arquivo ocupando o nome `recordings` derrubavam o scanner
+    inteiro com um traceback cru. Gravar e a feature mais opcional do projeto e
+    era a unica capaz de impedir o produto de subir.
+
+    ERROR e nao WARNING de proposito: quem esta seguindo o ROTEIRO-SPIKE.md
+    precisa abortar e consertar, nao farmar 60 segundos gravando em lugar
+    nenhum.
+    """
+    if not args.record:
+        return None
+
+    # `completo_do_frame_atual`, e nao `capturar_completo`: o PNG precisa ser a
+    # janela que produziu a linha do indice, nao a mais recente que a WGC
+    # empurrou desde entao.
+    fonte_completa = fonte.completo_do_frame_atual if args.record_janela else None
+    try:
+        gravador = Gravador(
+            PASTA_GRAVACOES, args.rotulo, fonte_completa=fonte_completa
+        )
+    except OSError as erro:
+        log.error("GRAVACAO DESATIVADA — nao consegui criar a pasta: %s", erro)
+        log.error(
+            "Todo o resto do scanner continua igual: morte, saida e "
+            "ressurreicao seguem sendo detectadas e entregues."
+        )
+        return None
+
+    if fonte_completa is not None:
+        # O sinal de alarme e um PNG de ~170 KB onde deveria haver ~3,5 MB:
+        # seria o recorte da party window de novo, e a sessao do usuario teria
+        # sido gasta a toa.
+        log.info(
+            "Gravando a JANELA COMPLETA em %s — cerca de 3,5 MB por frame, "
+            "cerca de 210 MB por minuto a 1 Hz. Prefira sessoes de 30 a 60 "
+            "segundos e confira o tamanho do primeiro PNG.",
+            gravador.pasta,
+        )
+    else:
+        log.info("Gravando em %s", gravador.pasta)
+    return gravador
+
+
+def alarme_de_divergencia(frames_gravados: int, no_disco: int) -> str:
+    """A frase de alarme quando o contador e o disco discordam, ou "".
+
+    Funcao pura, e separada de proposito: o resumo antes CALCULAVA `no_disco`
+    corretamente, imprimia os dois numeros lado a lado, e nunca os comparava —
+    a severidade saia so de `falhas_de_gravacao`. Uma sessao que diz 118 e tem
+    40 PNGs no disco (o cenario que abre a docstring de
+    `tests/test_gravador_honesto.py`) era emitida em INFO, no meio das linhas
+    de rotina, depois de uma hora de farm.
+
+    E o contador em memoria e justamente a testemunha que nao da para
+    interrogar aqui: era ele que ficava em zero enquanto um frame se perdia.
+    Derivar o alarme dele e fail-open. Imprimir dois numeros lado a lado so e
+    uma conferencia se alguma coisa ler os dois.
+    """
+    if no_disco == frames_gravados:
+        return ""
+    return (
+        "  <-- DIVERGIU: o contador e o disco discordam, nao confie nesta sessao"
+    )
+
+
 def montar_vigia_de_manutencao(regiao) -> VigiaDeManutencao | None:
     """Liga o aviso de manutencao, ou explica por que nao ligou. Nunca levanta.
 
@@ -1481,31 +1555,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
 
     # `--record-janela` ja foi validado no parse: implica --record e exige
     # --janela, entao aqui a fonte e sempre uma JanelaSource.
-    #
-    # `completo_do_frame_atual`, e NAO `capturar_completo`: o segundo le
-    # `_ultimo` de novo e devolve um frame mais novo que o `frame` desta volta
-    # — a WGC troca o buffer a ~38 fps e `atender_comandos` ainda faz um
-    # round-trip HTTP no meio. O PNG deixaria de ser a imagem de onde saiu a
-    # linha do indice.
-    fonte_completa = fonte.completo_do_frame_atual if args.record_janela else None
-    gravador = (
-        Gravador(PASTA_GRAVACOES, args.rotulo, fonte_completa=fonte_completa)
-        if args.record
-        else None
-    )
-    if gravador:
-        if fonte_completa is not None:
-            # O sinal de alarme e um PNG de ~170 KB onde deveria haver ~3,5 MB:
-            # seria o recorte da party window de novo, e a sessao do usuario
-            # teria sido gasta a toa.
-            log.info(
-                "Gravando a JANELA COMPLETA em %s — cerca de 3,5 MB por frame, "
-                "cerca de 210 MB por minuto a 1 Hz. Prefira sessoes de 30 a 60 "
-                "segundos e confira o tamanho do primeiro PNG.",
-                gravador.pasta,
-            )
-        else:
-            log.info("Gravando em %s", gravador.pasta)
+    gravador = montar_gravador(args, fonte)
 
     rastreador = Rastreador(
         nomes=list(cal.nomes),
@@ -1736,17 +1786,25 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
             no_disco = sum(
                 1 for caminho in gravador.pasta.glob("frame_*.png") if caminho.is_file()
             )
-            # Com falhas o bloco sobe para ERROR: uma sessao parcialmente
-            # perdida no fim de uma hora de farm nao pode passar despercebida
-            # no meio das linhas de rotina.
-            registrar = log.error if gravador.falhas_de_gravacao else log.info
+            # Com falhas OU com divergencia o bloco sobe para ERROR: uma sessao
+            # parcialmente perdida no fim de uma hora de farm nao pode passar
+            # despercebida no meio das linhas de rotina. A divergencia entra na
+            # conta porque o contador em memoria e a testemunha que nao da para
+            # interrogar aqui — ele ja ficou em zero com um frame se perdendo.
+            divergiu = alarme_de_divergencia(gravador.frames_gravados, no_disco)
+            registrar = (
+                log.error
+                if (gravador.falhas_de_gravacao or divergiu)
+                else log.info
+            )
             registrar(
                 "Sessao gravada: %d frames confirmados, %d falhas de escrita, "
-                "em %s (no disco: %d frame_*.png)",
+                "em %s (no disco: %d frame_*.png)%s",
                 gravador.frames_gravados,
                 gravador.falhas_de_gravacao,
                 gravador.pasta,
                 no_disco,
+                divergiu,
             )
 
         if despachante:
