@@ -122,6 +122,36 @@ CAMINHO_DE_FRAME = re.compile(r"recordings/[^\s)`]+\.png")
 SELOS = ("VERIFICADO", "PARCIAL", "NAO RESPONDIDO")
 SELO_POSITIVO = ("VERIFICADO", "PARCIAL")
 
+# A ordem em que os selos sao PROCURADOS no texto -- diferente de `SELOS`, que e
+# so a lista para as mensagens de erro. `NAO RESPONDIDO` sai primeiro para que a
+# remocao dele nao deixe nenhum pedaco para tras.
+ORDEM_DE_BUSCA = ("NAO RESPONDIDO", "VERIFICADO", "PARCIAL")
+
+# A NEGACAO EXPLICITA, e por que ela precisa de uma regra propria.
+#
+# MEDIDO: `Secao.selos` procurava por substring, na ordem de `SELOS`, que comeca
+# por `VERIFICADO`. Contra o texto real
+#
+#     "NAO VERIFICADO em campo -- nao deu tempo."
+#
+# ele devolvia `['VERIFICADO']`: um selo POSITIVO para uma resposta que o
+# usuario tinha rebaixado de proposito. A cascata ia toda na direcao errada --
+# passava na conferencia 2 (exatamente um selo), entrava em `SELO_POSITIVO` e
+# passava a exigir um frame (qualquer frame que existisse servia), e a TABELA
+# FINAL imprimia `VERIFICADO` ao lado do numero da secao, que e a saida que um
+# leitor futuro usa como resumo. Num arquivo cujo proposito e "que a mesma
+# mentira nao volte pela porta da analise", promover um selo negativo a positivo
+# e o modo de falha exato que ele existe para impedir.
+#
+# A docstring do metodo AFIRMAVA que isso estava prevenido, dizendo que
+# `NAO RESPONDIDO` era procurado antes e removido. O codigo fazia o oposto -- e
+# mesmo a ordem descrita nao resolveria: `NAO RESPONDIDO` nao contem
+# `VERIFICADO`, entao remove-lo nao apaga o `NAO VERIFICADO` de outra frase.
+#
+# Rebaixar para `NAO RESPONDIDO` e a leitura conservadora, e e a que o resto do
+# modulo ja assume: na duvida, falhar para o lado do selo mais fraco.
+NEGACAO_DE_SELO = re.compile(r"\bNAO\s+(?:VERIFICADO|PARCIAL)\b")
+
 PERGUNTAS_ESPERADAS = 9
 
 
@@ -160,13 +190,22 @@ class Secao:
     def selos(self) -> list[str]:
         """Os selos presentes, COM repeticao -- dois selos iguais tambem e erro.
 
-        `NAO RESPONDIDO` e procurado antes e removido do texto, senao o
-        `PARCIAL` de uma frase como "parcialmente" nao seria o problema, mas o
-        `VERIFICADO` dentro de "NAO VERIFICADO" seria.
+        DOIS PASSOS, e o primeiro e o que importa:
+
+        1. Toda NEGACAO EXPLICITA (`NAO VERIFICADO`, `NAO PARCIAL`) vira
+           `NAO RESPONDIDO` antes de qualquer contagem. Sem isso, a busca por
+           substring achava o `VERIFICADO` dentro de `NAO VERIFICADO` e promovia
+           uma resposta rebaixada a mao para selo POSITIVO -- ver o comentario de
+           `NEGACAO_DE_SELO`, com a medicao.
+        2. So entao os selos sao contados e removidos, `NAO RESPONDIDO` primeiro
+           para nao deixar pedaco para tras.
+
+        A remocao a cada passo e o que impede um mesmo trecho de texto de contar
+        duas vezes.
         """
         achados: list[str] = []
-        restante = sem_acento(self.texto)
-        for selo in SELOS:
+        restante = NEGACAO_DE_SELO.sub("NAO RESPONDIDO", sem_acento(self.texto))
+        for selo in ORDEM_DE_BUSCA:
             n = restante.count(selo)
             achados.extend([selo] * n)
             restante = restante.replace(selo, "")
