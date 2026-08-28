@@ -30,7 +30,7 @@ import numpy as np
 import pytest
 
 from l2scanner.frames import Frame, SaudeDoFrame
-from l2scanner.gravador import Gravador
+from l2scanner.gravador import FALHAS_ENTRE_GRITOS, Gravador
 
 # A janela do jogo do usuario, medida em recordings/inv3/f000_JANELA.png.
 # O recorte da party window, que e o que o --record de hoje grava, mede
@@ -74,6 +74,30 @@ def _ocupar_o_nome_com_um_diretorio(pasta: Path, indice: int) -> None:
     em todo lugar, sem depender de permissao nenhuma.
     """
     (pasta / f"frame_{indice:06d}.png").mkdir()
+
+
+class _IndiceQueRecusaEscrita:
+    """O `observacoes.jsonl` com o disco cheio, sem encher o disco de verdade.
+
+    O `errno 28` nao e enfeite: disco cheio e o UNICO cenario que a docstring
+    do `Gravador.gravar` nomeia, e era justamente por ele que o metodo
+    levantava. O `cv2.imwrite` ja estava embrulhado; a escrita do indice, logo
+    abaixo dele, nao estava — e como `Sessao.tick` chama `gravar` ANTES do seu
+    proprio try/except e o laco principal nao envolve o tick em try nenhum, a
+    excecao subia ate `main()` e levava os alertas de morte da party junto.
+    """
+
+    def __init__(self, real: object) -> None:
+        self._real = real
+
+    def write(self, _texto: str) -> int:
+        raise OSError(28, "No space left on device")
+
+    def flush(self) -> None:
+        raise OSError(28, "No space left on device")
+
+    def close(self) -> None:
+        self._real.close()  # type: ignore[attr-defined]
 
 
 def test_o_contrato_estrutural_do_gravador() -> None:
@@ -184,6 +208,83 @@ def test_gravar_nunca_levanta_nem_quando_o_imwrite_explode(
     assert gravador.frames_gravados == 0
     assert gravador.falhas_de_gravacao == 2
     assert _linhas_do_jsonl(gravador.pasta) == []
+
+
+def test_o_indice_que_recusa_a_linha_nao_derruba_o_scanner(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A metade que faltava do portao: o JSONL falha como o imwrite falha.
+
+    Antes deste teste o `imwrite` estava embrulhado e a escrita do indice nao.
+    Um `OSError(28)` na linha do `observacoes.jsonl` subia por `Sessao.tick`,
+    passava pelo laco principal (que nao tem try) e derrubava o scanner
+    inteiro — a feature de gravacao levando o produto junto, que e a inversao
+    exata da doutrina da casa.
+    """
+    gravador = Gravador(tmp_path, "disco-cheio")
+    gravador._arquivo_meta = _IndiceQueRecusaEscrita(gravador._arquivo_meta)
+
+    with caplog.at_level(logging.ERROR, logger="l2scanner.gravador"):
+        assert gravador.gravar(_frame(3), 3.0) is False
+    gravador.fechar()
+
+    assert gravador.frames_gravados == 0, "um frame sem linha no indice nao existe"
+    assert gravador.falhas_de_gravacao == 1, (
+        "o contador que existe para nunca mentir reportava ZERO falhas para um "
+        "frame perdido: a falha nem chegava a `_contabilizar_falha`"
+    )
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR], (
+        "sem ERROR o usuario farma uma hora sem saber que nada foi gravado"
+    )
+
+
+def test_a_linha_que_falha_nao_deixa_png_orfao_no_disco(tmp_path: Path) -> None:
+    """O PNG sai junto com a linha que nao entrou.
+
+    O PNG e escrito ANTES da linha do indice. Deixar o arquivo la depois de a
+    linha falhar cria um orfao, e a conferencia 4 de
+    `tools/conferir_gravacoes_do_spike.py` (linhas do JSONL == PNGs no disco)
+    condenaria a sessao INTEIRA — "Regrave este cenario" — por causa de um
+    unico solucar de metadado. As oito sessoes do spike sao irrecuperaveis;
+    condenar uma delas por um orfao e caro demais.
+    """
+    gravador = Gravador(tmp_path, "orfao")
+    gravador._arquivo_meta = _IndiceQueRecusaEscrita(gravador._arquivo_meta)
+
+    gravador.gravar(_frame(3), 3.0)
+    gravador.fechar()
+
+    assert _pngs_no_disco(gravador.pasta) == [], (
+        "o PNG ficou no disco sem linha no indice — o disco e o indice "
+        "passaram a discordar, que e a mentira que este modulo veio fechar"
+    )
+    assert _linhas_do_jsonl(gravador.pasta) == []
+
+
+def test_o_indice_que_falha_sempre_respeita_o_throttle_de_gritos(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`FALHAS_ENTRE_GRITOS` precisa valer para ESTA classe de falha tambem.
+
+    O throttle so dispara de dentro de `_contabilizar_falha`. Enquanto a falha
+    do indice levantava, ela nunca passava por la: a 1 Hz com o disco cheio o
+    caminho era derrubar o scanner na primeira volta, e nao gritar uma vez e
+    depois a cada dez.
+    """
+    gravador = Gravador(tmp_path, "throttle")
+    gravador._arquivo_meta = _IndiceQueRecusaEscrita(gravador._arquivo_meta)
+
+    with caplog.at_level(logging.DEBUG, logger="l2scanner.gravador"):
+        for indice in range(12):
+            assert gravador.gravar(_frame(indice), float(indice)) is False
+    gravador.fechar()
+
+    assert gravador.falhas_de_gravacao == 12
+    gritos = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(gritos) == 2, (
+        f"esperava gritar na 1a e na 10a falha (FALHAS_ENTRE_GRITOS={FALHAS_ENTRE_GRITOS}), "
+        f"gritou {len(gritos)} vez(es)"
+    )
 
 
 # -- modo janela completa (--record-janela) ---------------------------------

@@ -118,11 +118,43 @@ class Gravador:
             "saude": frame.saude.value,
             "arquivo": caminho.name,
         }
-        self._arquivo_meta.write(json.dumps(linha, ensure_ascii=False) + "\n")
-        self._arquivo_meta.flush()  # sobrevive a um Ctrl+C ou queda de energia
+        # MESMO caminho de falha do imwrite, e pelo mesmo motivo. Esta metade
+        # estava crua: um `OSError(28)` aqui subia por `Sessao.tick` (que chama
+        # `gravar` ANTES do proprio try/except) e pelo laco principal (que nao
+        # tem try nenhum) ate derrubar o scanner — disco cheio matando os
+        # alertas de morte da party, que e exatamente o que a docstring acima
+        # promete que nao acontece.
+        try:
+            self._arquivo_meta.write(json.dumps(linha, ensure_ascii=False) + "\n")
+            self._arquivo_meta.flush()  # sobrevive a um Ctrl+C ou queda de energia
+        except Exception:  # noqa: BLE001
+            # O PNG ja esta no disco e o indice nao vai cita-lo. Um PNG orfao
+            # faz a conferencia 4 de `tools/conferir_gravacoes_do_spike.py`
+            # (linhas do JSONL == PNGs no disco) condenar a sessao INTEIRA por
+            # causa de um solucar de metadado — e as sessoes do spike sao
+            # irrecuperaveis. Entao ele sai junto: o disco e o indice nunca
+            # discordam.
+            self._descartar(caminho)
+            self._contabilizar_falha(caminho, "o indice nao aceitou a linha do frame")
+            return False
 
         self.frames_gravados += 1
         return True
+
+    @staticmethod
+    def _descartar(caminho: Path) -> None:
+        """Apaga o PNG que ficou sem linha no indice. Nunca levanta.
+
+        Se ate o `unlink` falhar (o mesmo disco doente que derrubou a linha),
+        nao ha nada melhor a fazer aqui: o frame ja esta contabilizado como
+        falha e a conferencia do spike vai apontar a divergencia com o nome da
+        pasta. Levantar por causa da limpeza seria repetir o defeito que este
+        bloco acabou de fechar.
+        """
+        try:
+            caminho.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     @staticmethod
     def _escrever(caminho: Path, imagem: "np.ndarray") -> bool:
