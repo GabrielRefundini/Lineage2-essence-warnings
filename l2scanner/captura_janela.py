@@ -241,6 +241,9 @@ class JanelaSource:
         self._vigia = None
 
         self._ultimo: np.ndarray | None = None
+        # A janela que produziu o frame corrente — congelada por `capturar()`.
+        # Ver `completo_do_frame_atual`.
+        self._completo_do_ultimo_frame: np.ndarray | None = None
         self._trava = threading.Lock()
         self._saude = _ClassificadorDeSaude()
         self._contador = 0
@@ -310,9 +313,31 @@ class JanelaSource:
         with self._trava:
             return None if self._ultimo is None else self._ultimo.copy()
 
+    def completo_do_frame_atual(self) -> np.ndarray | None:
+        """A janela QUE PRODUZIU o frame corrente — nao a mais recente.
+
+        `capturar_completo` le `_ultimo` de novo e devolve um frame MAIS NOVO:
+        a WGC entrega ~38 fps e o laco ainda faz um round-trip HTTP no Chatwoot
+        entre uma coisa e outra. Usada pela gravacao, ela fazia o PNG no disco
+        deixar de ser a imagem de onde saiu a linha do indice — `saude`,
+        `momento` e `indice` descrevendo pixels que nao estao no arquivo que
+        eles nomeiam. Numa gravacao que existe para ser "base de calibracao e
+        teste de regressao permanente", isso e o defeito mais caro possivel.
+
+        Devolve `None` quando a ultima captura foi cega, para que a gravacao
+        falhe FECHADA junto com ela em vez de escrever um frame antigo e bom ao
+        lado de uma linha marcada como falha de captura.
+        """
+        return self._completo_do_ultimo_frame
+
     def capturar(self) -> Frame:
         with self._trava:
             completo = None if self._ultimo is None else self._ultimo.copy()
+
+        # A UNICA leitura de `_ultimo` desta volta. Tudo que descrever este
+        # frame — o recorte, os extras, e o PNG que a gravacao escrever — sai
+        # deste mesmo array.
+        self._completo_do_ultimo_frame = completo
 
         if completo is None:
             vazio = np.zeros((1, 1, 3), dtype=np.uint8)

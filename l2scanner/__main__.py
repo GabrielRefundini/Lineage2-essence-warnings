@@ -1481,7 +1481,13 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
 
     # `--record-janela` ja foi validado no parse: implica --record e exige
     # --janela, entao aqui a fonte e sempre uma JanelaSource.
-    fonte_completa = fonte.capturar_completo if args.record_janela else None
+    #
+    # `completo_do_frame_atual`, e NAO `capturar_completo`: o segundo le
+    # `_ultimo` de novo e devolve um frame mais novo que o `frame` desta volta
+    # — a WGC troca o buffer a ~38 fps e `atender_comandos` ainda faz um
+    # round-trip HTTP no meio. O PNG deixaria de ser a imagem de onde saiu a
+    # linha do indice.
+    fonte_completa = fonte.completo_do_frame_atual if args.record_janela else None
     gravador = (
         Gravador(PASTA_GRAVACOES, args.rotulo, fonte_completa=fonte_completa)
         if args.record

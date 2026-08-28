@@ -23,13 +23,15 @@ from __future__ import annotations
 import inspect
 import json
 import logging
+import threading
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 
-from l2scanner.frames import Frame, SaudeDoFrame
+from l2scanner.captura_janela import JanelaSource
+from l2scanner.frames import Frame, Regiao, SaudeDoFrame, _ClassificadorDeSaude
 from l2scanner.gravador import FALHAS_ENTRE_GRITOS, Gravador
 
 # A janela do jogo do usuario, medida em recordings/inv3/f000_JANELA.png.
@@ -356,3 +358,111 @@ def test_sem_fonte_completa_o_comportamento_e_o_de_hoje(tmp_path: Path) -> None:
 
     imagem = cv2.imread(str(_pngs_no_disco(gravador.pasta)[0]))
     assert imagem.shape == (ALTURA_DA_PARTY, LARGURA_DA_PARTY, 3)
+
+
+# -- UMA captura por volta ---------------------------------------------------
+#
+# O PNG e a linha do indice que o descreve precisam sair do MESMO array. O laco
+# capturava uma vez para o `Frame` (de onde saem `saude`, `indice` e `momento`)
+# e a gravacao lia `_ultimo` DE NOVO, com um round-trip HTTP no Chatwoot no
+# meio e a thread da WGC trocando o buffer a ~38 fps. O PNG no disco ficava
+# rotineiramente dezenas a centenas de milissegundos mais novo que os pixels
+# que produziram o `saude` gravado ao lado dele.
+#
+# Isso e um buraco de reprodutibilidade no artefato que a fase inteira existe
+# para produzir: a gravacao e a "base de calibracao e teste de regressao
+# permanente", e reproduzir `frame_NNNNNN.png` nao devolvia o `saude` que o
+# indice afirma para ele, porque o valor veio de outra imagem.
+
+
+def _janela_de_mentira(completo: np.ndarray, regiao: Regiao) -> JanelaSource:
+    """Uma `JanelaSource` sem jogo aberto, sem WGC e sem hwnd.
+
+    `__init__` abre a captura de verdade e espera o primeiro frame, o que exige
+    o cliente rodando. O que este teste precisa exercitar e so o par
+    `capturar()` / `completo_do_frame_atual()` — codigo de producao, nao um
+    dublê —, entao montamos o objeto com exatamente os campos que esse par le.
+    `relativa=True` e o que dispensa o hwnd: a regiao ja esta em coordenadas do
+    canto da janela.
+    """
+    fonte = JanelaSource.__new__(JanelaSource)
+    fonte._trava = threading.Lock()
+    fonte._ultimo = completo
+    fonte._completo_do_ultimo_frame = None
+    fonte._relativa = True
+    fonte._regiao = regiao
+    fonte._extras = {}
+    fonte._saude = _ClassificadorDeSaude()
+    fonte._contador = 0
+    return fonte
+
+
+def test_o_png_gravado_e_a_janela_que_produziu_a_linha_do_indice(
+    tmp_path: Path,
+) -> None:
+    """O PNG e o indice saem do MESMO array, mesmo com frame novo no meio."""
+    regiao = Regiao(
+        esquerda=10, topo=20, largura=LARGURA_DA_PARTY, altura=ALTURA_DA_PARTY
+    )
+    janela_do_frame = np.full(
+        (ALTURA_DA_JANELA, LARGURA_DA_JANELA, 3), 111, dtype=np.uint8
+    )
+    fonte = _janela_de_mentira(janela_do_frame, regiao)
+
+    frame = fonte.capturar()
+
+    # A thread da WGC entrega ~38 fps, e entre o `capturar()` do laco e o
+    # `gravar()` ainda cabe o round-trip HTTP do Chatwoot em
+    # `atender_comandos`. Aqui isso vira uma linha.
+    janela_mais_nova = np.full(
+        (ALTURA_DA_JANELA, LARGURA_DA_JANELA, 3), 222, dtype=np.uint8
+    )
+    with fonte._trava:
+        fonte._ultimo = janela_mais_nova
+
+    # A prova de que o defeito era real e nao teorico: a fonte JA tem um frame
+    # diferente para entregar a quem perguntar de novo.
+    assert np.array_equal(fonte.capturar_completo(), janela_mais_nova)
+
+    gravador = Gravador(
+        tmp_path, "mesmo-frame", fonte_completa=fonte.completo_do_frame_atual
+    )
+    assert gravador.gravar(frame, 0.0) is True
+    gravador.fechar()
+
+    gravado = cv2.imread(str(_pngs_no_disco(gravador.pasta)[0]))
+    assert np.array_equal(gravado, janela_do_frame), (
+        "o PNG gravado nao e a janela que produziu `frame.pixels`: a linha do "
+        "indice descreve (saude, momento, indice) uma imagem que nao esta no "
+        "arquivo que ela nomeia"
+    )
+    assert not np.array_equal(gravado, janela_mais_nova)
+
+
+def test_a_falha_de_captura_nao_deixa_a_gravacao_com_um_frame_velho(
+    tmp_path: Path,
+) -> None:
+    """Fail-closed nas DUAS metades, e nao so na de cima.
+
+    `capturar()` devolvendo FALHA_DE_CAPTURA enquanto a gravacao escrevia um
+    PNG perfeito (lido de um `_ultimo` que nunca e limpo) era o pior par
+    possivel: um frame marcado como cego no indice, com uma imagem boa e
+    ANTIGA ao lado. Agora as duas metades falham juntas.
+    """
+    regiao = Regiao(
+        esquerda=10, topo=20, largura=LARGURA_DA_PARTY, altura=ALTURA_DA_PARTY
+    )
+    fonte = _janela_de_mentira(None, regiao)
+
+    frame = fonte.capturar()
+    assert frame.saude is SaudeDoFrame.FALHA_DE_CAPTURA
+
+    gravador = Gravador(
+        tmp_path, "cega", fonte_completa=fonte.completo_do_frame_atual
+    )
+    assert gravador.gravar(frame, 0.0) is False
+    gravador.fechar()
+
+    assert gravador.falhas_de_gravacao == 1
+    assert _pngs_no_disco(gravador.pasta) == []
+    assert _linhas_do_jsonl(gravador.pasta) == []
