@@ -91,11 +91,16 @@ class TestArquivoOuSecaoAusenteEhErro:
     """O contraste deliberado com `ler_agenda` (CONF-03)."""
 
     def test_config_ausente_e_erro_e_nao_um_padrao_silencioso(self, tmp_path):
-        """A ponte nao tem padrao razoavel: sem canais ela nao tem o que ouvir."""
+        """A ponte nao tem padrao razoavel: sem canais ela nao tem o que ouvir.
+
+        E a mensagem tem de NOMEAR o arquivo que ela procurou. "nao encontrei a
+        configuracao" faz o usuario abrir a pasta errada.
+        """
         with pytest.raises(PonteInvalida) as erro:
-            ler_config_da_ponte(tmp_path / "nao-existe.toml")
+            ler_config_da_ponte(tmp_path / "config.toml")
 
         assert "config.toml" in str(erro.value)
+        assert "[discord]" in str(erro.value)
 
     def test_secao_discord_ausente_e_erro_e_a_mensagem_nomeia_a_secao(self, tmp_path):
         """"nao encontrei a configuracao" nao ajuda ninguem a consertar nada."""

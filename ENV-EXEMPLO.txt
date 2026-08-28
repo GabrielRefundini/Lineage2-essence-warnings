@@ -51,6 +51,32 @@ CHATWOOT_CONVERSAS_COMANDO=
 # para o scanner. Escreva do jeito que preferir.
 CHATWOOT_TELEFONES_COMANDO=
 
+# ---------------------------------------------------------------------------
+# PONTE DO DISCORD — so para quem vai rodar o ponte-discord.bat.
+#
+# O scanner (vigiar-party.bat) NAO usa esta chave e sobe normalmente sem ela.
+#
+# Onde achar o token:
+#   1. Abra https://discord.com/developers/applications e entre na aplicacao
+#      do bot (ou crie uma, em "New Application").
+#   2. No menu da esquerda, clique em "Bot".
+#   3. Clique em "Reset Token" e depois em "Copy". O Discord SO MOSTRA O TOKEN
+#      UMA VEZ: se voce fechar a pagina sem copiar, tera que resetar de novo.
+#   4. Cole na linha DISCORD_TOKEN= aqui embaixo, sem aspas e sem espaco.
+#
+# ESTE TOKEN E O BOT INTEIRO. Quem tem ele pode ler e escrever em todo servidor
+# onde o bot esta, com o nome do bot. Por isso ele mora aqui no .env, que esta
+# no .gitignore e nunca e commitado — e nunca no config.toml, que e versionado
+# e e o arquivo que voce fotografa quando pede ajuda.
+#
+# Se voce colar o token em qualquer lugar por engano (grupo, print, issue),
+# volte na pagina Bot e clique em "Reset Token": o antigo morre na hora.
+#
+# Antes do primeiro uso faltam mais 3 passos alem deste. Estao todos no
+# PORTAO-DISCORD.txt, na raiz do projeto — inclusive o aviso da armadilha de
+# teste, que e o erro mais caro que da para cometer aqui.
+DISCORD_TOKEN=
+
 # OPCIONAL: etiqueta do Chatwoot que liga o canal de comando.
 #
 # Toda conversa marcada com esta etiqueta no painel do Chatwoot vira canal de
