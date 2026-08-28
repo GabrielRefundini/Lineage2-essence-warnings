@@ -24,6 +24,12 @@ pode produzi-las (é a sua conta, o seu cliente, o seu servidor).
 - [ ] Abra um terminal na pasta do projeto.
 - [ ] Deixe este arquivo aberto no segundo monitor.
 
+> **POR QUE `.venv\Scripts\python.exe` E NAO SO `python`.** MEDIDO EM CAMPO
+> 2026-08-28: no PowerShell o `python` puro funcionava, mas no `cmd` deu
+> `'python' nao e reconhecido como um comando`. O caminho explicito do venv
+> funciona nos dois, e e o mesmo que todos os `.bat` do projeto ja usam. Rode
+> sempre a partir da pasta do projeto.
+
 **Como parar uma sessão:** `Ctrl+C` no terminal. O scanner imprime um **resumo final com três
 números** — frames confirmados, falhas de escrita e a contagem lida do disco. Os três precisam
 fechar (confirmados = disco, falhas = 0).
@@ -41,7 +47,7 @@ o recorte da party window. Descobrir isso agora custa 5 segundos; descobrir depo
 oito sessões.
 
 ```
-python -m l2scanner --janela --record-janela --rotulo pre-voo --dry-run
+.venv\Scripts\python.exe -m l2scanner --janela --record-janela --rotulo pre-voo --dry-run
 ```
 
 - [ ] Rodei o comando acima e parei com `Ctrl+C` depois de ~5 segundos.
@@ -77,7 +83,7 @@ Regras que valem para todos:
 ### 1. `mercado-fechado` — o negativo da âncora
 
 ```
-python -m l2scanner --janela --record-janela --rotulo mercado-fechado --dry-run
+.venv\Scripts\python.exe -m l2scanner --janela --record-janela --rotulo mercado-fechado --dry-run
 ```
 
 **Duração:** 30 a 60 segundos.
@@ -104,7 +110,7 @@ painel **não** dispara quando o painel não está lá.
 ### 2. `mercado-aberto` — o painel parado, nas duas abas
 
 ```
-python -m l2scanner --janela --record-janela --rotulo mercado-aberto --dry-run
+.venv\Scripts\python.exe -m l2scanner --janela --record-janela --rotulo mercado-aberto --dry-run
 ```
 
 **Duração:** 30 a 60 segundos.
@@ -146,7 +152,7 @@ python -m l2scanner --janela --record-janela --rotulo mercado-aberto --dry-run
 ### 3. `mercado-scroll` — rolando a lista devagar
 
 ```
-python -m l2scanner --janela --record-janela --rotulo mercado-scroll --dry-run
+.venv\Scripts\python.exe -m l2scanner --janela --record-janela --rotulo mercado-scroll --dry-run
 ```
 
 **Duração:** 30 a 60 segundos.
@@ -162,7 +168,7 @@ o suficiente para ser lida, e é isso que a leitura precisa aprender a esperar.
 ### 4. `mercado-pagina-cheia` — o máximo de linhas preenchidas
 
 ```
-python -m l2scanner --janela --record-janela --rotulo mercado-pagina-cheia --dry-run
+.venv\Scripts\python.exe -m l2scanner --janela --record-janela --rotulo mercado-pagina-cheia --dry-run
 ```
 
 **Duração:** 30 a 60 segundos.
@@ -179,7 +185,7 @@ com item".
 ### 5. `mercado-tooltip` — a tooltip cobrindo linhas vizinhas
 
 ```
-python -m l2scanner --janela --record-janela --rotulo mercado-tooltip --dry-run
+.venv\Scripts\python.exe -m l2scanner --janela --record-janela --rotulo mercado-tooltip --dry-run
 ```
 
 **Duração:** 30 a 60 segundos.
@@ -200,7 +206,7 @@ aparecer, e **mantenha** até ela cobrir as linhas vizinhas. Repita em 2 ou 3 li
 ### 6. `mercado-alvo-sobreposto` — marcação de alvo por cima do painel
 
 ```
-python -m l2scanner --janela --record-janela --rotulo mercado-alvo-sobreposto --dry-run
+.venv\Scripts\python.exe -m l2scanner --janela --record-janela --rotulo mercado-alvo-sobreposto --dry-run
 ```
 
 **Duração:** 30 a 60 segundos.
@@ -216,7 +222,7 @@ de verdade — é este o frame que precisamos.
 ### 7. `mercado-farm-com-party` — o caso real de uso
 
 ```
-python -m l2scanner --janela --record-janela --rotulo mercado-farm-com-party --dry-run
+.venv\Scripts\python.exe -m l2scanner --janela --record-janela --rotulo mercado-farm-com-party --dry-run
 ```
 
 **Duração:** 30 a 60 segundos.
@@ -233,7 +239,7 @@ que a tela está parcialmente coberta.
 ### 8. `mercado-scroll-transicao` — o meio do movimento, de propósito
 
 ```
-python -m l2scanner --janela --record-janela --rotulo mercado-scroll-transicao --dry-run
+.venv\Scripts\python.exe -m l2scanner --janela --record-janela --rotulo mercado-scroll-transicao --dry-run
 ```
 
 **Duração:** 30 a 60 segundos.
@@ -298,7 +304,7 @@ permanente. Você pode conferir exatamente o que foi copiado: é a lista no resu
 - [ ] Rodei o portão de conferência:
 
 ```
-python tools/conferir_gravacoes_do_spike.py
+.venv\Scripts\python.exe tools\conferir_gravacoes_do_spike.py
 ```
 
 - [ ] Li o relatório do portão e ele **passou** (saiu sem apontar problema).
