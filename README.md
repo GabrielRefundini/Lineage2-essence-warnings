@@ -4,6 +4,31 @@ Vigia a party window do Lineage 2 XM Essence enquanto você farma e avisa no
 WhatsApp quando alguém da PT morre, sai do grupo ou ressuscita. A entrega das
 mensagens passa pelo Chatwoot que já roda na sua VPS.
 
+## Cola rápida
+
+Os três atalhos do dia a dia. Todos moram na raiz do projeto e funcionam com
+dois cliques — não é preciso abrir terminal nem estar na pasta certa.
+
+| Quero | Atalho | Precisa do jogo aberto? |
+|---|---|---|
+| Ligar o bot (vigia a party **e** roda a agenda) | `vigiar-party.bat` | Sim |
+| Só os avisos de horário e os comandos | `avisos-tvt.bat` | Não |
+| Calibrar depois de mexer na janela | `calibrar.bat` | Sim, com a party window visível |
+
+**Não existe modo separado para a lista de presença do Solo Boss.** Quem liga o
+`vigiar-party.bat` já tem tudo; quem só quer o relógio liga o `avisos-tvt.bat`.
+
+Pela linha de comando, se preferir:
+
+```bash
+cd C:\Users\refun\Desktop\Lineage2-warnings
+vigiar-party.bat
+```
+
+**Como saber se está no ar:** o arranque imprime de onde ele escuta comando,
+quantos party-mates podem entrar na lista e qual é o próximo evento. Se essas
+linhas não aparecerem, ele não subiu.
+
 ## Como ele funciona (e o que ele NÃO faz)
 
 O scanner **lê a tela**, como se fosse alguém olhando o monitor. Ele mede o
@@ -354,7 +379,8 @@ arranque, em vez de deixar você descobrir por acidente.
 **Os party-mates ficam no `config.local.toml`.** Quem estiver ali pode mandar
 `/entrar` e `/sair` para entrar e sair da lista do próximo Solo Boss — e
 **mais nada**: um `[[membro]]` não alcança `/cancelar`, `/corrigir` nem
-`/pegou`.
+`/pegou`. Essa fronteira é derivada do próprio código: um comando novo nasce
+recusado para membro até alguém liberá-lo de propósito.
 Copie `config.local.exemplo.toml` para `config.local.toml` e preencha:
 
 ```toml
@@ -375,10 +401,79 @@ Chatwoot em vez do arquivo, ponha um nome em `CHATWOOT_ETIQUETA_COMANDO` e
 marque a conversa com essa etiqueta. Vale na hora, sem reiniciar. A etiqueta
 diz *onde* ele escuta; o telefone diz *quem* pode mandar.
 
-**Por que o ponto é obrigatório:** sem ele, alguém dizendo "vamos cancelar o
+**Por que a barra é obrigatória:** sem ela, alguém dizendo "vamos cancelar o
 silêncio?" faria o scanner agir no meio de uma conversa. E se o seu Chatwoot
 atende clientes, uma mensagem qualquer com a palavra "cancelar" viraria um
-comando. O ponto separa falar sobre a ação de pedir a ação.
+comando. A barra separa falar sobre a ação de pedir a ação.
+
+O ponto (`.cancelar`) continua valendo como forma antiga — quem já decorou não
+fica sem resposta.
+
+## A lista de presença do Solo Boss
+
+O Solo Boss nasce de duas em duas horas e a party nunca sabia quem ia. O
+scanner passou a perguntar.
+
+**1h50 antes de cada boss, o bot pergunta no grupo quem vai.** Não é um número
+solto: com o boss de duas em duas horas, 1h50 antes é *dez minutos depois do
+boss anterior* — o único instante do ciclo em que a party ainda está reunida e
+ainda está olhando o celular.
+
+Quem vai responde **no privado do bot** (não no grupo — ele não lê mensagem de
+grupo):
+
+| Comando | O que acontece |
+|---|---|
+| `/entrar` | Entra na lista, e o grupo recebe a confirmação com o seu **nick do jogo** |
+| `/sair` | Sai da lista, e o grupo fica sabendo |
+
+Um `/entrar` repetido responde no seu privado e **não** repete no grupo. No
+horário do boss a lista fecha e o grupo recebe quem confirmou, junto com a
+sugestão de quem pega o loot entre os presentes. **Se ninguém confirmar, o bot
+não manda nada** — um boss que ninguém marcou não merece uma mensagem.
+
+O nick vem do `config.local.toml`, **nunca do nome do contato do WhatsApp**:
+aquele nome é escrito pelo dono do telefone e muda quando ele quiser.
+
+### Ligar, desligar e mudar o horário
+
+No `[[evento]]` do Solo Boss, em `config.toml`:
+
+```toml
+chamar_minutos_antes = 110   # 1h50. Apague a linha e a chamada some.
+```
+
+É opt-in por evento: só ganha chamada quem declarar o campo. TvT e Prime não
+mudam de comportamento. O aviso normal de 10 minutos antes continua existindo —
+ele serve a outra coisa (parar o farm e se deslocar), e juntar os dois textos
+treinaria a party a ignorar os dois.
+
+### Cadastrar um party-mate são DOIS passos
+
+Falhar em qualquer um deles faz o `/entrar` da pessoa não acontecer **em
+silêncio** — que é o modo de falha mais chato de diagnosticar. Os dois:
+
+1. **Um `[[membro]]` no `config.local.toml`** com o nick do jogo e o telefone.
+   Isso é o *quem pode*.
+2. **A conversa privada dela marcada com a etiqueta** de
+   `CHATWOOT_ETIQUETA_COMANDO` no painel do Chatwoot. Isso é o *onde ele
+   escuta*. Vale na hora, sem reiniciar — a etiqueta é redescoberta a cada
+   leitura.
+
+A pessoa precisa ter mandado **pelo menos uma mensagem** no privado do bot
+antes, senão não existe conversa para etiquetar.
+
+**Diagnóstico quando alguém dá `/entrar` e nada acontece:** quase sempre é o
+passo 2. O arranque lista quantos party-mates estão cadastrados; se a pessoa
+aparece lá, o `[[membro]]` está certo e o que falta é a etiqueta.
+
+**Dois telefones não podem terminar nos mesmos 8 dígitos.** A comparação usa os
+últimos 8, e se um deles for o seu (o do `.env`) e o outro de um `[[membro]]`,
+aquele party-mate alcançaria `/corrigir` e `/pegou`, que reescrevem estatística
+que nunca é podada e não tem backup. Nesse caso o **scanner não sobe** até você
+desambiguar, e diz quais são os dois números. Entre dois membros ele só avisa
+alto: ninguém ganha comando novo, mas um `/entrar` pode ser creditado ao nick
+errado.
 
 ### Um limite honesto
 
