@@ -14,12 +14,12 @@ Requisitos do milestone v1-mercado. Cada um mapeia para uma fase do roadmap.
 ### Fundação (spike de campo)
 
 - [x] **FUND-01**: O gravador só conta frames confirmados no disco — retorno do `cv2.imwrite` checado, falha aparece alto (pré-requisito da coleta de evidência da spike)
-- [ ] **FUND-02**: Sessões reais do World Exchange gravadas com `--record`, com as perguntas de campo respondidas e registradas: linhas por página, separador de milhar, moeda, colunas, onde fica o preço médio embutido
-- [ ] **FUND-03**: Calibração do mercado (regiões da janela, âncora do painel, templates de dígito) persiste em `calibration.json` via ferramenta própria
+- [x] **FUND-02**: Sessões reais do World Exchange gravadas com `--record`, com as perguntas de campo respondidas e registradas: linhas por página, separador de milhar, moeda, colunas, onde fica o preço médio embutido
+- [x] **FUND-03**: Calibração do mercado (regiões da janela, âncora do painel, templates de dígito) persiste em `calibration.json` via ferramenta própria
 
 ### Detecção
 
-- [ ] **DETC-01**: "World Exchange aberto" detectado por âncora/template positivo, e o sinal é compartilhado com a lógica de oclusão do detector de morte — um sinal, dois consumidores, nunca duplicado
+- [x] **DETC-01**: "World Exchange aberto" detectado por âncora/template positivo, e o sinal é compartilhado com a lógica de oclusão do detector de morte — um sinal, dois consumidores, nunca duplicado
 - [ ] **DETC-02**: Modo `--mercado` separado — vigiar mercado não degrada nem compete com o modo party (o usuário roda duas instâncias; uma terceira invocação é normal)
 
 ### Leitura
@@ -89,9 +89,9 @@ Preenchida na criação do roadmap (2026-08-27).
 |-------------|-------|--------|
 | FIRE-01 | Phase 1 | Complete |
 | FUND-01 | Phase 1 | Complete |
-| FUND-02 | Phase 1 | Pending |
-| FUND-03 | Phase 1 | Pending |
-| DETC-01 | Phase 1 | Pending |
+| FUND-02 | Phase 1 | Complete |
+| FUND-03 | Phase 1 | Complete |
+| DETC-01 | Phase 1 | Complete |
 | DETC-02 | Phase 4 | Pending |
 | LEIT-01 | Phase 2 | Pending |
 | LEIT-02 | Phase 2 | Pending |

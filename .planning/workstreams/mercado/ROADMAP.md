@@ -20,7 +20,7 @@ O milestone transforma cada abertura manual do World Exchange numa coleta de dad
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Fundação — firewall, gravador e spike de campo** - Gravador confiável, gravações reais do World Exchange, calibração/templates e detecção do painel compartilhada com o detector de morte
+- [x] **Phase 1: Fundação — firewall, gravador e spike de campo** - Gravador confiável, gravações reais do World Exchange, calibração/templates e detecção do painel compartilhada com o detector de morte
 - [ ] **Phase 2: Leitura de página** - Watchlist, dígitos e estabilizador de página contra as fixtures da Fase 1 — falha sempre fechada, preço nunca inventado
 - [ ] **Phase 3: Persistência de observações** - Snapshots dedupados em SQLite (WAL) compartilhado entre instâncias, com firewall de exceção que nunca derruba os alertas
 - [ ] **Phase 4: Modo --mercado, análise e console** - Terceira invocação, console ao vivo e estatísticas honestas: mínimo/mediana, destaques, tendência e margem de craft
@@ -116,7 +116,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Fundação — firewall, gravador e spike de campo | 1/4 | In Progress|  |
+| 1. Fundação — firewall, gravador e spike de campo | 5/5 | ✓ Complete | 2026-08-29 |
 | 2. Leitura de página | 0/TBD | Not started | - |
 | 3. Persistência de observações | 0/TBD | Not started | - |
 | 4. Modo --mercado, análise e console | 0/TBD | Not started | - |

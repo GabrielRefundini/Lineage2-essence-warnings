@@ -64,7 +64,7 @@ decisions:
 metrics:
   duration: "~2h"
   completed: 2026-08-29
-  tasks_completed: 2
+  tasks_completed: 3
   tasks_total: 3
 actuals:
   tokens: 87000
@@ -135,14 +135,14 @@ Nenhum deles era alcancavel por agente, e os tres viraram correcao commitada:
   existe e avisa alto quando nao corta nada. A VERIFICATION ja classificou isto como
   `deferred`, nao como lacuna.
 
-## ESTADO: AGUARDANDO O PORTÃO HUMANO (Task 3)
+## ESTADO: COMPLETO — o portão humano foi cumprido em 2026-08-29
 
 | Task | O que é | Estado |
 |---|---|---|
 | 1 | Segmentação, matriz dos glifos, par de empacotamento, fixtures resgatadas | **COMPLETA**, commits `d3dbcc2` (RED) + `f33883c` (GREEN) |
 | — | Correção: piso de brilho próprio do sufixo (desvio medido, ver abaixo) | **COMPLETA**, commit `8608229` |
 | 2 | Laço de corte, fusão, chave do limiar, `--so-digitos`, `.bat`, SUMMARY do 01-04 | **COMPLETA**, commits `710eca6` (RED) + `59fc6e8` (GREEN) |
-| 3 | `checkpoint:human-action` `gate="blocking-human"` — a primeira mão humana no fluxo | **AGUARDANDO O USUÁRIO** |
+| 3 | `checkpoint:human-action` `gate="blocking-human"` — a primeira mão humana no fluxo | **CUMPRIDA** — o usuário rodou o fluxo completo em 2026-08-29 |
 | — | **DESVIO 2026-08-29**: a ferramenta passa a PROPOR os retângulos e a leitura — desbloqueia a Task 3, não a cumpre | **COMPLETO**, commits `ea699bb`, `a52f04b`, `0defa09`, `f5c3b1d` |
 
 ## A MATRIZ DE CONFUSÃO MEDIDA — com a convenção ao lado do número
