@@ -24,10 +24,11 @@ Requisitos do milestone v1-mercado. Cada um mapeia para uma fase do roadmap.
 
 ### Leitura
 
-- [ ] **LEIT-01**: Itens da watchlist (`config.toml`) reconhecidos nas linhas visíveis por template de conjunto fechado
+- [ ] **LEIT-01**: Nome do item lido por OCR sobre o recorte da coluna do nome e agrupado por similaridade contra os nomes já vistos; um nome que não casa com nenhum conhecido entra como SÉRIE NOVA, sem intervenção do usuário — o que é registrado não depende de lista prévia
 - [ ] **LEIT-02**: Preços e quantidades lidos por template-por-dígito com falha FECHADA: frame ilegível é descartado, preço nunca é inventado
 - [ ] **LEIT-03**: Página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS (nunca em pixels — frames bit a bit idênticos são o sinal de captura congelada)
 - [ ] **LEIT-04**: Console mostra ao vivo páginas lidas/perdidas e último item reconhecido; resumo final conta as duas metades ("li 7, perdi 3")
+- [ ] **LEIT-05**: A leitura do nome usa o recorte da COLUNA DO NOME, nunca a linha inteira — a coluna é calibrada e persistida em `calibration.json`. Medido: com a tooltip aberta, o texto dela vaza para dentro da linha e viraria nome de item
 
 ### Persistência
 

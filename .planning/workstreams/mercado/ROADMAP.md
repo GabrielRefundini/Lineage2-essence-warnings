@@ -69,13 +69,13 @@ Plans:
 
 ### Phase 2: Leitura de página
 
-**Goal**: Contra as fixtures gravadas na Fase 1, o scanner reconhece itens da watchlist e lê preços/quantidades das linhas visíveis — e nunca inventa um número.
+**Goal**: Contra as fixtures gravadas na Fase 1, o scanner lê por OCR o nome de cada linha visível, agrupa por similaridade e abre série nova para o desconhecido — e lê preços/quantidades por molde de dígito, sem nunca inventar um número.
 **Depends on**: Phase 1 (fixtures, calibração, templates e respostas do spike)
-**Requirements**: LEIT-01, LEIT-02, LEIT-03
+**Requirements**: LEIT-01, LEIT-02, LEIT-03, LEIT-05
 **Success Criteria** (what must be TRUE):
 
-  1. Rodando o replay contra as fixtures, todo item da watchlist (`config.toml`) visível na página é reconhecido pelo nome, e itens fora da watchlist nunca são confundidos com itens dela (matching rejection-first, conjunto fechado)
-  2. Os preços e quantidades lidos batem dígito a dígito com o que o usuário vê no frame — separador de milhar tratado como glifo de primeira classe; quando o frame está ilegível, a linha aparece como descartada, nunca como um número plausível
+  1. Rodando o replay contra as fixtures, cada linha visível tem seu nome lido por OCR sobre o recorte da COLUNA DO NOME — nunca a linha inteira — e agrupado por similaridade contra os nomes já vistos; um item que o usuário nunca viu antes aparece como SÉRIE NOVA sem que ele configure nada, e com a tooltip aberta o texto dela não vira nome de item nem cria série fantasma
+  2. Os preços e quantidades lidos batem dígito a dígito com o que o usuário vê no frame — separador de milhar tratado como glifo de primeira classe; quando o frame está ilegível, a linha aparece como descartada, nunca como um número plausível. O número NUNCA vem do motor de OCR que lê o nome: medido contra as gravações da Fase 1, ele perde a vírgula decimal e devolve `1650` onde a tela diz `16,50` — erro de 100x com aparência plausível, exatamente o que LEIT-02 existe para impedir
   3. Uma página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS; frames bit a bit idênticos são reportados como captura congelada, não aceitos como acordo
 
 **Plans**: TBD
