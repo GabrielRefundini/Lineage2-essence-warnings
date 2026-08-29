@@ -52,6 +52,7 @@ from l2scanner.calibrar_mercado import (
     _alinhar_por_preenchimento,
     _par_incalculavel,
     matriz_de_confusao_de_glifos,
+    recortar_sufixo,
     segmentar_glifos,
 )
 from l2scanner.identidade import mascara_de_texto
@@ -463,6 +464,40 @@ class TestOEmpacotamentoDosGlifos:
         with pytest.raises(ValueError, match="'7'"):
             glifos_de_calibracao(dados)
 
+    def test_a_palavra_de_sufixo_convive_com_os_digitos_apesar_de_outra_altura(
+        self,
+    ):
+        """O guard de altura para nos glifos de UM CARACTERE, por medicao.
+
+        A palavra `XM Coin` e desenhada mais APAGADA que o preco: medido no
+        `frame_000010`, V maximo 173 e p99 148 na palavra contra 255 nos precos.
+        Ela fica inteira abaixo do piso de 180 da mascara de texto, tem piso
+        proprio, e sai com faixa de 8 px contra os 9 px dos digitos (largura
+        35-36 px, identica nas seis linhas).
+
+        Exigir a mesma altura dos dois grupos RECUSARIA a calibracao CORRETA —
+        e recusar o artefato certo e o pior desfecho que um guard pode ter.
+        """
+        conjunto = _conjunto_dos_onze(binaria=True)
+        conjunto["XM Coin"] = np.zeros((8, 36), dtype=np.uint8)
+        conjunto["XM Coin"][2:6, 3:30] = 255
+        conjunto["Adena"] = np.zeros((8, 24), dtype=np.uint8)
+        conjunto["Adena"][2:6, 2:20] = 255
+
+        voltou = glifos_de_calibracao(glifos_para_calibracao(conjunto))
+        assert voltou["XM Coin"].shape == (8, 36)
+        assert voltou["0"].shape == (9, 4)
+
+    def test_mas_um_DIGITO_de_altura_divergente_segue_recusado(self):
+        """O guard nao foi afrouxado — so parou onde nao tinha evidencia."""
+        conjunto = _conjunto_dos_onze(binaria=True)
+        conjunto["XM Coin"] = np.zeros((8, 36), dtype=np.uint8)
+        conjunto["XM Coin"][2:6, 3:30] = 255
+        conjunto["7"] = conjunto["7"].T.copy()
+
+        with pytest.raises(ValueError, match="'7'"):
+            glifos_de_calibracao(glifos_para_calibracao(conjunto))
+
     def test_lista_vazia_e_None_devolvem_dicionario_vazio(self):
         assert glifos_de_calibracao(None) == {}
         assert glifos_de_calibracao([]) == {}
@@ -504,6 +539,58 @@ class TestEntradaNaoConfiavel:
         dados[0] = ["nao", "sou", "objeto"]
         with pytest.raises(ValueError, match="[Rr]ecalibre"):
             glifos_de_calibracao(dados)
+
+
+class TestOSufixoTemPisoDeBrilhoPROPRIO:
+    """As palavras de sufixo sao mais APAGADAS que o preco. Medido, nao suposto.
+
+    No `frame_000010`, na coluna a direita do preco, `XM Coin` tem V maximo 173
+    e p99 148 — INTEIRA abaixo do piso de 180 de `mascara_de_texto`, enquanto o
+    preco ao lado chega a 255. Com o piso dos digitos a mascara da palavra sai
+    VAZIA, e um molde vazio nao casa com nada: marcar a palavra produziria um
+    molde nulo, descoberto so no fim de toda a marcacao.
+
+    Conferido no frame real (fora da suite, porque o plano proibe commitar um
+    terceiro recorte de gravacao): com o piso proprio, `recortar_sufixo` devolve
+    `(8, 35)` nas SEIS linhas do frame, e `None` num retangulo sem texto.
+    """
+
+    def _palavra(self, valor: int) -> np.ndarray:
+        """Uma 'palavra' sintetica desenhada no brilho `valor`."""
+        tela = np.zeros((20, 60, 3), dtype=np.uint8)
+        tela[6:14, 5:50] = valor  # cinza: V do HSV e o maior canal
+        return tela
+
+    def test_a_palavra_apagada_do_jogo_seria_INVISIVEL_ao_piso_dos_digitos(self):
+        apagada = self._palavra(173)  # o V maximo medido em `XM Coin`
+        faixa, runs = segmentar_glifos(apagada)
+        assert faixa is None and runs == [], (
+            "se isto passar a enxergar, o piso dos digitos mudou e a razao de "
+            "existir do piso do sufixo precisa ser remedida"
+        )
+
+    def test_mas_o_piso_do_sufixo_a_enxerga(self):
+        molde = recortar_sufixo(self._palavra(173))
+        assert molde is not None
+        assert molde.shape == (8, 45)
+
+    def test_o_molde_do_sufixo_e_a_palavra_INTEIRA_sem_segmentar_em_letras(self):
+        """Quem desambigua a virgula e o SUFIXO, nao a letra dele.
+
+        `5,000,000 Adena` ao lado de `62,00 XM Coin`: a virgula e separador de
+        milhar E de decimal na mesma linha (SPIKE-RESPOSTAS 2). Segmentar em
+        letras nao serviria a isso e multiplicaria as chances de colisao.
+        """
+        tela = np.zeros((20, 60, 3), dtype=np.uint8)
+        tela[6:14, 5:15] = 150  # duas 'letras' separadas por uma lacuna
+        tela[6:14, 25:40] = 150
+        molde = recortar_sufixo(tela)
+        assert molde is not None
+        assert molde.shape == (8, 35), "a lacuna interna nao pode cortar a palavra"
+
+    def test_retangulo_sem_texto_devolve_None_em_vez_de_molde_vazio(self):
+        assert recortar_sufixo(np.zeros((20, 60, 3), dtype=np.uint8)) is None
+        assert recortar_sufixo(np.zeros((0, 0, 3), dtype=np.uint8)) is None
 
 
 def test_as_duas_fixtures_existem_e_tem_a_forma_medida():

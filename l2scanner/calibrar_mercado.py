@@ -420,6 +420,75 @@ def segmentar_glifos(
     return faixa, runs
 
 
+# O piso de brilho das PALAVRAS DE SUFIXO (`XM Coin`, `Adena`), que NAO e o dos
+# digitos -- e a diferenca foi medida, nao suposta.
+#
+# `identidade.VALOR_MINIMO_DO_TEXTO` vale 180 e foi medido sobre texto de party,
+# que e claro. O preco do mercado tambem e claro (V ate 255). A palavra de
+# sufixo ao lado dele NAO E: medido em `frame_000010`, na coluna a direita do
+# preco, a palavra `XM Coin` tem V MAXIMO 173 e p99 148. Ela fica INTEIRA abaixo
+# de 180 -- com o piso dos digitos a mascara dela sai VAZIA, e um molde vazio
+# nao casa com nada. Sem piso proprio, marcar a palavra produziria um molde nulo
+# que so seria descoberto no fim de toda a marcacao.
+#
+# 120 fica no meio de um platô medido e largo: com qualquer piso entre 100 e 140
+# a palavra sai com a MESMA faixa de 8 px e largura 35-36 px, identica nas seis
+# linhas do frame. E o fundo nao invade em nenhum deles -- 0 pixel de fundo
+# acima do piso, nos tres pontos conferidos (100, 120, 140), sobre 4500 pixels
+# de area sem texto. Nao ha zona cinzenta a dividir aqui: ha um vale vazio.
+#
+# A faixa de 8 px da palavra contra os 9 px do digito e a razao de o guard de
+# altura de `mercado_visao._conferir_a_altura_do_conjunto` parar nos glifos de
+# UM caractere. Exigir a mesma altura dos dois grupos recusaria a calibracao
+# correta.
+VALOR_MINIMO_DO_SUFIXO = 120
+
+
+def mascara_do_sufixo(bgr: np.ndarray) -> np.ndarray:
+    """A mascara das palavras de sufixo, no piso proprio delas.
+
+    Mesma mecanica de `identidade.mascara_de_texto` -- so brilho, sem filtro de
+    saturacao --, com o piso medido para o texto APAGADO do sufixo. Ver
+    `VALOR_MINIMO_DO_SUFIXO` para os numeros.
+    """
+    if bgr.size == 0:
+        return np.zeros((0, 0), dtype=np.uint8)
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    return (hsv[:, :, 2] > VALOR_MINIMO_DO_SUFIXO).astype(np.uint8)
+
+
+def recortar_sufixo(recorte: np.ndarray) -> np.ndarray | None:
+    """O molde de uma PALAVRA inteira, sem segmentar em letras.
+
+    `XM Coin` e `Adena` entram no conjunto como palavras porque e o SUFIXO que
+    desambigua a convencao da virgula, nao o numero (`SPIKE-RESPOSTAS.md` 2): a
+    virgula e separador de milhar E de decimal na mesma linha (`5,000,000 Adena`
+    ao lado de `62,00 XM Coin`). Segmentar em letras nao serviria a isso e
+    multiplicaria por seis as chances de colisao.
+
+    Mesma convencao de recorte dos digitos -- faixa de linhas justa e span de
+    colunas do primeiro ao ultimo pixel de texto --, mas no piso de brilho da
+    palavra. Devolve `None` quando nao ha texto nenhum no retangulo, para o laco
+    interativo pedir que se remarque em vez de gravar um molde vazio.
+    """
+    if recorte.size == 0:
+        return None
+
+    mascara = mascara_do_sufixo(recorte)
+    if mascara.size == 0:
+        return None
+
+    linhas = np.flatnonzero(mascara.any(axis=1))
+    colunas = np.flatnonzero(mascara.any(axis=0))
+    if linhas.size == 0 or colunas.size == 0:
+        return None
+
+    recortada = mascara[
+        int(linhas[0]) : int(linhas[-1]) + 1, int(colunas[0]) : int(colunas[-1]) + 1
+    ]
+    return (recortada * 255).astype(np.uint8)
+
+
 def _alinhar_por_preenchimento(
     a: np.ndarray, b: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:

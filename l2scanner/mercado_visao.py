@@ -740,19 +740,43 @@ def glifos_de_calibracao(dados: list[dict] | None) -> dict[str, np.ndarray]:
 
 
 def _conferir_a_altura_do_conjunto(moldes: dict[str, np.ndarray]) -> None:
-    """Todos os moldes de uma calibracao tem de ter a MESMA altura.
+    """Os glifos de UM CARACTERE tem de ter todos a MESMA altura.
 
     Vem de como eles foram cortados: uma faixa de linhas compartilhada por
     marcacao, e a mesma faixa em todas as marcacoes do mesmo frame (9 px
-    medidos). Um item que diverge nao e uma variacao de fonte -- e um molde
-    transposto, cortado de outra calibracao, ou editado a mao.
+    medidos nas sete marcacoes das fixtures). Um item que diverge nao e uma
+    variacao de fonte -- e um molde transposto, cortado de outra calibracao, ou
+    editado a mao. Como recorte de glifo nao carrega coordenada, esta e a UNICA
+    redundancia de fonte independente deste caminho: quem denuncia o item errado
+    sao os VIZINHOS.
+
+    O GUARD PARA NOS GLIFOS DE UM CARACTERE, E ISSO FOI MEDIDO, NAO SUPOSTO.
+    A chave guarda tambem as palavras de sufixo (`XM Coin`, `Adena`), e elas NAO
+    compartilham a faixa dos digitos:
+
+        recorte                          piso de brilho    faixa de linhas
+        precos (coluna Total)            V > 180                9 px
+        `XM Coin` (a direita do preco)   V > 120                8 px
+
+    A palavra e desenhada mais APAGADA que o preco -- medido no
+    `frame_000010`: V maximo 173 e p99 148 na palavra, contra 255 nos precos.
+    Ela fica inteira abaixo do piso de 180 de `identidade.mascara_de_texto`, e
+    por isso tem piso proprio (ver `calibrar_mercado.VALOR_MINIMO_DO_SUFIXO`).
+
+    Exigir dos dois grupos a mesma altura RECUSARIA uma calibracao correta --
+    8 contra 9 px --, e recusar o artefato certo e o pior desfecho possivel para
+    um guard. Entao ele afirma so onde tem evidencia: o conjunto fechado de
+    caracteres unicos, que e tambem o conjunto de onde um preco e lido.
     """
-    if len(moldes) < 2:
+    de_um_caractere = {r: m for r, m in moldes.items() if len(r) == 1}
+    if len(de_um_caractere) < 2:
         return
 
-    alturas = [m.shape[0] for m in moldes.values()]
+    alturas = [m.shape[0] for m in de_um_caractere.values()]
     dominante = max(set(alturas), key=alturas.count)
-    divergentes = [r for r, m in moldes.items() if m.shape[0] != dominante]
+    divergentes = [
+        r for r, m in de_um_caractere.items() if m.shape[0] != dominante
+    ]
     if divergentes:
         nomes = ", ".join(f"'{r}' ({moldes[r].shape[0]} px)" for r in divergentes)
         raise ValueError(
