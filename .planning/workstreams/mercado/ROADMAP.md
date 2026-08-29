@@ -7,7 +7,7 @@
 
 ## Overview
 
-O milestone transforma cada abertura manual do World Exchange numa coleta de dados passiva. A jornada tem uma porta de entrada inegociável: nada da UI do XM Essence é verificável por pesquisa, então a Fase 1 é um spike de campo — o gravador é consertado primeiro (evidência não-confirmada é o pesadelo documentado do projeto), o USUÁRIO grava sessões reais do mercado, e dessas gravações saem a calibração, os templates e a detecção do painel (o mesmo sinal que protege o detector de morte do incidente 27x). Com fixtures em mãos, a Fase 2 constrói a leitura de página com falha fechada e a Fase 3 constrói a persistência em SQLite — em paralelo, porque a Fase 3 só depende do formato da página aceita. A Fase 4 liga tudo: o modo `--mercado` como terceira invocação, o console ao vivo e a análise honesta ("menor pedido visível", nunca "preço de venda").
+O milestone transforma cada abertura manual do World Exchange numa coleta de dados passiva. A jornada tem uma porta de entrada inegociável: nada da UI do XM Essence é verificável por pesquisa, então a Fase 1 é um spike de campo — o gravador é consertado primeiro (evidência não-confirmada é o pesadelo documentado do projeto), o USUÁRIO grava sessões reais do mercado, e dessas gravações saem a calibração, os templates e a detecção do painel (o mesmo sinal que protege o detector de morte do incidente 27x). Com fixtures em mãos, a Fase 2 constrói a leitura de página com falha fechada e a Fase 3 constrói a persistência em CSV — em paralelo, porque a Fase 3 só depende do formato da página aceita. A Fase 4 liga tudo: o modo `--mercado` como terceira invocação, o console ao vivo e a análise honesta ("menor pedido visível", nunca "preço de venda").
 
 **Nota de escopo (F0 embutida):** a pesquisa sugeria uma fase 0 de firewall de escopo. Ela foi dobrada na Fase 1: FIRE-01 é um teste de CI + entradas Out of Scope já registradas em REQUIREMENTS.md — minutos de trabalho, sem dependências, e precisa existir ANTES de qualquer código de mercado. Fase própria seria cerimônia.
 
@@ -22,7 +22,7 @@ O milestone transforma cada abertura manual do World Exchange numa coleta de dad
 
 - [x] **Phase 1: Fundação — firewall, gravador e spike de campo** - Gravador confiável, gravações reais do World Exchange, calibração/templates e detecção do painel compartilhada com o detector de morte
 - [ ] **Phase 2: Leitura de página** - Watchlist, dígitos e estabilizador de página contra as fixtures da Fase 1 — falha sempre fechada, preço nunca inventado
-- [ ] **Phase 3: Persistência de observações** - Snapshots dedupados em SQLite (WAL) compartilhado entre instâncias, com firewall de exceção que nunca derruba os alertas
+- [ ] **Phase 3: Persistência de observações** - Observações dedupadas num CSV legível e importável no Sheets, com firewall de exceção que nunca derruba os alertas
 - [ ] **Phase 4: Modo --mercado, análise e console** - Terceira invocação, console ao vivo e estatísticas honestas: mínimo/mediana, destaques, tendência e margem de craft
 
 ## Phase Details
@@ -82,15 +82,24 @@ Plans:
 
 ### Phase 3: Persistência de observações
 
-**Goal**: Cada página aceita vira snapshot com observações num SQLite compartilhável entre as duas instâncias — sem duplicar, sem adivinhar, e sem jamais derrubar o núcleo de alertas.
-**Depends on**: Phase 1 (respostas do spike informam o schema). Paraleliza com a Phase 2 — só depende do formato da página aceita, não da leitura pronta.
+**Goal**: Cada página aceita vira linhas num arquivo CSV que o usuário abre e lê — sem duplicar, sem adivinhar, e sem jamais derrubar o núcleo de alertas.
+**Depends on**: Phase 1 (respostas do spike informam as colunas). Paraleliza com a Phase 2 — só depende do formato da página aceita, não da leitura pronta.
 **Requirements**: PERS-01, PERS-02, PERS-03
+
+> **DECISÃO DO USUÁRIO (2026-08-29): CSV, não SQLite.** O motivo que decidiu não estava na
+> mesa quando o roadmap foi escrito: ele quer **ler o dado a olho nu, jogar no Google Sheets,
+> e entregar para outra IA analisar**. CSV serve os três nativamente; um `.db` não serve
+> nenhum sem ferramenta no meio. As justificativas originais do SQLite (concorrência, dedup
+> indexada, consultas por tick) estão analisadas uma a uma em REQUIREMENTS.md — duas já
+> tinham caído quando o usuário corrigiu que só o Yazalaque escreve.
+
 **Success Criteria** (what must be TRUE):
 
-  1. Após uma sessão, o usuário consulta `mercado.db` e vê snapshots com carimbo do relógio ancorado e observações com preço total e quantidade em colunas separadas (unitário derivado, nunca confundido)
-  2. Reler ou revisitar a mesma página não aumenta a contagem de observações — o usuário pode contar antes e depois e ver o mesmo número (`INSERT OR IGNORE` por chave de conteúdo)
-  3. Duas instâncias escrevendo na mesma pasta ao mesmo tempo não corrompem nem travam o banco — o teste de martelo com 2 processos passa (WAL + `busy_timeout`). **Rebaixado de exigência de desenho a seguro barato em 2026-08-28**: o usuário corrigiu que o mercado lê SEMPRE do Yazalaque, então há um único escritor. O teste continua porque custa pouco e cobre o `--mercado` aberto duas vezes por engano
-  4. Com o banco propositalmente quebrado (arquivo travado ou read-only), o usuário vê o aviso alto de que a feature de mercado desligou — e os alertas de party continuam chegando normalmente
+  1. Após uma sessão, o usuário abre o CSV num editor de texto e ENTENDE o que está lendo: uma linha por observação, com carimbo do relógio ancorado, preço total e quantidade em colunas separadas (unitário derivado, nunca confundido), preços como inteiros em centésimos
+  2. O usuário importa esse mesmo arquivo no Google Sheets e as colunas caem certas — separador `;`, porque a decisão travada da exibição usa vírgula decimal (`62,00`) e um CSV separado por vírgula colapsaria tudo numa coluna. Testado com importação real, não presumido
+  3. Reler ou revisitar a mesma página não aumenta a contagem de linhas — o usuário pode contar antes e depois e ver o mesmo número (dedup por chave de conteúdo, conferida em memória antes de escrever)
+  4. Com a escrita interrompida no meio de uma linha, a leitura seguinte descarta APENAS a linha truncada, com aviso — nunca trata o arquivo inteiro como corrompido, e nunca aceita o pedaço como observação válida
+  5. Com o arquivo propositalmente quebrado (travado, read-only, ou pasta inexistente), o usuário vê o aviso alto de que a feature de mercado desligou — e os alertas de party continuam chegando normalmente
 
 **Plans**: TBD
 

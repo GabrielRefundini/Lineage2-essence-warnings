@@ -31,27 +31,58 @@ Requisitos do milestone v1-mercado. Cada um mapeia para uma fase do roadmap.
 
 ### Persistência
 
-- [ ] **PERS-01**: Observações gravadas como snapshots com carimbo do relógio ancorado, em SQLite
+> **DECISÃO DO USUÁRIO (2026-08-29): CSV, não SQLite.** Esta seção foi reescrita; a
+> redação anterior (SQLite + WAL + `INSERT OR IGNORE`) está superada. O histórico da
+> decisão fica abaixo porque o raciocínio importa mais que a conclusão.
 
-> **CORRIGIDO PELO USUÁRIO (2026-08-28): o mercado lê SEMPRE do Yazalaque, nunca da
-> Faerlina.** A redação original dizia "compartilhável entre as duas instâncias" e usava a
-> escrita concorrente como justificativa do SQLite. Isso estava errado: há **um único
-> escritor**. As duas instâncias de party seguem existindo (é a razão da AGEN-07), mas
-> nenhuma delas escreve dado de mercado.
->
-> **O SQLite continua, por outros três motivos, e cada um sozinho já basta:** a dedup da
-> PERS-02 em CSV exigiria reler o arquivo inteiro a cada escrita (custo linear que cresce
-> com o histórico) contra um índice `UNIQUE` de custo constante; as consultas de ANAL-01 a
-> ANAL-03 rodam a cada tick com o mercado aberto e em CSV seriam um reparse completo; e um
-> append de CSV interrompido no meio trunca a última linha e corrompe o arquivo em silêncio
-> — a classe de falha que a Fase 1 inteira combateu.
->
-> **WAL + `busy_timeout` ficam mesmo assim**, rebaixados de exigência de desenho a seguro
-> barato: custam duas linhas e protegem do usuário abrir `--mercado` duas vezes sem querer,
-> ou de um processo velho não ter morrido. O que muda é que deixaram de ser o motivo da
-> escolha.
-- [ ] **PERS-02**: Revisitar uma página não duplica observações (dedup por chave de conteúdo na inserção, `INSERT OR IGNORE`)
-- [ ] **PERS-03**: Falha de banco desliga só a feature de mercado e avisa — nunca derruba o núcleo de alertas
+- [ ] **PERS-01**: Observações gravadas como linhas num arquivo CSV com carimbo do relógio ancorado, uma linha por observação, legível a olho nu e importável no Google Sheets sem conversão
+- [ ] **PERS-02**: Revisitar uma página não duplica observações — dedup por chave de conteúdo, conferida em memória antes de escrever
+- [ ] **PERS-03**: Falha de escrita desliga só a feature de mercado e avisa alto — nunca derruba o núcleo de alertas
+
+#### Por que CSV, e por que a decisão mudou duas vezes
+
+A pesquisa e o roadmap originais pediam SQLite, com três justificativas. Duas caíram e a
+terceira perdeu para um caso de uso que ninguém tinha declarado:
+
+1. **Escrita concorrente entre as duas instâncias** — MORREU em 2026-08-28, quando o
+   usuário corrigiu que **o mercado lê SEMPRE do Yazalaque**. Há um único escritor. As duas
+   instâncias de party continuam existindo (é a razão da AGEN-07), mas nenhuma escreve dado
+   de mercado.
+2. **Dedup de custo constante por índice `UNIQUE`** — enfraqueceu junto: com um escritor só,
+   o conjunto de chaves de conteúdo cabe em memória, carregado uma vez no arranque. O custo
+   linear que eu temia era do cenário multiprocesso que não existe.
+3. **Consultas de análise a cada tick** — real, mas dimensionada errada. O volume aqui é de
+   milhares de linhas, não milhões; `statistics` sobre uma lista em memória resolve.
+
+**O que decidiu, e não estava na mesa antes:** o usuário quer **ler o dado com os próprios
+olhos, jogar no Google Sheets, e entregar para outra IA analisar**. CSV serve os três
+nativamente. Um `.db` não serve nenhum sem ferramenta no meio — e "exportar depois" é um
+passo a mais em todo uso real, não um detalhe.
+
+#### O que o CSV OBRIGA a fazer, e que o SQLite dava de graça
+
+Estas não são sugestões: são as três falhas que a escolha traz junto, e cada uma tem de ter
+mecanismo próprio.
+
+- **Append interrompido trunca a última linha.** Escrever linha a linha com `flush` a cada
+  uma, e na leitura tolerar uma última linha malformada descartando-a com aviso — nunca
+  tratando o arquivo inteiro como corrompido. Esta é a mesma família do FUND-01: o dado
+  parcial não pode virar dado plausível.
+- **Dedup vira responsabilidade nossa.** Carregar as chaves de conteúdo existentes no
+  arranque, manter em memória, conferir antes de escrever. Se o arquivo não puder ser lido,
+  a feature desliga alto (PERS-03) em vez de duplicar calado.
+- **O separador decimal colide com o separador de campo.** A decisão travada em
+  `SPIKE-RESPOSTAS.md` seção 2 é exibição em padrão brasileiro (`5.000.000` e `62,00`), e a
+  vírgula decimal quebraria um CSV separado por vírgula. **Separador de campo: `;`** — que é
+  o que o Google Sheets em português espera. Isto tem de ser TESTADO com uma importação
+  real antes de fixar: um CSV que abre com tudo numa coluna só é pior que nenhum.
+
+#### O que NÃO muda
+
+Preços continuam guardados como **inteiros** (centésimos), nunca float — a acumulação de
+erro de ponto flutuante entraria pela porta dos fundos exatamente onde o parsing a evitou.
+Preço total e quantidade em colunas separadas, unitário derivado. Carimbo do relógio
+ancorado. E o nome honesto: "menor pedido visível", nunca "preço de venda".
 
 ### Análise (console)
 

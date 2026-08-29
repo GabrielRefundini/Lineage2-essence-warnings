@@ -1,5 +1,14 @@
 # Project Research Summary — Workstream Mercado (v1-mercado)
 
+> **SUPERSEDIDO EM PARTE (2026-08-29): a persistência não é mais SQLite, é CSV.**
+> Esta pesquisa recomendou `sqlite3` com WAL, e a recomendação valia com o que se sabia na
+> época. Dois dos três motivos caíram depois (o usuário corrigiu que só o Yazalaque escreve,
+> o que eliminou a concorrência e enfraqueceu a dedup indexada), e o terceiro perdeu para um
+> caso de uso que não estava na mesa: ele quer ler o dado a olho nu, importar no Google
+> Sheets e entregar para outra IA analisar. Ver REQUIREMENTS.md, seção Persistência, para o
+> raciocínio completo. O resto desta pesquisa segue válido — em especial o spike de campo,
+> a técnica de template matching e os pitfalls, que a Fase 1 confirmou em campo.
+
 **Project:** L2 Party Scanner — captura passiva de preços do World Exchange
 **Domain:** Leitura de tela de UI de jogo (dígitos de fonte fixa) + série temporal local de preços
 **Researched:** 2026-08-27
