@@ -21,7 +21,7 @@ O milestone transforma cada abertura manual do World Exchange numa coleta de dad
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Fundação — firewall, gravador e spike de campo** - Gravador confiável, gravações reais do World Exchange, calibração/templates e detecção do painel compartilhada com o detector de morte
-- [ ] **Phase 2: Leitura de página** - Watchlist, dígitos e estabilizador de página contra as fixtures da Fase 1 — falha sempre fechada, preço nunca inventado
+- [ ] **Phase 2: Leitura de página** - Nome por OCR agrupado por similaridade, dígitos por molde e estabilizador de página contra as fixtures da Fase 1 — falha sempre fechada, preço nunca inventado
 - [ ] **Phase 3: Persistência de observações** - Observações dedupadas num CSV legível e importável no Sheets, com firewall de exceção que nunca derruba os alertas
 - [ ] **Phase 4: Modo --mercado, análise e console** - Terceira invocação, console ao vivo e estatísticas honestas: mínimo/mediana, destaques, tendência e margem de craft
 
@@ -132,7 +132,7 @@ Plans:
 
 ## Coverage
 
-Todas as 17 exigências v1 mapeadas (a definição dizia 16; a recontagem na criação do roadmap achou 17 — FIRE 1, FUND 3, DETC 2, LEIT 4, PERS 3, ANAL 4), cada uma em exatamente uma fase:
+Todas as 18 exigências v1 mapeadas (a definição dizia 16; a recontagem na criação do roadmap achou 17; LEIT-05 entrou em 2026-08-29, quando o OCR de nomes voltou ao escopo — FIRE 1, FUND 3, DETC 2, LEIT 5, PERS 3, ANAL 4), cada uma em exatamente uma fase:
 
 | Category | Requirements | Phase |
 |----------|--------------|-------|
@@ -140,7 +140,7 @@ Todas as 17 exigências v1 mapeadas (a definição dizia 16; a recontagem na cri
 | Fundação | FUND-01, FUND-02, FUND-03 | 1 |
 | Detecção | DETC-01 | 1 |
 | Detecção | DETC-02 | 4 |
-| Leitura | LEIT-01, LEIT-02, LEIT-03 | 2 |
+| Leitura | LEIT-01, LEIT-02, LEIT-03, LEIT-05 | 2 |
 | Leitura | LEIT-04 | 4 |
 | Persistência | PERS-01, PERS-02, PERS-03 | 3 |
 | Análise | ANAL-01, ANAL-02, ANAL-03, ANAL-04 | 4 |
