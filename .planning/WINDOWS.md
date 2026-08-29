@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 9
 waived_count: 1
-fixed_count: 1
-total_count: 11
-last_updated: 2026-08-28T20:04:07.455Z
+fixed_count: 2
+total_count: 12
+last_updated: 2026-08-29T23:08:10.741Z
 ---
 
 # Broken Windows Ledger
@@ -26,6 +26,7 @@ last_updated: 2026-08-28T20:04:07.455Z
 | 9 | 1 | deviation | tests/fixtures/mercado/ |  | criterio de aceite do 01-02 nao satisfeito: pedia >=8 positivos do 27x, existem 2 — so 2 dos 9 frames _JANELA tem o painel do mercado aberto (medido; os outros mostram o inventario) | open |  | 2026-08-28T00:18:16.266Z |  |
 | 10 | 1 | unrun-verify | PORTAO-DISCORD.txt |  | Criterio 2 da Fase 1 (texto real no console) nao conferido: os 4 passos do portao humano do Discord nao foram dados | open |  | 2026-08-28T17:31:16.484Z |  |
 | 11 | 1 | unrun-verify | l2scanner/__main__.py |  | Task 3 do 01-04: a sessao ao vivo --janela SEM calibracao de mercado nao foi rodada com o jogo aberto. O caminho degenerado esta provado por teste (campo None, extras sem a chave), mas o comportamento identico ao de antes num farm real nao foi observado | open |  | 2026-08-28T20:04:07.455Z |  |
+| 12 | quick-260829-rd9 | unmet-truth | .planning/workstreams/mercado/STATE.md | 72 | Todo da watchlist cita verbatim o criterio 1 da Fase 2 que foi substituido em 260829-rd9; a watchlist deixou de ser pre-requisito de bloqueio | fixed |  | 2026-08-29T23:05:24.348Z | 2026-08-29T23:08:10.741Z |
 
 ````json
 [
@@ -160,6 +161,18 @@ last_updated: 2026-08-28T20:04:07.455Z
     "reason": "",
     "recorded_at": "2026-08-28T20:04:07.455Z",
     "resolved_at": null
+  },
+  {
+    "id": 12,
+    "kind": "unmet-truth",
+    "phase": "quick-260829-rd9",
+    "file": ".planning/workstreams/mercado/STATE.md",
+    "line": 72,
+    "description": "Todo da watchlist cita verbatim o criterio 1 da Fase 2 que foi substituido em 260829-rd9; a watchlist deixou de ser pre-requisito de bloqueio",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-29T23:05:24.348Z",
+    "resolved_at": "2026-08-29T23:08:10.741Z"
   }
 ]
 ````

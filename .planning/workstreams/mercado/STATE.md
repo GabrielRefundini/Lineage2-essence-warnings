@@ -7,7 +7,7 @@ status: executing
 stopped_at: "Fase 1: gap closure 01-05 PARADO no portao de marcacao dos glifos (a primeira mao humana no fluxo completo)"
 last_updated: "2026-08-29T21:40:54.933Z"
 last_activity: 2026-08-29
-last_activity_desc: Phase 1 marked complete
+last_activity_desc: 'Quick 260829-rd9: OCR de nomes de item de volta ao escopo (LEIT-01 reescrito, LEIT-05 criado)'
 state_head: 048eaa3d79629bd8732d5680c4d7f9b45cce04bf
 progress:
   total_phases: 4
@@ -30,7 +30,7 @@ progress:
 Phase: 1 — COMPLETE
 Plan: 2 of 4
 Status: Phase 1 complete
-Last activity: 2026-08-29 — Phase 1 marked complete
+Last activity: 2026-08-29 — Completed quick task 260829-rd9: o OCR de nomes volta ao escopo
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -67,13 +67,20 @@ Progress: [░░░░░░░░░░] 0%
   Exchange) foi cumprido: 8 gravações feitas, spike respondido e validado seção por seção,
   calibração completa pela mão do usuário em 2026-08-29.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260829-rd9 | OCR de nomes de item entra no escopo: LEIT-01 reescrito, coluna do nome recortada (LEIT-05) | 2026-08-29 | dcab841 | [260829-rd9-ocr-de-nomes-de-item-entra-no-escopo-lei](./quick/260829-rd9-ocr-de-nomes-de-item-entra-no-escopo-lei/) |
+
 ### Todos
 
-- [ ] **DEFINIR A `[mercado] watchlist` no `config.toml`** — é entrada do usuário e a Fase 2
-      depende dela: sem os moldes de nome, o critério 1 ("todo item da watchlist visível é
-      reconhecido") não tem o que reconhecer. Variantes de encanto são entradas SEPARADAS
-      (`Dragon Belt`, `+3 Dragon Belt`, `+4 Dragon Belt`), decisão D-05. Depois de escrever,
-      rodar `calibrar-mercado.bat` de novo para cortar os moldes.
+- [ ] ~~**DEFINIR A `[mercado] watchlist` no `config.toml`**~~ — **DEIXOU DE SER BLOQUEIO
+      em 2026-08-29** (quick `260829-rd9`). O motivo escrito aqui era o critério 1 da Fase 2,
+      que dizia "todo item da watchlist visível é reconhecido" — esse critério foi substituído.
+      LEIT-01 agora lê o nome por OCR e agrupa por similaridade; item desconhecido vira série
+      nova sozinho. A watchlist não é mais a porta de entrada do que é registrado. Se
+      sobreviver, é como filtro de DESTAQUE no console (Fase 4). Fecha a janela quebrada 12.
 - [ ] Registrar/atualizar a discrepância de docs: CLAUDE.md diz Python 3.13, venv real é 3.12.10 (não bloqueia)
 
 ### Fatos operacionais que só existiam na conversa
