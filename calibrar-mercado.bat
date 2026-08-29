@@ -10,14 +10,28 @@ REM  Ele NAO le a tela ao vivo: ele trabalha sobre uma GRAVACAO
 REM  de janela completa que voce ja fez. Assim voce pode errar,
 REM  refazer e conferir a vontade, sem o painel fechar no meio.
 REM
-REM  Rode assim, apontando a pasta da sua gravacao:
+REM  SAO DUAS INVOCACOES, e a segunda existe por um motivo
+REM  medido -- nao e opcional nem enfeite.
 REM
-REM    calibrar-mercado.bat --gravacao recordings\<pasta>
+REM  1) O FLUXO COMPLETO, apontando a pasta da sua gravacao:
 REM
-REM  Voce vai marcar com o mouse, um retangulo de cada vez:
-REM    1. as tres ancoras do painel (titulo, X de fechar, seta)
-REM    2. a area da lista e a primeira linha dela
-REM    3. o nome de cada item da watchlist do config.toml
+REM       calibrar-mercado.bat --gravacao recordings\<pasta>
+REM
+REM     Voce vai marcar com o mouse, um retangulo de cada vez:
+REM       1. as tres ancoras do painel (titulo, X de fechar, seta)
+REM       2. a area da lista e a primeira linha dela
+REM       3. o nome de cada item da watchlist do config.toml
+REM       4. os numeros da coluna de preco, para cortar os glifos
+REM
+REM  2) SO OS DIGITOS QUE FALTARAM, sobre OUTRO frame:
+REM
+REM       calibrar-mercado.bat --so-digitos --frame <frame.png>
+REM
+REM     Um frame so quase nunca tem os dez digitos na tela. O frame
+REM     que calibra a grade, por exemplo, nao tem o `8` em lugar
+REM     nenhum. Esta segunda invocacao corta so os glifos que
+REM     faltam, sobre um frame que os tenha, SEM refazer as
+REM     ancoras e a grade -- e FUNDE com o que ja estava gravado.
 REM
 REM  Ele mantem TODO o resto da calibracao anterior intacto.
 REM  Rode o calibrar.bat normal UMA vez antes, se nunca rodou.
@@ -73,6 +87,12 @@ echo.
 echo   Se a matriz de confusao RECUSOU, ela nomeou o par de itens
 echo   que se confundem: recorte os dois mais largos, ou tire um
 echo   deles da watchlist do config.toml.
+echo.
+echo   Se ela disse que FALTAM GLIFOS, complete o conjunto com um
+echo   frame que tenha os que faltam:
+echo     calibrar-mercado.bat --so-digitos --frame ^<frame.png^>
+echo   Enquanto faltar glifo, a leitura de precos vai descartar
+echo   toda linha que contenha um glifo nao gravado.
 echo  ------------------------------------------------------------
 echo.
 pause

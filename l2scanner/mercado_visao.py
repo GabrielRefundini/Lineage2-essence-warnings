@@ -620,3 +620,169 @@ def ancoras_de_calibracao(dados: list[dict] | None) -> list[AncoraDoPainel]:
             )
         )
     return ancoras
+
+
+# --------------------------------------------------------------------------
+# Os moldes de GLIFO: o vocabulario com que a Fase 2 vai ler todo preco
+# --------------------------------------------------------------------------
+
+
+def glifos_para_calibracao(moldes: dict[str, np.ndarray]) -> list[dict]:
+    """Empacota os moldes de glifo para dentro do `calibration.json`.
+
+    Trilho identico ao de `ancoras_para_calibracao`: `altura`/`largura` vao AO
+    LADO do molde, nao dentro dele, para servirem de forma esperada na volta.
+
+    O molde gravado e a MASCARA BINARIA escalada para 0/255. A correlacao
+    normalizada e invariante a media e a escala, entao 0/255 nao muda um decimal
+    do casamento e deixa o molde legivel em qualquer visualizador -- util quando
+    alguem abrir o arquivo tentando entender por que um `8` virou `0`.
+
+    A representacao binaria nao e gosto, e medicao: sobre os 11 glifos reais, o
+    pior par inter-classe da mascara e 0.7171 contra 0.8434 do cinza, e a
+    mascara vence o cinza nas TRES convencoes de recorte medidas (0.7858<0.9020,
+    0.6953<0.8003, 0.7171<0.8434).
+
+    SEJA HONESTO SOBRE O ALCANCE DOS CAMPOS IRMAOS. Para as ancoras,
+    `forma_esperada` tem dentes porque vem de fonte INDEPENDENTE
+    (`Calibracao.mercado_ancora`, o retangulo que o usuario arrastou). Um
+    recorte de glifo NAO carrega coordenada nenhuma -- e por isso que ele pode
+    ser cortado de qualquer frame --, entao aqui nao existe fonte de forma
+    independente por item. Estes campos sao REDUNDANCIA: o que eles pegam e
+    edicao manual de UMA das duas copias. Uma transposicao coerente, com as duas
+    trocadas juntas, passa por eles -- quem a pega e o guard de CONJUNTO em
+    `glifos_de_calibracao`.
+    """
+    return [
+        {
+            "glifo": rotulo,
+            "altura": int(molde.shape[0]),
+            "largura": int(molde.shape[1]),
+            "molde": molde_para_hex(molde),
+        }
+        for rotulo, molde in moldes.items()
+    ]
+
+
+def glifos_de_calibracao(dados: list[dict] | None) -> dict[str, np.ndarray]:
+    """Desempacota os moldes de glifo vindos do `calibration.json`.
+
+    ENTRADA NAO CONFIAVEL, pelo mesmo criterio de `ancoras_de_calibracao`. Um
+    glifo com rotulo repetido faria o segundo sumir calado; um molde corrompido
+    nunca casaria com nada, e a Fase 2 descartaria toda linha que o contivesse
+    sem uma linha de erro dizendo por que.
+
+    O GUARD DE CONJUNTO E O UNICO COM FONTE INDEPENDENTE NESTE CAMINHO. Todos os
+    glifos de uma calibracao saem da MESMA faixa de linhas compartilhada --
+    medido: 9 px nas sete marcacoes das duas fixtures --, entao a altura de cada
+    molde e conferida contra a altura DOMINANTE do conjunto. Um `(4,9)`
+    transposto no meio de um conjunto de `(9,N)` e detectado pelos vizinhos, e
+    essa e a unica deteccao de transposicao com fundamento aqui.
+
+    `None` e lista vazia devolvem dicionario vazio: e o estado legitimo de
+    "ainda nao cortei glifos", e com ele a leitura da Fase 2 simplesmente nao
+    acontece.
+    """
+    if not dados:
+        return {}
+
+    moldes: dict[str, np.ndarray] = {}
+    for indice, bruto in enumerate(dados):
+        if not isinstance(bruto, dict):
+            raise ValueError(
+                f"mercado_templates_de_digito[{indice}] precisa ser um objeto, "
+                f"veio {type(bruto).__name__}. Recalibre os digitos do mercado."
+            )
+        rotulo = bruto.get("glifo")
+        if not isinstance(rotulo, str) or not rotulo:
+            raise ValueError(
+                f"mercado_templates_de_digito[{indice}] esta sem rotulo "
+                f"utilizavel. O rotulo E a identidade do glifo: sem ele o molde "
+                f"nao pode virar digito nenhum. Recalibre os digitos do mercado."
+            )
+        if rotulo in moldes:
+            raise ValueError(
+                f"mercado_templates_de_digito tem o rotulo '{rotulo}' repetido. "
+                f"Um dos dois moldes seria descartado calado, e nao da para "
+                f"saber qual e o certo. Recalibre os digitos do mercado."
+            )
+        molde = bruto.get("molde")
+        if not isinstance(molde, dict):
+            raise ValueError(
+                f"mercado_templates_de_digito[{indice}] ('{rotulo}'): molde "
+                f"precisa ser um objeto com altura, largura e bytes. "
+                f"Recalibre os digitos do mercado."
+            )
+
+        # A forma irma, quando o arquivo a traz. `None` quando nao traz, e nao
+        # recusa: um calibration.json gravado antes desta chave continua
+        # carregando, pelo criterio do `banner_manutencao` (D-07).
+        forma = None
+        alt, larg = bruto.get("altura"), bruto.get("largura")
+        if (
+            isinstance(alt, int)
+            and isinstance(larg, int)
+            and not isinstance(alt, bool)
+            and not isinstance(larg, bool)
+        ):
+            forma = (alt, larg)
+
+        try:
+            moldes[rotulo] = molde_de_hex(molde, forma_esperada=forma)
+        except ValueError as erro:
+            raise ValueError(
+                f"mercado_templates_de_digito['{rotulo}']: {erro} "
+                f"Recalibre os digitos do mercado."
+            ) from erro
+
+    _conferir_a_altura_do_conjunto(moldes)
+    return moldes
+
+
+def _conferir_a_altura_do_conjunto(moldes: dict[str, np.ndarray]) -> None:
+    """Os glifos de UM CARACTERE tem de ter todos a MESMA altura.
+
+    Vem de como eles foram cortados: uma faixa de linhas compartilhada por
+    marcacao, e a mesma faixa em todas as marcacoes do mesmo frame (9 px
+    medidos nas sete marcacoes das fixtures). Um item que diverge nao e uma
+    variacao de fonte -- e um molde transposto, cortado de outra calibracao, ou
+    editado a mao. Como recorte de glifo nao carrega coordenada, esta e a UNICA
+    redundancia de fonte independente deste caminho: quem denuncia o item errado
+    sao os VIZINHOS.
+
+    O GUARD PARA NOS GLIFOS DE UM CARACTERE, E ISSO FOI MEDIDO, NAO SUPOSTO.
+    A chave guarda tambem as palavras de sufixo (`XM Coin`, `Adena`), e elas NAO
+    compartilham a faixa dos digitos:
+
+        recorte                          piso de brilho    faixa de linhas
+        precos (coluna Total)            V > 180                9 px
+        `XM Coin` (a direita do preco)   V > 120                8 px
+
+    A palavra e desenhada mais APAGADA que o preco -- medido no
+    `frame_000010`: V maximo 173 e p99 148 na palavra, contra 255 nos precos.
+    Ela fica inteira abaixo do piso de 180 de `identidade.mascara_de_texto`, e
+    por isso tem piso proprio (ver `calibrar_mercado.VALOR_MINIMO_DO_SUFIXO`).
+
+    Exigir dos dois grupos a mesma altura RECUSARIA uma calibracao correta --
+    8 contra 9 px --, e recusar o artefato certo e o pior desfecho possivel para
+    um guard. Entao ele afirma so onde tem evidencia: o conjunto fechado de
+    caracteres unicos, que e tambem o conjunto de onde um preco e lido.
+    """
+    de_um_caractere = {r: m for r, m in moldes.items() if len(r) == 1}
+    if len(de_um_caractere) < 2:
+        return
+
+    alturas = [m.shape[0] for m in de_um_caractere.values()]
+    dominante = max(set(alturas), key=alturas.count)
+    divergentes = [
+        r for r, m in de_um_caractere.items() if m.shape[0] != dominante
+    ]
+    if divergentes:
+        nomes = ", ".join(f"'{r}' ({moldes[r].shape[0]} px)" for r in divergentes)
+        raise ValueError(
+            f"mercado_templates_de_digito: {nomes} tem altura diferente da "
+            f"altura dominante do conjunto ({dominante} px). Todos os glifos de "
+            f"uma calibracao saem da mesma faixa de linhas, entao um item mais "
+            f"alto ou mais baixo esta transposto ou veio de outra rodada. "
+            f"Recalibre os digitos do mercado."
+        )

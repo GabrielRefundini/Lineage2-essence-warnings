@@ -291,6 +291,18 @@ class Calibracao:
     # margem sobre o pior score inter-classe daquela watchlist.
     mercado_limiar_de_template: float | None = None
 
+    # O limiar dos GLIFOS, derivado da matriz de confusao DELES.
+    #
+    # CHAVE SEPARADA da de template, e nao duplicacao: sao dois conjuntos
+    # fechados diferentes, com matrizes diferentes e piores pares diferentes. A
+    # watchlist e do usuario e muda a cada edicao do `config.toml`; o conjunto
+    # de glifos e fixo pela fonte do jogo. Um numero unico servindo aos dois
+    # seria derivado de uma medicao e aplicado a outra.
+    #
+    # Opcional via `.get` (D-07), no precedente do `banner_manutencao`: uma
+    # instalacao que ainda nao cortou glifos continua carregando.
+    mercado_limiar_de_glifo: float | None = None
+
     versao: int = VERSAO_DO_ESQUEMA
 
     def regiao_do_nome(self, indice: int) -> Regiao:
@@ -401,6 +413,7 @@ class Calibracao:
             "mercado_templates_de_nome": self.mercado_templates_de_nome,
             "mercado_templates_de_digito": self.mercado_templates_de_digito,
             "mercado_limiar_de_template": self.mercado_limiar_de_template,
+            "mercado_limiar_de_glifo": self.mercado_limiar_de_glifo,
         }
         # ESCRITA ATOMICA, NO LUGAR ONDE TODOS OS ESCRITORES HERDAM.
         #
@@ -494,6 +507,7 @@ class Calibracao:
             mercado_templates_de_nome=dados.get("mercado_templates_de_nome"),
             mercado_templates_de_digito=dados.get("mercado_templates_de_digito"),
             mercado_limiar_de_template=dados.get("mercado_limiar_de_template"),
+            mercado_limiar_de_glifo=dados.get("mercado_limiar_de_glifo"),
             versao=versao,
         )
 
@@ -609,6 +623,30 @@ def _conferir_as_chaves_de_mercado(dados: dict) -> None:
                 f"(0, 1]. Um limiar <= 0 faz TODO recorte casar com TODO item "
                 f"da watchlist, e um preco lido do item errado corrompe a serie "
                 f"inteira. Recalibre o mercado."
+            )
+
+    # Espelho do de cima, e chave SEPARADA de proposito: sao dois conjuntos
+    # fechados diferentes (a watchlist e do usuario e muda a cada config.toml; o
+    # conjunto de glifos e fixo pela fonte do jogo), com matrizes e piores pares
+    # diferentes. Um numero servindo aos dois seria derivado de uma medicao e
+    # aplicado a outra.
+    limiar_glifo = dados.get("mercado_limiar_de_glifo")
+    if limiar_glifo is not None:
+        if isinstance(limiar_glifo, bool) or not isinstance(
+            limiar_glifo, (int, float)
+        ):
+            raise CalibracaoInvalida(
+                f"mercado_limiar_de_glifo precisa ser um numero, veio "
+                f"{type(limiar_glifo).__name__} ({limiar_glifo!r}). "
+                f"Recalibre os digitos do mercado."
+            )
+        if not 0.0 < limiar_glifo <= 1.0:
+            raise CalibracaoInvalida(
+                f"mercado_limiar_de_glifo={limiar_glifo} esta fora de (0, 1]. "
+                f"Um limiar frouxo faz TODO recorte casar com TODO glifo, e um "
+                f"digito lido errado corrompe o preco CALADO — um `0` lido como "
+                f"`8` nao acrescenta ruido a serie, troca o numero. "
+                f"Recalibre os digitos do mercado."
             )
 
     # As tres listas e a grade: so a FORMA e conferida aqui. O conteudo de cada

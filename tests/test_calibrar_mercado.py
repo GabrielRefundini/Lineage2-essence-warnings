@@ -18,6 +18,7 @@ Isso e o portao humano da Task 2, e a imagem de conferencia existe para ele.
 
 from __future__ import annotations
 
+import argparse
 import inspect
 import textwrap
 import json
@@ -760,12 +761,18 @@ class TestRodarSemWatchlistNaoApagaOsMoldes:
             l2scanner.calibrar_mercado, "_gravar_conferencia", lambda _img: imagem
         )
 
+        # O FLUXO COMPLETO GANHOU UM PASSO: depois da watchlist ele oferece o
+        # corte de glifos. Estes cenarios nao exercitam glifos, entao respondem
+        # "terminar" na primeira volta -- sem isso o laco leria do stdin.
+        monkeypatch.setattr("builtins.input", lambda *a, **k: "f")
+
         args = argparse.Namespace(
             calibracao=str(destino),
             gravacao=None,
             frame=str(frame),
             indice=None,
             layout="negociacao",
+            so_digitos=False,
         )
         return destino, args
 
@@ -1039,9 +1046,12 @@ class TestOMoldeDaAncoraEIndexadoPorNome:
             destino.write_text(
                 REFERENCIA.read_text(encoding="utf-8"), encoding="utf-8"
             )
+            # o fluxo completo oferece o corte de glifos no fim; este cenario
+            # nao exercita glifos e responde "terminar"
+            monkeypatch.setattr("builtins.input", lambda *a, **k: "f")
             args = argparse.Namespace(
                 calibracao=str(destino), gravacao=None, frame=str(frame),
-                indice=None, layout="negociacao",
+                indice=None, layout="negociacao", so_digitos=False,
             )
             assert l2scanner.calibrar_mercado.calibrar(args) == 0
             return json.loads(destino.read_text(encoding="utf-8"))
@@ -1129,3 +1139,453 @@ class TestAGradeDegeneradaNaoVira1:
     def test_um_layout_desconhecido_nao_inventa_expectativa(self, capsys):
         derivar_grade((0, 0, 480, 450), (0, 0, 480, 50), "inventado", (0, 0))
         assert "ATENCAO" not in capsys.readouterr().out
+
+
+class TestOLacoDeCorteDeGlifos:
+    """A conferencia de CONTAGEM, que e o coracao do modo de digitos.
+
+    Ela transforma um erro de marcacao — o retangulo que cortou meio digito, ou
+    que pegou o `X` de `XM Coin` junto — em recusa IMEDIATA, em vez de num molde
+    errado gravado com a mesma confianca de um certo. Sem ela, um `8` cortado
+    pela metade viraria o molde oficial do `8` e todo preco que o contivesse
+    sairia errado, calado.
+
+    Nada aqui abre janela: `_selecionar_regiao` e a leitura do teclado sao
+    substituidas.
+    """
+
+    def _preco(self, glifos: int = 5) -> np.ndarray:
+        """Um 'preco' sintetico com N glifos separados por uma coluna vazia."""
+        tela = np.zeros((45, 90, 3), dtype=np.uint8)
+        for i in range(glifos):
+            tela[10:19, 5 + i * 5 : 9 + i * 5] = 255
+        return tela
+
+    def _rodar(
+        self,
+        monkeypatch,
+        pixels: np.ndarray,
+        respostas: list[str],
+        caixas: list[tuple[int, int, int, int]] | None = None,
+        ja_gravados: dict | None = None,
+    ) -> dict:
+        caixas = caixas or [(0, 0, pixels.shape[1], pixels.shape[0])] * 20
+        entregues = iter(caixas)
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "_selecionar_regiao",
+            lambda *a, **k: next(entregues),
+        )
+        fala = iter(respostas)
+        return l2scanner.calibrar_mercado.cortar_glifos(
+            pixels, ja_gravados or {}, ler=lambda *a, **k: next(fala)
+        )
+
+    def test_rotulo_do_tamanho_certo_entra_rotulado_e_na_ordem(self, monkeypatch):
+        cortados = self._rodar(monkeypatch, self._preco(5), ["n", "18,90", "f"])
+        assert list(cortados) == ["1", "8", ",", "9", "0"]
+        for molde in cortados.values():
+            assert molde.shape[0] == 9  # a faixa compartilhada
+
+    def test_rotulo_de_tamanho_DIFERENTE_e_recusado_citando_os_DOIS_numeros(
+        self, monkeypatch, capsys
+    ):
+        cortados = self._rodar(monkeypatch, self._preco(5), ["n", "7,50", "f"])
+        assert cortados == {}, "nada pode entrar de uma marcacao recusada"
+
+        saida = capsys.readouterr().out
+        assert "5" in saida and "4" in saida, (
+            "a mensagem tem de trazer quantos glifos foram vistos E quantos "
+            "caracteres foram digitados — so um dos dois nao diz o que fazer"
+        )
+
+    @pytest.mark.parametrize("rotulo", ["18a90", "18 90", "", "18.90"])
+    def test_rotulo_invalido_e_recusado_sem_consumir_a_marcacao(
+        self, monkeypatch, rotulo, capsys
+    ):
+        cortados = self._rodar(monkeypatch, self._preco(5), ["n", rotulo, "f"])
+        assert cortados == {}
+        assert "virgula" in capsys.readouterr().out.lower()
+
+    def test_dois_numeros_marcados_em_sequencia_ACUMULAM(self, monkeypatch):
+        cortados = self._rodar(
+            monkeypatch,
+            self._preco(5),
+            ["n", "18,90", "n", "12,34", "f"],
+        )
+        assert set(cortados) == {"1", "8", ",", "9", "0", "2", "3", "4"}
+
+    def test_um_glifo_que_aparece_nos_DOIS_e_gravado_uma_vez_so(self, monkeypatch):
+        cortados = self._rodar(
+            monkeypatch, self._preco(4), ["n", "1234", "n", "1256", "f"]
+        )
+        assert sorted(cortados) == ["1", "2", "3", "4", "5", "6"]
+
+    def test_recorte_sem_texto_pede_para_REMARCAR_em_vez_de_gravar_vazio(
+        self, monkeypatch, capsys
+    ):
+        escuro = np.zeros((45, 90, 3), dtype=np.uint8)
+        cortados = self._rodar(monkeypatch, escuro, ["n", "f"])
+        assert cortados == {}
+        assert "remarque" in capsys.readouterr().out.lower()
+
+    def test_a_cobertura_NOMEIA_o_que_falta_a_cada_volta(self, monkeypatch, capsys):
+        self._rodar(monkeypatch, self._preco(5), ["n", "18,90", "f"])
+        saida = capsys.readouterr().out
+        # `2` e `5` nao foram cortados e tem de aparecer nomeados
+        assert "2" in saida and "5" in saida
+        assert "falta" in saida.lower()
+
+    def test_a_cobertura_conta_o_que_JA_ESTAVA_gravado(self, monkeypatch, capsys):
+        ja = {d: np.zeros((9, 4), dtype=np.uint8) for d in "0123456789,"}
+        self._rodar(monkeypatch, self._preco(5), ["f"], ja_gravados=ja)
+        saida = capsys.readouterr().out.lower()
+        assert "xm coin" in saida or "adena" in saida, (
+            "com os digitos todos gravados, o que falta sao as palavras"
+        )
+
+    def test_a_palavra_de_sufixo_e_marcada_INTEIRA_e_a_ferramenta_PERGUNTA_qual(
+        self, monkeypatch
+    ):
+        """Ela pergunta em vez de deduzir: deduzir erraria calado."""
+        tela = np.zeros((45, 90, 3), dtype=np.uint8)
+        tela[10:18, 5:60] = 150  # apagada como no jogo: so o piso do sufixo ve
+        cortados = self._rodar(monkeypatch, tela, ["x", "a", "f"])
+        assert set(cortados) == {"XM Coin", "Adena"}
+        for molde in cortados.values():
+            assert molde.shape == (8, 55)
+
+    def test_opcao_desconhecida_nao_derruba_o_laco(self, monkeypatch):
+        cortados = self._rodar(monkeypatch, self._preco(4), ["?", "n", "1234", "f"])
+        assert sorted(cortados) == ["1", "2", "3", "4"]
+
+
+class TestAFusaoDosGlifos:
+    """Rodada nova FUNDE com o que ja estava gravado — nunca substitui.
+
+    Precedente direto do CR-04, que consertou este mesmo defeito no caminho dos
+    moldes de NOME, e pela mesma razao: cada molde custou um arrasto de mouse
+    sobre um frame gravado, e este e o unico caminho do projeto capaz de apagar
+    trabalho de calibracao sem perguntar.
+    """
+
+    def test_um_subconjunto_recortado_PRESERVA_os_ausentes(self):
+        anteriores = {d: _glifo(d) for d in "0123456789,"}
+        agora = {"8": _glifo("8", semente=99)}
+
+        fundido = l2scanner.calibrar_mercado.fundir_glifos(anteriores, agora)
+        assert set(fundido) == set(anteriores)
+        assert np.array_equal(fundido["8"], agora["8"]), "o corte novo vence"
+        assert np.array_equal(fundido["0"], anteriores["0"]), "o ausente fica"
+
+    def test_rodada_que_corta_ZERO_nao_apaga_nada(self):
+        anteriores = {d: _glifo(d) for d in "0123456789,"}
+        fundido = l2scanner.calibrar_mercado.fundir_glifos(anteriores, {})
+        assert set(fundido) == set(anteriores)
+
+    def test_o_total_nunca_diminui(self):
+        anteriores = {d: _glifo(d) for d in "0123"}
+        fundido = l2scanner.calibrar_mercado.fundir_glifos(
+            anteriores, {"9": _glifo("9")}
+        )
+        assert len(fundido) >= len(anteriores)
+
+
+def _glifo(rotulo: str, semente: int = 7) -> np.ndarray:
+    """Um molde 9x4 distinto por rotulo, so para as afirmacoes de fusao."""
+    gerador = np.random.default_rng(abs(hash(rotulo)) % 1000 + semente)
+    return (gerador.integers(0, 2, size=(9, 4)) * 255).astype(np.uint8)
+
+
+def _frame_com_preco_sintetico() -> np.ndarray:
+    """Uma janela com CINCO glifos DISTINTOS em (100,100), 30x15.
+
+    Distintos de proposito: cinco blocos identicos seriam uniformes (desvio
+    zero) e a matriz os classificaria como pares incalculaveis, recusando a
+    rodada — o que testaria o guard, e nao a persistencia.
+    """
+    pixels = np.zeros((1392, 1720, 3), dtype=np.uint8)
+    # NENHUM padrao preenche a faixa inteira: um glifo solido de ponta a ponta
+    # tem desvio ZERO no proprio recorte e cai no guard de par incalculavel,
+    # que e outro comportamento, testado noutro lugar.
+    #
+    # E os DEZ padroes sao distintos entre si, nao so dentro de cada preco: a
+    # segunda rodada marca o preco de baixo, e se ela reaproveitasse as mesmas
+    # formas com outros rotulos a matriz recusaria com razao (dois moldes
+    # identicos com rotulos diferentes E uma colisao).
+    primeira = (
+        ((0, 7), (0, 4)),
+        ((3, 9), (0, 4)),
+        ((0, 5), (0, 2)),
+        ((4, 9), (1, 4)),
+        ((1, 8), (0, 3)),
+    )
+    segunda = (
+        ((0, 4), (0, 4)),
+        ((5, 9), (0, 4)),
+        ((2, 9), (0, 2)),
+        ((0, 6), (2, 4)),
+        ((6, 9), (1, 3)),
+    )
+    for topo, padroes in ((100, primeira), (200, segunda)):
+        for i, ((y0, y1), (x0, x1)) in enumerate(padroes):
+            base_x = 100 + i * 5
+            pixels[topo + y0 : topo + y1, base_x + x0 : base_x + x1] = 255
+    return pixels
+
+
+class TestAPersistenciaDosGlifos:
+    """O que chega ao `calibration.json`, e o que nunca chega."""
+
+    def _rodar(
+        self,
+        monkeypatch,
+        tmp_path: Path,
+        calibracao: Path,
+        respostas: list[str],
+        so_digitos: bool = True,
+        caixa: tuple[int, int, int, int] = (100, 100, 30, 15),
+    ):
+        frame = tmp_path / "frame.png"
+        pixels = _frame_com_preco_sintetico()
+        cv2.imwrite(str(frame), pixels)
+
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "_selecionar_regiao",
+            lambda *a, **k: caixa,
+        )
+        self.gravacoes = []
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "_gravar_conferencia",
+            lambda tela: self.gravacoes.append(tela) or (tmp_path / "conf.png"),
+        )
+        fala = iter(respostas)
+        monkeypatch.setattr("builtins.input", lambda *a, **k: next(fala))
+
+        args = argparse.Namespace(
+            calibracao=str(calibracao),
+            gravacao=None,
+            frame=str(frame),
+            indice=None,
+            layout="adena",
+            so_digitos=so_digitos,
+        )
+        return l2scanner.calibrar_mercado.calibrar(args)
+
+    def test_o_modo_isolado_NAO_pede_ancora_nem_grade(
+        self, monkeypatch, tmp_path: Path, calibracao: Path
+    ):
+        chamadas = []
+        frame = tmp_path / "frame.png"
+        cv2.imwrite(str(frame), _frame_com_preco_sintetico())
+
+        def espiao(_pixels, titulo, _instrucao):
+            chamadas.append(titulo)
+            return (100, 100, 30, 15)
+
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado, "_selecionar_regiao", espiao
+        )
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "_gravar_conferencia",
+            lambda tela: tmp_path / "conf.png",
+        )
+        fala = iter(["n", "18,90", "f"])
+        monkeypatch.setattr("builtins.input", lambda *a, **k: next(fala))
+
+        antes = json.loads(calibracao.read_text(encoding="utf-8"))
+        args = argparse.Namespace(
+            calibracao=str(calibracao), gravacao=None, frame=str(frame),
+            indice=None, layout="adena", so_digitos=True,
+        )
+        assert l2scanner.calibrar_mercado.calibrar(args) == 0
+
+        juntos = " ".join(chamadas).lower()
+        assert "ancora" not in juntos and "grade" not in juntos, chamadas
+        assert "linha" not in juntos, chamadas
+
+        depois = json.loads(calibracao.read_text(encoding="utf-8"))
+        assert depois.get("mercado_ancoras") == antes.get("mercado_ancoras")
+        assert depois.get("mercado_grade") == antes.get("mercado_grade")
+
+    def test_os_glifos_cortados_chegam_ao_arquivo_com_limiar_derivado(
+        self, monkeypatch, tmp_path: Path, calibracao: Path
+    ):
+        assert self._rodar(
+            monkeypatch, tmp_path, calibracao, ["n", "18,90", "f"]
+        ) == 0
+        dados = json.loads(calibracao.read_text(encoding="utf-8"))
+        rotulos = [i["glifo"] for i in dados["mercado_templates_de_digito"]]
+        assert sorted(rotulos) == [",", "0", "1", "8", "9"]
+        assert 0.0 < dados["mercado_limiar_de_glifo"] <= 1.0
+
+    def test_uma_rodada_que_corta_ZERO_deixa_a_chave_IDENTICA(
+        self, monkeypatch, tmp_path: Path, calibracao: Path
+    ):
+        self._rodar(monkeypatch, tmp_path, calibracao, ["n", "18,90", "f"])
+        antes = json.loads(calibracao.read_text(encoding="utf-8"))
+
+        self._rodar(monkeypatch, tmp_path, calibracao, ["f"])
+        depois = json.loads(calibracao.read_text(encoding="utf-8"))
+        assert (
+            depois["mercado_templates_de_digito"]
+            == antes["mercado_templates_de_digito"]
+        )
+
+    def test_a_rodada_seguinte_FUNDE_em_vez_de_trocar(
+        self, monkeypatch, tmp_path: Path, calibracao: Path
+    ):
+        self._rodar(monkeypatch, tmp_path, calibracao, ["n", "18,90", "f"])
+        self._rodar(
+            monkeypatch, tmp_path, calibracao, ["n", "23,45", "f"],
+            caixa=(100, 200, 30, 15),  # o SEGUNDO preco, com outras formas
+        )
+
+        dados = json.loads(calibracao.read_text(encoding="utf-8"))
+        rotulos = {i["glifo"] for i in dados["mercado_templates_de_digito"]}
+        assert {"1", "8", "9", "0"} <= rotulos, "os da 1a rodada sumiram"
+        assert {"2", "3", "4", "5"} <= rotulos, "os da 2a rodada nao entraram"
+
+    def test_a_saida_final_NOMEIA_os_glifos_que_faltaram(
+        self, monkeypatch, tmp_path: Path, calibracao: Path, capsys
+    ):
+        self._rodar(monkeypatch, tmp_path, calibracao, ["n", "18,90", "f"])
+        saida = capsys.readouterr().out
+        depois_de_gravar = saida.split("gravada em")[-1]
+        for faltante in ("2", "3", "4", "5", "6", "7"):
+            assert faltante in depois_de_gravar, (
+                f"o glifo {faltante} faltou e nao foi nomeado DEPOIS da linha "
+                f"de calibracao gravada — no meio da sessao ele rola para fora "
+                f"da tela"
+            )
+
+    def test_a_conferencia_visual_e_gravada_UMA_VEZ_SO(
+        self, monkeypatch, tmp_path: Path, calibracao: Path
+    ):
+        self._rodar(monkeypatch, tmp_path, calibracao, ["n", "18,90", "f"])
+        assert len(self.gravacoes) == 1, (
+            "_gravar_conferencia grava num nome FIXO: a segunda chamada apaga a "
+            "primeira e o usuario confere metade da calibracao achando que "
+            "confere tudo"
+        )
+        assert self.gravacoes[0].size > 0
+
+    def test_a_VERSAO_DO_ESQUEMA_segue_2_depois_do_corte(
+        self, monkeypatch, tmp_path: Path, calibracao: Path
+    ):
+        self._rodar(monkeypatch, tmp_path, calibracao, ["n", "18,90", "f"])
+        assert json.loads(calibracao.read_text(encoding="utf-8"))["versao"] == 2
+
+    def test_o_corte_preserva_todo_campo_nao_relacionado_a_mercado(
+        self, monkeypatch, tmp_path: Path, calibracao: Path
+    ):
+        antes = json.loads(calibracao.read_text(encoding="utf-8"))
+        self._rodar(monkeypatch, tmp_path, calibracao, ["n", "18,90", "f"])
+        depois = json.loads(calibracao.read_text(encoding="utf-8"))
+        for chave, valor in antes.items():
+            if chave.startswith("mercado_"):
+                continue
+            if isinstance(valor, dict):
+                assert valor.items() <= depois[chave].items()
+            else:
+                assert depois[chave] == valor, f"{chave} mudou sem ninguem pedir"
+
+    def test_colisao_entre_glifos_NAO_GRAVA_NADA_e_nomeia_o_par(
+        self, monkeypatch, tmp_path: Path, calibracao: Path
+    ):
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "matriz_de_confusao_de_glifos",
+            lambda moldes: l2scanner.calibrar_mercado.ResultadoDaConfusao(
+                aprovado=False,
+                pior_score=0.99,
+                par_colidente=("0", "8"),
+                limiar_sugerido=None,
+                matriz={("0", "8"): 0.99},
+            ),
+        )
+        antes = calibracao.read_text(encoding="utf-8")
+        with pytest.raises(MercadoNaoCalibravel):
+            self._rodar(monkeypatch, tmp_path, calibracao, ["n", "18,90", "f"])
+        assert calibracao.read_text(encoding="utf-8") == antes, (
+            "recusar nao pode gravar nada"
+        )
+
+    def test_com_menos_de_dois_glifos_o_limiar_NAO_e_inventado(
+        self, monkeypatch, tmp_path: Path, calibracao: Path
+    ):
+        """A licao do CR-03 aplicada a chave nova."""
+        # um retangulo estreito, com UM glifo so
+        self._rodar(
+            monkeypatch, tmp_path, calibracao, ["n", "7", "f"],
+            caixa=(100, 100, 4, 15),
+        )
+        dados = json.loads(calibracao.read_text(encoding="utf-8"))
+        assert len(dados["mercado_templates_de_digito"]) == 1
+        assert dados.get("mercado_limiar_de_glifo") is None
+
+
+class TestAChaveDoLimiarDeGlifo:
+    """`mercado_limiar_de_glifo`, opcional via `.get` (D-07)."""
+
+    def test_ausente_carrega_sem_excecao(self, calibracao: Path):
+        assert carregar_calibracao(calibracao).mercado_limiar_de_glifo is None
+
+    @pytest.mark.parametrize("valor", ["0.9", True, [0.9], {}])
+    def test_tipo_errado_recusa_mandando_recalibrar(self, calibracao: Path, valor):
+        dados = json.loads(calibracao.read_text(encoding="utf-8"))
+        dados["mercado_limiar_de_glifo"] = valor
+        calibracao.write_text(json.dumps(dados), encoding="utf-8")
+        with pytest.raises((CalibracaoInvalida, MercadoNaoCalibravel), match="ecalibre"):
+            carregar_calibracao(calibracao)
+
+    @pytest.mark.parametrize("valor", [0.0, -0.5, 1.5, 2])
+    def test_fora_de_zero_a_um_recusa_explicando_o_risco(
+        self, calibracao: Path, valor
+    ):
+        dados = json.loads(calibracao.read_text(encoding="utf-8"))
+        dados["mercado_limiar_de_glifo"] = valor
+        calibracao.write_text(json.dumps(dados), encoding="utf-8")
+        with pytest.raises((CalibracaoInvalida, MercadoNaoCalibravel)):
+            carregar_calibracao(calibracao)
+
+    def test_valor_valido_faz_a_ida_e_volta(self, calibracao: Path):
+        cal = carregar_calibracao(calibracao)
+        cal.mercado_limiar_de_glifo = 0.8586
+        cal.salvar(calibracao)
+        assert carregar_calibracao(calibracao).mercado_limiar_de_glifo == 0.8586
+
+
+class TestAFlagDeCorteIsolado:
+    def test_a_flag_chega_a_calibrar_pelo_parser(self, monkeypatch):
+        vistos = {}
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "calibrar",
+            lambda args: vistos.update(vars(args)) or 0,
+        )
+        assert l2scanner.calibrar_mercado.main(["--frame", "x.png", "--so-digitos"]) == 0
+        assert vistos["so_digitos"] is True
+
+    def test_sem_a_flag_o_fluxo_completo_continua_sendo_o_padrao(self, monkeypatch):
+        vistos = {}
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "calibrar",
+            lambda args: vistos.update(vars(args)) or 0,
+        )
+        assert l2scanner.calibrar_mercado.main(["--frame", "x.png"]) == 0
+        assert vistos["so_digitos"] is False
+
+    def test_o_bat_cita_as_DUAS_invocacoes(self):
+        bat = (
+            Path(l2scanner.calibrar_mercado.__file__).parent.parent
+            / "calibrar-mercado.bat"
+        ).read_text(encoding="utf-8", errors="replace")
+        assert "--so-digitos" in bat, (
+            "o frame que calibra a grade nao tem o digito 8: sem a segunda "
+            "invocacao documentada, o usuario nao sabe como completar o conjunto"
+        )
