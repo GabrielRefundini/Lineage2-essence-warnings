@@ -40,7 +40,7 @@ O milestone transforma cada abertura manual do World Exchange numa coleta de dad
   4. No replay da gravação do incidente 27x, o usuário observa o painel de mercado ser reconhecido como "World Exchange aberto" e ZERO alertas de morte disparados — um sinal, dois consumidores, nunca duplicado
   5. Adicionar uma biblioteca de síntese de input (ex.: `pyautogui`) à árvore de dependências faz o teste de firewall falhar — o usuário pode ver o teste vermelho ao tentar
 
-**Plans**: 1/4 plans executed (4 waves — a fase é serial por construção: cada wave depende do portão anterior)
+**Plans**: 5 plans (5 waves — a fase é serial por construção: cada wave depende do portão anterior). O 01-05 é fechamento de lacuna, criado após a verificação.
 
 Plans:
 **Wave 1**
@@ -58,6 +58,10 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [ ] 01-04-PLAN.md — (wave 4) `calibrar-mercado.bat` + `calibrar_mercado.py` (regiões, templates, matriz de confusão), o **portão de calibração: o usuário roda e confere**, e DETC-01 com a regressão do 27x
+
+**Wave 5** *(fechamento de lacuna — blocked on Wave 4 completion)*
+
+- [ ] 01-05-PLAN.md — (wave 5, `gap_closure`) Corte dos **templates de dígito** em `calibrar_mercado.py` (segmentação por projeção de coluna, matriz de confusão dos glifos medida, fusão que nunca apaga) e o **portão humano: a primeira mão a desenhar os retângulos** — fecha a lacuna G-01 da `01-VERIFICATION.md` e desbloqueia FUND-03
 
 **Nota de escopo de DETC-01:** a Fase 1 entrega o SINAL (âncora positiva medida) e sua superfície exibicional em `Observacao`. Os consumidores — o laço `--mercado` e a oclusão conhecida do detector de morte — chegam na Fase 4 junto de DETC-02, por decisão arquitetural registrada em `01-04-PLAN.md` > `<detc01_reconciliation>`. Ligar a oclusão ao rastreador na mesma fase em que a âncora nasce é exatamente a manobra que causou o incidente 27x.
 
