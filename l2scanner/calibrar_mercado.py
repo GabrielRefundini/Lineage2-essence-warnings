@@ -67,6 +67,13 @@ from .calibrar import (  # noqa: E402
     _selecionar_regiao,
 )
 from .frames import Regiao  # noqa: E402
+
+# A MESMA mascara de brilho ja medida para os nomes de party, e nao uma copia:
+# ela carrega no docstring a razao de ser SO brilho (o nome do lider e amarelo e
+# qualquer filtro de saturacao o rejeitava). A propriedade que valia para o
+# amarelo do lider vale aqui para o dourado do `Adena` e o ciano da linha
+# destacada do mercado.
+from .identidade import mascara_de_texto  # noqa: E402
 from .mercado_visao import (  # noqa: E402
     CASAMENTO_MINIMO_DA_ANCORA,
     AncoraDoPainel,
@@ -176,6 +183,14 @@ class ResultadoDaConfusao:
     par_colidente: tuple[str, str] | None
     limiar_sugerido: float | None
     matriz: dict[tuple[str, str], float] = field(default_factory=dict)
+    # Os pares que NAO PUDERAM ser medidos -- vazio, molde maior que o alvo, ou
+    # desvio abaixo de `1e-6`. Eles ficam FORA da `matriz`, porque uma
+    # comparacao que nao aconteceu nao e uma comparacao sem colisao, e contar
+    # zero para ela seria o resultado mais tranquilizador possivel para a pior
+    # situacao possivel. Campo com padrao vazio, entao a rota dos NOMES
+    # (`matriz_de_confusao`) segue construindo o dataclass exatamente como
+    # antes; quem o preenche e `matriz_de_confusao_de_glifos`.
+    pares_incalculaveis: tuple[tuple[str, str], ...] = ()
 
     @property
     def rodou(self) -> bool:
@@ -274,6 +289,333 @@ def matriz_de_confusao(moldes: dict[str, np.ndarray]) -> ResultadoDaConfusao:
         limiar_sugerido=(1.0 + pior) / 2 if aprovado else None,
         matriz=matriz,
     )
+
+
+
+# --------------------------------------------------------------------------
+# O corte de GLIFOS: segmentacao, matriz propria, e o alinhamento certo
+# --------------------------------------------------------------------------
+
+# Acima disto, dois glifos sao a MESMA COISA para o casamento e nenhum limiar os
+# separa. Um `0` lido como `8` num preco nao acrescenta ruido a serie: corrompe
+# a serie inteira, calado.
+#
+# 1. O PIOR PAR MEDIDO, E A CONVENCAO QUE O PRODUZIU. Sobre os 11 glifos reais
+#    recortados das duas fixtures NA CONVENCAO LINHA-JUSTA COMPARTILHADA (uma
+#    faixa de linhas por retangulo marcado, cada glifo com os seus proprios
+#    limites de coluna dentro dela):
+#
+#        representacao              pior par inter-classe    margem ate 1.0
+#        tons de cinza nativo       0.8434                       0.1566
+#        MASCARA BINARIA (V>180)    0.7171                       0.2829
+#
+#    Sem a convencao ao lado o numero nao significa nada -- ele MUDA com o
+#    recorte, e foi assim que a primeira versao do plano 01-05 errou.
+#
+# 2. POR QUE A MASCARA, E NAO O CINZA. O par nomeado e o valor absoluto mudam
+#    com a convencao; a ORDEM nao muda em nenhuma das tres medidas:
+#
+#        convencao de recorte                  cinza     mascara   diferenca
+#        banda completa de 45 px               0.9020    0.7858      0.1162
+#        linha-justa POR GLIFO (virgula 3px)   0.8003    0.6953      0.1050
+#        LINHA-JUSTA COMPARTILHADA (esta)      0.8434    0.7171      0.1263
+#
+#    A mascara vence em todas, por 0.10 a 0.13. E a escolha da representacao que
+#    e forcada pela evidencia; o numero absoluto nao e.
+#
+# 3. POR QUE ELA E SEPARADA DE `COLISAO_MAXIMA_ENTRE_TEMPLATES`, mesmo comecando
+#    com o mesmo valor. Nao e porque uma medicao proibisse -- nao proibe. E
+#    porque os dois conjuntos fechados divergem por construcao e vao divergir de
+#    novo: a watchlist e do USUARIO e muda a cada edicao do `config.toml`, com
+#    uma matriz por watchlist; o conjunto de glifos e fixo pela FONTE DO JOGO e
+#    so muda quando o jogo muda. Aliasar as duas faria o afrouxamento de um
+#    viajar para o outro na primeira vez que alguem folgasse um deles.
+#
+# 0.85 fica 0.13 acima do pior par medido (folga para outra resolucao ou skin) e
+# 0.15 abaixo do casamento perfeito.
+#
+# O ALINHAMENTO E POR PREENCHIMENTO, E ISSO TAMBEM E MEDIDO. Cortar ao menor
+# tamanho comum -- o que `_alinhar` faz para os NOMES, corretamente, porque nome
+# e texto alinhado a esquerda -- reduz aqui todo par que envolva a virgula a UMA
+# coluna, e comparar um digito de 4 px pela sua primeira coluna nao e comparar o
+# digito. Medido nesta convencao: `,` x `2` vale 0.1918 com preenchimento e
+# 0.5000 com corte. O erro anda na direcao de similaridade FABRICADA, justamente
+# sobre o glifo cuja confusao e mais cara. Sob a convencao de linha-justa por
+# glifo o corte fica pior ainda: a revisao mediu `,` x `9` em 0.9986 em cinza
+# (uma quase-colisao inventada) e 10 pares em 0.0 duro na mascara, com o guard de
+# desvio disparando sobre comparacoes que nao aconteceram.
+COLISAO_MAXIMA_ENTRE_GLIFOS = 0.85
+
+
+def segmentar_glifos(
+    recorte: np.ndarray,
+) -> tuple[tuple[int, int] | None, list[tuple[int, int]]]:
+    """Separa os glifos de UM numero marcado, por projecao da mascara de texto.
+
+    Devolve `(faixa_de_linhas, runs_de_coluna)`:
+
+    - `faixa_de_linhas` e `(topo, base)`, UMA SO para o retangulo inteiro, e
+      `None` quando nao ha pixel de texto nenhum;
+    - `runs_de_coluna` sao os pares `(inicio, fim)` de cada glifo, da esquerda
+      para a direita.
+
+    A FAIXA E COMPARTILHADA DE PROPOSITO, E ISSO E PARTE DA ASSINATURA. Recortar
+    cada glifo justo na PROPRIA altura deixaria a virgula com 3 px e o digito
+    com 8, descartando a posicao vertical relativa -- que e precisamente o que
+    distingue uma virgula (baixa) de um digito (altura cheia). Deixar a
+    convencao implicita tambem convida ao teste circular: os numeros da matriz
+    de confusao MUDAM com o recorte, e quem escolhe o recorte depois de ver a
+    matriz ajusta um ate o outro fechar.
+
+    MECANICA. A mascara vem de `identidade.mascara_de_texto` (V > 180), e nao e
+    reimplementada aqui: ela ja carrega a razao medida de ser so brilho (o nome
+    do lider da party e amarelo). Aqui essa mesma propriedade serve ao dourado
+    do `Adena` e ao ciano da linha destacada. A faixa sai de
+    `flatnonzero(mascara.any(axis=1))`, do primeiro ao ultimo inclusive. As
+    colunas saem de `mascara.any(axis=0)`, e QUALQUER COLUNA VAZIA SEPARA -- sem
+    tolerancia de lacuna, porque a menor lacuna real medida entre dois glifos
+    vizinhos e de exatamente uma coluna.
+
+    MEDIDO em `recordings/20260828-060622-mercado-pagina-cheia/frame_000010.png`:
+
+        preco       glifos do rotulo    runs encontrados
+        100,00            6                    6
+        3,00              4                    4
+        18,90             5                    5
+        7,50              4                    4
+        18,00             5                    5
+        2,45              4                    4
+        6,00 (Unit)       4                    4
+        9,45 (Unit)       4                    4
+
+    8 de 8. Geometria sob esta convencao: faixa de 9 px em todas as marcacoes;
+    digitos de 4 px, com o `4` em 6 px; a virgula em 1 px.
+
+    Recorte vazio ou sem pixel de texto devolve `(None, [])` e NAO levanta: o
+    laco interativo trata isso como "remarque", nao como defeito.
+    """
+    if recorte.size == 0:
+        return None, []
+
+    mascara = mascara_de_texto(recorte)
+    if mascara.size == 0:
+        return None, []
+
+    linhas = np.flatnonzero(mascara.any(axis=1))
+    if linhas.size == 0:
+        return None, []
+    faixa = (int(linhas[0]), int(linhas[-1]) + 1)
+
+    runs: list[tuple[int, int]] = []
+    inicio: int | None = None
+    for coluna, tem_texto in enumerate(mascara.any(axis=0)):
+        if tem_texto and inicio is None:
+            inicio = coluna
+        elif not tem_texto and inicio is not None:
+            runs.append((inicio, coluna))
+            inicio = None
+    if inicio is not None:
+        runs.append((inicio, int(mascara.shape[1])))
+
+    return faixa, runs
+
+
+def _alinhar_por_preenchimento(
+    a: np.ndarray, b: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Iguala os dois PREENCHENDO ate a maior caixa comum, com zeros.
+
+    O oposto de `_alinhar`, que corta ao menor comum -- e a diferenca e
+    deliberada, nao inconsistencia. Um nome e texto alinhado a esquerda dentro
+    de uma coluna larga, e cortar o compara pelo prefixo comum, o que torna a
+    matriz dos NOMES mais conservadora. Um glifo tem 1 a 6 px de largura: cortar
+    `,` (1 px) contra `2` (4 px) compara o `2` pela sua PRIMEIRA COLUNA, o que
+    nao e comparar o `2`. Medido: 0.1918 preenchendo, 0.5000 cortando.
+
+    Preencher com zero e o que a mascara ja significa: fora do glifo nao ha
+    texto. O canto superior esquerdo ancora os dois, pela mesma razao de
+    `_alinhar` -- e o unico alinhamento com significado aqui, ja que a faixa de
+    linhas compartilhada ja poe os dois na mesma linha de base.
+    """
+    altura = max(a.shape[0], b.shape[0])
+    largura = max(a.shape[1], b.shape[1])
+    saida = []
+    for arranjo in (a, b):
+        caixa = np.zeros((altura, largura), dtype=arranjo.dtype)
+        if arranjo.size:
+            caixa[: arranjo.shape[0], : arranjo.shape[1]] = arranjo
+        saida.append(caixa)
+    return saida[0], saida[1]
+
+
+def _par_incalculavel(a: np.ndarray, b: np.ndarray) -> bool:
+    """O par pode ser MEDIDO? Decidido pelas PRE-CONDICOES, nunca pelo score.
+
+    NAO TESTE `casamento_da_ancora(...) == 0.0` PARA RESPONDER ISTO. Aquele
+    retorno e um float PELADO cujo `0.0` esta sobrecarregado em QUATRO saidas:
+    recorte vazio, molde maior que o alvo, desvio abaixo de `1e-6`, e correlacao
+    GENUINAMENTE NULA. As tres primeiras sao ausencia de medicao; a quarta e a
+    MELHOR medicao que um par de classes diferentes pode dar.
+
+    E o conjunto CORRETO de 11 glifos tem quatro zeros do quarto tipo, medidos
+    na mascara:
+
+        par            score    desvio dos dois lados    guard dispara?
+        (',', '0')     0.0      70.478 / 120.208             NAO
+        (',', '6')     0.0      70.478 / 120.208             NAO
+        (',', '9')     0.0      70.478 / 120.208             NAO
+        ('0', '7')     0.0      120.208 / 110.418            NAO
+
+    Cinco ordens de grandeza acima do piso de `1e-6`, e nenhum vazio. Sao os
+    pares MELHOR separados que o conjunto tem. Uma implementacao que os
+    classificasse como nao-mensuraveis pelo score RECUSARIA o conjunto correto
+    de glifos -- o unico artefato que este plano existe para produzir. (Em tons
+    de cinza nao ha nenhum: os quatro sao um fenomeno da mascara. E o score
+    tambem nao tem `0.0` como piso -- o minimo medido em cinza e -0.1849.)
+
+    Por isso a resposta vem de re-checar as pre-condicoes no par JA ALINHADO,
+    ANTES de chamar. E o `.rodou` do CR-03 descido ao nivel do par, pela porta
+    certa.
+    """
+    if a.size == 0 or b.size == 0:
+        return True
+    if b.shape[0] > a.shape[0] or b.shape[1] > a.shape[1]:
+        return True
+    if a.shape[0] > b.shape[0] or a.shape[1] > b.shape[1]:
+        return True
+    return bool(
+        a.astype(np.float32).std() < 1e-6 or b.astype(np.float32).std() < 1e-6
+    )
+
+
+def matriz_de_confusao_de_glifos(
+    moldes: dict[str, np.ndarray],
+) -> ResultadoDaConfusao:
+    """Todo glifo contra todo glifo, na MASCARA e com alinhamento por preenchimento.
+
+    Nasce AO LADO de `matriz_de_confusao`, e nao por dentro: aquela e a rota dos
+    moldes de NOME, testada e corrigida em CR-03/CR-04, e as tres diferencas
+    daqui sao todas obrigatorias.
+
+    1. Os moldes chegam ja na representacao escolhida por medicao (a mascara
+       binaria, ver `COLISAO_MAXIMA_ENTRE_GLIFOS`).
+    2. O alinhamento PREENCHE ate a maior caixa em vez de cortar ao menor --
+       cortar compara a virgula de 1 px contra a primeira coluna do digito.
+    3. Um par realmente incalculavel NAO entra na matriz como medicao. Ele e
+       contado a parte, em `pares_incalculaveis`, e faz o veredito RECUSAR:
+       aprovar por omissao daria o resultado mais tranquilizador possivel para a
+       situacao em que menos se sabe.
+
+    A incalculabilidade e decidida por `_par_incalculavel` -- pelas
+    pre-condicoes re-checadas no par ja alinhado, NUNCA comparando o score
+    devolvido a `0.0`. Leia o docstring dela antes de mexer nisto: o conjunto
+    correto de glifos contem quatro zeros legitimos, e testar o score os
+    classificaria como nao-mensuraveis e recusaria a melhor separacao que o
+    conjunto tem.
+
+    Com menos de dois moldes aprova, mas NAO afirma pior score nem deriva
+    limiar: e a licao do CR-03, e o limiar iria para o `calibration.json` onde a
+    Fase 2 o le como verdade.
+    """
+    # ORDENADOS, e nao na ordem de corte -- outra diferenca deliberada em
+    # relacao a `matriz_de_confusao`. La a ordem e a da watchlist, que e do
+    # usuario e tem significado para ele. Aqui a ordem de insercao seria a ordem
+    # em que o usuario marcou os numeros, que nao significa nada e muda a cada
+    # rodada: com ela, a MESMA calibracao imprimiria a matriz em ordem
+    # diferente, e a chave de um par sairia ora `(',','0')` ora `('0',',')`.
+    # Ordenar deixa a saida comparavel entre rodadas e da a cada par uma chave
+    # unica -- o que importa quando alguem for conferir um par nomeado num
+    # relatorio contra o que a ferramenta imprimiu.
+    rotulos = sorted(moldes)
+    if len(rotulos) < 2:
+        return ResultadoDaConfusao(
+            aprovado=True,
+            pior_score=None,
+            par_colidente=None,
+            limiar_sugerido=None,
+        )
+
+    matriz: dict[tuple[str, str], float] = {}
+    incalculaveis: list[tuple[str, str]] = []
+    pior = -1.0
+    par: tuple[str, str] | None = None
+    for indice, primeiro in enumerate(rotulos):
+        for segundo in rotulos[indice + 1 :]:
+            a, b = _alinhar_por_preenchimento(moldes[primeiro], moldes[segundo])
+            if _par_incalculavel(a, b):
+                incalculaveis.append((primeiro, segundo))
+                continue
+            score = casamento_da_ancora(a, b)
+            matriz[(primeiro, segundo)] = score
+            if score > pior:
+                pior, par = score, (primeiro, segundo)
+
+    if not matriz:
+        # Nenhum par mediu. Nao ha score a afirmar nem limiar a derivar -- e se
+        # houve par incalculavel, tambem nao ha o que aprovar.
+        return ResultadoDaConfusao(
+            aprovado=not incalculaveis,
+            pior_score=None,
+            par_colidente=None,
+            limiar_sugerido=None,
+            pares_incalculaveis=tuple(incalculaveis),
+        )
+
+    aprovado = pior <= COLISAO_MAXIMA_ENTRE_GLIFOS and not incalculaveis
+    return ResultadoDaConfusao(
+        aprovado=aprovado,
+        pior_score=pior,
+        par_colidente=par,
+        limiar_sugerido=(1.0 + pior) / 2 if aprovado else None,
+        matriz=matriz,
+        pares_incalculaveis=tuple(incalculaveis),
+    )
+
+
+def explicar_glifos(resultado: ResultadoDaConfusao) -> str:
+    """O veredito da matriz DOS GLIFOS, no vocabulario dos glifos.
+
+    `ResultadoDaConfusao.explicar` fala de watchlist e do `config.toml`, e manda
+    o usuario recortar mais largo ou tirar um item da lista -- conselhos certos
+    para moldes de NOME e inuteis para um digito, que o usuario nao escolheu e
+    nao pode tirar de lugar nenhum. O dataclass e compartilhado; a prosa nao.
+    """
+    if resultado.pares_incalculaveis:
+        pares = ", ".join(f"'{a}' x '{b}'" for a, b in resultado.pares_incalculaveis)
+        return (
+            f"Matriz de glifos RECUSADA: {len(resultado.pares_incalculaveis)} "
+            f"par(es) NAO PUDERAM ser medidos -- {pares}.\n"
+            f"  Um molde vazio, chapado ou de tamanho incompativel nao se "
+            f"compara com nada, e um par que nao foi medido NAO e um par sem "
+            f"colisao.\n"
+            f"  Conserto: remarque esses glifos, com o retangulo pegando o "
+            f"desenho inteiro e nada alem dele."
+        )
+    if not resultado.rodou:
+        return (
+            "Matriz de glifos NAO RODOU: 0 pares para comparar. Com menos de "
+            "dois glifos nao ha o que confundir -- nenhum score foi medido e "
+            "NENHUM limiar de glifo foi derivado. O limiar que ja estiver no "
+            "calibration.json fica como esta."
+        )
+    if resultado.aprovado:
+        return (
+            f"Matriz de glifos APROVADA: o pior score entre dois glifos "
+            f"diferentes e {resultado.pior_score:.4f} (medido no frame de "
+            f"referencia: 0.7171 na mascara, 0.8434 em cinza, na convencao "
+            f"linha-justa compartilhada). Limiar sugerido: "
+            f"{resultado.limiar_sugerido:.4f}."
+        )
+    a, b = resultado.par_colidente or ("?", "?")
+    return (
+        f"Matriz de glifos RECUSADA: '{a}' e '{b}' casam "
+        f"{resultado.pior_score:.4f} um com o outro — acima de "
+        f"{COLISAO_MAXIMA_ENTRE_GLIFOS}, nenhum limiar os separa.\n"
+        f"  Conserto: remarque os dois numeros que contem esses glifos, com "
+        f"mais folga vertical, para a faixa de linhas pegar o desenho inteiro.\n"
+        f"Ler um digito pelo outro nao acrescenta ruido ao preco: troca o preco."
+    )
+
 
 
 def derivar_grade(
