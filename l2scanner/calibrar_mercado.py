@@ -79,6 +79,8 @@ from .mercado_visao import (  # noqa: E402
     AncoraDoPainel,
     ancoras_para_calibracao,
     casamento_da_ancora,
+    glifos_de_calibracao,
+    glifos_para_calibracao,
     molde_para_hex,
 )
 
@@ -1143,6 +1145,431 @@ def _texto_final_da_conferencia(caminho: Path | None, arquivo: Path) -> None:
     print("Feche o visualizador de fotos e rode de novo antes de confiar nisto.")
 
 
+
+# O conjunto fechado que a Fase 2 (LEIT-02) precisa para ler um preco.
+#
+# Nao e invencao deste plano: e literalmente o conteudo declarado pela docstring
+# de `Calibracao.mercado_templates_de_digito`, e a resposta VALIDADA da secao 2
+# do `SPIKE-RESPOSTAS.md`.
+#
+# AS DUAS PALAVRAS NAO SAO DECORACAO. A virgula e separador de MILHAR e de
+# DECIMAL na mesma linha -- `5,000,000 Adena` ao lado de `62,00 XM Coin` --, e
+# quem desambigua as duas convencoes e o SUFIXO, nao o numero. Sem elas, a
+# leitura teria de adivinhar se `62,00` vale sessenta e dois ou seiscentos e
+# vinte mil.
+#
+# Mesma disciplina de `LINHAS_ESPERADAS`: o que foi medido em campo, com a
+# citacao da secao ao lado.
+GLIFOS_EXIGIDOS = (
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ",",
+    "XM Coin", "Adena",
+)
+
+# O que o rotulo digitado pode conter. Aceitar uma letra aqui aceitaria o `X` de
+# `XM Coin` marcado por engano junto do preco -- e a conferencia de contagem
+# ainda fecharia, gravando um molde errado com cara de certo.
+CARACTERES_DO_ROTULO = frozenset("0123456789,")
+
+
+def cobertura_dos_glifos(
+    presentes: dict[str, np.ndarray] | set[str],
+) -> tuple[list[str], list[str]]:
+    """Quais de `GLIFOS_EXIGIDOS` ja existem, e quais faltam -- NOMEADOS.
+
+    Devolver os faltantes por nome, e nao so a contagem, e o que permite ao
+    usuario decidir o que marcar em seguida. "Faltam 3" nao diz onde procurar;
+    "faltam 6, 8, Adena" diz.
+    """
+    tem = set(presentes)
+    existem = [g for g in GLIFOS_EXIGIDOS if g in tem]
+    faltam = [g for g in GLIFOS_EXIGIDOS if g not in tem]
+    return existem, faltam
+
+
+def fundir_glifos(
+    anteriores: dict[str, np.ndarray], desta_rodada: dict[str, np.ndarray]
+) -> dict[str, np.ndarray]:
+    """Funde por ROTULO: o corte novo vence, o ausente e PRESERVADO.
+
+    Precedente direto do CR-04, que consertou exatamente este defeito no caminho
+    dos moldes de NOME, e pela mesma razao: cada molde custou um arrasto de
+    mouse sobre um frame gravado, e este e o unico caminho do projeto capaz de
+    apagar trabalho de calibracao sem perguntar.
+
+    O caso que isto protege e comum, nao exotico: o frame que calibra a grade
+    NAO tem os dez digitos (medido -- o `8` nao aparece em nenhuma das 24
+    capturas da gravacao de calibragem), entao a segunda rodada corta um
+    SUBCONJUNTO por construcao. Sem fusao, ela apagaria os nove que ja estavam.
+    """
+    return {**anteriores, **desta_rodada}
+
+
+def _pedir_rotulo(
+    ler, quantos_glifos: int
+) -> str | None:
+    """Le o numero como o usuario o LE na tela, e confere contra a contagem.
+
+    ESTA CONFERENCIA E O CORACAO DO MODO DE DIGITOS. Ela transforma um erro de
+    marcacao -- o retangulo que cortou meio digito, ou que pegou o `X` de
+    `XM Coin` junto -- em recusa IMEDIATA, em vez de num molde errado gravado
+    com a mesma confianca de um certo. Um `8` cortado pela metade viraria o
+    molde oficial do `8`, e todo preco que o contivesse sairia errado, calado.
+
+    Devolve `None` quando a marcacao deve ser descartada.
+    """
+    rotulo = str(ler("  digite o numero como voce o LE na tela (com a virgula): "))
+    rotulo = rotulo.strip()
+
+    if not rotulo or any(c not in CARACTERES_DO_ROTULO for c in rotulo):
+        print(
+            "  RECUSADO: o rotulo aceita apenas DIGITOS e a VIRGULA "
+            "(exemplo: 18,90). Marque de novo."
+        )
+        return None
+
+    if len(rotulo) != quantos_glifos:
+        print(
+            f"  RECUSADO: vi {quantos_glifos} glifo(s) no retangulo, mas voce "
+            f"digitou {len(rotulo)} caractere(s).\n"
+            f"  Os dois numeros tem de bater. Provavelmente o retangulo cortou "
+            f"um digito pela metade, pegou o sufixo de moeda junto, ou deixou "
+            f"um digito de fora. Marque de novo, com folga em cima e embaixo."
+        )
+        return None
+
+    return rotulo
+
+
+def cortar_glifos(
+    pixels: np.ndarray,
+    ja_gravados: dict[str, np.ndarray],
+    ler=None,
+) -> dict[str, np.ndarray]:
+    """O laco de marcacao dos glifos. Devolve SO o que foi cortado nesta rodada.
+
+    O usuario marca UM NUMERO e digita o que le -- ele nunca marca dez
+    retangulos, um por digito. E a mesma economia de erro humano que ja deriva
+    dez linhas de uma linha marcada (D-06): marcar dez acumula dez erros,
+    marcar um e derivar acumula um.
+
+    Terminar com o conjunto INCOMPLETO e permitido e esperado: o frame que
+    calibra a grade nao contem os dez digitos (medido -- o `8` nao aparece em
+    nenhuma das 24 capturas daquela gravacao). Quem completa e uma segunda
+    rodada com `--so-digitos` sobre outro frame, e a fusao preserva as duas.
+
+    A fusao NAO acontece aqui de proposito: esta funcao devolve o corte cru, e
+    quem funde e `fundir_glifos`, chamada por `calibrar`. Assim o laco continua
+    testavel sem calibracao nenhuma em disco.
+
+    `ler` e resolvido AQUI, e nao no valor padrao da assinatura: um `ler=input`
+    no cabecalho amarra o `input` que existia no momento em que o modulo foi
+    importado, e quem o substituisse depois -- um teste, ou uma ponte futura que
+    leia de outro lugar -- seria ignorado calado.
+    """
+    ler = ler or input
+    cortados: dict[str, np.ndarray] = {}
+
+    print("")
+    print("  " + "-" * 58)
+    print("  CORTE DOS GLIFOS DE PRECO")
+    print("")
+    print("  Marque UM numero inteiro da coluna de preco por vez -- SEM o")
+    print("  sufixo de moeda ao lado e SEM o icone. Depois digite esse numero")
+    print("  como voce o le na tela, com a virgula.")
+    print("")
+    print("  A ferramenta confere a contagem: se o que voce digitou nao tiver")
+    print("  o mesmo tanto de caracteres que os glifos vistos, a marcacao e")
+    print("  descartada e voce marca de novo.")
+    print("  " + "-" * 58)
+
+    while True:
+        existem, faltam = cobertura_dos_glifos(
+            set(ja_gravados) | set(cortados)
+        )
+        print("")
+        print(f"  ja tenho ({len(existem)}): {', '.join(existem) or '-'}")
+        if faltam:
+            print(f"  ainda FALTA ({len(faltam)}): {', '.join(faltam)}")
+        else:
+            print("  conjunto COMPLETO.")
+
+        escolha = str(
+            ler("  [n] numero  [x] XM Coin  [a] Adena  [f] terminar: ")
+        ).strip().lower()
+
+        if escolha in ("f", "fim", "terminar"):
+            return cortados
+
+        if escolha in ("n", "numero", "número"):
+            x, y, larg, alt = _marcar(
+                pixels,
+                "Numero da coluna de preco",
+                "Marque UM numero da coluna de preco (sem o sufixo) e tecle ENTER.",
+            )
+            recorte = pixels[y : y + alt, x : x + larg]
+            faixa, runs = segmentar_glifos(recorte)
+            if faixa is None or not runs:
+                print(
+                    "  RECUSADO: nao vi texto nenhum nesse retangulo. Remarque "
+                    "por cima dos digitos."
+                )
+                continue
+
+            print(f"  vi {len(runs)} glifo(s) nesse retangulo.")
+            rotulo = _pedir_rotulo(ler, len(runs))
+            if rotulo is None:
+                continue
+
+            topo, base = faixa
+            mascara = (mascara_de_texto(recorte) * 255).astype(np.uint8)
+            for caractere, (inicio, fim) in zip(rotulo, runs):
+                cortados[caractere] = mascara[topo:base, inicio:fim].copy()
+            print(f"  ok: {rotulo}")
+            continue
+
+        if escolha in ("x", "a", "xm", "adena"):
+            # A ferramenta PERGUNTA qual palavra esta sendo marcada em vez de
+            # deduzir: deduzir erraria calado, e um `Adena` gravado como
+            # `XM Coin` inverteria a convencao da virgula em toda leitura.
+            palavra = "XM Coin" if escolha in ("x", "xm") else "Adena"
+            x, y, larg, alt = _marcar(
+                pixels,
+                f"Palavra: {palavra}",
+                f"Marque a palavra '{palavra}' INTEIRA e tecle ENTER.",
+            )
+            molde = recortar_sufixo(pixels[y : y + alt, x : x + larg])
+            if molde is None:
+                print(
+                    f"  RECUSADO: nao vi texto nenhum nesse retangulo. Remarque "
+                    f"por cima da palavra '{palavra}'."
+                )
+                continue
+            cortados[palavra] = molde
+            print(f"  ok: {palavra}")
+            continue
+
+        print("  opcao desconhecida. Use n, x, a ou f.")
+
+
+def montar_glifos(moldes: dict[str, np.ndarray], escala: int = 6) -> np.ndarray:
+    """A montagem dos glifos para o OLHO humano conferir, cada um com o rotulo.
+
+    Numero conferindo com numero nao prova que o molde certo levou o rotulo
+    certo -- so o olho prova que o que esta escrito `8` e mesmo um `8`. Mesmo
+    argumento de `desenhar_conferencia`, um nivel abaixo.
+
+    Ampliada porque um glifo tem 4 px de largura: no tamanho nativo ninguem
+    confere nada.
+    """
+    if not moldes:
+        return np.zeros((0, 0, 3), dtype=np.uint8)
+
+    celulas = []
+    for rotulo in sorted(moldes):
+        molde = moldes[rotulo]
+        if molde.size == 0:
+            continue
+        ampliado = cv2.resize(
+            molde,
+            (max(1, molde.shape[1] * escala), max(1, molde.shape[0] * escala)),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        colorido = cv2.cvtColor(ampliado, cv2.COLOR_GRAY2BGR)
+        # Uma celula com espaco embaixo para o rotulo desenhado.
+        celula = np.zeros((colorido.shape[0] + 28, max(colorido.shape[1], 90), 3),
+                          dtype=np.uint8)
+        celula[: colorido.shape[0], : colorido.shape[1]] = colorido
+        cv2.putText(
+            celula, rotulo, (2, celula.shape[0] - 8),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA,
+        )
+        celulas.append(celula)
+
+    if not celulas:
+        return np.zeros((0, 0, 3), dtype=np.uint8)
+
+    altura = max(c.shape[0] for c in celulas)
+    faixa = np.zeros((altura, sum(c.shape[1] + 6 for c in celulas), 3), dtype=np.uint8)
+    cursor = 0
+    for celula in celulas:
+        faixa[: celula.shape[0], cursor : cursor + celula.shape[1]] = celula
+        cursor += celula.shape[1] + 6
+    return faixa
+
+
+def _empilhar(topo: np.ndarray, base: np.ndarray) -> np.ndarray:
+    """Uma tela so, para UMA chamada de `_gravar_conferencia`.
+
+    Ela grava num nome FIXO: chamar duas vezes na mesma rodada apagaria a
+    primeira imagem, e o usuario conferiria metade da calibracao achando que
+    conferiu tudo. Entao os retangulos e a montagem dos glifos vao juntos.
+    """
+    if topo.size == 0:
+        return base
+    if base.size == 0:
+        return topo
+    largura = max(topo.shape[1], base.shape[1])
+    tela = np.zeros((topo.shape[0] + base.shape[0], largura, 3), dtype=np.uint8)
+    tela[: topo.shape[0], : topo.shape[1]] = topo
+    tela[topo.shape[0] :, : base.shape[1]] = base
+    return tela
+
+
+
+
+def _conferir_os_glifos(fundidos: dict[str, np.ndarray]) -> ResultadoDaConfusao:
+    """Roda a matriz sobre o conjunto FUNDIDO e recusa alto quando ela reprova.
+
+    DUAS MATRIZES, E NAO UMA, porque sao duas confusoes REALMENTE ALCANCAVEIS e
+    diferentes:
+
+    - entre os GLIFOS DE UM CARACTERE, que e de onde um preco e lido. Confundir
+      `0` com `8` troca o preco;
+    - entre as duas PALAVRAS de sufixo, que e o que decide se a virgula e
+      separador de milhar ou decimal. Confundir `XM Coin` com `Adena` inverte a
+      convencao da linha inteira.
+
+    Um digito NUNCA e candidato a casar com uma palavra: em campo eles moram em
+    colunas diferentes e o leitor sabe qual esta lendo. Misturar os dois numa
+    matriz so tambem mediria mal -- o alinhamento por preenchimento poria um
+    digito de 4 px dentro de uma caixa de 35 px, e o resultado seria dominado
+    pela area vazia, nao pelo desenho.
+
+    O limiar devolvido e o dos DIGITOS: e o conjunto de onde sai um preco.
+    """
+    de_um_caractere = {r: m for r, m in fundidos.items() if len(r) == 1}
+    palavras = {r: m for r, m in fundidos.items() if len(r) > 1}
+
+    resultado = matriz_de_confusao_de_glifos(de_um_caractere)
+    print()
+    for (a, b), score in sorted(resultado.matriz.items(), key=lambda kv: -kv[1]):
+        print(f"  {score:.4f}  {a}  x  {b}")
+    print(explicar_glifos(resultado))
+    if not resultado.aprovado:
+        raise MercadoNaoCalibravel(
+            "nada foi gravado: os glifos precisam ser separaveis primeiro"
+        )
+
+    if len(palavras) > 1:
+        das_palavras = matriz_de_confusao_de_glifos(palavras)
+        for (a, b), score in sorted(das_palavras.matriz.items(), key=lambda kv: -kv[1]):
+            print(f"  {score:.4f}  {a}  x  {b}")
+        print(explicar_glifos(das_palavras))
+        if not das_palavras.aprovado:
+            raise MercadoNaoCalibravel(
+                "nada foi gravado: as palavras de sufixo precisam ser "
+                "separaveis primeiro — confundi-las inverte a convencao da "
+                "virgula em toda leitura"
+            )
+
+    return resultado
+
+
+def _gravar_os_glifos(
+    cal: Calibracao,
+    cortados: dict[str, np.ndarray],
+    fundidos: dict[str, np.ndarray],
+    resultado: ResultadoDaConfusao,
+) -> None:
+    """Escreve os glifos e o limiar deles -- FUNDINDO, nunca substituindo.
+
+    Mesma guarda que o CR-04 instalou para os moldes de nome, pela mesma razao:
+    lista vazia jamais sobrescreve lista nao-vazia. A diferenca e que aqui a
+    rodada de subconjunto e o caso NORMAL, nao a excecao -- o frame que calibra
+    a grade nao tem os dez digitos.
+    """
+    if cortados:
+        cal.mercado_templates_de_digito = glifos_para_calibracao(fundidos)
+    elif cal.mercado_templates_de_digito:
+        print(
+            f"\nMantidos os {len(cal.mercado_templates_de_digito)} molde(s) de "
+            f"glifo da calibracao anterior — nenhum foi recortado nesta rodada."
+        )
+
+    # So quando a matriz DERIVOU um limiar. Com menos de dois glifos ela nao
+    # deriva, e um numero inventado aqui iria para o `calibration.json` onde a
+    # Fase 2 o le como verdade medida (a licao do CR-03).
+    if resultado.limiar_sugerido is not None:
+        cal.mercado_limiar_de_glifo = resultado.limiar_sugerido
+
+
+def _anunciar_o_que_faltou(fundidos: dict[str, np.ndarray]) -> None:
+    """O bloco alto do fim, com os faltantes NOMEADOS.
+
+    Repetido aqui, DEPOIS da linha de calibracao gravada, e nao so no meio da
+    sessao: no meio ele rola para fora da tela junto com a matriz, e o usuario
+    fecha o terminal achando que terminou.
+    """
+    _existem, faltam = cobertura_dos_glifos(fundidos)
+    if not faltam:
+        print("  conjunto de glifos COMPLETO.")
+        return
+
+    print("")
+    print("  " + "!" * 58)
+    print(f"  FALTAM {len(faltam)} GLIFO(S): {', '.join(faltam)}")
+    print("")
+    print("  A leitura de precos da Fase 2 vai DESCARTAR toda linha que")
+    print("  contenha um glifo nao gravado — ela nao chuta.")
+    print("")
+    print("  Complete o conjunto com um frame que tenha os que faltam:")
+    print("    .\\calibrar-mercado.bat --so-digitos --frame <outro-frame.png>")
+    print("  " + "!" * 58)
+
+
+def _calibrar_so_digitos(
+    args: argparse.Namespace,
+    cal: Calibracao,
+    arquivo: Path,
+    caminho: Path,
+    pixels: np.ndarray,
+    glifos_anteriores: dict[str, np.ndarray],
+) -> int:
+    """O modo de corte ISOLADO: so os glifos, sem refazer ancoras e grade.
+
+    ELE EXISTE POR UM FATO MEDIDO, NAO POR CONVENIENCIA. O frame que calibrou a
+    grade atual (`20260828-115700-calibragem`) NAO contem o digito `8`: conferi
+    as 24 capturas daquela gravacao e as tres zonas numericas da grade estao
+    congeladas -- diferenca maxima de 2 a 3 niveis por pixel ao longo das 24 --,
+    entao sao os mesmos precos em todas elas e nenhuma traz o `8`. Sem esta
+    flag, completar o conjunto obrigaria o usuario a refazer os CINCO arrastos
+    de ancora e grade a cada frame visitado.
+
+    Trocar de frame nao acopla nada: moldes de glifo nao carregam coordenada
+    nenhuma -- sao recortes de imagem. A unica exigencia e a geometria da
+    janela, que `conferir_o_frame` ja checou antes de chegarmos aqui.
+    """
+    altura, largura = pixels.shape[:2]
+    print(f"\nCortando GLIFOS sobre {caminho.name} ({largura}x{altura})")
+    print("  (modo --so-digitos: ancoras, grade e watchlist NAO sao tocadas)")
+
+    cortados = cortar_glifos(pixels, glifos_anteriores)
+    fundidos = fundir_glifos(glifos_anteriores, cortados)
+    resultado = _conferir_os_glifos(fundidos)
+
+    # Uma unica chamada, com SO a montagem: nao ha retangulo novo a conferir
+    # neste modo.
+    conferencia = _gravar_conferencia(montar_glifos(fundidos))
+
+    _gravar_os_glifos(cal, cortados, fundidos, resultado)
+
+    try:
+        cal.salvar(arquivo)
+    except OSError as erro:
+        raise MercadoNaoCalibravel(
+            f"nao consegui gravar {arquivo}: {erro}\n"
+            f"  A calibracao NAO foi salva. O motivo mais comum e o arquivo "
+            f"estar aberto noutro programa, ou a pasta ser somente-leitura."
+        ) from erro
+
+    print(f"\nCalibracao de mercado gravada em {arquivo.name}")
+    print(f"  glifos       : {len(fundidos)} molde(s) de glifo")
+    _anunciar_o_que_faltou(fundidos)
+    _texto_final_da_conferencia(conferencia, arquivo)
+    return 0
+
+
+
 def calibrar(args: argparse.Namespace) -> int:
     arquivo = Path(args.calibracao) if args.calibracao else ARQUIVO_CALIBRACAO
     cal = carregar_calibracao(arquivo)
@@ -1155,7 +1582,19 @@ def calibrar(args: argparse.Namespace) -> int:
     pixels = cv2.imread(str(caminho))
     if pixels is None:
         raise MercadoNaoCalibravel(f"nao consegui decodificar {caminho}")
+    # VALE TAMBEM NO MODO ISOLADO: o tamanho da FONTE depende do tamanho da
+    # janela, entao cortar glifos de um frame de outra geometria produziria
+    # moldes que nunca casam.
     conferir_o_frame(cal, pixels)
+
+    # Os glifos ja gravados, para a cobertura e para a FUSAO. Decodificados
+    # cedo: um `mercado_templates_de_digito` corrompido tem de recusar ANTES de
+    # o usuario gastar o trabalho de mouse, e nao depois.
+    glifos_anteriores = glifos_de_calibracao(cal.mercado_templates_de_digito)
+
+    if getattr(args, "so_digitos", False):
+        return _calibrar_so_digitos(args, cal, arquivo, caminho, pixels,
+                                    glifos_anteriores)
 
     # A WATCHLIST E LIDA AQUI, ANTES DA PRIMEIRA JANELA DE SELECAO.
     #
@@ -1233,11 +1672,26 @@ def calibrar(args: argparse.Namespace) -> int:
             "nada foi gravado: a watchlist precisa ser separavel primeiro"
         )
 
+    # --- os glifos de preco ---
+    glifos_cortados = cortar_glifos(pixels, glifos_anteriores)
+    glifos_fundidos = fundir_glifos(glifos_anteriores, glifos_cortados)
+    resultado_glifos = _conferir_os_glifos(glifos_fundidos)
+
     # --- grava a conferencia e o arquivo ---
+    #
+    # UMA UNICA CHAMADA POR RODADA. `_gravar_conferencia` grava num nome FIXO:
+    # a segunda chamada apagaria a primeira imagem, e o usuario conferiria
+    # metade da calibracao achando que conferiu tudo. Entao os retangulos e a
+    # montagem dos glifos vao empilhados na MESMA tela.
     regioes = dict(caixas)
     regioes["grade"] = caixa_grade
     regioes["linha_1"] = caixa_linha
-    conferencia = _gravar_conferencia(desenhar_conferencia(pixels, regioes))
+    conferencia = _gravar_conferencia(
+        _empilhar(
+            desenhar_conferencia(pixels, regioes),
+            montar_glifos(glifos_fundidos),
+        )
+    )
 
     tx, ty, tlarg, talt = caixas["titulo"]
     cal.mercado_ancora = Regiao(esquerda=tx, topo=ty, largura=tlarg, altura=talt)
@@ -1283,6 +1737,8 @@ def calibrar(args: argparse.Namespace) -> int:
     if resultado.limiar_sugerido is not None:
         cal.mercado_limiar_de_template = resultado.limiar_sugerido
 
+    _gravar_os_glifos(cal, glifos_cortados, glifos_fundidos, resultado_glifos)
+
     # REGRAVA O ARQUIVO INTEIRO. Nada e impresso para o usuario colar: o
     # criterio 3 do ROADMAP e "sem editar JSON a mao".
     #
@@ -1305,6 +1761,8 @@ def calibrar(args: argparse.Namespace) -> int:
         f"{grade['altura_da_linha']} px, layout '{grade['layout']}'"
     )
     print(f"  watchlist    : {len(moldes_de_nome)} molde(s) de nome")
+    print(f"  glifos       : {len(glifos_fundidos)} molde(s) de glifo")
+    _anunciar_o_que_faltou(glifos_fundidos)
     _texto_final_da_conferencia(conferencia, arquivo)
     return 0
 
@@ -1326,6 +1784,16 @@ def main(argv: list[str] | None = None) -> int:
         help="qual dos TRES layouts de coluna esta na tela",
     )
     parser.add_argument("--calibracao", help="outro calibration.json (para teste)")
+    # A FLAG EXISTE POR UM FATO MEDIDO. O frame que calibrou a grade atual nao
+    # contem o digito `8` (conferidas as 24 capturas daquela gravacao), entao
+    # completar o conjunto de glifos exige visitar outro frame -- e sem esta
+    # flag isso obrigaria a refazer os cinco arrastos de ancora e grade a cada
+    # visita. Moldes de glifo nao carregam coordenada, entao trocar de frame nao
+    # acopla nada.
+    parser.add_argument(
+        "--so-digitos", action="store_true", dest="so_digitos",
+        help="corta SO os glifos de preco, sem tocar em ancoras, grade e watchlist",
+    )
     args = parser.parse_args(argv)
 
     # O AVISO DE DPI VALE MAIS AQUI DO QUE NOS OUTROS DOIS LUGARES QUE O TEM.

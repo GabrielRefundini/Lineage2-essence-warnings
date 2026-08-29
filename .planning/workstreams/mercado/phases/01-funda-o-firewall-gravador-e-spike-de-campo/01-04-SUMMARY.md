@@ -14,7 +14,7 @@ provides:
   - "DESENHO NOVO MEDIDO: votacao entre 3 ancoras independentes devolve a margem a +0.3700 (a faixa de titulo sozinha dava -0.0643)"
   - "l2scanner/calibrar._selecionar_regiao: mecanica de selectROI EXTRAIDA e compartilhada pelos dois calibradores"
   - "l2scanner/calibrar_mercado.py + calibrar-mercado.bat: calibracao do mercado sobre frame GRAVADO, com matriz de confusao que RECUSA colisao"
-  - "5 chaves opcionais novas em calibration.json (mercado_ancoras, mercado_grade, mercado_templates_de_nome, mercado_templates_de_digito, mercado_limiar_de_template); VERSAO_DO_ESQUEMA segue 2"
+  - "5 chaves opcionais novas DECLARADAS em calibration.json (mercado_ancoras, mercado_grade, mercado_templates_de_nome, mercado_templates_de_digito, mercado_limiar_de_template); VERSAO_DO_ESQUEMA segue 2. ATENCAO: declarada nao e produzida — `mercado_templates_de_digito` nasceu aqui como campo de PASSAGEM (serializado e desserializado, nunca escrito por ninguem) e ficou sem produtor. Quem lhe deu um produtor foi o plano 01-05, que fechou a lacuna G-01 da 01-VERIFICATION.md"
   - "Calibracao.conferir_geometria_do_mercado: a leitura recusa com 'recalibre' quando a janela muda de tamanho"
   - "tests/test_mercado_27x.py: as DUAS metades do criterio 4 do ROADMAP presas no mesmo arquivo, mais o tripwire de arquitetura"
   - "config.toml: secao [mercado] watchlist comentada, para o portao humano ter onde escrever"
@@ -238,6 +238,16 @@ faz a calibracao sobreviver ao painel andar.
 gravado veio de uma matriz de confusao VAZIA e nao significa nada — ele so passa a valer
 quando houver moldes. Recalibrar depois de escrever a watchlist e um passo esperado, nao
 retrabalho.
+
+**CORRECAO POSTERIOR (plano 01-05).** A linha de `provides` acima contava
+`mercado_templates_de_digito` entre as "5 chaves novas", e um leitor concluia dai que ela
+era PRODUZIDA por esta ferramenta. Ela nao era: nasceu declarada, serializada e
+desserializada, e nenhuma linha das 940 de `calibrar_mercado.py` cortava um glifo. A
+`01-VERIFICATION.md` registrou isso como lacuna **G-01** (com agravante de auditoria,
+justamente por causa desta linha), e o **plano 01-05** deu a ela um produtor de verdade:
+`segmentar_glifos`, `matriz_de_confusao_de_glifos` e o modo `--so-digitos`. A linha de
+`provides` foi corrigida para distinguir chave DECLARADA de chave PRODUZIDA; o resto deste
+SUMMARY fica como estava, por ser registro historico.
 
 ## ESTADO: PLANO COMPLETO
 

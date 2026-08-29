@@ -761,12 +761,18 @@ class TestRodarSemWatchlistNaoApagaOsMoldes:
             l2scanner.calibrar_mercado, "_gravar_conferencia", lambda _img: imagem
         )
 
+        # O FLUXO COMPLETO GANHOU UM PASSO: depois da watchlist ele oferece o
+        # corte de glifos. Estes cenarios nao exercitam glifos, entao respondem
+        # "terminar" na primeira volta -- sem isso o laco leria do stdin.
+        monkeypatch.setattr("builtins.input", lambda *a, **k: "f")
+
         args = argparse.Namespace(
             calibracao=str(destino),
             gravacao=None,
             frame=str(frame),
             indice=None,
             layout="negociacao",
+            so_digitos=False,
         )
         return destino, args
 
@@ -1040,9 +1046,12 @@ class TestOMoldeDaAncoraEIndexadoPorNome:
             destino.write_text(
                 REFERENCIA.read_text(encoding="utf-8"), encoding="utf-8"
             )
+            # o fluxo completo oferece o corte de glifos no fim; este cenario
+            # nao exercita glifos e responde "terminar"
+            monkeypatch.setattr("builtins.input", lambda *a, **k: "f")
             args = argparse.Namespace(
                 calibracao=str(destino), gravacao=None, frame=str(frame),
-                indice=None, layout="negociacao",
+                indice=None, layout="negociacao", so_digitos=False,
             )
             assert l2scanner.calibrar_mercado.calibrar(args) == 0
             return json.loads(destino.read_text(encoding="utf-8"))
@@ -1288,6 +1297,43 @@ def _glifo(rotulo: str, semente: int = 7) -> np.ndarray:
     return (gerador.integers(0, 2, size=(9, 4)) * 255).astype(np.uint8)
 
 
+def _frame_com_preco_sintetico() -> np.ndarray:
+    """Uma janela com CINCO glifos DISTINTOS em (100,100), 30x15.
+
+    Distintos de proposito: cinco blocos identicos seriam uniformes (desvio
+    zero) e a matriz os classificaria como pares incalculaveis, recusando a
+    rodada — o que testaria o guard, e nao a persistencia.
+    """
+    pixels = np.zeros((1392, 1720, 3), dtype=np.uint8)
+    # NENHUM padrao preenche a faixa inteira: um glifo solido de ponta a ponta
+    # tem desvio ZERO no proprio recorte e cai no guard de par incalculavel,
+    # que e outro comportamento, testado noutro lugar.
+    #
+    # E os DEZ padroes sao distintos entre si, nao so dentro de cada preco: a
+    # segunda rodada marca o preco de baixo, e se ela reaproveitasse as mesmas
+    # formas com outros rotulos a matriz recusaria com razao (dois moldes
+    # identicos com rotulos diferentes E uma colisao).
+    primeira = (
+        ((0, 7), (0, 4)),
+        ((3, 9), (0, 4)),
+        ((0, 5), (0, 2)),
+        ((4, 9), (1, 4)),
+        ((1, 8), (0, 3)),
+    )
+    segunda = (
+        ((0, 4), (0, 4)),
+        ((5, 9), (0, 4)),
+        ((2, 9), (0, 2)),
+        ((0, 6), (2, 4)),
+        ((6, 9), (1, 3)),
+    )
+    for topo, padroes in ((100, primeira), (200, segunda)):
+        for i, ((y0, y1), (x0, x1)) in enumerate(padroes):
+            base_x = 100 + i * 5
+            pixels[topo + y0 : topo + y1, base_x + x0 : base_x + x1] = 255
+    return pixels
+
+
 class TestAPersistenciaDosGlifos:
     """O que chega ao `calibration.json`, e o que nunca chega."""
 
@@ -1298,17 +1344,16 @@ class TestAPersistenciaDosGlifos:
         calibracao: Path,
         respostas: list[str],
         so_digitos: bool = True,
+        caixa: tuple[int, int, int, int] = (100, 100, 30, 15),
     ):
         frame = tmp_path / "frame.png"
-        pixels = np.zeros((1392, 1720, 3), dtype=np.uint8)
-        for i in range(5):
-            pixels[100:109, 100 + i * 5 : 104 + i * 5] = 255
+        pixels = _frame_com_preco_sintetico()
         cv2.imwrite(str(frame), pixels)
 
         monkeypatch.setattr(
             l2scanner.calibrar_mercado,
             "_selecionar_regiao",
-            lambda *a, **k: (100, 100, 30, 15),
+            lambda *a, **k: caixa,
         )
         self.gravacoes = []
         monkeypatch.setattr(
@@ -1334,10 +1379,7 @@ class TestAPersistenciaDosGlifos:
     ):
         chamadas = []
         frame = tmp_path / "frame.png"
-        pixels = np.zeros((1392, 1720, 3), dtype=np.uint8)
-        for i in range(5):
-            pixels[100:109, 100 + i * 5 : 104 + i * 5] = 255
-        cv2.imwrite(str(frame), pixels)
+        cv2.imwrite(str(frame), _frame_com_preco_sintetico())
 
         def espiao(_pixels, titulo, _instrucao):
             chamadas.append(titulo)
@@ -1366,8 +1408,8 @@ class TestAPersistenciaDosGlifos:
         assert "linha" not in juntos, chamadas
 
         depois = json.loads(calibracao.read_text(encoding="utf-8"))
-        assert depois["mercado_ancoras"] == antes["mercado_ancoras"]
-        assert depois["mercado_grade"] == antes["mercado_grade"]
+        assert depois.get("mercado_ancoras") == antes.get("mercado_ancoras")
+        assert depois.get("mercado_grade") == antes.get("mercado_grade")
 
     def test_os_glifos_cortados_chegam_ao_arquivo_com_limiar_derivado(
         self, monkeypatch, tmp_path: Path, calibracao: Path
@@ -1397,7 +1439,10 @@ class TestAPersistenciaDosGlifos:
         self, monkeypatch, tmp_path: Path, calibracao: Path
     ):
         self._rodar(monkeypatch, tmp_path, calibracao, ["n", "18,90", "f"])
-        self._rodar(monkeypatch, tmp_path, calibracao, ["n", "23,45", "f"])
+        self._rodar(
+            monkeypatch, tmp_path, calibracao, ["n", "23,45", "f"],
+            caixa=(100, 200, 30, 15),  # o SEGUNDO preco, com outras formas
+        )
 
         dados = json.loads(calibracao.read_text(encoding="utf-8"))
         rotulos = {i["glifo"] for i in dados["mercado_templates_de_digito"]}
@@ -1473,7 +1518,11 @@ class TestAPersistenciaDosGlifos:
         self, monkeypatch, tmp_path: Path, calibracao: Path
     ):
         """A licao do CR-03 aplicada a chave nova."""
-        self._rodar(monkeypatch, tmp_path, calibracao, ["n", "7", "f"])
+        # um retangulo estreito, com UM glifo so
+        self._rodar(
+            monkeypatch, tmp_path, calibracao, ["n", "7", "f"],
+            caixa=(100, 100, 4, 15),
+        )
         dados = json.loads(calibracao.read_text(encoding="utf-8"))
         assert len(dados["mercado_templates_de_digito"]) == 1
         assert dados.get("mercado_limiar_de_glifo") is None
