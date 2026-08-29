@@ -1026,14 +1026,24 @@ class TestOMoldeDaAncoraEIndexadoPorNome:
                 "ANCORAS_SUGERIDAS",
                 ancoras_sugeridas,
             )
-            fila = [caixas_por_nome[a[0]] for a in ancoras_sugeridas] + [
-                (310, 260, 480, 450),
-                (310, 260, 480, 45),
-            ]
+            # O duble responde POR NOME, e nao por posicao numa fila.
+            #
+            # A fila por posicao presumia que o calibrador pediria as ancoras na
+            # ordem de `ANCORAS_SUGERIDAS`. Ele nao pede mais: a faixa de titulo
+            # e SEMPRE a primeira, porque e dela que saem os retangulos
+            # sugeridos das outras quatro regioes. Responder por nome torna o
+            # teste indiferente a ordem de pergunta -- que e exatamente o que
+            # ele afirma: reordenar a constante nao pode trocar o molde gravado.
+            grade = iter([(310, 260, 480, 450), (310, 260, 480, 45)])
+
+            def responder(_pixels, titulo, _instrucao, _sugestao=None):
+                for nome, caixa in caixas_por_nome.items():
+                    if titulo.endswith(nome):
+                        return caixa
+                return next(grade)
+
             monkeypatch.setattr(
-                l2scanner.calibrar_mercado,
-                "_selecionar_regiao",
-                lambda *a, **k: fila.pop(0),
+                l2scanner.calibrar_mercado, "_selecionar_regiao", responder
             )
             monkeypatch.setattr(
                 l2scanner.calibrar_mercado, "ler_watchlist", lambda _c: []
@@ -1381,7 +1391,7 @@ class TestAPersistenciaDosGlifos:
         frame = tmp_path / "frame.png"
         cv2.imwrite(str(frame), _frame_com_preco_sintetico())
 
-        def espiao(_pixels, titulo, _instrucao):
+        def espiao(_pixels, titulo, _instrucao, _sugestao=None):
             chamadas.append(titulo)
             return (100, 100, 30, 15)
 
