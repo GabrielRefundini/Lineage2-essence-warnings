@@ -1633,12 +1633,38 @@ def calibrar(args: argparse.Namespace) -> int:
     ancoras = montar_ancoras(pixels, caixas, origem)
 
     # --- a grade ---
+    #
+    # O AVISO DO CABECALHO EXISTE POR ERRO MEDIDO EM CAMPO, 2026-08-29.
+    #
+    # Na primeira marcacao humana desta ferramenta o usuario incluiu a faixa
+    # `Auction List | Total Price | 5 mln increment | Buy` dentro da area da
+    # lista. E o engano natural: visualmente o cabecalho parece a borda de cima
+    # da tabela. Mas ele nao e uma linha de dados, e `derivar_grade` conta as
+    # linhas a partir do TOPO desta area -- entao engoli-lo desloca as DEZ, e o
+    # erro so apareceria na Fase 2, lendo preco alguns pixels fora do lugar.
+    #
+    # Custa duas linhas de texto avisar antes; custa uma sessao inteira de
+    # marcacao descobrir depois.
     layout = args.layout
+    print("")
+    print("  " + "-" * 58)
+    print("  A AREA DA LISTA COMECA NA PRIMEIRA LINHA DE DADOS.")
+    print("")
+    print("  NAO inclua a faixa de cabecalho (`Auction List | Total Price |")
+    print("  5 mln increment | Buy`): ela nao e uma linha, e engoli-la desloca")
+    print("  todas as 10 linhas para baixo.")
+    print("")
+    print("  Comece no topo da PRIMEIRA linha de dados e termine na base da")
+    print("  ultima. De preferencia pare antes da barra de rolagem, a direita.")
+    print("  " + "-" * 58)
     caixa_grade = _marcar(
-        pixels, "Grade", "Marque a AREA DA LISTA inteira e tecle ENTER."
+        pixels, "Grade", "Marque a AREA DA LISTA (SEM o cabecalho) e tecle ENTER."
     )
+    print("")
+    print("  Agora SO a primeira linha: a mesma largura, a altura de UMA linha.")
+    print("  E dela que sai o passo entre linhas, e dai quantas cabem na pagina.")
     caixa_linha = _marcar(
-        pixels, "Primeira linha", "Marque a PRIMEIRA LINHA da lista e tecle ENTER."
+        pixels, "Primeira linha", "Marque SO a PRIMEIRA LINHA da lista e tecle ENTER."
     )
     grade = derivar_grade(caixa_grade, caixa_linha, layout, origem)
 
