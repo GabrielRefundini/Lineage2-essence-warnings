@@ -24,10 +24,48 @@ Requisitos do milestone v1-mercado. Cada um mapeia para uma fase do roadmap.
 
 ### Leitura
 
-- [ ] **LEIT-01**: Itens da watchlist (`config.toml`) reconhecidos nas linhas visíveis por template de conjunto fechado
+- [ ] **LEIT-01**: Nome do item lido por OCR sobre o recorte da coluna do nome e agrupado por similaridade contra os nomes já vistos; um nome que não casa com nenhum conhecido entra como SÉRIE NOVA, sem intervenção do usuário — o que é registrado não depende de lista prévia
 - [ ] **LEIT-02**: Preços e quantidades lidos por template-por-dígito com falha FECHADA: frame ilegível é descartado, preço nunca é inventado
 - [ ] **LEIT-03**: Página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS (nunca em pixels — frames bit a bit idênticos são o sinal de captura congelada)
 - [ ] **LEIT-04**: Console mostra ao vivo páginas lidas/perdidas e último item reconhecido; resumo final conta as duas metades ("li 7, perdi 3")
+- [ ] **LEIT-05**: A leitura do nome usa o recorte da COLUNA DO NOME, nunca a linha inteira — a coluna é calibrada e persistida em `calibration.json`. Medido: com a tooltip aberta, o texto dela vaza para dentro da linha e viraria nome de item
+
+#### Por que o OCR de nomes voltou ao escopo
+
+Até 2026-08-29 este documento excluía explicitamente a leitura de nomes de item por OCR. A
+entrada da tabela Out of Scope dizia `| OCR aberto para nomes de item | ... |`, e ela saiu de
+lá nesta data. O raciocínio derrubado fica registrado aqui, porque o que derruba uma decisão
+importa mais que a decisão derrubada.
+
+**De onde a exclusão veio, e o que ela realmente era.** Ela nasceu em `db751c7` (2026-08-27).
+A primeira gravação do World Exchange no disco é de 2026-08-28 05:31. O OCR foi descartado
+**um dia antes de existir um frame do mercado para medir contra**. A justificativa escrita —
+a lista ser conjunto fechado — não era um achado técnico: era uma decisão de PRODUTO
+registrada com aparência de achado técnico. Não havia medição nenhuma por baixo dela.
+
+**O que caiu não foi uma medição: foi a premissa.** Em 2026-08-29 o usuário declarou que quer
+acompanhar TODOS os itens do mercado, e que um item novo postado precisa ser reconhecido sem
+mapeamento prévio. A lista pré-configurada só servia de portão enquanto o conjunto fosse
+pequeno e conhecido de antemão. Deixou de ser as duas coisas no mesmo dia.
+
+**E o portão não fica só trabalhoso — ele para de funcionar.** A calibração recusa ALTO
+quando dois moldes de nome colidem; isso é proteção deliberada, registrada como must_have em
+`01-04-PLAN.md`. Nomes do L2 compartilham prefixo em profusão, e isso não é hipótese: a
+própria página do usuário trouxe `Common Aztac` e `Common Aztac M. Def. +200`. Com o mercado
+inteiro como conjunto, é a salvaguarda funcionando CORRETAMENTE que trava a calibração. Um
+conjunto fechado grande não é um conjunto fechado caro — é um conjunto fechado impossível.
+
+**O que a medição mostrou, e o que ela recusou.** A spike registrada em
+`260829-rd9-EVIDENCIA-SPIKE-OCR.md` passou as linhas gravadas pelo motor de OCR do Windows:
+os NOMES saem estáveis o bastante para agrupamento por similaridade; os NÚMEROS não saem — a
+vírgula decimal some, e `16,50` volta como `1650`, um erro de 100x com aparência plausível.
+Conclusão travada: nome por OCR, preço e quantidade por molde — LEIT-02 não muda, e essa
+medição é exatamente a razão de ele existir. A mesma spike produziu LEIT-05: lendo a linha
+inteira, o texto de uma tooltip aberta entra na leitura como se fosse nome de item.
+
+**O que sobra da lista configurada.** Ela deixa de decidir O QUE É REGISTRADO — isso passa a
+ser tudo que aparece na tela. No máximo ela vira um filtro de DESTAQUE no console, que é
+território da Fase 4 (ANAL-01, ANAL-02). Nenhum requisito novo é criado aqui para esse papel.
 
 ### Persistência
 
@@ -108,9 +146,10 @@ Excluído explicitamente. Documentado para impedir retorno silencioso.
 |---------|--------|
 | Paginação, refresh ou busca automática no mercado | Exige enviar input ao jogo — violação estrutural da restrição fundadora; FIRE-01 torna impossível, não só proibido |
 | Ler o "preço médio" do jogo como fonte primária | Estatística fraca (média de lotes ativos, não ponderada, não é venda); as linhas visíveis dão mínimo/mediana melhores |
-| OCR aberto para nomes de item | A watchlist é conjunto fechado — template matching, a decisão já validada do v1 (`identidade.py`) |
 | Histórico de VENDAS | Invisível ao cliente — só pedidos visíveis existem; as métricas carregam isso no nome |
 | Varredura do mercado inteiro | A captura é passiva: só existe o que o usuário colocou na tela |
+
+> A entrada que excluía a leitura de nomes por OCR saiu desta tabela em 2026-08-29. Ela não foi apagada: o argumento inteiro, e o que o derrubou, está em "Por que o OCR de nomes voltou ao escopo", na seção Leitura. Uma exclusão que cai também não pode cair em silêncio.
 
 ## Traceability
 
@@ -128,6 +167,7 @@ Preenchida na criação do roadmap (2026-08-27).
 | LEIT-02 | Phase 2 | Pending |
 | LEIT-03 | Phase 2 | Pending |
 | LEIT-04 | Phase 4 | Pending |
+| LEIT-05 | Phase 2 | Pending |
 | PERS-01 | Phase 3 | Pending |
 | PERS-02 | Phase 3 | Pending |
 | PERS-03 | Phase 3 | Pending |
@@ -138,8 +178,8 @@ Preenchida na criação do roadmap (2026-08-27).
 
 **Coverage:**
 
-- v1 requirements: 17 total (a contagem "16" da definição inicial estava errada — recontado na criação do roadmap)
-- Mapped to phases: 17
+- v1 requirements: 18 total (a contagem "16" da definição inicial estava errada — a recontagem na criação do roadmap deu 17; LEIT-05 entrou em 2026-08-29)
+- Mapped to phases: 18
 - Unmapped: 0 ✓
 
 ---
