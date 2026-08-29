@@ -406,8 +406,74 @@ def esvaziar_a_fila_de_teclas(segundos: float = DRENO_DA_FILA_DE_TECLAS) -> int:
     return drenadas
 
 
+def _decidir_sobre_a_sugestao(titulo: str) -> str:
+    """ENTER aceita a sugestao, ESC cancela, qualquer outra tecla redesenha.
+
+    Vive FORA de `_selecionar_regiao` por duas razoes, e as duas sao concretas.
+
+    A primeira e um tripwire: `test_janela_de_selecao.py::
+    test_o_selecionar_regiao_usa_o_dreno_por_tempo` proibe a palavra `break`
+    dentro do fonte de `_selecionar_regiao`, porque foi um laco com `break` que
+    esvaziava a fila de teclas cedo demais e deixava um ENTER vazar para a
+    selecao seguinte. Um laco de teclado precisa de `break`; este mora aqui.
+
+    A segunda e a razao de existir uma pergunta de teclado ANTES do
+    `selectROI`, em vez de interpretar o retorno dele. MEDIDO no OpenCV 4.14:
+    `cv2.selectROI` devolve `(0,0,0,0)` tanto no ESC quanto no ENTER-sem-
+    arrasto, e nao expoe qual tecla encerrou. Com uma sugestao na tela,
+    "confirmar sem arrastar" significa ACEITAR e ESC significa CANCELAR --
+    duas intencoes opostas com a mesma assinatura. Adivinhar entre elas seria
+    exatamente o "aceitar calado" que esta ferramenta veio consertar; perguntar
+    antes torna as duas distinguiveis sem tirar do usuario o direito de
+    redesenhar.
+
+    A sondagem e com PRAZO (`waitKeyEx(50)`) e confere se a janela ainda
+    existe, pela licao ja registrada em `calibrar_mercado.navegar_e_escolher`:
+    `waitKeyEx(0)` bloqueia para sempre, e se o usuario fechar a janela no X
+    nao ha mais quem receba tecla -- o console fica parado sem mensagem e a
+    unica saida e Ctrl-C.
+    """
+    while True:
+        bruto = cv2.waitKeyEx(50)
+        try:
+            visivel = cv2.getWindowProperty(titulo, cv2.WND_PROP_VISIBLE) >= 1
+        except cv2.error:  # pragma: no cover - depende do backend
+            visivel = False
+        if not visivel:
+            return "cancela"
+        if bruto == -1:
+            continue
+        tecla = bruto & 0xFF
+        if tecla in (13, 10):  # ENTER
+            return "aceita"
+        if tecla == 27:  # ESC
+            return "cancela"
+        return "redesenha"
+
+
+def _desenhar_a_sugestao(
+    visao: np.ndarray, sugestao: tuple[int, int, int, int], escala: float
+) -> np.ndarray:
+    """A sugestao desenhada sobre uma COPIA da visualizacao, ja reescalada.
+
+    Copia, e nao a visualizacao original: quem redesenha recebe a imagem limpa,
+    sem um retangulo verde antigo grudado por cima do frame durante o arrasto.
+    """
+    tela = visao.copy()
+    x, y, largura, altura = (int(round(valor * escala)) for valor in sugestao)
+    cv2.rectangle(tela, (x, y), (x + largura, y + altura), (0, 255, 0), 2)
+    cv2.putText(
+        tela, "ENTER aceita", (x, max(14, y - 8)),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA,
+    )
+    return tela
+
+
 def _selecionar_regiao(
-    pixels: np.ndarray, titulo: str, instrucao: str
+    pixels: np.ndarray,
+    titulo: str,
+    instrucao: str,
+    sugestao: tuple[int, int, int, int] | None = None,
 ) -> tuple[int, int, int, int] | None:
     """Usuario arrasta um retangulo; devolve (x, y, largura, altura) NO ORIGINAL.
 
@@ -426,6 +492,31 @@ def _selecionar_regiao(
 
     Caixa degenerada (largura ou altura zero) devolve None, que e como o
     usuario cancela: `cv2.selectROI` devolve (0,0,0,0) no ESC.
+
+    `sugestao` E OPCIONAL, E O PADRAO `None` E UMA PROMESSA
+    ------------------------------------------------------
+    Sem sugestao, esta funcao faz EXATAMENTE o que fazia antes -- nenhuma
+    janela a mais, nenhuma tecla a mais, nenhum caminho novo. Isso nao e
+    elegancia: `calibrar_selecionando` (a party window) passa por aqui e
+    FUNCIONA hoje, depois de o CR-01 ter consertado a janela em escala errada
+    que corrompia qualquer retangulo desenhado a mao. O planejador do 01-05
+    recusou esta ideia (WR-08) justamente por temer mexer numa funcao
+    compartilhada; o parametro opcional e a resposta a esse medo, e o teste
+    `test_a_party_nao_ganha_janela_de_sugestao` e a prova.
+
+    COM sugestao, o retangulo aparece PRE-DESENHADO e o usuario decide antes de
+    tocar no mouse: ENTER aceita, ESC cancela, qualquer outra tecla abre o
+    arrasto normal. A razao de ser assim e MEDIDA em campo (2026-08-29): cada
+    instrucao em prosa desta ferramenta -- "marque a AREA DA LISTA inteira",
+    "marque UM numero da coluna de preco" -- gerou uma interpretacao diferente e
+    um retangulo errado aceito em silencio. A ferramenta ja sabia onde as coisas
+    estavam; ela so nao mostrava.
+
+    Por que a decisao vem ANTES do `selectROI` e nao do retorno dele: aquele
+    retorno nao distingue ESC de ENTER-sem-arrasto -- os dois valem `(0,0,0,0)`.
+    Ver `_decidir_sobre_a_sugestao`. E sem sugestao `(0,0,0,0)` continua
+    significando cancelar, exatamente como antes; cancelamento nunca vira
+    aceitacao por omissao.
     """
     largura_original = pixels.shape[1]
     escala = min(1.0, 1600 / largura_original)
@@ -434,6 +525,9 @@ def _selecionar_regiao(
     )
 
     print(f"\n{instrucao}")
+    if sugestao is not None:
+        print(f"SUGESTAO ja desenhada na tela: {sugestao}")
+        print("ENTER aceita a sugestao | qualquer outra tecla deixa voce arrastar")
     print("ESC cancela.\n")
 
     # (1) ESVAZIA A FILA DE TECLAS ANTES DE ABRIR A SELECAO.
@@ -492,6 +586,23 @@ def _selecionar_regiao(
     # nascendo onde o usuario a encontra: nada foi perdido.
     cv2.namedWindow(titulo, cv2.WINDOW_AUTOSIZE)
     cv2.moveWindow(titulo, 40, 40)
+
+    # (3) COM SUGESTAO: mostra o retangulo proposto e pergunta, ANTES do
+    #     arrasto. Sem sugestao este bloco inteiro nao existe e o caminho e o
+    #     mesmo de sempre -- ver o docstring, e o teste que prova a promessa.
+    if sugestao is not None:
+        cv2.imshow(titulo, _desenhar_a_sugestao(visao, sugestao, escala))
+        cv2.waitKey(1)
+        decisao = _decidir_sobre_a_sugestao(titulo)
+        if decisao == "aceita":
+            cv2.destroyAllWindows()
+            print(f"  usando a sugestao {sugestao}")
+            return sugestao
+        if decisao == "cancela":
+            cv2.destroyAllWindows()
+            print("Nada selecionado.")
+            return None
+
     cv2.imshow(titulo, visao)
     cv2.waitKey(1)
 
