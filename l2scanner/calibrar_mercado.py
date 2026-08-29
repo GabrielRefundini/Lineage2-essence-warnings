@@ -745,7 +745,23 @@ def derivar_grade(
             f"da lista ({galt} px) — os dois retangulos parecem trocados. "
             f"Remarque: primeiro a LISTA INTEIRA, depois SO a primeira linha."
         )
-    linhas = galt // altura_da_linha
+    # ARREDONDA, NAO TRUNCA — e a diferenca custa uma linha inteira de dados.
+    #
+    # MEDIDO EM CAMPO 2026-08-29, na primeira calibracao completa por mao
+    # humana. O usuario desenhou a area da lista CERTA: a conferencia visual
+    # mostra o retangulo cobrindo as dez linhas, com o cabecalho de fora. Mas
+    # ele saiu com 447 px em vez de 450, e `447 // 45` devolve 9.
+    #
+    # Tres pixels. Nenhuma mao acerta 450 exatos arrastando um mouse, e o preco
+    # de errar por baixo era perder um anuncio inteiro por pagina, calado, la na
+    # frente na leitura. `round(447 / 45)` devolve 10, que e o que os olhos veem.
+    #
+    # Isto NAO afrouxa a guarda: quem pega retangulo genuinamente errado e a
+    # divergencia contra o layout medido, logo abaixo. Com o cabecalho engolido
+    # a altura vai a ~495 px, e `round(495 / 45)` continua 11 — o aviso dispara
+    # igual. O arredondamento absorve erro de mao; a divergencia acusa erro de
+    # interpretacao. Sao coisas diferentes e cada uma tem seu mecanismo.
+    linhas = max(1, round(galt / altura_da_linha))
 
     # E A DIVERGENCIA DO NUMERO MEDIDO SAI ALTA, mesmo quando nao e recusa.
     #

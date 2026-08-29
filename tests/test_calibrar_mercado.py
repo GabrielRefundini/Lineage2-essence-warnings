@@ -1599,3 +1599,47 @@ class TestAFlagDeCorteIsolado:
             "o frame que calibra a grade nao tem o digito 8: sem a segunda "
             "invocacao documentada, o usuario nao sabe como completar o conjunto"
         )
+
+class TestAContagemDeLinhasArredonda:
+    """MEDIDO EM CAMPO 2026-08-29, na primeira calibracao completa por mao humana.
+
+    O usuario desenhou a area da lista CERTA -- a conferencia visual mostra o
+    retangulo cobrindo as dez linhas, com o cabecalho de fora -- mas ela saiu
+    com 447 px em vez de 450, e a conta truncava para 9. Tres pixels custavam um
+    anuncio inteiro por pagina, calado, la na frente na leitura.
+
+    Nenhuma mao acerta 450 px exatos arrastando um mouse. O arredondamento
+    absorve erro de MAO; a divergencia contra o layout medido continua acusando
+    erro de INTERPRETACAO. Sao mecanismos diferentes para defeitos diferentes, e
+    esta classe prova que consertar um nao apagou o outro.
+    """
+
+    def test_o_caso_real_do_usuario_da_DEZ(self):
+        grade = derivar_grade(
+            (744, 618, 943, 447), (744, 618, 943, 45), "adena", (1171, 362)
+        )
+        assert grade["linhas_por_pagina"] == 10, (
+            "447 px cobrem dez linhas de 45 aos olhos; truncar devolvia 9"
+        )
+
+    def test_a_altura_exata_continua_dando_dez(self):
+        grade = derivar_grade(
+            (744, 618, 943, 450), (744, 618, 943, 45), "adena", (1171, 362)
+        )
+        assert grade["linhas_por_pagina"] == 10
+
+    def test_o_cabecalho_engolido_CONTINUA_acusando_onze(self):
+        """A guarda contra erro de interpretacao nao pode ter sido afrouxada."""
+        grade = derivar_grade(
+            (744, 590, 943, 495), (744, 590, 943, 45), "adena", (1171, 362)
+        )
+        assert grade["linhas_por_pagina"] == 11, (
+            "arredondar nao pode esconder um cabecalho engolido -- e esse o "
+            "erro que o aviso de divergencia existe para pegar"
+        )
+
+    def test_uma_grade_genuinamente_curta_continua_dando_nove(self):
+        grade = derivar_grade(
+            (744, 618, 943, 405), (744, 618, 943, 45), "adena", (1171, 362)
+        )
+        assert grade["linhas_por_pagina"] == 9
