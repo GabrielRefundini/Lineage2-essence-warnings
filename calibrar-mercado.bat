@@ -17,11 +17,27 @@ REM  1) O FLUXO COMPLETO, apontando a pasta da sua gravacao:
 REM
 REM       calibrar-mercado.bat --gravacao recordings\<pasta>
 REM
-REM     Voce vai marcar com o mouse, um retangulo de cada vez:
+REM     A FERRAMENTA PROPOE E VOCE CONFIRMA. Ela mede o painel
+REM     nos pixels e abre cada janela com o retangulo JA
+REM     DESENHADO em verde:
+REM
+REM       ENTER               aceita o retangulo proposto
+REM       qualquer outra tecla deixa voce arrastar o seu
+REM       ESC                 cancela sem gravar nada
+REM
+REM     Voce confere, um retangulo de cada vez:
 REM       1. as tres ancoras do painel (titulo, X de fechar, seta)
 REM       2. a area da lista e a primeira linha dela
 REM       3. o nome de cada item da watchlist do config.toml
 REM       4. os numeros da coluna de preco, para cortar os glifos
+REM
+REM     Nos numeros, quando ela conseguir LER o preco pelos glifos
+REM     que voce ja confirmou, ela propoe a leitura e o ENTER
+REM     confirma. O que voce digitar sempre vence.
+REM
+REM     Se ela nao conseguir medir alguma regiao neste frame, a
+REM     janela abre vazia e voce arrasta como antes. Nada foi
+REM     tirado -- so deixou de ser obrigatorio.
 REM
 REM  2) SO OS DIGITOS QUE FALTARAM, sobre OUTRO frame:
 REM
@@ -52,7 +68,7 @@ if not exist ".venv\Scripts\python.exe" (
 
 REM O bloco de conferencia SO sai quando a ferramenta terminou bem.
 REM Sem esta guarda, uma chamada sem argumento (ou uma recusa da matriz
-REM de confusao) imprimia mesmo assim "ABRA a imagem de conferencia" —
+REM de confusao) imprimia mesmo assim "ABRA a imagem de conferencia" ï¿½
 REM mandando o usuario conferir um arquivo que nunca foi gerado. E a
 REM mesma mentira que o FUND-01 tirou do gravador: dizer que deu certo
 REM sem ter conferido que deu.

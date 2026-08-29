@@ -74,9 +74,16 @@ from .frames import Regiao  # noqa: E402
 # amarelo do lider vale aqui para o dourado do `Adena` e o ciano da linha
 # destacada do mercado.
 from .identidade import mascara_de_texto  # noqa: E402
+from .mercado_geometria import (  # noqa: E402
+    GradeMedida,
+    ancora_deslocada,
+    localizar_o_titulo,
+    medir_a_grade,
+)
 from .mercado_visao import (  # noqa: E402
     CASAMENTO_MINIMO_DA_ANCORA,
     AncoraDoPainel,
+    ancoras_de_calibracao,
     ancoras_para_calibracao,
     casamento_da_ancora,
     glifos_de_calibracao,
@@ -767,6 +774,68 @@ def derivar_grade(
     }
 
 
+def _avisar_divergencia_da_grade(
+    medida: GradeMedida | None,
+    caixa_da_grade: tuple[int, int, int, int],
+    caixa_da_primeira_linha: tuple[int, int, int, int],
+) -> None:
+    """Diz ALTO quando o desenho do usuario se afasta muito do que foi medido.
+
+    INFORMACAO, NUNCA RECUSA. O usuario e a autoridade: a medicao veio de UM
+    frame e de uma janela, e ha layouts e resolucoes que ela nao viu. O papel da
+    ferramenta e tornar a resposta certa facil e a errada VISIVEL -- se ela
+    recusasse, o unico caminho de correcao seria editar o JSON a mao, que e
+    literalmente o que o criterio 3 do ROADMAP proibe.
+
+    Vale como rede junto de `derivar_grade`, que ja compara a contagem de linhas
+    com `LINHAS_ESPERADAS`. A diferenca e a cobertura: aquela guarda so existe
+    para layouts com contagem medida em campo; esta compara com o que foi medido
+    NESTE frame, e portanto vale para qualquer layout.
+
+    A tolerancia e de meia linha (o passo dividido por 2). Abaixo disso a
+    divergencia e ajuste fino de borda; acima, e sinal de que um retangulo pegou
+    o cabecalho junto -- que foi o erro medido em campo em 2026-08-29, e vale
+    exatamente uma linha inteira.
+    """
+    if medida is None:
+        return
+    tolerancia = max(2, medida.passo // 2)
+    esperado_topo = medida.topo
+    _, topo, _, altura = caixa_da_grade
+    _, _, _, altura_da_linha = caixa_da_primeira_linha
+
+    avisos: list[str] = []
+    if abs(topo - esperado_topo) > tolerancia:
+        avisos.append(
+            f"o TOPO da area ficou em y={topo}, e eu medi a primeira linha de "
+            f"dados em y={esperado_topo} (diferenca de {abs(topo - esperado_topo)} px)."
+        )
+    if abs(altura - medida.altura) > tolerancia:
+        avisos.append(
+            f"a ALTURA da area ficou em {altura} px, e eu medi "
+            f"{medida.altura} px ({medida.linhas} x {medida.passo})."
+        )
+    if abs(altura_da_linha - medida.passo) > tolerancia:
+        avisos.append(
+            f"a altura da PRIMEIRA LINHA ficou em {altura_da_linha} px, e eu "
+            f"medi o passo entre linhas em {medida.passo} px."
+        )
+    if not avisos:
+        return
+
+    print("")
+    print("  " + "!" * 58)
+    print("  O QUE VOCE DESENHOU DIVERGE DO QUE EU MEDI NOS PIXELS:")
+    for aviso in avisos:
+        print(f"    - {aviso}")
+    print("")
+    print("  Isto NAO e recusa: o seu desenho vale. E aviso porque a causa mais")
+    print("  provavel e o cabecalho ter entrado na area da lista, e esse erro")
+    print("  desloca TODAS as linhas -- em silencio, ate a leitura de precos.")
+    print("  Confira a imagem de conferencia antes de confiar nesta grade.")
+    print("  " + "!" * 58)
+
+
 def conferir_o_frame(cal: Calibracao, pixels: np.ndarray) -> None:
     """O frame e mesmo uma JANELA COMPLETA desta calibracao?
 
@@ -1091,12 +1160,47 @@ def montar_ancoras(
 
 
 def _marcar(
-    pixels: np.ndarray, titulo: str, instrucao: str
+    pixels: np.ndarray,
+    titulo: str,
+    instrucao: str,
+    sugestao: tuple[int, int, int, int] | None = None,
 ) -> tuple[int, int, int, int]:
-    caixa = _selecionar_regiao(pixels, titulo, instrucao)
+    caixa = _selecionar_regiao(pixels, titulo, instrucao, sugestao)
     if caixa is None:
         raise MercadoNaoCalibravel("selecao cancelada — nada foi gravado")
     return caixa
+
+
+def sugerir_as_ancoras(
+    forma_do_frame: tuple[int, int],
+    origem: tuple[int, int],
+    conhecidas: list[AncoraDoPainel],
+) -> dict[str, tuple[int, int, int, int] | None]:
+    """O retangulo sugerido de cada ancora, a partir da origem do painel.
+
+    Prefere os deslocamentos da CALIBRACAO ANTERIOR do usuario aos de
+    `ANCORAS_SUGERIDAS`, e a diferenca importa: as constantes foram medidas numa
+    janela e num posicionamento; o `calibration.json` do usuario foi medido na
+    maquina dele. Quando a anterior existe, ela e a evidencia melhor. Quando nao
+    existe -- primeira calibracao --, as constantes ainda entregam uma sugestao
+    util, porque o painel e a mesma arte.
+
+    O nome `titulo` sai de fora de proposito: ele nao e derivado da origem, ele
+    E a origem.
+    """
+    por_nome = {a.nome: a for a in conhecidas}
+    saida: dict[str, tuple[int, int, int, int] | None] = {}
+    for nome, dx, dy, largura, altura, _descricao in ANCORAS_SUGERIDAS:
+        if nome == "titulo":
+            continue
+        anterior = por_nome.get(nome)
+        if anterior is not None and anterior.molde.size:
+            dx, dy = anterior.dx, anterior.dy
+            altura, largura = anterior.molde.shape[:2]
+        saida[nome] = ancora_deslocada(
+            origem, (dx, dy), (largura, altura), forma_do_frame
+        )
+    return saida
 
 
 def _texto_final_da_conferencia(caminho: Path | None, arquivo: Path) -> None:
@@ -1204,8 +1308,327 @@ def fundir_glifos(
     return {**anteriores, **desta_rodada}
 
 
+# --------------------------------------------------------------------------
+# A COLUNA DE PRECO, ACHADA PELOS PIXELS — para a ferramenta PROPOR o retangulo
+# --------------------------------------------------------------------------
+
+# Colunas vazias que ainda contam como DENTRO da mesma palavra.
+#
+# MEDIDO em `frame_000012`: dentro de `59,00` a maior lacuna entre dois glifos
+# vizinhos e de 1 coluna (a docstring de `segmentar_glifos` registra isso: sem
+# tolerancia nenhuma ela separou 8 numeros em 8 acertos). Entre o fim do numero
+# e o comeco do `XM Coin` ao lado ha ~2 colunas, mas o sufixo nao entra nesta
+# mascara -- ele fica INTEIRO abaixo do piso de 180 (V maximo 173). O que 8
+# separa de verdade sao as COLUNAS da tabela, que distam centenas de pixels:
+# 749-776 (icone), 785-880 (nome), 1274-1299 (preco), 1572-1597 (incremento),
+# 1639-1657 (carrinho). Qualquer valor entre 2 e 200 daria os mesmos cinco
+# grupos nas dez linhas; 8 fica bem dentro desse platô.
+LACUNA_ENTRE_GRUPOS_DE_TEXTO = 8
+
+# A palavra de sufixo tem de ter pelo menos isto de largura para valer.
+#
+# MEDIDO: `XM Coin` sai com 35-36 px em todas as linhas conferidas. 12 rejeita
+# respingo de antialias sem chegar perto do valor real.
+LARGURA_MINIMA_DO_SUFIXO = 12
+
+# Folga em volta do retangulo proposto para um numero.
+#
+# Colunas vazias nas pontas NAO criam run em `segmentar_glifos` (ela separa por
+# coluna vazia), entao a folga nao muda a contagem de glifos; ela so faz o
+# retangulo desenhado na tela ficar legivel para o olho humano em vez de colado
+# no desenho.
+MARGEM_DO_RETANGULO_DE_PRECO = 2
+
+# Piso e MARGEM para a ferramenta arriscar PROPOR a leitura de um glifo.
+#
+# Os dois juntos, e nao so o piso -- copia deliberada do par ja medido em
+# `identidade.LIMIAR_DE_CASAMENTO` (0.75) + `MARGEM_MINIMA_SOBRE_O_SEGUNDO`
+# (0.12), pela mesma razao: num conjunto fechado, "o quanto pareceu" vale menos
+# que "o quanto pareceu MAIS que o segundo colocado".
+#
+# OS NUMEROS SAO MEDIDOS, e a primeira tentativa (piso unico de 0.95) foi
+# derrubada pela medicao. Eu supus que o mesmo digito no mesmo frame casaria
+# 1.000 por ser o mesmo desenho. Ele nao casa: o FUNDO da linha alterna entre 48
+# e 66 (e o que `mercado_geometria` usa para achar a grade), e a mascara de
+# brilho recorta o antialias do glifo um pouco diferente sobre cada fundo.
+# Medido nas 10 linhas de `frame_000012`, comparando cada glifo com o molde da
+# linha anterior:
+#
+#     acerto  PIOR    0.837  (o `9` contra o `9` da linha de fundo oposto)
+#     acerto  tipico  0.886 a 1.000
+#     ERRO    MELHOR  0.717  (o `5` contra o `6`)
+#
+# Com 0.95 a ferramenta nao propunha NADA -- feature morta e ninguem saberia.
+# Com 0.80 + margem 0.12: o pior acerto passa com 0.037 de folga, e o melhor
+# erro precisaria subir 0.083 E abrir 0.12 sobre o segundo colocado para
+# enganar. Nos dados medidos a margem do pior acerto e 0.169.
+#
+# E a proposta NUNCA e gravada sozinha: ela e escrita na tela, o usuario le, e
+# so entra com ENTER -- ou ele digita outra coisa e a dele vale. A conferencia
+# de contagem de `_pedir_rotulo` continua valendo por cima, e a montagem
+# ampliada da conferencia visual continua sendo o portao final.
+MINIMO_PARA_PROPOR_ROTULO = 0.80
+MARGEM_MINIMA_PARA_PROPOR = 0.12
+
+
+def _grupos_de_colunas(
+    presenca: np.ndarray, lacuna: int
+) -> list[tuple[int, int]]:
+    """Os intervalos `[inicio, fim)` de colunas com pixel, tolerando `lacuna`.
+
+    Irmao de `segmentar_glifos`, com UMA diferenca deliberada: aquela separa em
+    QUALQUER coluna vazia, porque la a pergunta e "onde acaba um glifo"; aqui a
+    pergunta e "onde acaba uma COLUNA DA TABELA", e um numero inteiro tem
+    colunas vazias no meio por construcao.
+    """
+    grupos: list[tuple[int, int]] = []
+    inicio: int | None = None
+    vazias = 0
+    for coluna, tem in enumerate(presenca):
+        if tem:
+            if inicio is None:
+                inicio = coluna
+            vazias = 0
+        elif inicio is not None:
+            vazias += 1
+            if vazias >= lacuna:
+                grupos.append((inicio, coluna - vazias + 1))
+                inicio = None
+    if inicio is not None:
+        grupos.append((inicio, int(len(presenca))))
+    return grupos
+
+
+def _cauda_apagada(
+    so_apagado: np.ndarray, tem_claro: np.ndarray, inicio: int
+) -> int:
+    """Quantas colunas de texto APAGADO seguem a direita, ANTES do proximo claro.
+
+    A parada no primeiro texto claro e a regra inteira, e ela veio de uma
+    medicao que derrubou a primeira versao desta deteccao.
+
+    A tentativa anterior procurava "uma mancha apagada que COMECE depois do fim
+    do numero". Nao funciona nas duas pontas:
+
+    * a mancha do `XM Coin` COMECA DENTRO do preco (medido: o grupo apagado sai
+      em 1278..1343, e o preco vai de 1274 a 1298) — porque as colunas entre um
+      digito e o proximo nao tem pixel claro, so o antialias apagado. Com isso o
+      preco de verdade era REJEITADO;
+    * e a mancha que segue o ICONE da linha (o antialias do nome dourado
+      `5,000,000 Adena` logo adiante) tem 59 colunas de largura, entao o icone
+      era ACEITO como se fosse um preco com moeda ao lado.
+
+    Cortar no primeiro claro resolve as duas: medido em `frame_000012`, a cauda
+    do preco tem **44** colunas limpas ate o fim do `XM Coin`, e a do icone tem
+    **9** — ela esbarra no nome nove colunas adiante. As outras tres colunas da
+    tabela (nome, incremento, carrinho) dao 0, 1 e 1.
+
+    `LACUNA_ENTRE_GRUPOS_DE_TEXTO` colunas seguidas sem nada tambem encerram a
+    cauda: e o vao entre o numero e a palavra (5 px medidos) que precisa ser
+    tolerado, nao um deserto.
+    """
+    ultimo: int | None = None
+    vazias = 0
+    for coluna in range(int(inicio), int(len(so_apagado))):
+        if tem_claro[coluna]:
+            break
+        if so_apagado[coluna]:
+            ultimo = coluna
+            vazias = 0
+            continue
+        vazias += 1
+        if vazias >= LACUNA_ENTRE_GRUPOS_DE_TEXTO:
+            break
+    if ultimo is None:
+        return 0
+    return ultimo + 1 - int(inicio)
+
+
+def numeros_com_sufixo(faixa: np.ndarray) -> list[tuple[int, int, int]]:
+    """Os grupos de texto CLARO seguidos de uma palavra APAGADA. Um preco, em suma.
+
+    E aqui que a diferenca de brilho medida no plano 01-05 vira ferramenta em
+    vez de armadilha. Na coluna `Total Price` o numero e claro (V ate 255) e o
+    `XM Coin` ao lado dele fica INTEIRO abaixo de 180 (V maximo 173, p99 148).
+    Duas consequencias:
+
+    1. `mascara_de_texto` (V>180) ve o numero e NAO ve o sufixo -- por isso o
+       grupo sai justo, sem o `XM Coin` grudado, que era uma das cinco duvidas
+       que o usuario relatou em campo ("com o icone? com o `XM Coin`?").
+    2. `mascara_do_sufixo` (V>120) MENOS a de texto isola exatamente a palavra
+       apagada. Um grupo claro que tem uma dessas manchas logo a direita e um
+       numero com moeda ao lado; e essa a assinatura da coluna de preco.
+
+    MEDIDO nas dez linhas de `frame_000012`: cinco grupos claros por linha
+    (icone, nome, preco, incremento, carrinho) e SO UM deles passa neste teste
+    -- o preco em 1274..1299, com a mancha de `XM Coin` em 1300..1343. O nome
+    `5,000,000 Adena` nao passa porque a palavra `Adena` e dourada e CLARA:
+    entra no proprio grupo, sem cauda apagada. A coluna de incremento nao passa
+    porque nao tem moeda escrita ao lado.
+
+    Devolve `(inicio, fim, cauda)` por numero achado: as duas primeiras sao as
+    colunas do NUMERO e a terceira e o comprimento da palavra apagada a direita
+    dele, para o chamador poder propor tambem o retangulo do `XM Coin` -- que
+    era a quinta duvida do relato de campo ("uma ocorrencia, ou todas?").
+
+    Devolve `[]` quando nada casa -- o chamador entende isso como "nao sei
+    propor", nunca como "nao ha preco".
+    """
+    if faixa.size == 0:
+        return []
+    claro = mascara_de_texto(faixa).astype(bool)
+    if claro.size == 0:
+        return []
+    apagado = mascara_do_sufixo(faixa).astype(bool) & ~claro
+
+    tem_claro = claro.any(axis=0)
+    so_apagado = apagado.any(axis=0) & ~tem_claro
+
+    achados: list[tuple[int, int, int]] = []
+    for inicio, fim in _grupos_de_colunas(tem_claro, LACUNA_ENTRE_GRUPOS_DE_TEXTO):
+        cauda = _cauda_apagada(so_apagado, tem_claro, fim)
+        if cauda >= LARGURA_MINIMA_DO_SUFIXO:
+            achados.append((inicio, fim, cauda))
+    return achados
+
+
+def sugerir_a_coluna_de_preco(
+    pixels: np.ndarray, grade
+) -> tuple[list[tuple[int, int, int, int]], list[tuple[int, int, int, int]]]:
+    """Um retangulo por linha da grade: `(numeros, palavras_de_sufixo)`.
+
+    Este e o coracao da inversao pedida em campo. Antes, a ferramenta descrevia
+    o retangulo em prosa -- *"Marque UM numero da coluna de preco (sem o
+    sufixo)"* -- e aceitava calada o que viesse: com o icone junto, com o
+    `XM Coin` junto, meio digito cortado. Agora ela DESENHA o retangulo e o
+    usuario confirma. O humano continua sendo a autoridade (ele pode redesenhar
+    qualquer um), mas deixou de ser quem adivinha o que a frase queria dizer.
+
+    A coluna e escolhida por VOTO entre as linhas, e nao pela primeira que
+    casar: `numeros_com_sufixo` roda em cada linha da grade e a coluna
+    vencedora e a que aparece em mais linhas. Uma tooltip cobrindo quatro linhas
+    -- exatamente o que acontece em `frame_000010` -- derruba aquelas quatro e
+    nao muda o veredito. Mesma logica de `agrupar_em_party`, e da votacao entre
+    ancoras do 01-04.
+
+    O VOTO E NA BORDA DIREITA, E ISSO FOI MEDIDO, NAO ESCOLHIDO. A primeira
+    versao votava no par `(inicio, fim)` inteiro e funcionou em
+    `frame_000012` -- onde os dez precos tem 5 glifos e a mesma largura -- e
+    quebrou em `frame_000010`, onde `100,00`, `18,90` e `3,00` convivem na mesma
+    coluna: o preco e alinhado a DIREITA, entao cada largura virava um candidato
+    diferente e os votos se dividiam 3-2-1. Resultado medido: 3 das 6 linhas com
+    preco eram propostas, e as tres perdidas eram justamente as mais longas --
+    as que trazem os digitos que faltam no conjunto. Votando so na borda
+    direita, as 6 voltam, cada uma com o retangulo justo do SEU numero.
+
+    A palavra de sufixo sai da MESMA passagem, e nao de uma segunda deteccao: a
+    cauda apagada ja foi medida para decidir que aquela coluna era preco. Propo-
+    la fecha a quinta duvida do relato de campo -- *"Marque a palavra 'XM Coin'
+    INTEIRA -- uma ocorrencia, ou todas?"* -- mostrando exatamente uma.
+
+    Devolve `([], [])` quando nenhuma coluna se repete o bastante. Nao ha
+    proposta honesta a dar ali, e sugerir um retangulo errado e pior que nao
+    sugerir: o usuario aperta ENTER confiando nele.
+    """
+    vazio: tuple[list, list] = ([], [])
+    if pixels is None or pixels.size == 0 or grade is None:
+        return vazio
+
+    altura_do_frame, largura_do_frame = pixels.shape[:2]
+    esquerda = max(0, grade.esquerda)
+    direita = min(largura_do_frame, grade.esquerda + grade.largura)
+    if direita <= esquerda:
+        return vazio
+
+    votos: dict[int, list[tuple[int, int, int]]] = {}
+    for indice in range(grade.linhas):
+        _, topo, _, altura = grade.linha(indice)
+        if topo < 0 or topo + altura > altura_do_frame:
+            continue
+        faixa = pixels[topo : topo + altura, esquerda:direita]
+        for inicio, fim, cauda in numeros_com_sufixo(faixa):
+            votos.setdefault(fim, []).append((indice, inicio, cauda))
+
+    if not votos:
+        return vazio
+    # Empate desfeito pela borda mais a DIREITA: numa tabela de mercado a coluna
+    # de preco fica depois do nome do item, e um empate so acontece quando duas
+    # colunas tem moeda ao lado -- caso em que a da direita e a de preco total.
+    borda, linhas = max(votos.items(), key=lambda item: (len(item[1]), item[0]))
+    fim_absoluto = min(direita, esquerda + borda + MARGEM_DO_RETANGULO_DE_PRECO)
+
+    numeros: list[tuple[int, int, int, int]] = []
+    sufixos: list[tuple[int, int, int, int]] = []
+    for indice, inicio, cauda in linhas:
+        _, topo, _, altura = grade.linha(indice)
+        x = max(esquerda, esquerda + inicio - MARGEM_DO_RETANGULO_DE_PRECO)
+        if fim_absoluto <= x:
+            continue
+        numeros.append((x, topo, fim_absoluto - x, altura))
+        # O retangulo do sufixo comeca EXATAMENTE onde o numero acaba, sem
+        # margem a esquerda: uma folga ali puxaria o ultimo digito para dentro
+        # do molde da palavra.
+        inicio_do_sufixo = esquerda + borda
+        fim_do_sufixo = min(direita, inicio_do_sufixo + cauda)
+        if fim_do_sufixo > inicio_do_sufixo:
+            sufixos.append(
+                (inicio_do_sufixo, topo, fim_do_sufixo - inicio_do_sufixo, altura)
+            )
+    return numeros, sufixos
+
+
+def propor_rotulo(
+    mascara: np.ndarray,
+    faixa: tuple[int, int],
+    runs: list[tuple[int, int]],
+    moldes: dict[str, np.ndarray],
+) -> str | None:
+    """A leitura que a ferramenta ARRISCA propor, ou `None` quando nao arrisca.
+
+    Cada run e comparado com os moldes de UM CARACTERE ja gravados, na mesma
+    representacao e no mesmo alinhamento da matriz de confusao -- mascara
+    binaria e preenchimento ate a maior caixa. Reaproveitar exatamente a
+    mecanica da matriz e o que faz o numero significar a mesma coisa dos dois
+    lados; medir de um jeito e decidir com o outro seria comparar convencoes.
+
+    TUDO OU NADA, de proposito: basta um run que nao passe no piso E na margem
+    para a funcao devolver `None` e o usuario ser perguntado do zero. Uma
+    proposta parcial (`6?,00`) convida ao ENTER distraido justamente sobre a
+    parte que a ferramenta NAO sabia.
+
+    Isto e uma SUGESTAO, nunca uma gravacao. Quem certifica que o recorte
+    rotulado `8` e mesmo um `8` continua sendo o olho humano -- e essa e a razao
+    de o portao existir.
+    """
+    de_um_caractere = {r: m for r, m in moldes.items() if len(r) == 1}
+    if not de_um_caractere or not runs:
+        return None
+
+    topo, base = faixa
+    lido: list[str] = []
+    for inicio, fim in runs:
+        recorte = mascara[topo:base, inicio:fim]
+        pontuados: list[tuple[float, str]] = []
+        for rotulo, molde in de_um_caractere.items():
+            a, b = _alinhar_por_preenchimento(recorte, molde)
+            if _par_incalculavel(a, b):
+                continue
+            pontuados.append((casamento_da_ancora(a, b), rotulo))
+        if not pontuados:
+            return None
+        pontuados.sort(reverse=True)
+        melhor_score, melhor_rotulo = pontuados[0]
+        if melhor_score < MINIMO_PARA_PROPOR_ROTULO:
+            return None
+        segundo = pontuados[1][0] if len(pontuados) > 1 else -1.0
+        if melhor_score - segundo < MARGEM_MINIMA_PARA_PROPOR:
+            return None
+        lido.append(melhor_rotulo)
+    return "".join(lido)
+
+
 def _pedir_rotulo(
-    ler, quantos_glifos: int
+    ler, quantos_glifos: int, proposta: str | None = None
 ) -> str | None:
     """Le o numero como o usuario o LE na tela, e confere contra a contagem.
 
@@ -1215,10 +1638,28 @@ def _pedir_rotulo(
     com a mesma confianca de um certo. Um `8` cortado pela metade viraria o
     molde oficial do `8`, e todo preco que o contivesse sairia errado, calado.
 
+    COM `proposta`, O USUARIO VIRA REVISOR EM VEZ DE OPERADOR. A ferramenta ja
+    leu o numero comparando cada glifo com os que ele mesmo ja certificou (ver
+    `propor_rotulo`), e o ENTER vazio confirma. Digitar continua valendo e
+    continua vencendo -- a proposta e um rascunho, nunca uma decisao.
+
+    SEM `proposta`, o ENTER vazio segue sendo RECUSA, exatamente como antes.
+    Silencio nao pode virar concordancia quando nao ha nada com que concordar --
+    e a mesma regra que faz `_selecionar_regiao` so reinterpretar `(0,0,0,0)`
+    quando existe sugestao na tela.
+
     Devolve `None` quando a marcacao deve ser descartada.
     """
-    rotulo = str(ler("  digite o numero como voce o LE na tela (com a virgula): "))
-    rotulo = rotulo.strip()
+    if proposta is None:
+        pergunta = "  digite o numero como voce o LE na tela (com a virgula): "
+    else:
+        pergunta = (
+            f"  eu li '{proposta}' -- [ENTER] confirma, "
+            f"ou digite o numero certo: "
+        )
+    rotulo = str(ler(pergunta)).strip()
+    if not rotulo and proposta is not None:
+        rotulo = proposta
 
     if not rotulo or any(c not in CARACTERES_DO_ROTULO for c in rotulo):
         print(
@@ -1244,13 +1685,26 @@ def cortar_glifos(
     pixels: np.ndarray,
     ja_gravados: dict[str, np.ndarray],
     ler=None,
+    grade=None,
 ) -> dict[str, np.ndarray]:
     """O laco de marcacao dos glifos. Devolve SO o que foi cortado nesta rodada.
 
-    O usuario marca UM NUMERO e digita o que le -- ele nunca marca dez
-    retangulos, um por digito. E a mesma economia de erro humano que ja deriva
-    dez linhas de uma linha marcada (D-06): marcar dez acumula dez erros,
-    marcar um e derivar acumula um.
+    O usuario CONFERE um numero por vez -- ele nunca marca dez retangulos, um
+    por digito. E a mesma economia de erro humano que ja deriva dez linhas de
+    uma linha marcada (D-06): marcar dez acumula dez erros, marcar um e derivar
+    acumula um.
+
+    COM `grade`, A FERRAMENTA PROPOE E O USUARIO CONFIRMA. `grade` e a
+    `GradeMedida` derivada dos pixels; dela sai um retangulo por linha em volta
+    do numero da coluna de preco e um em volta da palavra de moeda ao lado
+    (`sugerir_a_coluna_de_preco`). Cada `_marcar` abre com o retangulo ja
+    desenhado e o ENTER aceita. Medido: 10 de 10 linhas em `frame_000012` e 6 de
+    6 em `frame_000010` -- as quatro linhas cobertas pela tooltip caem fora
+    sozinhas, sem regra especial. As contagens de glifo saem 5,5,5,5,5,5,5,5,5,5
+    e 6,4,5,4,5,4, batendo caractere a caractere com os precos que estao na tela.
+
+    Sem `grade` -- ou quando a medicao nao fecha -- o laco e EXATAMENTE o de
+    antes: `_marcar` sem sugestao, prosa e arrasto. Nenhum caminho foi removido.
 
     Terminar com o conjunto INCOMPLETO e permitido e esperado: o frame que
     calibra a grade nao contem os dez digitos (medido -- o `8` nao aparece em
@@ -1268,14 +1722,24 @@ def cortar_glifos(
     """
     ler = ler or input
     cortados: dict[str, np.ndarray] = {}
+    numeros_propostos, sufixos_propostos = sugerir_a_coluna_de_preco(pixels, grade)
 
     print("")
     print("  " + "-" * 58)
     print("  CORTE DOS GLIFOS DE PRECO")
     print("")
-    print("  Marque UM numero inteiro da coluna de preco por vez -- SEM o")
-    print("  sufixo de moeda ao lado e SEM o icone. Depois digite esse numero")
-    print("  como voce o le na tela, com a virgula.")
+    if numeros_propostos:
+        print(f"  ACHEI {len(numeros_propostos)} numero(s) na coluna de preco e")
+        print("  vou DESENHAR um por vez. Confira e tecle ENTER para aceitar;")
+        print("  qualquer outra tecla deixa voce arrastar o retangulo a mao.")
+        print("")
+        print("  Depois diga que numero e esse. Quando eu conseguir le-lo pelos")
+        print("  glifos que voce ja certificou, eu proponho a leitura e o ENTER")
+        print("  confirma -- mas o que voce digitar sempre vence.")
+    else:
+        print("  Marque UM numero inteiro da coluna de preco por vez -- SEM o")
+        print("  sufixo de moeda ao lado e SEM o icone. Depois digite esse numero")
+        print("  como voce o le na tela, com a virgula.")
     print("")
     print("  A ferramenta confere a contagem: se o que voce digitou nao tiver")
     print("  o mesmo tanto de caracteres que os glifos vistos, a marcacao e")
@@ -1301,10 +1765,18 @@ def cortar_glifos(
             return cortados
 
         if escolha in ("n", "numero", "número"):
+            # A fila de propostas e consumida em ordem; esgotada, o caminho
+            # volta a ser o arrasto descrito em prosa, sem sugestao.
+            proposto = numeros_propostos.pop(0) if numeros_propostos else None
             x, y, larg, alt = _marcar(
                 pixels,
                 "Numero da coluna de preco",
-                "Marque UM numero da coluna de preco (sem o sufixo) e tecle ENTER.",
+                (
+                    "Confira o numero desenhado na coluna de preco."
+                    if proposto
+                    else "Marque UM numero da coluna de preco (sem o sufixo) e tecle ENTER."
+                ),
+                proposto,
             )
             recorte = pixels[y : y + alt, x : x + larg]
             faixa, runs = segmentar_glifos(recorte)
@@ -1316,12 +1788,19 @@ def cortar_glifos(
                 continue
 
             print(f"  vi {len(runs)} glifo(s) nesse retangulo.")
-            rotulo = _pedir_rotulo(ler, len(runs))
+            mascara = (mascara_de_texto(recorte) * 255).astype(np.uint8)
+            # A leitura proposta usa os glifos JA CERTIFICADOS -- os da
+            # calibracao anterior mais os desta rodada. Na primeira volta nao ha
+            # nenhum e a proposta e `None`, que e como deve ser: nao da para
+            # propor uma leitura sem ter visto um digito antes.
+            proposta = propor_rotulo(
+                mascara, faixa, runs, {**ja_gravados, **cortados}
+            )
+            rotulo = _pedir_rotulo(ler, len(runs), proposta)
             if rotulo is None:
                 continue
 
             topo, base = faixa
-            mascara = (mascara_de_texto(recorte) * 255).astype(np.uint8)
             for caractere, (inicio, fim) in zip(rotulo, runs):
                 cortados[caractere] = mascara[topo:base, inicio:fim].copy()
             print(f"  ok: {rotulo}")
@@ -1332,10 +1811,18 @@ def cortar_glifos(
             # deduzir: deduzir erraria calado, e um `Adena` gravado como
             # `XM Coin` inverteria a convencao da virgula em toda leitura.
             palavra = "XM Coin" if escolha in ("x", "xm") else "Adena"
+            sufixo_proposto = (
+                sufixos_propostos.pop(0) if sufixos_propostos else None
+            )
             x, y, larg, alt = _marcar(
                 pixels,
                 f"Palavra: {palavra}",
-                f"Marque a palavra '{palavra}' INTEIRA e tecle ENTER.",
+                (
+                    f"Confira o retangulo desenhado: e a palavra '{palavra}'?"
+                    if sufixo_proposto
+                    else f"Marque a palavra '{palavra}' INTEIRA e tecle ENTER."
+                ),
+                sufixo_proposto,
             )
             molde = recortar_sufixo(pixels[y : y + alt, x : x + larg])
             if molde is None:
@@ -1524,6 +2011,7 @@ def _calibrar_so_digitos(
     caminho: Path,
     pixels: np.ndarray,
     glifos_anteriores: dict[str, np.ndarray],
+    ancoras_anteriores: list[AncoraDoPainel] | None = None,
 ) -> int:
     """O modo de corte ISOLADO: so os glifos, sem refazer ancoras e grade.
 
@@ -1543,7 +2031,21 @@ def _calibrar_so_digitos(
     print(f"\nCortando GLIFOS sobre {caminho.name} ({largura}x{altura})")
     print("  (modo --so-digitos: ancoras, grade e watchlist NAO sao tocadas)")
 
-    cortados = cortar_glifos(pixels, glifos_anteriores)
+    # A GRADE E MEDIDA DE NOVO AQUI, E ISSO NAO CONTRADIZ O "NAO SAO TOCADAS".
+    #
+    # Nada dela e gravado -- ela existe so para a ferramenta saber ONDE
+    # desenhar os retangulos de preco NESTE frame, que e outro frame, com o
+    # painel em outra posicao (medido: `frame_000010` tem o titulo em
+    # (1015, 212) contra (1176, 362) no frame de calibragem). Sem isto, o modo
+    # que existe justamente para completar o conjunto de glifos seria o unico
+    # sem proposta -- e ele e o que o usuario roda por ultimo, cansado.
+    achado = localizar_o_titulo(pixels, ancoras_anteriores or [])
+    medida = medir_a_grade(pixels, achado[0]) if achado is not None else None
+    if medida is not None:
+        print(f"  achei a grade neste frame: {medida.linhas} linhas de "
+              f"{medida.passo} px a partir de y={medida.topo}")
+
+    cortados = cortar_glifos(pixels, glifos_anteriores, grade=medida)
     fundidos = fundir_glifos(glifos_anteriores, cortados)
     resultado = _conferir_os_glifos(fundidos)
 
@@ -1591,10 +2093,15 @@ def calibrar(args: argparse.Namespace) -> int:
     # cedo: um `mercado_templates_de_digito` corrompido tem de recusar ANTES de
     # o usuario gastar o trabalho de mouse, e nao depois.
     glifos_anteriores = glifos_de_calibracao(cal.mercado_templates_de_digito)
+    # As ancoras da rodada anterior, que sao o que permite PROPOR os retangulos
+    # em vez de descreve-los em prosa. Lista vazia e um estado legitimo (a
+    # primeira calibracao de mercado da vida) e o fluxo continua pedindo o
+    # arrasto -- so sem a sugestao do titulo.
+    ancoras_anteriores = ancoras_de_calibracao(cal.mercado_ancoras)
 
     if getattr(args, "so_digitos", False):
         return _calibrar_so_digitos(args, cal, arquivo, caminho, pixels,
-                                    glifos_anteriores)
+                                    glifos_anteriores, ancoras_anteriores)
 
     # A WATCHLIST E LIDA AQUI, ANTES DA PRIMEIRA JANELA DE SELECAO.
     #
@@ -1616,20 +2123,57 @@ def calibrar(args: argparse.Namespace) -> int:
     print("  ou no outro monitor: procure na barra de tarefas pelo")
     print("  nome que aparece abaixo.")
     print("")
-    print("  Em cada uma: arraste o mouse e confirme com ENTER ou ESPACO.")
+    print("  Cada uma abre com o retangulo que eu MEDI ja desenhado em")
+    print("  verde. Voce nao precisa interpretar descricao nenhuma:")
+    print("")
+    print("    ENTER                -> aceita o retangulo desenhado")
+    print("    qualquer outra tecla -> deixa voce arrastar o seu")
+    print("    ESC                  -> cancela e nada e gravado")
+    print("")
+    print("  Quando eu nao conseguir medir alguma regiao neste frame, a")
+    print("  janela abre vazia e voce arrasta -- como antes.")
     print("  NAO feche no X -- fechar no X cancela e nada e gravado.")
     print("  " + "-" * 58)
     print("Abra o painel do World Exchange no frame antes de marcar as regioes.\n")
 
     # --- as ancoras ---
+    #
+    # A FAIXA DE TITULO E PROCURADA ANTES DE PEDIR QUALQUER COISA. Com a
+    # calibracao anterior em maos, `localizar_o_titulo` acha o painel por
+    # casamento de molde (0.9999 medido no frame de calibragem) e as outras
+    # quatro regioes saem da posicao dele. Sem calibracao anterior -- primeira
+    # rodada da vida -- nao ha molde e o usuario desenha o titulo; a partir do
+    # que ELE desenhou, as outras quatro voltam a ser propostas.
+    achado = localizar_o_titulo(pixels, ancoras_anteriores)
+    if achado is not None:
+        _sugerido, _score, _por = achado
+        print(
+            f"\nAchei a faixa de titulo em {_sugerido} pela ancora "
+            f"'{_por}' (casamento {_score:.4f})."
+        )
+        print("  As cinco regioes vao aparecer PRE-DESENHADAS. Confira e aceite.")
+
     caixas: dict[str, tuple[int, int, int, int]] = {}
+    caixas["titulo"] = _marcar(
+        pixels,
+        "Ancora: titulo",
+        "Confira a faixa de titulo 'XM Market' (sugerido: 100x28).",
+        achado[0] if achado is not None else None,
+    )
+    origem = (caixas["titulo"][0], caixas["titulo"][1])
+
+    sugestoes_de_ancora = sugerir_as_ancoras(
+        pixels.shape[:2], origem, ancoras_anteriores
+    )
     for nome, _dx, _dy, larg, alt, descricao in ANCORAS_SUGERIDAS:
+        if nome == "titulo":
+            continue
         caixas[nome] = _marcar(
             pixels,
             f"Ancora: {nome}",
-            f"Marque {descricao} (sugerido: {larg}x{alt}) e tecle ENTER.",
+            f"Confira {descricao} (sugerido: {larg}x{alt}).",
+            sugestoes_de_ancora.get(nome),
         )
-    origem = (caixas["titulo"][0], caixas["titulo"][1])
     ancoras = montar_ancoras(pixels, caixas, origem)
 
     # --- a grade ---
@@ -1646,6 +2190,7 @@ def calibrar(args: argparse.Namespace) -> int:
     # Custa duas linhas de texto avisar antes; custa uma sessao inteira de
     # marcacao descobrir depois.
     layout = args.layout
+    medida = medir_a_grade(pixels, caixas["titulo"])
     print("")
     print("  " + "-" * 58)
     print("  A AREA DA LISTA COMECA NA PRIMEIRA LINHA DE DADOS.")
@@ -1654,19 +2199,34 @@ def calibrar(args: argparse.Namespace) -> int:
     print("  5 mln increment | Buy`): ela nao e uma linha, e engoli-la desloca")
     print("  todas as 10 linhas para baixo.")
     print("")
-    print("  Comece no topo da PRIMEIRA linha de dados e termine na base da")
-    print("  ultima. De preferencia pare antes da barra de rolagem, a direita.")
+    if medida is not None:
+        print(f"  MEDI a grade nos pixels: {medida.linhas} linhas de "
+              f"{medida.passo} px, de y={medida.topo} a "
+              f"y={medida.topo + medida.altura}.")
+        print("  O cabecalho JA ESTA de fora — a contagem de linhas veio da")
+        print("  alternancia do fundo, que comeca na primeira linha de dados.")
+    else:
+        print("  NAO consegui medir a grade neste frame — marque a mao.")
+        print("  Comece no topo da PRIMEIRA linha de dados e termine na base da")
+        print("  ultima. De preferencia pare antes da barra de rolagem.")
     print("  " + "-" * 58)
     caixa_grade = _marcar(
-        pixels, "Grade", "Marque a AREA DA LISTA (SEM o cabecalho) e tecle ENTER."
+        pixels,
+        "Grade",
+        "Confira a AREA DA LISTA (SEM o cabecalho).",
+        medida.retangulo() if medida is not None else None,
     )
     print("")
     print("  Agora SO a primeira linha: a mesma largura, a altura de UMA linha.")
     print("  E dela que sai o passo entre linhas, e dai quantas cabem na pagina.")
     caixa_linha = _marcar(
-        pixels, "Primeira linha", "Marque SO a PRIMEIRA LINHA da lista e tecle ENTER."
+        pixels,
+        "Primeira linha",
+        "Confira SO a PRIMEIRA LINHA da lista.",
+        medida.retangulo_da_primeira_linha() if medida is not None else None,
     )
     grade = derivar_grade(caixa_grade, caixa_linha, layout, origem)
+    _avisar_divergencia_da_grade(medida, caixa_grade, caixa_linha)
 
     # --- os moldes da watchlist (lida la em cima, antes das janelas) ---
     if not watchlist:
@@ -1699,7 +2259,7 @@ def calibrar(args: argparse.Namespace) -> int:
         )
 
     # --- os glifos de preco ---
-    glifos_cortados = cortar_glifos(pixels, glifos_anteriores)
+    glifos_cortados = cortar_glifos(pixels, glifos_anteriores, grade=medida)
     glifos_fundidos = fundir_glifos(glifos_anteriores, glifos_cortados)
     resultado_glifos = _conferir_os_glifos(glifos_fundidos)
 
