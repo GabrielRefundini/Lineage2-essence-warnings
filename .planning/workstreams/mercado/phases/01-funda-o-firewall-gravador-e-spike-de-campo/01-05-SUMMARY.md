@@ -3,7 +3,7 @@ phase: 01-funda-o-firewall-gravador-e-spike-de-campo
 plan: 05
 subsystem: calibracao-do-mercado
 tags: [glifos, ocr-por-template, calibracao, gap-closure, FUND-03]
-status: checkpoint
+status: complete
 gap_closure: true
 closes_gap: G-01
 requires:
@@ -77,6 +77,63 @@ actuals:
 Corte de glifos por projecao de coluna com convenção de recorte declarada, matriz de
 confusão própria que recusa colisão e par incalculável, e o modo `--so-digitos` — dando
 a `mercado_templates_de_digito` o produtor que nunca teve.
+
+
+## PORTAO CUMPRIDO (2026-08-29) — a primeira mao humana no fluxo completo
+
+A Task 3 (`checkpoint:human-action`, `gate="blocking-human"`) esta cumprida, e desta vez
+**pelo usuario**, nao por medicao de agente. E o primeiro fluxo completo desta ferramenta
+por mao humana desde que ela existe.
+
+**O que ficou gravado em `calibration.json`:**
+
+```
+ancoras   : titulo, botao_fechar, canto_inf_dir
+grade     : 10 linhas de 45 px, layout 'adena', dx=-428 dy=258 (relativo ao painel)
+glifos    : 13 moldes COMPLETOS — 0 1 2 3 4 5 6 7 8 9 , XM Coin Adena
+geometria : 1720x1392
+```
+
+Matriz de glifos APROVADA com pior par em **0.7110** (`0` x `8`), contra os **0.7171**
+previstos no plano sob a convencao linha-justa compartilhada — e reproduzido com glifos
+vindos de DOIS frames diferentes, o que e evidencia mais forte que a do plano.
+
+Conferencia visual feita: o `8` mostra dois lacos empilhados, o `0` mostra um oval unico.
+Sao o pior par da matriz e sao visivelmente distintos. Os retangulos foram conferidos
+desenhados sobre o frame: titulo, X de fechar, seta de rolagem, grade cobrindo as dez
+linhas com o cabecalho FORA, e a primeira linha no lugar.
+
+### Tres defeitos que so o uso humano encontrou
+
+Nenhum deles era alcancavel por agente, e os tres viraram correcao commitada:
+
+1. **As instrucoes em texto eram ambiguas.** O usuario relatou: *"esta muito dificil
+   calibrar isso e e muito facil eu errar na interpretacao do que esta sendo pedido"*.
+   Cada uma das cinco instrucoes admitia mais de uma leitura, e cada ambiguidade custou uma
+   rodada. Diagnostico: a ferramenta violava a disciplina do proprio projeto — em todo o
+   resto ele MEDE em vez de supor, e aqui ele pedia ao humano para adivinhar o sentido de
+   uma frase e aceitava calado o retangulo resultante. Corrigido: a ferramenta agora
+   PROPOE cada retangulo a partir de medicao e o ENTER confirma (`mercado_geometria.py`).
+
+2. **A mensagem final mentia sobre a imagem.** Ela manda conferir "os retangulos verdes"
+   numa imagem que, apos um passe `--so-digitos`, contem a montagem dos GLIFOS. O texto
+   descreve algo que o arquivo nao tem. REGISTRADO, ainda NAO corrigido — ver Pendencias.
+
+3. **Tres pixels custavam uma linha inteira.** O usuario desenhou a area da lista CERTA
+   (a conferencia visual prova), mas ela saiu com 447 px em vez de 450, e `447 // 45`
+   devolvia 9. Teria feito a Fase 2 ler 9 dos 10 anuncios de cada pagina, em silencio.
+   Corrigido para `round()`, com 4 testes e prova por mutacao; a divergencia contra o
+   layout medido continua acusando o cabecalho engolido (~495 px -> 11).
+
+### Pendencias registradas, NAO resolvidas nesta fase
+
+- **A imagem de conferencia de um passe sobrescreve a do outro** (defeito 2 acima). O nome
+  do arquivo e fixo, entao `--so-digitos` apaga a conferencia dos retangulos e o texto
+  final passa a descrever o que nao esta la. E a familia do FUND-01 num canto pequeno.
+- **`mercado_templates_de_nome` continua vazio**, por decisao de sequenciamento: depende da
+  `[mercado] watchlist` no `config.toml`, que o usuario ainda nao definiu. A capacidade
+  existe e avisa alto quando nao corta nada. A VERIFICATION ja classificou isto como
+  `deferred`, nao como lacuna.
 
 ## ESTADO: AGUARDANDO O PORTÃO HUMANO (Task 3)
 
