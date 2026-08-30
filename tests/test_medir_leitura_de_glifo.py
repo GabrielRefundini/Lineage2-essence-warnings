@@ -48,7 +48,7 @@ import cv2
 import numpy as np
 import pytest
 
-from l2scanner.calibrar_mercado import segmentar_glifos
+from l2scanner.mercado_leitura import segmentar_glifos
 from l2scanner.identidade import mascara_de_texto
 
 RAIZ = Path(__file__).resolve().parent.parent

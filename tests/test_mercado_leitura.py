@@ -477,7 +477,12 @@ class TestOsQuatroMotivosDeDescarte:
         assert MOTIVO_DA_GRAMATICA in leitor.ultima_leitura.motivos
 
     def test_a_faixa_cinzenta_produz_o_motivo_dela(self, cal, janela_f010) -> None:
-        """Similaridade entre o piso e o corte: nao agrupa NEM cria serie."""
+        """Similaridade entre o piso e o corte: nao agrupa NEM cria serie.
+
+        O par e MEDIDO com a mesma `difflib` da producao: `Earth Spirit
+        Evolution Stone` x `Water Spirit Evolution Stone` da 0,892857, que cai
+        dentro de [0,883732 ; 0,894737).
+        """
         catalogo = {
             "earth-spirit-evolution-stone#": EntradaDoCatalogo(
                 chave="earth-spirit-evolution-stone#",
@@ -487,8 +492,8 @@ class TestOsQuatroMotivosDeDescarte:
         }
         leitor, _b, _c, _v2, _v3 = montar_leitor(
             cal,
-            "Fire Spirit Evolution Stone",
-            "Fire Spirit Evolution Stone",
+            "Water Spirit Evolution Stone",
+            "Water Spirit Evolution Stone",
             catalogo=catalogo,
         )
         leitor.observar(janela_f010)
@@ -538,7 +543,13 @@ class TestOTracerPontaAPonta:
         assert leitor.observar(ler_fixtura(JANELA_F005)) is None
         assert leitor.observar(ler_fixtura(JANELA_F010)) is None
 
-    def test_a_linha_sai_com_serie_nova_na_PRIMEIRA_vez(self, cal) -> None:
+    def test_a_serie_so_NASCE_quando_a_pagina_foi_aceita(self, cal) -> None:
+        """Serie no catalogo e irreversivel; um frame sozinho nao a cria.
+
+        Gravar no primeiro frame criaria serie a partir de uma leitura que o
+        segundo frame ainda pode desmentir — e a Fase 3 referencia a chave em
+        cada observacao do CSV.
+        """
         catalogo: dict = {}
         leitor, _b, _c, _v2, _v3 = montar_leitor(
             cal, "Common Fafurion Doll", "Common Fafurion Doll", catalogo=catalogo
@@ -546,11 +557,15 @@ class TestOTracerPontaAPonta:
         leitor.observar(ler_fixtura(JANELA_F005))
         primeira = leitor.ultima_leitura.linhas[0]
         assert primeira.serie_nova is True
-        assert primeira.chave_da_serie in catalogo
+        assert catalogo == {}, "um frame sozinho NAO pode criar serie"
+
         leitor.observar(ler_fixtura(JANELA_F005_REPETIDA))
-        segunda = leitor.ultima_leitura.linhas[0]
-        assert segunda.serie_nova is False
-        assert segunda.chave_da_serie == primeira.chave_da_serie
+        assert primeira.chave_da_serie in catalogo
+
+        leitor.observar(ler_fixtura(JANELA_F005))
+        terceira = leitor.ultima_leitura.linhas[0]
+        assert terceira.serie_nova is False
+        assert terceira.chave_da_serie == primeira.chave_da_serie
 
     def test_as_linhas_saem_na_ORDEM_da_grade(self, cal) -> None:
         leitor, _b, _c, _v2, _v3 = montar_leitor(

@@ -47,11 +47,20 @@ import cv2
 import numpy as np
 import pytest
 
+# AS PRIMITIVAS MUDARAM DE CASA NO 02-04, E ESTE ARQUIVO E O DETECTOR DA MUDANCA.
+# `segmentar_glifos`, os dois alinhadores e `recortar_sufixo` foram PROMOVIDOS de
+# `calibrar_mercado` (ferramenta) para `mercado_leitura` (producao pura). O que
+# fica em `calibrar_mercado` e so o que e da FERRAMENTA — a matriz de confusao e
+# o limiar de colisao entre moldes, que existem para o portao humano da
+# calibracao. Se a convencao de recorte tivesse mudado no caminho, os numeros
+# afirmados aqui embaixo mudariam junto.
 from l2scanner.calibrar_mercado import (
     COLISAO_MAXIMA_ENTRE_GLIFOS,
+    matriz_de_confusao_de_glifos,
+)
+from l2scanner.mercado_leitura import (
     _alinhar_por_preenchimento,
     _par_incalculavel,
-    matriz_de_confusao_de_glifos,
     recortar_sufixo,
     segmentar_glifos,
 )

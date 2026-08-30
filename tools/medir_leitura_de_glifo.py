@@ -76,16 +76,24 @@ if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
 from l2scanner.calibracao import Calibracao  # noqa: E402
-from l2scanner.calibrar_mercado import (  # noqa: E402
-    _alinhar_por_preenchimento,
-    _par_incalculavel,
+from l2scanner.identidade import mascara_de_texto  # noqa: E402
+
+# ESTAS FUNCOES NASCERAM AQUI E FORAM PROMOVIDAS NO 02-04. A producao passou a
+# precisar delas, e uma ferramenta nao pode ser a fonte de verdade de um numero
+# que decide preco no tick. Elas sao IMPORTADAS, e nao duplicadas: os testes
+# desta ferramenta (`tests/test_medir_leitura_de_glifo.py`) continuam apontando
+# para `ferramenta.centesimos_de_moeda` e viraram o detector de regressao da
+# mudanca de casa.
+from l2scanner.mercado_leitura import (  # noqa: E402
+    centesimos_de_moeda,
+    inteiro_de_quantidade,
+    pontuar_glifos,
     segmentar_glifos,
 )
-from l2scanner.identidade import mascara_de_texto  # noqa: E402
+from l2scanner.mercado_leitura import ler_celula as classificar_celula  # noqa: E402,F401
 from l2scanner.mercado_visao import (  # noqa: E402
     RastreioDoPainel,
     ancoras_de_calibracao,
-    casamento_da_ancora,
     glifos_de_calibracao,
 )
 
@@ -144,52 +152,6 @@ PAR_DA_SUBSTITUICAO = ("0", "8")
 # ---------------------------------------------------------------------------
 
 
-def centesimos_de_moeda(texto: str) -> int | None:
-    """`100,00` -> 10000. `None` para tudo que nao respeita a gramatica.
-
-    A virgula do jogo faz DUAS coisas - separador decimal com exatamente 2 casas
-    e separador de milhar com grupos de exatamente 3 - e as duas aparecem na
-    mesma linha da mesma tela (`5,000,000 Adena` ao lado de `62,00 XM Coin`).
-    Aqui so a leitura de MOEDA e aceita: ela sempre termina em `,dd`.
-
-    A gramatica e uma TRAVA DE VALIDACAO, nao so uma regra de parsing: um digito
-    perdido pelo casamento de molde produz `5,00,000` ou `62,000`, que violam a
-    regra e derrubam a linha - em vez de virar um numero plausivel e errado.
-    """
-    if not texto or "," not in texto:
-        return None
-    partes = texto.split(",")
-    decimal = partes[-1]
-    if len(decimal) != 2 or not decimal.isdigit():
-        return None
-    inteiro = partes[:-1]
-    if not inteiro or not inteiro[0] or not inteiro[0].isdigit():
-        return None
-    if len(inteiro[0]) > 3:
-        return None
-    for grupo in inteiro[1:]:
-        if len(grupo) != 3 or not grupo.isdigit():
-            return None
-    return int("".join(inteiro)) * 100 + int(decimal)
-
-
-def inteiro_de_quantidade(texto: str) -> int | None:
-    """`48` -> 48, `5,000,000` -> 5000000. Quantidade nao tem casa decimal."""
-    if not texto:
-        return None
-    partes = texto.split(",")
-    if any((not p) or (not p.isdigit()) for p in partes):
-        return None
-    if len(partes) == 1:
-        return int(partes[0])
-    if len(partes[0]) > 3:
-        return None
-    for grupo in partes[1:]:
-        if len(grupo) != 3:
-            return None
-    return int("".join(partes))
-
-
 def texto_de_moeda(centesimos: int) -> str:
     """O inverso de `centesimos_de_moeda`, SEM separador de milhar.
 
@@ -211,54 +173,19 @@ def pontuar_celula(recorte: np.ndarray, moldes: dict) -> list | None:
     Sem piso e sem margem: quem decide e quem chama. Esta funcao existe para
     PRODUZIR a distribuicao a partir da qual o piso vai ser medido, e aplicar um
     piso aqui tornaria a medicao circular.
+
+    A mecanica mudou de casa no 02-04 (`mercado_leitura.pontuar_glifos`) e aqui
+    ficou so a montagem da mascara. Continuar com uma copia local faria a
+    ferramenta MEDIR com uma convencao e a producao DECIDIR com outra, que e
+    exatamente o erro que a docstring de `segmentar_glifos` existe para impedir.
     """
     if recorte.size == 0:
         return None
     faixa, runs = segmentar_glifos(recorte)
     if faixa is None or not runs:
         return None
-    topo, base = faixa
     mascara = (mascara_de_texto(recorte) * 255).astype(np.uint8)
-    de_um_caractere = {r: m for r, m in moldes.items() if len(r) == 1}
-    if not de_um_caractere:
-        return None
-
-    saida = []
-    for inicio, fim in runs:
-        glifo = mascara[topo:base, inicio:fim]
-        pontuados = []
-        for rotulo, molde in de_um_caractere.items():
-            a, b = _alinhar_por_preenchimento(glifo, molde)
-            if _par_incalculavel(a, b):
-                continue
-            pontuados.append((casamento_da_ancora(a, b), rotulo))
-        if not pontuados:
-            return None
-        pontuados.sort(reverse=True)
-        melhor_score, melhor_rotulo = pontuados[0]
-        segundo = pontuados[1][0] if len(pontuados) > 1 else -1.0
-        saida.append((melhor_rotulo, float(melhor_score), float(melhor_score - segundo)))
-    return saida
-
-
-def classificar_celula(
-    recorte: np.ndarray, moldes: dict, piso: float, margem: float
-) -> str | None:
-    """A leitura da celula, ou `None`. TUDO OU NADA, de proposito.
-
-    Basta um run que nao passe no piso E na margem para a celula inteira cair.
-    Uma leitura parcial (`6?,00`) e pior que nenhuma: ela convida quem le a
-    completar mentalmente justamente a parte que a ferramenta NAO soube.
-    """
-    pontuados = pontuar_celula(recorte, moldes)
-    if not pontuados:
-        return None
-    lido = []
-    for rotulo, score, distancia in pontuados:
-        if score < piso or distancia < margem:
-            return None
-        lido.append(rotulo)
-    return "".join(lido)
+    return pontuar_glifos(mascara, faixa, runs, moldes)
 
 
 # ---------------------------------------------------------------------------
