@@ -1593,6 +1593,424 @@ def sugerir_a_coluna_de_preco(
     return numeros, sufixos
 
 
+# --------------------------------------------------------------------------
+# O cabecalho de coluna e as quatro colunas (Fase 02, LEIT-05 e D-11)
+# --------------------------------------------------------------------------
+
+# A BANDA DO CABECALHO, MEDIDA NA PESQUISA: `[topo_da_grade - 32, topo_da_grade
+# - 2)`, por toda a largura da grade.
+#
+# Estes dois numeros vivem AQUI, na ferramenta, e nao no leitor: eles sao o que
+# a ferramenta usa UMA VEZ para propor o recorte a um humano. O que atravessa
+# para a producao e o `dy` e a `altura` GRAVADOS no `calibration.json` junto do
+# molde — o leitor nunca recalcula a banda, ele le a que foi confirmada.
+ACIMA_DO_TOPO_DA_GRADE = 32
+FOLGA_ACIMA_DO_TOPO_DA_GRADE = 2
+
+
+def retangulo_da_banda_do_cabecalho(
+    grade, forma_do_frame: tuple[int, int]
+) -> tuple[int, int, int, int] | None:
+    """Onde fica a faixa `Goods | Quantity | Total | Unit price | Buy`.
+
+    `None` quando ela nao cabe no frame — e nao um retangulo cortado. Um molde
+    de cabecalho pela metade casaria pior que um molde inteiro sem dizer por
+    que, e o portao de layout recusaria a pagina calado.
+    """
+    if grade is None:
+        return None
+    altura_do_frame, largura_do_frame = forma_do_frame[:2]
+    topo = int(grade.topo) - ACIMA_DO_TOPO_DA_GRADE
+    base = int(grade.topo) - FOLGA_ACIMA_DO_TOPO_DA_GRADE
+    esquerda = int(grade.esquerda)
+    direita = esquerda + int(grade.largura)
+    if topo < 0 or base > altura_do_frame or base <= topo:
+        return None
+    if esquerda < 0 or direita > largura_do_frame or direita <= esquerda:
+        return None
+    return esquerda, topo, direita - esquerda, base - topo
+
+
+def _valor_da_banda(banda: np.ndarray) -> np.ndarray:
+    """O canal V da banda. O corte de brilho e um nivel de V, nao de cinza."""
+    if banda.ndim == 2:
+        return banda
+    return cv2.cvtColor(banda, cv2.COLOR_BGR2HSV)[:, :, 2]
+
+
+def grupos_do_cabecalho(
+    banda: np.ndarray, corte: int | None
+) -> list[tuple[int, int]]:
+    """Os grupos de coluna claros da banda. Com `corte`, acima dele; sem, o
+    piso compartilhado de `mascara_de_texto`.
+
+    Passar `corte=None` NAO e um caso degenerado: e como se ve o que o corte
+    REMOVEU. O teste que prova que a seta de ordenacao sai do molde compara os
+    dois conjuntos.
+    """
+    if banda is None or banda.size == 0:
+        return []
+    if corte is None:
+        presenca = mascara_de_texto(banda).astype(bool).any(axis=0)
+    else:
+        presenca = (_valor_da_banda(banda) > int(corte)).any(axis=0)
+    return _grupos_de_colunas(presenca, LACUNA_ENTRE_GRUPOS_DE_TEXTO)
+
+
+def medir_o_corte_de_brilho_do_cabecalho(banda: np.ndarray) -> int | None:
+    """O nivel de brilho que separa os ROTULOS da SETA DE ORDENACAO.
+
+    MEDIDO NESTA BANDA, nunca herdado. A pesquisa mediu, numa unica resolucao e
+    numa unica pele: rotulos de coluna com V maximo 229, a seta com 181, a
+    borda esquerda da faixa com 201. Escrever 210 no fonte seria transformar uma
+    medicao de UMA maquina em promessa para todas — por isso o valor vai para o
+    `calibration.json` e o que mora no codigo e o METODO.
+
+    O METODO E O MAIOR VAO. Os picos de brilho dos grupos da banda formam dois
+    aglomerados — o do texto que interessa e o do que nao interessa — e o corte
+    e o meio do maior vao entre picos consecutivos. Nao ha constante nenhuma
+    nisso: uma pele mais clara move os dois aglomerados juntos e o vao continua
+    onde estava.
+
+    POR QUE ISTO IMPORTA MAIS DO QUE PARECE: a seta fica DENTRO da celula de
+    cabecalho e ANDA de coluna conforme o usuario ordena (medido na secao 3 do
+    spike, e no par de fixtures `goods` x `unitprice`). Um molde cortado COM a
+    seta casa a ordenacao em que foi cortado e recusa a outra — e o portao de
+    layout recusaria a pagina inteira, para sempre, sem uma linha de erro.
+
+    `None` quando nao ha dois picos: sem vao nao ha o que medir, e propor um
+    corte inventado e pior que nao propor.
+    """
+    if banda is None or banda.size == 0:
+        return None
+    grupos = grupos_do_cabecalho(banda, None)
+    if len(grupos) < 2:
+        return None
+    valor = _valor_da_banda(banda)
+    picos = sorted({int(valor[:, a:b].max()) for a, b in grupos})
+    if len(picos) < 2:
+        return None
+    baixo, alto = max(zip(picos, picos[1:]), key=lambda par: par[1] - par[0])
+    corte = (baixo + alto) // 2
+    # O corte tem de ficar ESTRITAMENTE dentro do vao: igual ao pico de baixo
+    # ele nao remove nada, igual ao de cima ele remove tudo.
+    if not baixo < corte < alto:
+        return None
+    return int(corte)
+
+
+def sugerir_o_molde_do_cabecalho(
+    banda: np.ndarray, layout: str, dy: int, corte: int | None
+) -> dict | None:
+    """O dict de `mercado_cabecalho_de_coluna`, cortado da mascara de brilho.
+
+    O molde guardado NAO e a banda crua: e a banda com o corte aplicado, tudo
+    abaixo dele zerado. E o mesmo desenho que o portao de layout vai produzir a
+    partir do frame ao vivo, com o mesmo corte lido do arquivo — comparar o cru
+    com o cortado seria comparar convencoes.
+
+    `dy` e relativo a ORIGEM DO PAINEL, como a grade e as ancoras, e pela mesma
+    razao medida: o painel anda 827x831 px. O `dx` nao e gravado porque a banda
+    tem exatamente a largura da grade e comeca onde ela comeca.
+    """
+    if banda is None or banda.size == 0 or corte is None:
+        return None
+    valor = _valor_da_banda(banda)
+    molde = np.where(valor > int(corte), valor, 0).astype(np.uint8)
+    empacotado = molde_para_hex(molde)
+    return {
+        "layout": str(layout),
+        "dy": int(dy),
+        "corte_de_brilho": int(corte),
+        "altura": empacotado["altura"],
+        "largura": empacotado["largura"],
+        "bytes": empacotado["bytes"],
+    }
+
+
+def _grupos_claros_por_linha(
+    pixels: np.ndarray, grade
+) -> list[list[tuple[int, int]]]:
+    """Os grupos de texto claro de cada linha CHEIA, relativos a grade.
+
+    Linha vazia nao entra: ela nao tem icone nem nome, entao nao tem o que
+    dizer sobre onde uma coluna comeca. E a mesma decisao ja escrita no CONTEXT:
+    linha vazia se reconhece por AUSENCIA DE CONTEUDO, nunca por cor de fundo.
+    """
+    if pixels is None or pixels.size == 0 or grade is None:
+        return []
+    altura_do_frame, largura_do_frame = pixels.shape[:2]
+    esquerda, largura = int(grade.esquerda), int(grade.largura)
+    if esquerda < 0 or largura <= 0 or esquerda + largura > largura_do_frame:
+        return []
+
+    saida: list[list[tuple[int, int]]] = []
+    for indice in range(int(grade.linhas)):
+        _, topo, _, altura = grade.linha(indice)
+        if topo < 0 or topo + altura > altura_do_frame:
+            continue
+        faixa = pixels[topo : topo + altura, esquerda : esquerda + largura]
+        mascara = mascara_de_texto(faixa).astype(bool)
+        if mascara.size == 0:
+            continue
+        grupos = _grupos_de_colunas(
+            mascara.any(axis=0), LACUNA_ENTRE_GRUPOS_DE_TEXTO
+        )
+        if len(grupos) >= 2:
+            saida.append(grupos)
+    return saida
+
+
+def _borda_votada(cheias: list[list[tuple[int, int]]], k: int) -> tuple[int, int]:
+    """A coluna `k` como as linhas a mostram: voto na BORDA DIREITA.
+
+    O VOTO E NA DIREITA, E ISSO FOI MEDIDO, NAO ESCOLHIDO — a razao inteira
+    esta na docstring de `sugerir_a_coluna_de_preco`: o numero e alinhado a
+    DIREITA, entao a borda esquerda muda com o comprimento e votar nela divide
+    os votos entre `100,00` e `3,00`. Com a direita decidida, a esquerda e a
+    MENOR entre as linhas que votaram nela — a que cabe o numero mais longo.
+    """
+    direitas = [linha[k][1] for linha in cheias]
+    direita = max(set(direitas), key=lambda v: (direitas.count(v), v))
+    esquerda = min(
+        linha[k][0] for linha in cheias if linha[k][1] == direita
+    )
+    return int(esquerda), int(direita)
+
+
+def sugerir_as_colunas(
+    pixels: np.ndarray, grade
+) -> dict[str, tuple[int, int, int, int]]:
+    """Os retangulos das QUATRO colunas: nome, quantidade, total e unitario.
+
+    Devolve `{}` quando a medicao nao fecha, e ai as janelas abrem VAZIAS. Uma
+    sugestao errada e pior que sugestao nenhuma: o usuario aperta ENTER
+    confiando nela.
+
+    A GUARDA QUE FAZ ISTO VALER E O CRUZAMENTO DE DUAS MEDICOES INDEPENDENTES.
+    O cabecalho diz quantas colunas ha (um grupo claro por rotulo, depois de a
+    seta de ordenacao sair pelo corte de brilho); as linhas dizem quantos
+    grupos de conteudo ha (o icone, mais um por coluna). Quando os dois numeros
+    nao batem, a leitura da grade nao e a que o cabecalho descreve — outro
+    layout, um frame cortado, uma janela por cima — e nada e proposto.
+
+    A COLUNA DO NOME E O CASO ESPECIAL, E ELE E MEDIDO. As tres de numero sao
+    limitadas pelo proprio conteudo, porque numero e alinhado a DIREITA e a
+    coluna acaba onde o numero mais longo acaba. O NOME e alinhado a esquerda e
+    varia de comprimento: nesta pagina os dez nomes sao o mesmo
+    `Earth Spirit Evolution Stone` e medir por eles daria 263 px. Medido em
+    campo, um nome num recorte de 143 px saiu truncado
+    (`Common Mafia Leader Lucia`) e com 270 px saiu inteiro — cortar do nosso
+    lado e um modo de falha conhecido. Por isso o limite direito do nome e o
+    COMECO DO ROTULO `Quantity` no cabecalho: o pixel mais a esquerda que
+    aquela coluna chega a desenhar.
+    """
+    vazio: dict[str, tuple[int, int, int, int]] = {}
+    if pixels is None or pixels.size == 0 or grade is None:
+        return vazio
+
+    caixa = retangulo_da_banda_do_cabecalho(grade, pixels.shape[:2])
+    if caixa is None:
+        return vazio
+    bx, by, blarg, balt = caixa
+    banda = pixels[by : by + balt, bx : bx + blarg]
+    corte = medir_o_corte_de_brilho_do_cabecalho(banda)
+    if corte is None:
+        return vazio
+    rotulos = grupos_do_cabecalho(banda, corte)
+    if len(rotulos) < 4:
+        return vazio
+
+    esperado = len(rotulos) + 1
+    cheias = [
+        linha for linha in _grupos_claros_por_linha(pixels, grade)
+        if len(linha) == esperado
+    ]
+    if len(cheias) < 2:
+        return vazio
+
+    bordas = [_borda_votada(cheias, k) for k in range(esperado)]
+    esquerda_da_grade = int(grade.esquerda)
+    limite_da_grade = esquerda_da_grade + int(grade.largura)
+    topo, altura = int(grade.topo), int(grade.altura)
+
+    inicio_da_quantidade = esquerda_da_grade + rotulos[1][0]
+    fim_do_icone = esquerda_da_grade + bordas[0][1]
+    if inicio_da_quantidade <= fim_do_icone:
+        return vazio
+
+    colunas = {
+        "nome": (fim_do_icone, inicio_da_quantidade),
+    }
+    anterior = inicio_da_quantidade
+    for nome, k in (("quantidade", 2), ("total", 3), ("unitario", 4)):
+        if k >= esperado:
+            return vazio
+        _, direita = bordas[k]
+        proxima = bordas[k + 1][0] if k + 1 < esperado else int(grade.largura)
+        fim = esquerda_da_grade + (direita + proxima) // 2
+        fim = min(fim, limite_da_grade)
+        if fim <= anterior:
+            return vazio
+        colunas[nome] = (anterior, fim)
+        anterior = fim
+
+    return {
+        nome: (inicio, topo, fim - inicio, altura)
+        for nome, (inicio, fim) in colunas.items()
+    }
+
+
+def sugerir_a_coluna_do_nome(
+    pixels: np.ndarray, grade
+) -> tuple[int, int, int, int] | None:
+    """O retangulo da COLUNA DO NOME (LEIT-05), ou `None` quando nao da.
+
+    Sai da mesma medicao que as outras tres — `sugerir_as_colunas` — e nao de
+    uma passagem propria, porque as quatro sao decididas JUNTAS: a fronteira
+    entre o nome e a quantidade e uma so, e mede-la duas vezes em dois lugares
+    seria autorizar que as duas discordassem.
+
+    Devolve o retangulo em coordenadas do FRAME, com a altura da grade inteira,
+    porque e uma COLUNA e e assim que o olho a confere. O que vai para o
+    `calibration.json` e so `{"dx": x - origem_x, "largura": largura}`.
+    """
+    return sugerir_as_colunas(pixels, grade).get("nome")
+
+
+def conferir_a_coluna_na_grade(
+    nome: str,
+    caixa: tuple[int, int, int, int],
+    caixa_da_grade: tuple[int, int, int, int],
+) -> None:
+    """Recusa NA HORA um retangulo de coluna que caiu fora da grade (T-02-02).
+
+    Um `dx` fora da grade nao quebra nada visivel: ele faz a leitura recortar
+    OUTRA coluna e devolver um numero plausivel, errado por um fator inteiro.
+    Uma serie de precos corrompida assim nao se distingue de uma correta
+    olhando para o CSV — e o CSV e o produto.
+
+    Recusar aqui, com o usuario ainda na frente da ferramenta, e o unico momento
+    em que ele pode simplesmente remarcar.
+    """
+    x, _y, largura, _altura = caixa
+    gx, _gy, glargura, _galtura = caixa_da_grade
+    if largura <= 0:
+        raise MercadoNaoCalibravel(
+            f"a coluna '{nome}' ficou com largura zero. Remarque o retangulo."
+        )
+    if x < gx or x + largura > gx + glargura:
+        raise MercadoNaoCalibravel(
+            f"a coluna '{nome}' vai de x={x} a x={x + largura}, e a area da "
+            f"lista vai de x={gx} a x={gx + glargura} — ela caiu FORA da "
+            f"grade.\n"
+            f"  Uma coluna fora da grade recorta outra coisa e devolve numero "
+            f"plausivel, errado por um fator inteiro. Remarque o retangulo "
+            f"dentro da lista."
+        )
+
+
+# A ORDEM E A DA TELA, da esquerda para a direita, e a descricao e o que o
+# usuario le enquanto o retangulo verde ja esta desenhado.
+#
+# O UNITARIO ESTA AQUI E NAO E SOBRA. Ele nao vai para o CSV — a Fase 3 guarda
+# `Total` e `Quantity`, porque reconstruir o total a partir do unitario devolve
+# um numero que nunca existiu (`0,83 x 48 = 39,84` onde a tela diz `40,00`). Ele
+# e lido porque e a unica LEITURA INDEPENDENTE do mesmo fato que o `Total`
+# afirma, e por isso e a materia-prima da guarda de cruzamento contra o par
+# `0`x`8`: margem medida de 0,0370, a mais estreita do sistema, e o unico modo de
+# falha que a gramatica do numero nao pega — um `0` lido como `8` mantem a
+# gramatica intacta. Apagar esta linha por parecer sobra custaria a guarda.
+COLUNAS_A_MARCAR = (
+    ("nome", "do NOME do item (depois do icone, sem invadir Quantity)"),
+    ("quantidade", "Quantity"),
+    ("total", "Total"),
+    ("unitario", "Unit price"),
+)
+
+
+def _grade_do_desenho(
+    caixa_da_grade: tuple[int, int, int, int],
+    caixa_da_primeira_linha: tuple[int, int, int, int],
+) -> GradeMedida:
+    """A grade como o USUARIO acabou de desenha-la.
+
+    As propostas de coluna saem DESTA e nao de `medir_a_grade`, e a diferenca
+    nao e estetica: `conferir_a_coluna_na_grade` recusa o que cair fora do
+    retangulo desenhado. Propor a partir da medicao e conferir contra o desenho
+    deixaria a ferramenta recusando a propria sugestao quando os dois divergem
+    — e divergir e o caso normal, e por isso existe
+    `_avisar_divergencia_da_grade`.
+    """
+    gx, gy, glargura, galtura = caixa_da_grade
+    _, _, _, passo = caixa_da_primeira_linha
+    passo = max(1, int(passo))
+    linhas = max(1, round(galtura / passo))
+    return GradeMedida(
+        esquerda=int(gx),
+        topo=int(gy),
+        largura=int(glargura),
+        passo=passo,
+        linhas=int(linhas),
+    )
+
+
+def _cortar_o_cabecalho(
+    pixels: np.ndarray,
+    caixa: tuple[int, int, int, int],
+    layout: str,
+    origem: tuple[int, int],
+) -> tuple[dict | None, float | None]:
+    """O molde do cabecalho e o limiar proposto para ele. `(None, None)` se nao da.
+
+    O LIMIAR SAI DAQUI PROVISORIO, E ISSO PRECISA ESTAR ESCRITO ONDE ELE NASCE.
+    A conferencia abaixo e AUTORREFERENTE: o molde e comparado com o proprio
+    frame de onde foi cortado, o que da ~1,0 por construcao e nao prova nada
+    sobre casar OUTRO frame. Ela serve so para pegar o erro grosseiro (recorte
+    vazio, corte que apagou tudo). A confirmacao de verdade e o portao de
+    layout rodando este molde contra bandas de negociacao em duas ordenacoes e
+    contra Adena e busca; se ele nao separar la, volta para ca.
+
+    `CASAMENTO_MINIMO_DA_ANCORA` e a PROPOSTA, pelo precedente das ancoras: e o
+    unico limiar de casamento ja medido em campo neste projeto.
+    """
+    x, y, largura, altura = caixa
+    banda = pixels[y : y + altura, x : x + largura]
+    if banda.size == 0:
+        print("\nAVISO: a banda do cabecalho ficou vazia — nada foi cortado.")
+        return None, None
+
+    corte = medir_o_corte_de_brilho_do_cabecalho(banda)
+    if corte is None:
+        print(
+            "\nAVISO: nao consegui MEDIR o corte de brilho nesta banda — os "
+            "grupos de texto nao se separaram em dois niveis.\n"
+            "  O molde do cabecalho NAO foi gravado, e o portao de layout fica "
+            "OFF. Tudo o mais desta rodada e gravado normalmente.\n"
+            "  Tente um frame com os quatro rotulos de coluna inteiros na "
+            "faixa (`Goods`, `Quantity`, `Total`, `Unit price`)."
+        )
+        return None, None
+
+    molde = sugerir_o_molde_do_cabecalho(banda, layout, y - origem[1], corte)
+    if molde is None:
+        return None, None
+
+    valor = _valor_da_banda(banda)
+    cortada = np.where(valor > corte, valor, 0).astype(np.uint8)
+    score = casamento_da_ancora(cortada, cortada)
+    rotulos = grupos_do_cabecalho(banda, corte)
+    print(
+        f"\nCabecalho cortado: corte de brilho MEDIDO em {corte}, "
+        f"{len(rotulos)} rotulo(s) de coluna acima dele."
+    )
+    print(
+        f"  Casamento contra o proprio frame: {score:.4f} — este numero e "
+        f"AUTORREFERENTE e nao prova nada sobre outro frame."
+    )
+    return molde, CASAMENTO_MINIMO_DA_ANCORA
+
+
 def propor_rotulo(
     mascara: np.ndarray,
     faixa: tuple[int, int],
@@ -2119,20 +2537,27 @@ def calibrar(args: argparse.Namespace) -> int:
         return _calibrar_so_digitos(args, cal, arquivo, caminho, pixels,
                                     glifos_anteriores, ancoras_anteriores)
 
-    # A WATCHLIST E LIDA AQUI, ANTES DA PRIMEIRA JANELA DE SELECAO.
+    # O PASSO DA WATCHLIST NAO EXISTE MAIS AQUI, E ELE MORREU POR MEDICAO.
     #
-    # Ela so e USADA la embaixo, depois das ancoras e da grade -- mas e onde ela
-    # era LIDA que estava o problema: um `config.toml` com erro de sintaxe, ou
-    # com `watchlist` do tipo errado, so era descoberto depois de cinco arrastos
-    # de mouse. Falhar antes de o usuario gastar o trabalho e mais barato que
-    # falhar depois, e nao custa nada.
-    watchlist = ler_watchlist(ARQUIVO_CONFIG)
+    # Ate 2026-08-29 a ferramenta lia `[mercado] watchlist` do `config.toml`
+    # neste ponto e pedia um recorte por item, para casar o nome por molde. A
+    # quick `260829-rd9` reescreveu LEIT-01: o nome do item passou a ser lido
+    # por OCR e agrupado por similaridade contra os nomes ja vistos, e item
+    # desconhecido vira serie nova sem o usuario configurar nada. A evidencia e
+    # que o OCR do Windows le os NOMES de forma estavel nas gravacoes de campo
+    # (e NAO le os numeros -- ele perde a virgula decimal).
+    #
+    # `mercado_templates_de_nome` e `mercado_limiar_de_template` ficam `None`
+    # para sempre, e esta funcao nao os toca. `ler_watchlist` e
+    # `matriz_de_confusao` CONTINUAM no arquivo, sem chamador no fluxo
+    # principal: elas sao o precedente medido citado por outros textos, e apagar
+    # a funcao apagaria a medicao junto.
 
     altura, largura = pixels.shape[:2]
     print(f"\nCalibrando o mercado sobre {caminho.name} ({largura}x{altura})")
     print("")
     print("  " + "-" * 58)
-    print("  VAO ABRIR 5 JANELAS DE SELECAO, uma de cada vez, no CANTO")
+    print("  VAO ABRIR 10 JANELAS DE SELECAO, uma de cada vez, no CANTO")
     print("  SUPERIOR ESQUERDO do monitor principal.")
     print("")
     print("  Se nao ver a janela, ela pode estar ATRAS deste terminal")
@@ -2167,7 +2592,7 @@ def calibrar(args: argparse.Namespace) -> int:
             f"\nAchei a faixa de titulo em {_sugerido} pela ancora "
             f"'{_por}' (casamento {_score:.4f})."
         )
-        print("  As cinco regioes vao aparecer PRE-DESENHADAS. Confira e aceite.")
+        print("  As regioes vao aparecer PRE-DESENHADAS. Confira e aceite.")
 
     caixas: dict[str, tuple[int, int, int, int]] = {}
     caixas["titulo"] = _marcar(
@@ -2244,35 +2669,52 @@ def calibrar(args: argparse.Namespace) -> int:
     grade = derivar_grade(caixa_grade, caixa_linha, layout, origem)
     _avisar_divergencia_da_grade(medida, caixa_grade, caixa_linha)
 
-    # --- os moldes da watchlist (lida la em cima, antes das janelas) ---
-    if not watchlist:
-        print(
-            "\nSem watchlist no config.toml ([mercado] watchlist = [...]): "
-            "nenhum molde de nome foi cortado.\n"
-            "As ancoras e a grade ficam gravadas e os moldes de nome de uma "
-            "calibracao ANTERIOR sao preservados; rode de novo depois de "
-            "escrever a watchlist."
-        )
-    moldes_de_nome: dict[str, np.ndarray] = {}
-    cinza = cv2.cvtColor(pixels, cv2.COLOR_BGR2GRAY)
-    for item in watchlist:
-        x, y, larg, alt = _marcar(
-            pixels,
-            f"Nome: {item}",
-            f"Marque o nome COMO RENDERIZADO de '{item}' — com o prefixo "
-            f"'+N ' quando houver — e tecle ENTER.",
-        )
-        moldes_de_nome[item] = cinza[y : y + alt, x : x + larg].copy()
+    # --- as quatro colunas ---
+    #
+    # A GRADE MEDIDA PROPOE; O USUARIO CONFIRMA. As propostas saem de
+    # `sugerir_as_colunas`, que cruza duas medicoes independentes (os rotulos do
+    # cabecalho e o conteudo das linhas). Quando elas nao batem, o dicionario
+    # volta vazio, a janela abre sem retangulo e o usuario arrasta o dele.
+    grade_desenhada = _grade_do_desenho(caixa_grade, caixa_linha)
+    propostas = sugerir_as_colunas(pixels, grade_desenhada)
+    print("")
+    print("  " + "-" * 58)
+    print("  AGORA AS QUATRO COLUNAS, uma de cada vez.")
+    print("")
+    print("  A do NOME tem de comecar DEPOIS do icone do item e terminar")
+    print("  depois do fim do nome MAIS LONGO da pagina, sem invadir a")
+    print("  coluna Quantity. Medido em campo: um nome num recorte de 143 px")
+    print("  saiu truncado; com 270 px saiu inteiro. Se o verde parecer")
+    print("  curto, arraste mais largo — cortar do nosso lado e um modo de")
+    print("  falha conhecido e medido.")
+    print("  " + "-" * 58)
 
-    resultado = matriz_de_confusao(moldes_de_nome)
-    print()
-    for (a, b), score in sorted(resultado.matriz.items(), key=lambda kv: -kv[1]):
-        print(f"  {score:.4f}  {a}  x  {b}")
-    print(resultado.explicar())
-    if not resultado.aprovado:
-        raise MercadoNaoCalibravel(
-            "nada foi gravado: a watchlist precisa ser separavel primeiro"
+    caixas_de_coluna: dict[str, tuple[int, int, int, int]] = {}
+    for nome, descricao in COLUNAS_A_MARCAR:
+        caixa = _marcar(
+            pixels,
+            f"Coluna: {nome}",
+            f"Confira a coluna {descricao}.",
+            propostas.get(nome),
         )
+        conferir_a_coluna_na_grade(nome, caixa, caixa_grade)
+        caixas_de_coluna[nome] = caixa
+
+    # --- a banda do cabecalho ---
+    #
+    # O MOLDE DO CABECALHO E O PORTAO DE LAYOUT (D-11), e o corte de brilho que
+    # o limpa e MEDIDO nesta banda, nunca herdado de constante. A seta de
+    # ordenacao fica DENTRO da celula e ANDA de coluna conforme o usuario
+    # ordena: um molde cortado com ela casa uma ordenacao e recusa a outra.
+    caixa_cabecalho = _marcar(
+        pixels,
+        "Cabecalho de coluna",
+        "Confira a FAIXA DE CABECALHO (Goods | Quantity | Total | Unit price).",
+        retangulo_da_banda_do_cabecalho(grade_desenhada, pixels.shape[:2]),
+    )
+    cabecalho, limiar_do_cabecalho = _cortar_o_cabecalho(
+        pixels, caixa_cabecalho, layout, origem
+    )
 
     # --- os glifos de preco ---
     glifos_cortados = cortar_glifos(pixels, glifos_anteriores, grade=medida)
@@ -2288,6 +2730,9 @@ def calibrar(args: argparse.Namespace) -> int:
     regioes = dict(caixas)
     regioes["grade"] = caixa_grade
     regioes["linha_1"] = caixa_linha
+    for nome, caixa in caixas_de_coluna.items():
+        regioes[f"coluna_{nome}"] = caixa
+    regioes["cabecalho"] = caixa_cabecalho
     conferencia = _gravar_conferencia(
         _empilhar(
             desenhar_conferencia(pixels, regioes),
@@ -2310,34 +2755,55 @@ def calibrar(args: argparse.Namespace) -> int:
     cal.mercado_geometria_da_captura = {"largura": int(largura), "altura": int(altura)}
     cal.mercado_ancoras = ancoras_para_calibracao(ancoras)
     cal.mercado_grade = grade
-    # SO ESCREVE O QUE FOI CORTADO NESTA RODADA.
+
+    # AS QUATRO COLUNAS, EM DESLOCAMENTO A PARTIR DA ORIGEM DO PAINEL.
     #
-    # Sem a guarda, uma rodada sem watchlist atribuia `[]` aqui e o
-    # `cal.salvar` logo abaixo regravava o arquivo INTEIRO: os moldes de uma
-    # calibracao anterior desapareciam, calados. O caminho e trivial de
-    # alcancar -- `ler_watchlist` devolve `[]` quando o `config.toml` nao
-    # existe (outro checkout, um worktree), quando o usuario comentou a
-    # watchlist para reajustar so uma ancora, ou quando ele escreveu
-    # `[mercado]` sem a chave.
+    # Nunca em coordenada absoluta, pela razao ja escrita na docstring de
+    # `derivar_grade`: o painel ANDA 827x831 px, e uma coluna gravada em
+    # absoluto apontaria para o vazio assim que o usuario arrastasse a janela.
+    # O sintoma seria numero plausivel lido da coluna errada.
+    ox, oy = origem
+    for nome, campo in (
+        ("nome", "mercado_coluna_do_nome"),
+        ("quantidade", "mercado_coluna_da_quantidade"),
+        ("total", "mercado_coluna_do_total"),
+        ("unitario", "mercado_coluna_do_unitario"),
+    ):
+        x, _y, larg, _alt = caixas_de_coluna[nome]
+        setattr(cal, campo, {"dx": int(x - ox), "largura": int(larg)})
+
+    # O MOLDE DO CABECALHO SO SUBSTITUI QUANDO HOUVE MOLDE NOVO, no mesmo
+    # criterio aditivo do CR-04 logo abaixo: uma rodada em que o corte nao
+    # pode ser medido nao apaga o portao de layout de uma rodada anterior.
+    if cabecalho is not None:
+        cal.mercado_cabecalho_de_coluna = cabecalho
+        cal.mercado_limiar_do_cabecalho = limiar_do_cabecalho
+    elif cal.mercado_cabecalho_de_coluna:
+        print(
+            "\nMantido o molde de cabecalho da calibracao anterior — nesta "
+            "rodada o corte de brilho nao pode ser medido."
+        )
+
+    # OS MOLDES DE NOME NAO SAO MAIS TOCADOS AQUI — NEM PARA ESCREVER, NEM PARA
+    # APAGAR —, E A GUARDA DO CR-04 PASSA A VALER POR OMISSAO.
     #
-    # E o console dizia o contrario: "as ancoras e a grade ja ficam gravadas"
-    # afirma um comportamento ADITIVO. Este era o unico caminho do projeto que
-    # apagava trabalho de calibracao sem perguntar, e o prejuizo e proporcional
-    # a watchlist: cada molde custou um arrasto de mouse sobre um frame
-    # gravado. O cabecalho deste modulo promete "muta so os campos de mercado"
-    # -- mutar para vazio e destruir.
-    if moldes_de_nome:
-        cal.mercado_templates_de_nome = [
-            {"nome": nome, "molde": molde_para_hex(molde)}
-            for nome, molde in moldes_de_nome.items()
-        ]
-    elif cal.mercado_templates_de_nome:
+    # O CR-04 consertou o unico caminho do projeto que apagava calibracao sem
+    # perguntar: `cal.mercado_templates_de_nome = [...]` era incondicional, e
+    # com a watchlist vazia isso regravava o arquivo INTEIRO com uma lista
+    # vazia -- os moldes de uma calibracao anterior desapareciam, calados, e
+    # cada um deles custou um arrasto de mouse sobre um frame gravado.
+    #
+    # Agora o passo saiu do fluxo e `cal` chega ate `salvar` com o valor que
+    # veio do disco: quem tinha moldes os mantem, quem nao tinha continua com
+    # `None`. `mercado_limiar_de_template` segue a mesma sorte e pela mesma
+    # razao. O cabecalho deste modulo promete "muta so os campos de mercado" --
+    # e nao mutar e a unica forma de nunca destruir.
+    if cal.mercado_templates_de_nome:
         print(
             f"\nMantidos os {len(cal.mercado_templates_de_nome)} molde(s) de "
-            f"nome da calibracao anterior — nenhum foi recortado nesta rodada."
+            f"nome da calibracao anterior — desde 2026-08-29 o nome do item e "
+            f"lido por OCR e esta ferramenta nao corta mais molde de nome."
         )
-    if resultado.limiar_sugerido is not None:
-        cal.mercado_limiar_de_template = resultado.limiar_sugerido
 
     _gravar_os_glifos(cal, glifos_cortados, glifos_fundidos, resultado_glifos)
 
@@ -2362,7 +2828,32 @@ def calibrar(args: argparse.Namespace) -> int:
         f"  grade        : {grade['linhas_por_pagina']} linhas de "
         f"{grade['altura_da_linha']} px, layout '{grade['layout']}'"
     )
-    print(f"  watchlist    : {len(moldes_de_nome)} molde(s) de nome")
+    for nome, campo in (
+        ("nome", "mercado_coluna_do_nome"),
+        ("quantidade", "mercado_coluna_da_quantidade"),
+        ("total", "mercado_coluna_do_total"),
+        ("unitario", "mercado_coluna_do_unitario"),
+    ):
+        coluna = getattr(cal, campo)
+        print(
+            f"  coluna {nome:<6}: dx={coluna['dx']}, "
+            f"largura={coluna['largura']} px"
+        )
+    if cal.mercado_cabecalho_de_coluna:
+        cab = cal.mercado_cabecalho_de_coluna
+        print(
+            f"  cabecalho    : {cab['altura']}x{cab['largura']} px, corte de "
+            f"brilho {cab['corte_de_brilho']}, layout '{cab['layout']}'"
+        )
+    else:
+        print("  cabecalho    : NAO gravado — o portao de layout fica OFF")
+    # O QUE SUBSTITUIU O PASSO DA WATCHLIST, dito onde o usuario procurava a
+    # contagem de moldes de nome. Sem esta linha o passo simplesmente some, e
+    # a ausencia parece defeito.
+    print(
+        "  nomes        : lidos por OCR e agrupados por similaridade — nao ha "
+        "mais lista para escrever (LEIT-01, ver REQUIREMENTS.md)"
+    )
     print(f"  glifos       : {len(glifos_fundidos)} molde(s) de glifo")
     _anunciar_o_que_faltou(glifos_fundidos)
     _texto_final_da_conferencia(conferencia, arquivo)
@@ -2383,7 +2874,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--layout", default="negociacao",
         choices=("negociacao", "adena", "busca"),
-        help="qual dos TRES layouts de coluna esta na tela",
+        help=(
+            "qual dos TRES layouts de coluna esta na tela "
+            "(padrao: negociacao — o unico que tem nome de item, e o de ~283 "
+            "dos ~308 frames com painel aberto no censo das gravacoes)"
+        ),
     )
     parser.add_argument("--calibracao", help="outro calibration.json (para teste)")
     # A FLAG EXISTE POR UM FATO MEDIDO. O frame que calibrou a grade atual nao

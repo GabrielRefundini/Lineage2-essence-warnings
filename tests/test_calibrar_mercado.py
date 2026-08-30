@@ -333,18 +333,22 @@ class TestAMatrizDeConfusao:
         )
         assert "0.0000" not in texto and "0.5000" not in texto
 
-    def test_o_limiar_so_e_gravado_quando_a_matriz_o_derivou(self):
-        """Tripwire: a gravacao do limiar tem de ser condicional.
+    def test_o_limiar_de_template_nao_e_MAIS_gravado_pelo_fluxo(self):
+        """A guarda virou omissao, e a omissao e mais forte que a guarda.
 
-        `cal.mercado_limiar_de_template = resultado.limiar_sugerido` sem guarda
-        escrevia `None` (ou, antes, o 0.5 inventado) por cima de um limiar que
-        uma rodada anterior tinha MEDIDO.
+        Ate 2026-08-29 este teste exigia `if resultado.limiar_sugerido is not
+        None:` em volta da atribuicao, porque escrever `None` por cima de um
+        limiar MEDIDO numa rodada anterior era o defeito. Com o passo da
+        watchlist aposentado (LEIT-01 le o nome por OCR), `calibrar` nao toca
+        mais no campo: `cal` chega a `salvar` com o valor que veio do disco.
+
+        Nao se pode sobrescrever o que nao se atribui.
         """
-        fonte = inspect.getsource(l2scanner.calibrar_mercado.calibrar)
-        assert "if resultado.limiar_sugerido is not None:" in fonte, (
-            "a gravacao de mercado_limiar_de_template nao esta protegida por "
-            "uma guarda de 'a matriz derivou isto?'"
+        fonte = _codigo_sem_prosa(
+            inspect.getsource(l2scanner.calibrar_mercado.calibrar)
         )
+        assert "cal . mercado_limiar_de_template =" not in fonte
+        assert "cal . mercado_templates_de_nome =" not in fonte
 
     def test_moldes_de_TAMANHOS_diferentes_sao_comparaveis(self):
         """Cortar ao menor comum e o que impede a matriz de aprovar por omissao.
@@ -736,6 +740,13 @@ class TestRodarSemWatchlistNaoApagaOsMoldes:
         (794, 865, 60, 60),    # canto_inf_dir
         (310, 260, 480, 450),  # area da lista
         (310, 260, 480, 45),   # primeira linha
+        # As QUATRO COLUNAS, todas dentro da area da lista (x de 310 a 790) --
+        # `conferir_a_coluna_na_grade` recusa o que cair fora.
+        (320, 260, 100, 450),  # coluna do nome
+        (430, 260, 60, 450),   # Quantity
+        (500, 260, 80, 450),   # Total
+        (600, 260, 80, 450),   # Unit price
+        (310, 228, 480, 30),   # a banda do cabecalho, acima da lista
     ]
 
     @pytest.fixture
@@ -782,9 +793,15 @@ class TestRodarSemWatchlistNaoApagaOsMoldes:
         )
         return destino, args
 
-    def test_sem_watchlist_os_moldes_da_rodada_anterior_SOBREVIVEM(
-        self, cenario, monkeypatch: pytest.MonkeyPatch, capsys
+    def test_os_moldes_de_nome_da_rodada_anterior_SOBREVIVEM(
+        self, cenario, capsys
     ):
+        """Agora eles sobrevivem por OMISSAO, que e mais forte que a guarda.
+
+        O CR-04 protegia a atribuicao com um `if`. Com o passo da watchlist
+        aposentado nao ha atribuicao nenhuma: `calibrar` nao toca no campo, e
+        `cal.salvar` regrava o que veio do disco.
+        """
         destino, args = cenario
         anteriores = [
             {"nome": "+3 Bota X", "molde": "0a:0a:" + "00" * 100},
@@ -795,39 +812,27 @@ class TestRodarSemWatchlistNaoApagaOsMoldes:
         dados["mercado_limiar_de_template"] = 0.93
         destino.write_text(json.dumps(dados), encoding="utf-8")
 
-        monkeypatch.setattr(
-            l2scanner.calibrar_mercado, "ler_watchlist", lambda _c: []
-        )
-
         assert l2scanner.calibrar_mercado.calibrar(args) == 0
 
         depois = json.loads(destino.read_text(encoding="utf-8"))
         assert depois["mercado_templates_de_nome"] == anteriores, (
-            "rodar sem watchlist APAGOU os moldes de nome ja calibrados. Cada "
-            "um custou um arrasto de mouse sobre um frame gravado, e o console "
-            "prometia um comportamento aditivo."
+            "a rodada APAGOU os moldes de nome ja calibrados. Cada um custou "
+            "um arrasto de mouse sobre um frame gravado."
         )
         assert depois["mercado_limiar_de_template"] == 0.93, (
-            "o limiar MEDIDO numa rodada anterior foi sobrescrito por uma "
-            "matriz que nao rodou"
+            "o limiar MEDIDO numa rodada anterior foi sobrescrito"
         )
-        # As ancoras e a grade, que e o que esta rodada de fato marcou, foram.
+        # As ancoras, a grade e as colunas, que e o que esta rodada marcou.
         assert depois["mercado_grade"]["linhas_por_pagina"] == 10
         assert depois["mercado_ancora"]["largura"] == 100
 
-        saida = capsys.readouterr().out
-        assert "Mantidos os 2 molde(s)" in saida, (
+        assert "Mantidos os 2 molde(s)" in capsys.readouterr().out, (
             "a ferramenta preservou os moldes mas nao disse ao usuario"
         )
 
-    def test_sem_watchlist_e_sem_moldes_anteriores_nao_promete_nada(
-        self, cenario, monkeypatch: pytest.MonkeyPatch, capsys
-    ):
+    def test_sem_moldes_anteriores_nao_promete_nada(self, cenario, capsys):
         """O caso limpo: nao ha o que preservar, e nao ha o que anunciar."""
         destino, args = cenario
-        monkeypatch.setattr(
-            l2scanner.calibrar_mercado, "ler_watchlist", lambda _c: []
-        )
 
         assert l2scanner.calibrar_mercado.calibrar(args) == 0
 
@@ -836,40 +841,60 @@ class TestRodarSemWatchlistNaoApagaOsMoldes:
         assert depois["mercado_limiar_de_template"] is None
         assert "Mantidos os" not in capsys.readouterr().out
 
-    def test_com_watchlist_os_moldes_novos_SUBSTITUEM_os_velhos(
-        self, cenario, monkeypatch: pytest.MonkeyPatch
-    ):
-        """A guarda nao pode virar 'nunca sobrescreve'.
-
-        Recortar de novo e exatamente como o usuario conserta um molde ruim.
-        """
+    def test_as_quatro_colunas_sao_gravadas_em_DESLOCAMENTO(self, cenario):
+        """Nunca em coordenada absoluta: o painel anda 827x831 px."""
         destino, args = cenario
-        dados = json.loads(destino.read_text(encoding="utf-8"))
-        dados["mercado_templates_de_nome"] = [
-            {"nome": "velho", "molde": "0a:0a:" + "00" * 100}
-        ]
-        destino.write_text(json.dumps(dados), encoding="utf-8")
-
-        # Duas caixas a mais na fila: uma por item da watchlist.
-        fila = list(self.CAIXAS) + [(320, 270, 120, 20), (320, 320, 120, 20)]
-        monkeypatch.setattr(
-            l2scanner.calibrar_mercado,
-            "_selecionar_regiao",
-            lambda *a, **k: fila.pop(0),
-        )
-        monkeypatch.setattr(
-            l2scanner.calibrar_mercado,
-            "ler_watchlist",
-            lambda _c: ["+3 Bota X", "Chapeu Y"],
-        )
 
         assert l2scanner.calibrar_mercado.calibrar(args) == 0
 
         depois = json.loads(destino.read_text(encoding="utf-8"))
-        nomes = [t["nome"] for t in depois["mercado_templates_de_nome"]]
-        assert nomes == ["+3 Bota X", "Chapeu Y"]
-        assert depois["mercado_limiar_de_template"] is not None, (
-            "com dois moldes a matriz RODOU e o limiar tinha de ser gravado"
+        # origem do painel = canto da faixa de titulo, (300, 200) nas CAIXAS.
+        assert depois["mercado_coluna_do_nome"] == {"dx": 20, "largura": 100}
+        assert depois["mercado_coluna_da_quantidade"] == {"dx": 130, "largura": 60}
+        assert depois["mercado_coluna_do_total"] == {"dx": 200, "largura": 80}
+        assert depois["mercado_coluna_do_unitario"] == {"dx": 300, "largura": 80}
+
+    def test_uma_coluna_fora_da_grade_recusa_ANTES_de_gravar(
+        self, cenario, monkeypatch: pytest.MonkeyPatch
+    ):
+        """T-02-02: um dx fora da grade le OUTRA coluna com confianca."""
+        destino, args = cenario
+        antes = destino.read_text(encoding="utf-8")
+
+        fora = list(self.CAIXAS)
+        fora[5] = (100, 260, 100, 450)  # a coluna do nome, a esquerda da lista
+        monkeypatch.setattr(
+            l2scanner.calibrar_mercado,
+            "_selecionar_regiao",
+            lambda *a, **k: fora.pop(0),
+        )
+
+        with pytest.raises(MercadoNaoCalibravel, match="FORA"):
+            l2scanner.calibrar_mercado.calibrar(args)
+
+        assert destino.read_text(encoding="utf-8") == antes, (
+            "a recusa aconteceu DEPOIS de gravar"
+        )
+
+    def test_nenhuma_instrucao_de_preencher_watchlist_e_impressa(
+        self, cenario, capsys
+    ):
+        """O passo morreu com a reescrita de LEIT-01 em 2026-08-29.
+
+        Mandar o usuario escrever `[mercado] watchlist` agora e mandar ele
+        configurar uma coisa que nao e mais lida por ninguem.
+        """
+        _destino, args = cenario
+
+        assert l2scanner.calibrar_mercado.calibrar(args) == 0
+
+        saida = capsys.readouterr().out
+        assert "watchlist" not in saida.lower(), (
+            f"a ferramenta ainda fala em watchlist:\n{saida}"
+        )
+        assert "OCR" in saida, (
+            "o passo saiu e nada explicou o que o substituiu — a ausencia "
+            "parece defeito"
         )
 
 
@@ -926,17 +951,15 @@ class TestAsRecusasExplicadasDaWatchlist:
         )
         assert ler_watchlist(arquivo) == ["+3 Bota X", "Chapeu Y"]
 
-    def test_a_watchlist_e_lida_ANTES_da_primeira_selecao(self):
-        """Tripwire de ordem: falhar antes do trabalho de mouse e mais barato.
-
-        `ler_watchlist` tem de aparecer no fonte de `calibrar()` antes do
-        primeiro `_marcar`.
-        """
-        fonte = inspect.getsource(l2scanner.calibrar_mercado.calibrar)
-        assert fonte.index("ler_watchlist(") < fonte.index("_marcar("), (
-            "a watchlist ainda e lida depois das janelas de selecao: um "
-            "config.toml quebrado so seria descoberto com 5 arrastos ja gastos"
-        )
+    # O TRIPWIRE DE ORDEM ("`ler_watchlist` antes do primeiro `_marcar`") CAIU
+    # COM O PROPRIO PASSO, em 2026-08-29. Ele existia para que um `config.toml`
+    # quebrado fosse descoberto antes de cinco arrastos de mouse; sem chamador
+    # no fluxo, nao ha ordem a prender. O que ficou no lugar e
+    # `TestOPassoDaWatchlistFoiAPOSENTADO`, que afirma a AUSENCIA da chamada —
+    # uma condicao mais forte, e nao mais fraca, que a de ordem.
+    #
+    # As recusas explicadas de `ler_watchlist` acima continuam afirmadas: a
+    # funcao segue no arquivo como precedente medido.
 
     def test_falha_de_gravacao_vira_recusa_explicada(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1040,19 +1063,28 @@ class TestOMoldeDaAncoraEIndexadoPorNome:
             # sugeridos das outras quatro regioes. Responder por nome torna o
             # teste indiferente a ordem de pergunta -- que e exatamente o que
             # ele afirma: reordenar a constante nao pode trocar o molde gravado.
-            grade = iter([(310, 260, 480, 450), (310, 260, 480, 45)])
+            # A grade, as quatro colunas e a banda do cabecalho, na ordem em
+            # que o fluxo as pede depois das ancoras.
+            resto = iter(
+                [
+                    (310, 260, 480, 450),  # area da lista
+                    (310, 260, 480, 45),   # primeira linha
+                    (320, 260, 100, 450),  # coluna do nome
+                    (430, 260, 60, 450),   # Quantity
+                    (500, 260, 80, 450),   # Total
+                    (600, 260, 80, 450),   # Unit price
+                    (310, 228, 480, 30),   # cabecalho
+                ]
+            )
 
             def responder(_pixels, titulo, _instrucao, _sugestao=None):
                 for nome, caixa in caixas_por_nome.items():
                     if titulo.endswith(nome):
                         return caixa
-                return next(grade)
+                return next(resto)
 
             monkeypatch.setattr(
                 l2scanner.calibrar_mercado, "_selecionar_regiao", responder
-            )
-            monkeypatch.setattr(
-                l2scanner.calibrar_mercado, "ler_watchlist", lambda _c: []
             )
             monkeypatch.setattr(
                 l2scanner.calibrar_mercado,
@@ -1702,6 +1734,18 @@ def _fixture(caminho: Path) -> np.ndarray:
     return pixels
 
 
+def _sobrevive(grupo: tuple[int, int], depois: list[tuple[int, int]]) -> bool:
+    """O grupo `grupo` ainda existe em `depois`, ainda que mais estreito.
+
+    A comparacao e por SOBREPOSICAO e nao por igualdade: o corte de brilho come
+    o antialias das bordas, entao um rotulo que ia de 152 a 181 volta de 153 a
+    180. Exigir a tupla identica chamaria de "sumiu" exatamente o texto que o
+    corte existe para preservar.
+    """
+    a, b = grupo
+    return any(inicio < b and a < fim for inicio, fim in depois)
+
+
 def _maximos_por_grupo(
     banda: np.ndarray, grupos: list[tuple[int, int]]
 ) -> dict[tuple[int, int], int]:
@@ -1740,9 +1784,11 @@ class TestOCorteDeBrilhoDoCabecalho:
         assert corte is not None
 
         antes = _maximos_por_grupo(banda, grupos_do_cabecalho(banda, None))
-        depois = set(grupos_do_cabecalho(banda, corte))
-        sumiram = [pico for g, pico in antes.items() if g not in depois]
-        ficaram = [pico for g, pico in antes.items() if g in depois]
+        depois = grupos_do_cabecalho(banda, corte)
+        sumiram = [
+            pico for g, pico in antes.items() if not _sobrevive(g, depois)
+        ]
+        ficaram = [pico for g, pico in antes.items() if _sobrevive(g, depois)]
 
         assert sumiram, "o corte nao removeu grupo nenhum — nao separou nada"
         assert ficaram, "o corte removeu TUDO — a banda ficaria vazia"
@@ -1756,8 +1802,8 @@ class TestOCorteDeBrilhoDoCabecalho:
         banda = _fixture(CABECALHO_GOODS)
         corte = medir_o_corte_de_brilho_do_cabecalho(banda)
         antes = grupos_do_cabecalho(banda, None)
-        depois = set(grupos_do_cabecalho(banda, corte))
-        sumiram = [(a, b) for a, b in antes if (a, b) not in depois]
+        depois = grupos_do_cabecalho(banda, corte)
+        sumiram = [g for g in antes if not _sobrevive(g, depois)]
         assert any(b - a <= 3 for a, b in sumiram), (
             f"nenhum grupo estreito sumiu; sumiram {sumiram}"
         )
@@ -1926,9 +1972,10 @@ class TestOPassoDaWatchlistFoiAPOSENTADO:
         )
 
     def test_o_layout_negociacao_e_o_padrao_do_cli(self):
-        parser_help = _rodar_help()
-        assert "--layout" in parser_help
-        assert "negociacao" in parser_help
+        """D-09: o v1 le SOMENTE o layout calibrado, e ele passou a ser este."""
+        ajuda = " ".join(_rodar_help().split())
+        assert "--layout" in ajuda
+        assert "padrao: negociacao" in ajuda
 
 
 def _rodar_help() -> str:
