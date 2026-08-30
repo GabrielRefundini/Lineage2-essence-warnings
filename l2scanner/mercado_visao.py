@@ -786,3 +786,84 @@ def _conferir_a_altura_do_conjunto(moldes: dict[str, np.ndarray]) -> None:
             f"alto ou mais baixo esta transposto ou veio de outra rodada. "
             f"Recalibre os digitos do mercado."
         )
+
+
+def cabecalho_de_calibracao(dados: dict | None) -> np.ndarray | None:
+    """Desempacota o molde do CABECALHO DE COLUNA vindo do `calibration.json`.
+
+    ENTRADA NAO CONFIAVEL, pelo mesmo criterio de `glifos_de_calibracao`, e a
+    estrutura aqui e a dela inteira — de proposito, para as duas envelhecerem
+    juntas. O que muda e o PRECO do erro. Um glifo corrompido estraga o numero
+    de uma linha; este molde e o PORTAO DE LAYOUT (D-11), e corrompido ele nao
+    le a coluna errada: ele recusa TODA pagina, para sempre, sem uma linha de
+    erro dizendo por que.
+
+    `None` e dict vazio devolvem `None`: e o estado legitimo de "ainda nao
+    calibrei o cabecalho", e com ele o portao de layout simplesmente nao roda —
+    feature OFF, o unico default seguro deste projeto.
+
+    `corte_de_brilho` VEM DO ARQUIVO E NAO DO FONTE, e por isso e conferido
+    aqui: ele foi medido em UMA resolucao e UMA pele (A2 da pesquisa). A seta de
+    ordenacao mora DENTRO da celula do cabecalho e ANDA de coluna conforme a
+    ordenacao; o corte e o que a deixa de fora do molde, e um corte mentido
+    devolveria um molde que casa uma ordenacao e recusa a outra.
+
+    O reshape e delegado a `molde_de_hex` com `forma_esperada`, que ja confere a
+    contagem de bytes ANTES de reformatar e ja recusa a transposicao — um 28x100
+    declarado como 100x28 pede os mesmos bytes e sobreviveria a conferencia
+    sozinha.
+    """
+    if not dados:
+        return None
+    if not isinstance(dados, dict):
+        raise ValueError(
+            f"mercado_cabecalho_de_coluna precisa ser um objeto, veio "
+            f"{type(dados).__name__}. Recalibre o mercado."
+        )
+
+    layout = dados.get("layout")
+    if not isinstance(layout, str) or not layout:
+        raise ValueError(
+            f"mercado_cabecalho_de_coluna esta sem layout utilizavel "
+            f"({layout!r}). O layout E o que este molde afirma: sem ele o "
+            f"casamento nao decide nada. Recalibre o mercado."
+        )
+
+    for campo in ("dy", "altura", "largura", "corte_de_brilho"):
+        valor = dados.get(campo)
+        # `bool` excluido explicitamente do `int`, como em
+        # `glifos_de_calibracao`: `True` viraria 1 calado.
+        if isinstance(valor, bool) or not isinstance(valor, int):
+            raise ValueError(
+                f"mercado_cabecalho_de_coluna.{campo} precisa ser um inteiro, "
+                f"veio {type(valor).__name__} ({valor!r}). Recalibre o mercado."
+            )
+
+    altura, largura = int(dados["altura"]), int(dados["largura"])
+    if altura <= 0 or largura <= 0:
+        raise ValueError(
+            f"mercado_cabecalho_de_coluna com dimensao nao-positiva "
+            f"({altura}x{largura}). Recalibre o mercado."
+        )
+
+    corte = int(dados["corte_de_brilho"])
+    if not 0 <= corte <= 255:
+        raise ValueError(
+            f"mercado_cabecalho_de_coluna.corte_de_brilho={corte} esta fora de "
+            f"[0, 255]. Ele e um nivel de brilho de 8 bits, medido no proprio "
+            f"frame. Recalibre o mercado."
+        )
+
+    if not isinstance(dados.get("bytes"), str):
+        raise ValueError(
+            f"mercado_cabecalho_de_coluna.bytes precisa ser uma string hex, "
+            f"veio {type(dados.get('bytes')).__name__}. Recalibre o mercado."
+        )
+
+    try:
+        return molde_de_hex(dados, forma_esperada=(altura, largura))
+    except ValueError as erro:
+        raise ValueError(
+            f"mercado_cabecalho_de_coluna ('{layout}'): {erro} "
+            f"Recalibre o mercado."
+        ) from erro

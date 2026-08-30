@@ -309,6 +309,134 @@ class Calibracao:
     # instalacao que ainda nao cortou glifos continua carregando.
     mercado_limiar_de_glifo: float | None = None
 
+    # --- Leitura de pagina (Fase 02) ---
+    #
+    # AS QUATORZE ABAIXO SEGUEM O MESMO TRILHO DAS DE CIMA, E PELO MESMO MOTIVO:
+    # campo opcional, `.get` no `carregar`, `VERSAO_DO_ESQUEMA` INTACTA em 2. O
+    # `calibration.json` da maquina do usuario carrega 13 moldes de glifo e 3
+    # ancoras que so a mao dele produz; um bump de versao os apagaria por causa
+    # de campos que uma instalacao sem leitura de mercado nem preenche.
+    #
+    # AS QUATRO COLUNAS: `{"dx": int, "largura": int}`, deslocamento em x
+    # relativo a ORIGEM DO PAINEL (o canto da faixa de titulo) e largura em px.
+    # Deslocamento e nao coordenada absoluta, pela mesma razao ja escrita na
+    # docstring de `calibrar_mercado.derivar_grade`: o painel ANDA 827x831 px
+    # entre dois frames da mesma gravacao. Uma coluna gravada em absoluto
+    # apontaria para o vazio assim que o usuario arrastasse a janela, e o
+    # sintoma seria numero plausivel lido da coluna errada.
+    mercado_coluna_do_nome: dict | None = None
+    mercado_coluna_da_quantidade: dict | None = None
+    mercado_coluna_do_total: dict | None = None
+
+    # A COLUNA DO UNITARIO NAO VAI PARA O CSV, E AINDA ASSIM E LIDA.
+    #
+    # Ela e a unica LEITURA INDEPENDENTE do mesmo fato que o `Total` afirma, e
+    # por isso e a materia-prima da guarda de cruzamento contra o par `0`x`8` —
+    # cuja margem medida e 0,0370, a mais estreita do sistema inteiro, e o unico
+    # modo de falha que a gramatica do numero NAO pega: um `0` lido como `8`
+    # mantem a gramatica intacta.
+    #
+    # O que sai da leitura continua sendo `Total` e `Quantity`. Reconstruir o
+    # total a partir do unitario devolveria um numero que nunca existiu — a tela
+    # mostra `0,83` para `40,00 / 48`, e `0,83 x 48` da `39,84`.
+    mercado_coluna_do_unitario: dict | None = None
+
+    # O molde do CABECALHO DE COLUNA, que e como o layout e reconhecido (D-11):
+    # `{"layout", "dy", "altura", "largura", "bytes" em hex, "corte_de_brilho"}`.
+    #
+    # Dict CRU, sem decodificar, pela mesma razao de `mercado_molde_da_ancora`:
+    # decodificar aqui obrigaria um modulo de configuracao a importar numpy.
+    # Quem decodifica e `mercado_visao.cabecalho_de_calibracao`.
+    #
+    # `corte_de_brilho` MORA NO ARQUIVO E NAO NO FONTE porque ele foi medido em
+    # UMA resolucao (1720x1392) e UMA pele. A medicao da pesquisa: rotulos de
+    # coluna com V maximo 229, a seta de ordenacao com 181, a borda da banda com
+    # 201 — um corte no meio remove a seta E a borda sem uma linha de geometria.
+    # A seta anda de celula conforme a ordenacao, e um molde cortado COM ela nao
+    # casa a mesma coluna sem ela.
+    mercado_cabecalho_de_coluna: dict | None = None
+
+    # O limiar de casamento do molde do cabecalho.
+    #
+    # PROVISORIO POR CONSTRUCAO na rodada em que e gravado: o molde casa contra
+    # o proprio frame de onde foi cortado, o que da ~1,0 e nao prova nada sobre
+    # casar OUTRO frame. Quem confirma e o portao de layout, rodando-o contra
+    # bandas de negociacao em duas ordenacoes e contra Adena e busca.
+    mercado_limiar_do_cabecalho: float | None = None
+
+    # Onde medir a FAIXA DE FUNDO da linha para detectar oclusao:
+    # `{"dx0": int, "dx1": int, "folga": int}`, um trecho SEM TEXTO da linha.
+    #
+    # O sinal de oclusao e o fundo alternado, e nao a confianca do casamento: a
+    # tooltip do jogo e SEMITRANSPARENTE, entao um numero coberto ainda produz
+    # glifos plausiveis com boa confianca e valor errado. Recusar pela confianca
+    # seria o incidente 27x um nivel acima.
+    mercado_sonda_do_fundo: dict | None = None
+
+    # Acima desta dispersao, o trecho de fundo nao e fundo: ha algo desenhado
+    # por cima e a linha e descartada. Faixa valida `[0.0, 1.0]`.
+    mercado_limiar_de_dispersao_do_fundo: float | None = None
+
+    # O PISO e a MARGEM da leitura de glifo EM PRODUCAO.
+    #
+    # NAO SAO `mercado_limiar_de_glifo`, e a confusao entre os dois e cara o
+    # bastante para merecer o registro. Aquele e derivado de `(1.0 + pior_par)/2`
+    # e certifica que o CONJUNTO de moldes e separavel — medido molde contra
+    # molde, NUNCA contra glifo de tela.
+    #
+    # A MEDICAO QUE REFUTA O REAPROVEITAMENTO: sobre 2.057 glifos reais das
+    # gravacoes, o `8` casou o proprio molde com mediana 0,7242. O valor gravado
+    # na maquina do usuario e 0,8555 — um piso ali rejeitaria praticamente todo
+    # `8` da tela, e a leitura morreria calada. O registro fica aqui no padrao de
+    # `ocr.py:36-39`: um numero que caiu precisa dizer que caiu, senao ele volta
+    # na proxima leitura.
+    #
+    # Os dois sao MEDIDOS pela ferramenta do plano 02-02, nunca escritos a mao.
+    mercado_limiar_de_leitura_de_glifo: float | None = None
+    mercado_margem_de_leitura_de_glifo: float | None = None
+
+    # O CORTE e o PISO do agrupamento de nomes por similaridade (`difflib`).
+    #
+    # Acima do corte, duas leituras sao a mesma serie. Abaixo do piso, sao series
+    # diferentes. ENTRE OS DOIS fica a faixa cinzenta, onde a linha nao agrupa
+    # NEM cria serie: e descartada com aviso. Fusao no CSV e irreversivel;
+    # descarte nao e.
+    #
+    # O 88 do `rapidfuzz.WRatio` NAO vale aqui e o registro da refutacao fica
+    # junto: trocada a metrica, o numero e heranca de outro contexto. Medidos
+    # pela ferramenta do 02-02, nunca escolhidos.
+    mercado_corte_de_similaridade: float | None = None
+    mercado_piso_de_similaridade: float | None = None
+
+    # A tolerancia da GUARDA DE CRUZAMENTO: `Total` contra `Unit price x
+    # Quantity`, em centesimos por unidade.
+    #
+    # AUSENTE OU `None` NAO E ERRO NEM ESQUECIMENTO: e a guarda DESLIGADA, e esse
+    # e o default seguro. Quem decide se ela liga e a MEDICAO do plano 02-02,
+    # nunca o autor do codigo — o unitario exibido e arredondado, entao a folga
+    # honesta so se conhece medindo a distribuicao do erro de arredondamento
+    # sobre as gravacoes.
+    #
+    # Uma guarda desligada e honesta; uma guarda cega, com tolerancia larga
+    # demais, e uma peneira que aprova exatamente a substituicao `0`->`8` que ela
+    # existe para pegar. Por isso a faixa valida e `>= 0` e o negativo e recusado.
+    mercado_tolerancia_do_cruzamento: float | None = None
+
+    # O PISO DE LINHAS COMPARADAS do estabilizador de pagina.
+    #
+    # Ele impede o ACORDO TRIVIAL: quando quase toda linha de uma pagina e
+    # descartada por oclusao, as poucas que sobram concordam entre dois frames
+    # POR FALTA DE MATERIAL, e uma pagina praticamente nao lida seria aceita.
+    #
+    # MORA AQUI, ao lado das outras, e NAO no plano que o consome, porque um
+    # numero declarado no consumidor nasce sem ferramenta que o meca. Ele e
+    # proposto pela varredura de oclusao do 02-02, que ja conta linha recusada
+    # por pagina e e a unica que tem a distribuicao.
+    #
+    # Faixa valida `>= 1` e `<= mercado_grade.linhas_por_pagina`: um piso maior
+    # que a pagina desligaria a leitura CALADO.
+    mercado_minimo_de_linhas_comparadas: int | None = None
+
     versao: int = VERSAO_DO_ESQUEMA
 
     def regiao_do_nome(self, indice: int) -> Regiao:
@@ -422,6 +550,33 @@ class Calibracao:
             "mercado_templates_de_digito": self.mercado_templates_de_digito,
             "mercado_limiar_de_template": self.mercado_limiar_de_template,
             "mercado_limiar_de_glifo": self.mercado_limiar_de_glifo,
+            # As quatorze da leitura de pagina, no MESMO trilho: um campo nao
+            # preenchido vira `null` e o `.get` do `carregar` o devolve como
+            # None, sem migracao.
+            "mercado_coluna_do_nome": self.mercado_coluna_do_nome,
+            "mercado_coluna_da_quantidade": self.mercado_coluna_da_quantidade,
+            "mercado_coluna_do_total": self.mercado_coluna_do_total,
+            "mercado_coluna_do_unitario": self.mercado_coluna_do_unitario,
+            "mercado_cabecalho_de_coluna": self.mercado_cabecalho_de_coluna,
+            "mercado_limiar_do_cabecalho": self.mercado_limiar_do_cabecalho,
+            "mercado_sonda_do_fundo": self.mercado_sonda_do_fundo,
+            "mercado_limiar_de_dispersao_do_fundo": (
+                self.mercado_limiar_de_dispersao_do_fundo
+            ),
+            "mercado_limiar_de_leitura_de_glifo": (
+                self.mercado_limiar_de_leitura_de_glifo
+            ),
+            "mercado_margem_de_leitura_de_glifo": (
+                self.mercado_margem_de_leitura_de_glifo
+            ),
+            "mercado_corte_de_similaridade": self.mercado_corte_de_similaridade,
+            "mercado_piso_de_similaridade": self.mercado_piso_de_similaridade,
+            "mercado_tolerancia_do_cruzamento": (
+                self.mercado_tolerancia_do_cruzamento
+            ),
+            "mercado_minimo_de_linhas_comparadas": (
+                self.mercado_minimo_de_linhas_comparadas
+            ),
         }
         # ESCRITA ATOMICA, NO LUGAR ONDE TODOS OS ESCRITORES HERDAM.
         #
@@ -526,6 +681,36 @@ class Calibracao:
             mercado_templates_de_digito=dados.get("mercado_templates_de_digito"),
             mercado_limiar_de_template=dados.get("mercado_limiar_de_template"),
             mercado_limiar_de_glifo=dados.get("mercado_limiar_de_glifo"),
+            # E as quatorze da leitura de pagina, pelo MESMO `.get` e pelo mesmo
+            # motivo — e este e o ponto em que a regra deixa de ser estilo e
+            # passa a ser dinheiro: uma unica `dados["..."]` aqui faria o
+            # calibration.json do usuario, que nao tem nenhuma delas, levantar
+            # KeyError no arranque e levar junto os 13 moldes de glifo e as 3
+            # ancoras que so a mao dele produz.
+            mercado_coluna_do_nome=dados.get("mercado_coluna_do_nome"),
+            mercado_coluna_da_quantidade=dados.get("mercado_coluna_da_quantidade"),
+            mercado_coluna_do_total=dados.get("mercado_coluna_do_total"),
+            mercado_coluna_do_unitario=dados.get("mercado_coluna_do_unitario"),
+            mercado_cabecalho_de_coluna=dados.get("mercado_cabecalho_de_coluna"),
+            mercado_limiar_do_cabecalho=dados.get("mercado_limiar_do_cabecalho"),
+            mercado_sonda_do_fundo=dados.get("mercado_sonda_do_fundo"),
+            mercado_limiar_de_dispersao_do_fundo=dados.get(
+                "mercado_limiar_de_dispersao_do_fundo"
+            ),
+            mercado_limiar_de_leitura_de_glifo=dados.get(
+                "mercado_limiar_de_leitura_de_glifo"
+            ),
+            mercado_margem_de_leitura_de_glifo=dados.get(
+                "mercado_margem_de_leitura_de_glifo"
+            ),
+            mercado_corte_de_similaridade=dados.get("mercado_corte_de_similaridade"),
+            mercado_piso_de_similaridade=dados.get("mercado_piso_de_similaridade"),
+            mercado_tolerancia_do_cruzamento=dados.get(
+                "mercado_tolerancia_do_cruzamento"
+            ),
+            mercado_minimo_de_linhas_comparadas=dados.get(
+                "mercado_minimo_de_linhas_comparadas"
+            ),
             versao=versao,
         )
 
@@ -715,6 +900,364 @@ def _conferir_as_chaves_de_mercado(dados: dict) -> None:
                 f"mercado_ancora tem dimensao nao-positiva "
                 f"({largura}x{altura}). Recalibre o mercado."
             )
+
+    _conferir_as_chaves_da_leitura_de_pagina(dados)
+
+
+# O CONSERTO, escrito uma vez e citado por toda recusa da leitura de pagina.
+#
+# Toda mensagem deste modulo termina no conserto (`ocr.py:88-98` e o precedente),
+# e aqui o conserto e sempre o mesmo comando. Repeti-lo a mao em quinze lugares
+# garantiria que o dia em que ele mudasse, catorze ficariam mentindo.
+CONSERTO_DO_MERCADO = (
+    "Recalibre o mercado: calibrar-mercado.bat --gravacao recordings\\<pasta>"
+)
+
+
+def _numero_de_mercado(
+    dados: dict,
+    chave: str,
+    minimo: float,
+    maximo: float | None,
+    inclui_o_minimo: bool,
+    porque: str,
+) -> float | None:
+    """Um limiar do mercado, conferido em tipo e em faixa. `None` passa sempre.
+
+    `None` passa porque ausencia e FEATURE OFF, nunca erro — o default seguro
+    deste projeto inteiro. Quem preenche e a ferramenta que mediu.
+    """
+    valor = dados.get(chave)
+    if valor is None:
+        return None
+    # `bool` e subclasse de `int`: `True` passaria como numero e viraria limiar
+    # 1.0 calado. A exclusao e explicita, como em `glifos_de_calibracao`.
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        raise CalibracaoInvalida(
+            f"{chave} precisa ser um numero, veio {type(valor).__name__} "
+            f"({valor!r}). {CONSERTO_DO_MERCADO}"
+        )
+    baixo = valor < minimo if inclui_o_minimo else valor <= minimo
+    alto = maximo is not None and valor > maximo
+    if baixo or alto:
+        limite = (
+            f"[{minimo}, {maximo}]"
+            if inclui_o_minimo and maximo is not None
+            else f"({minimo}, {maximo}]"
+            if maximo is not None
+            else f">= {minimo}"
+        )
+        raise CalibracaoInvalida(
+            f"{chave}={valor} esta fora de {limite}. {porque} "
+            f"{CONSERTO_DO_MERCADO}"
+        )
+    return valor
+
+
+def _inteiro_de_mercado(bruto, chave: str, campo: str) -> int:
+    """Um campo inteiro dentro de um objeto do mercado. `bool` fica de fora."""
+    valor = bruto.get(campo)
+    if isinstance(valor, bool) or not isinstance(valor, int):
+        raise CalibracaoInvalida(
+            f"{chave}.{campo} precisa ser um inteiro, veio "
+            f"{type(valor).__name__} ({valor!r}). {CONSERTO_DO_MERCADO}"
+        )
+    return valor
+
+
+def _conferir_uma_coluna(dados: dict, chave: str) -> None:
+    """Uma das quatro colunas: `{"dx": int, "largura": int}` dentro da grade.
+
+    O RETANGULO E CONFERIDO CONTRA A GRADE, e nao so contra o zero (T-02-02).
+    Um `dx` mentido nao quebra nada visivel: ele faz a leitura recortar OUTRA
+    coluna e devolver um numero plausivel, errado por um fator inteiro. Uma
+    serie de precos corrompida assim nao se distingue de uma correta olhando
+    para o CSV.
+
+    A conferencia so acontece quando a grade tras numeros utilizaveis. Sem
+    grade nao ha limite conhecido, e inventar um seria pior que nao conferir.
+    """
+    coluna = dados.get(chave)
+    if coluna is None:
+        return
+    if not isinstance(coluna, dict):
+        raise CalibracaoInvalida(
+            f"{chave} precisa ser um objeto com dx e largura, veio "
+            f"{type(coluna).__name__}. {CONSERTO_DO_MERCADO}"
+        )
+    dx = _inteiro_de_mercado(coluna, chave, "dx")
+    largura = _inteiro_de_mercado(coluna, chave, "largura")
+    if largura <= 0:
+        raise CalibracaoInvalida(
+            f"{chave} tem largura nao-positiva ({largura}). Uma coluna de "
+            f"largura zero nao recorta nada, e a leitura ficaria vazia sem uma "
+            f"linha de erro. {CONSERTO_DO_MERCADO}"
+        )
+
+    grade = dados.get("mercado_grade")
+    if not isinstance(grade, dict):
+        return
+    grade_dx, grade_largura = grade.get("dx"), grade.get("largura")
+    if (
+        isinstance(grade_dx, bool)
+        or isinstance(grade_largura, bool)
+        or not isinstance(grade_dx, int)
+        or not isinstance(grade_largura, int)
+        or grade_largura <= 0
+    ):
+        return
+    if dx < grade_dx or dx + largura > grade_dx + grade_largura:
+        raise CalibracaoInvalida(
+            f"{chave} (dx={dx}, largura={largura}) cai FORA da grade, que vai "
+            f"de dx={grade_dx} a dx={grade_dx + grade_largura}. Uma coluna "
+            f"fora da grade recorta outra coisa e devolve numero plausivel. "
+            f"{CONSERTO_DO_MERCADO}"
+        )
+
+
+def _conferir_o_cabecalho_de_coluna(dados: dict) -> None:
+    """O molde do cabecalho, conferido ANTES de qualquer reshape (T-02-01).
+
+    A contagem de bytes e conferida AQUI, e nao so no consumidor, porque um
+    `reshape` sobre dimensao mentida devolve um molde silenciosamente errado —
+    e um molde errado nunca casa com nada: o portao de layout recusaria TODA
+    pagina, para sempre, sem uma linha de erro. `mercado_visao` repete a
+    conferencia na hora de decodificar; esta e a que o usuario chega a ler, no
+    arranque, com o console na frente.
+    """
+    cabecalho = dados.get("mercado_cabecalho_de_coluna")
+    if cabecalho is None:
+        return
+    if not isinstance(cabecalho, dict):
+        raise CalibracaoInvalida(
+            f"mercado_cabecalho_de_coluna precisa ser um objeto com layout, "
+            f"dy, altura, largura, bytes e corte_de_brilho, veio "
+            f"{type(cabecalho).__name__}. {CONSERTO_DO_MERCADO}"
+        )
+
+    layout = cabecalho.get("layout")
+    if not isinstance(layout, str) or not layout:
+        raise CalibracaoInvalida(
+            f"mercado_cabecalho_de_coluna esta sem layout utilizavel "
+            f"({layout!r}). O layout E o que este molde afirma: sem ele o "
+            f"casamento nao decide nada. {CONSERTO_DO_MERCADO}"
+        )
+
+    _inteiro_de_mercado(cabecalho, "mercado_cabecalho_de_coluna", "dy")
+    altura = _inteiro_de_mercado(cabecalho, "mercado_cabecalho_de_coluna", "altura")
+    largura = _inteiro_de_mercado(cabecalho, "mercado_cabecalho_de_coluna", "largura")
+    if altura <= 0 or largura <= 0:
+        raise CalibracaoInvalida(
+            f"mercado_cabecalho_de_coluna tem dimensao nao-positiva "
+            f"({altura}x{largura}). {CONSERTO_DO_MERCADO}"
+        )
+
+    corte = _inteiro_de_mercado(
+        cabecalho, "mercado_cabecalho_de_coluna", "corte_de_brilho"
+    )
+    if not 0 <= corte <= 255:
+        raise CalibracaoInvalida(
+            f"mercado_cabecalho_de_coluna.corte_de_brilho={corte} esta fora de "
+            f"[0, 255]. Ele e um nivel de brilho de 8 bits, medido no proprio "
+            f"frame. {CONSERTO_DO_MERCADO}"
+        )
+
+    brutos = cabecalho.get("bytes")
+    if not isinstance(brutos, str):
+        raise CalibracaoInvalida(
+            f"mercado_cabecalho_de_coluna.bytes precisa ser uma string hex, "
+            f"veio {type(brutos).__name__}. {CONSERTO_DO_MERCADO}"
+        )
+    try:
+        quantos = len(bytes.fromhex(brutos))
+    except ValueError as erro:
+        raise CalibracaoInvalida(
+            f"mercado_cabecalho_de_coluna.bytes nao e hex valido ({erro}). "
+            f"{CONSERTO_DO_MERCADO}"
+        ) from erro
+    pedidos = altura * largura
+    if quantos != pedidos:
+        raise CalibracaoInvalida(
+            f"mercado_cabecalho_de_coluna corrompido: altura {altura} x "
+            f"largura {largura} pedem {pedidos} bytes, mas ha {quantos}. "
+            f"{CONSERTO_DO_MERCADO}"
+        )
+
+
+def _conferir_a_sonda_do_fundo(dados: dict) -> None:
+    """O trecho SEM TEXTO onde o nivel de fundo da linha e medido."""
+    sonda = dados.get("mercado_sonda_do_fundo")
+    if sonda is None:
+        return
+    if not isinstance(sonda, dict):
+        raise CalibracaoInvalida(
+            f"mercado_sonda_do_fundo precisa ser um objeto com dx0, dx1 e "
+            f"folga, veio {type(sonda).__name__}. {CONSERTO_DO_MERCADO}"
+        )
+    dx0 = _inteiro_de_mercado(sonda, "mercado_sonda_do_fundo", "dx0")
+    dx1 = _inteiro_de_mercado(sonda, "mercado_sonda_do_fundo", "dx1")
+    folga = _inteiro_de_mercado(sonda, "mercado_sonda_do_fundo", "folga")
+    if dx1 <= dx0:
+        raise CalibracaoInvalida(
+            f"mercado_sonda_do_fundo tem dx1={dx1} <= dx0={dx0}: o trecho de "
+            f"fundo teria largura zero ou negativa, e a medida de oclusao sairia "
+            f"de um recorte vazio. {CONSERTO_DO_MERCADO}"
+        )
+    if folga < 0:
+        raise CalibracaoInvalida(
+            f"mercado_sonda_do_fundo tem folga negativa ({folga}). "
+            f"{CONSERTO_DO_MERCADO}"
+        )
+
+
+def _conferir_o_piso_de_linhas_comparadas(dados: dict) -> None:
+    """O piso do estabilizador: `>= 1` e `<= linhas_por_pagina`.
+
+    Um piso ZERO aceitaria o ACORDO TRIVIAL — duas paginas em que tudo foi
+    descartado "concordam" por falta de material. Um piso MAIOR QUE A PAGINA
+    desligaria a leitura calado, que e pior: o produto sobe, nao reclama de
+    nada, e nunca aceita uma pagina.
+    """
+    piso = dados.get("mercado_minimo_de_linhas_comparadas")
+    if piso is None:
+        return
+    if isinstance(piso, bool) or not isinstance(piso, int):
+        raise CalibracaoInvalida(
+            f"mercado_minimo_de_linhas_comparadas precisa ser um inteiro, veio "
+            f"{type(piso).__name__} ({piso!r}). {CONSERTO_DO_MERCADO}"
+        )
+    if piso < 1:
+        raise CalibracaoInvalida(
+            f"mercado_minimo_de_linhas_comparadas={piso} e menor que 1. Um piso "
+            f"zero aceita o acordo trivial: duas paginas sem nenhuma linha lida "
+            f"'concordam' por falta de material. {CONSERTO_DO_MERCADO}"
+        )
+    grade = dados.get("mercado_grade")
+    if not isinstance(grade, dict):
+        return
+    por_pagina = grade.get("linhas_por_pagina")
+    if isinstance(por_pagina, bool) or not isinstance(por_pagina, int):
+        return
+    if por_pagina > 0 and piso > por_pagina:
+        raise CalibracaoInvalida(
+            f"mercado_minimo_de_linhas_comparadas={piso} e maior que as "
+            f"{por_pagina} linhas da pagina. Nenhuma pagina jamais alcancaria "
+            f"esse piso, e a leitura ficaria desligada CALADA. "
+            f"{CONSERTO_DO_MERCADO}"
+        )
+
+
+def _conferir_as_chaves_da_leitura_de_pagina(dados: dict) -> None:
+    """As quatorze chaves da Fase 02, na mesma disciplina das irmas.
+
+    Tipo, faixa, `bool` excluido do `int`, e toda mensagem terminando no
+    conserto. AUSENCIA NUNCA E ERRO: e feature OFF, o unico default seguro para
+    um sinal que a Fase 4 vai usar perto do detector de morte.
+    """
+    for chave in (
+        "mercado_coluna_do_nome",
+        "mercado_coluna_da_quantidade",
+        "mercado_coluna_do_total",
+        "mercado_coluna_do_unitario",
+    ):
+        _conferir_uma_coluna(dados, chave)
+
+    _conferir_o_cabecalho_de_coluna(dados)
+    _conferir_a_sonda_do_fundo(dados)
+
+    _numero_de_mercado(
+        dados,
+        "mercado_limiar_do_cabecalho",
+        0.0,
+        1.0,
+        inclui_o_minimo=False,
+        porque=(
+            "Um limiar <= 0 faz TODA banda casar com TODO layout, e ler a "
+            "coluna errada com confianca e o modo de falha que esta fase existe "
+            "para impedir."
+        ),
+    )
+    _numero_de_mercado(
+        dados,
+        "mercado_limiar_de_dispersao_do_fundo",
+        0.0,
+        1.0,
+        inclui_o_minimo=True,
+        porque=(
+            "Ele e uma dispersao normalizada do nivel de fundo: fora de [0, 1] "
+            "nao significa nada, e um valor alto demais aceitaria linha coberta "
+            "por tooltip como linha limpa."
+        ),
+    )
+    piso_de_glifo = _numero_de_mercado(
+        dados,
+        "mercado_limiar_de_leitura_de_glifo",
+        0.0,
+        1.0,
+        inclui_o_minimo=False,
+        porque=(
+            "Um piso frouxo faz TODO recorte casar com TODO glifo; um `0` lido "
+            "como `8` nao acrescenta ruido a serie, TROCA o numero."
+        ),
+    )
+    _numero_de_mercado(
+        dados,
+        "mercado_margem_de_leitura_de_glifo",
+        0.0,
+        1.0,
+        inclui_o_minimo=True,
+        porque=(
+            "Ela e a distancia minima entre o primeiro e o segundo colocado, na "
+            "mesma escala do casamento."
+        ),
+    )
+    corte = _numero_de_mercado(
+        dados,
+        "mercado_corte_de_similaridade",
+        0.0,
+        1.0,
+        inclui_o_minimo=False,
+        porque=(
+            "Acima dele duas leituras viram a MESMA serie; um corte <= 0 "
+            "fundiria o catalogo inteiro numa serie so, e fusao no CSV e "
+            "irreversivel."
+        ),
+    )
+    piso_de_similaridade = _numero_de_mercado(
+        dados,
+        "mercado_piso_de_similaridade",
+        0.0,
+        1.0,
+        inclui_o_minimo=True,
+        porque="Ele e uma similaridade, na mesma escala do corte.",
+    )
+    if (
+        corte is not None
+        and piso_de_similaridade is not None
+        and piso_de_similaridade > corte
+    ):
+        raise CalibracaoInvalida(
+            f"mercado_piso_de_similaridade={piso_de_similaridade} e maior que "
+            f"mercado_corte_de_similaridade={corte}. A faixa cinzenta ficaria "
+            f"invertida e nao existiria descarte nenhum — toda leitura duvidosa "
+            f"viraria serie. {CONSERTO_DO_MERCADO}"
+        )
+    # `piso_de_glifo` e lido para conferir a faixa; nao ha relacao a afirmar
+    # entre ele e a margem antes de o 02-02 medir as duas juntas.
+    del piso_de_glifo
+
+    _numero_de_mercado(
+        dados,
+        "mercado_tolerancia_do_cruzamento",
+        0.0,
+        None,
+        inclui_o_minimo=True,
+        porque=(
+            "Ela e uma folga em centesimos por unidade: negativa nao significa "
+            "nada. AUSENTE ou nula e a guarda DESLIGADA, que e o default seguro."
+        ),
+    )
+    _conferir_o_piso_de_linhas_comparadas(dados)
 
 
 def descrever_geometria_da_tela() -> str:
