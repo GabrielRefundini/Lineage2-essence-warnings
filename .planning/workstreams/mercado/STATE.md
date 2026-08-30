@@ -5,16 +5,16 @@ milestone_name: )
 current_phase: 2
 current_phase_name: Leitura de pagina
 status: executing
-stopped_at: Completed 02-06-PLAN.md (a guarda de cruzamento)
-last_updated: "2026-08-30T17:24:14.014Z"
+stopped_at: Completed 02-08-PLAN.md
+last_updated: "2026-08-30T23:14:34.092Z"
 last_activity: 2026-08-30
 last_activity_desc: "Fase 2 plano 06: a TERCEIRA leitura de numero (a coluna do unitario) entrou em ler_linha e esta provada por contagem (2/2 em f010, 4/4 em f005); a guarda de cruzamento foi construida e ficou DESLIGADA pela rota REPROVADA do 02-02, degradada para observacao com a refutacao escrita no fonte"
-state_head: 9deb2da23ea3192963825bf3e5cc10390b979a85
+state_head: f311422f48ce6cb22163455842c81e63c9e2df57
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 12
-  completed_plans: 10
+  total_plans: 13
+  completed_plans: 11
   percent: 25
 ---
 
@@ -29,7 +29,7 @@ progress:
 ## Current Position
 
 Phase: 2 — Leitura de pagina
-Plan: 6 of 7 — o 02-05 e o 02-07 seguem pendentes
+Plan: 7 of 7 — o 02-05 e o 02-07 seguem pendentes
 Status: Ready to execute
 Last activity: 2026-08-30 — Completed 02-06: a terceira leitura ACONTECE (contagem estrita 2/2 e 4/4 sobre fixtura), e a guarda de cruzamento ficou DESLIGADA pela rota REPROVADA, com o veredito `GUARDA REPROVADA por tolerancia, 1273.0000 centesimos por unidade (maximo 1.0)` transcrito no fonte
 
@@ -80,6 +80,8 @@ Progress: [███░░░░░░░] 25%
 - [Phase 02]: [Phase 02]: A TERCEIRA leitura de numero (a coluna do unitario) esta provada por CONTAGEM, e nao por existencia: linhas com `residuo_do_cruzamento` nao nulo == linhas lidas, 2/2 em f010 e 4/4 em f005. Sem esse criterio a guarda inteira seria codigo morto que todos os outros testes aprovariam, porque "nao opino" e resultado legitimo (T-02-39).
 - [Phase 02]: [Phase 02]: MEDIDO nas fixturas e novo: o cliente parece TRUNCAR o unitario, e nao arredondar. Em f005 linha 5 a tela mostra `11,39` por 6 com unitario `1,89`, mas `1139/6 = 1,8983` arredondaria para `1,90`. O limite derivado dobraria (um centesimo por unidade em vez de meio), e o residuo de 5 daquela linha caberia. E mais uma explicacao para o fechamento de 0,6525 que reprovou a guarda; esta na docstring de `limite_derivado_do_cruzamento`.
 - [Phase 02]: [Phase 02]: A guarda de cruzamento entra DEPOIS das tres celulas e da gramatica e ANTES do OCR — uma linha que ela derruba nunca vira dado, entao pagar ~7 ms de OCR por ela seria pagar por nada. Preso por teste: o descarte do cruzamento faz ZERO chamadas das duas escalas.
+- [Phase 02]: A folga de cola do glifo foi MEDIDA em 1 e a guarda do run largo entrou em ler_glifos: 69 leituras erradas e plausiveis do censo viraram ZERO, e o rendimento subiu de 1135 para 1148 linhas completas — Um run mais largo que o maior molde de um caractere era casado contra UM molde e virava UM digito (44 lia 4, 149,44 lia 14,44), com score e margem que atravessavam as duas peneiras - a unica falha ABERTA da Fase 2, violando LEIT-02. O limite ficou DERIVADO dos moldes (max(largura)=6) e nao virou chave, porque uma copia gravada seria a segunda verdade sobre uma so geometria; o vale medido de quatro niveis (7 a 10 px, ZERO celulas aceitas) prova que a escolha dentro dele nao muda nada. So a folga de cola e livre, e por isso e a unica chave nova - medida pela varredura, com o balde LE ERRADO vazio nas duas populacoes rotuladas.
+- [Phase 02]: A MEDICAO refutou duas afirmacoes do plano 02-08: afrouxar a folga nao inventa numero (folgas 2-4 leem IDENTICO a folga 1), e o pior caso da particao e 17x abaixo do tick e nao tres ordens de grandeza — particionar_run escolhe pelo PIOR segmento do corte, entao larguras permitidas a mais so acrescentam candidatos piores, que perdem - a sondagem do planejador previa 54 invencoes na variante D e mediu outra regra de escolha. A afirmacao 'a largura de corte decide entre conserto e invencao' e verdadeira sobre a ESCOLHA DO CORTE e falsa sobre a LARGURA PERMITIDA. O relogio: 9,02 ms medio e 60,16 ms no pior caso, contra o teto declarado de 200 ms - passa, mas com menos folga do que o plano supunha.
 
 ### Blockers
 
@@ -141,9 +143,9 @@ Progress: [███░░░░░░░] 25%
 
 ## Session Continuity
 
-**Last session:** 2026-08-30T17:23:36.535Z
+**Last session:** 2026-08-30T23:14:33.968Z
 
-**Stopped At:** Completed 02-06-PLAN.md (a guarda de cruzamento)
+**Stopped At:** Completed 02-08-PLAN.md
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -157,3 +159,4 @@ Progress: [███░░░░░░░] 25%
 | Phase 02 P03 | 1h 45m | 1 tasks | 8 files |
 | Phase 02 P04 | 3h 25m | 3 tasks | 18 files |
 | Phase 02 P06 | 25 min | 1 tasks | 5 files |
+| Phase 02 P08 | 95 min | 2 tasks | 14 files |

@@ -78,7 +78,7 @@ Plans:
   2. Os preços e quantidades lidos batem dígito a dígito com o que o usuário vê no frame — separador de milhar tratado como glifo de primeira classe; quando o frame está ilegível, a linha aparece como descartada, nunca como um número plausível. O número NUNCA vem do motor de OCR que lê o nome: medido contra as gravações da Fase 1, ele perde a vírgula decimal e devolve `1650` onde a tela diz `16,50` — erro de 100x com aparência plausível, exatamente o que LEIT-02 existe para impedir
   3. Uma página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS; frames bit a bit idênticos são reportados como captura congelada, não aceitos como acordo
 
-**Plans**: 5/8 plans executed (8 waves - a fase e SERIAL por construcao: um portao humano, quatro ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
+**Plans**: 6/8 plans executed (8 waves - a fase e SERIAL por construcao: um portao humano, quatro ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
 
 Plans:
 **Wave 1**
@@ -107,7 +107,7 @@ Plans:
 
 **Wave 7** *(blocked on Wave 6 - compartilha `mercado_leitura.py`, `calibracao.py` e a calibracao de fixtura com o 02-07)*
 
-- [ ] 02-08-PLAN.md - (wave 7) A GUARDA DE LARGURA DE RUN: um run mais largo que o maior molde nao pode ser um glifo so. Hoje ele e casado contra UM molde e vira UM digito — `44` le `4` e `149,44` le `14,44`, as duas com gramatica valida. Medido no censo: **14 quantidades erradas e 55 totais inventados**, a unica falha ABERTA conhecida da fase. A ferramenta mede o vale, o custo da guarda e a folga de cola; a particao entrega o conserto, a guarda e o fallback fechado
+- [x] 02-08-PLAN.md - (wave 7) A GUARDA DE LARGURA DE RUN: um run mais largo que o maior molde nao pode ser um glifo so. Hoje ele e casado contra UM molde e vira UM digito — `44` le `4` e `149,44` le `14,44`, as duas com gramatica valida. Medido no censo: **14 quantidades erradas e 55 totais inventados**, a unica falha ABERTA conhecida da fase. A ferramenta mede o vale, o custo da guarda e a folga de cola; a particao entrega o conserto, a guarda e o fallback fechado
 
 **Wave 8** *(blocked on Wave 7 - o replay so mede a fase depois que o piso da Quantity e a guarda de largura existem, senao o rendimento e artefato: as leituras erradas contam como acerto)*
 
@@ -163,7 +163,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fundação — firewall, gravador e spike de campo | 5/5 | ✓ Complete | 2026-08-29 |
-| 2. Leitura de página | 5/7 | In Progress|  |
+| 2. Leitura de página | 6/8 | In Progress|  |
 | 3. Persistência de observações | 0/TBD | Not started | - |
 | 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
 
