@@ -89,3 +89,19 @@ Fase 2  [          ]  0%   Janela de respawn
 **Stopped At:** ROADMAP.md escrito e traceability preenchida
 **Resume File:** `.planning/workstreams/tiat/ROADMAP.md`
 **Next:** planejar a Fase 1
+
+## Estado
+
+Milestone COMPLETO. Duas fases, ambas verificadas por execucao.
+
+| Fase | Entrega | Verificacao |
+|------|---------|-------------|
+| 1 | Reconhecimento preciso: so o anuncio do servidor dispara, a mensagem diz QUAL boss, e a lista mora no config.toml | 8/8 criterios; G-01 achado e corrigido |
+| 2 | Janela de respawn: ancora em disco com a origem no nome, avisos de abertura e limite, funcionando com o jogo fechado | 8/8 criterios, 0 gap |
+
+O que falta e VALIDACAO EM CAMPO, nao implementacao: ver o anuncio real do
+Tiat disparar o aviso no WhatsApp, e ver a janela abrir 6h depois.
+
+A vigia esta calibrada na janela do Yazalaque (medida 2026-08-30 as 14:27,
+regioes tiat_chat 8,878 625x455 e tiat_alvo 350,772 160x24, provadas contra
+OCR real). A SEGUNDA instancia usa a mesma calibracao e NAO foi conferida.

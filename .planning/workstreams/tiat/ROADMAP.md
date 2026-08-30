@@ -60,8 +60,8 @@ Consequências que o texto tem que respeitar:
 - Integer phases (1, 2): trabalho planejado do milestone
 - Decimal phases (1.1, 1.2): inserções urgentes (marcadas com INSERTED)
 
-- [ ] **Phase 1: Reconhecimento preciso e lista de bosses no config** - O alerta só sai quando o SERVIDOR anunciou um nascimento, diz QUAL boss nasceu, e a lista de vigiados é editável sem tocar em código
-- [ ] **Phase 2: Janela de respawn** - Quem está offline recebe que a janela abriu e que o limite passou, ancorado no último nascimento realmente visto, com a mensagem honesta sobre a origem do número
+- [x] **Phase 1: Reconhecimento preciso e lista de bosses no config** - O alerta só sai quando o SERVIDOR anunciou um nascimento, diz QUAL boss nasceu, e a lista de vigiados é editável sem tocar em código
+- [x] **Phase 2: Janela de respawn** - Quem está offline recebe que a janela abriu e que o limite passou, ancorado no último nascimento realmente visto, com a mensagem honesta sobre a origem do número
 
 **Nota de nomenclatura:** os slugs de diretório usam o prefixo `tiat-` (ex.: `phases/01-tiat-reconhecimento-e-lista/`), pelo mesmo motivo do workstream `mercado`: escopos de commit não podem colidir com as fases do workstream `default`.
 
@@ -94,10 +94,10 @@ Consequências que o texto tem que respeitar:
 
 **Plans**: 4 plans (2 waves)
 
-- [ ] 01-01-PLAN.md — Tracer em três camadas: do `[[boss]]` no arquivo ao aviso (T1), do aviso ao despacho em `sessao.py` (T2), e `montar_vigia_de_bosses` no arranque (T3) — wave 1
-- [ ] 01-02-PLAN.md — OPER-01: a calibração deixa de nomear um mob, com guarda AST que impede a volta (wave 2 — o guarda importa `ler_bosses`, que nasce em `01-01`)
-- [ ] 01-03-PLAN.md — A matriz que torna os 8 critérios verdadeiros, o vetor de metacaractere fechado, e `bosses.py` no portão AST de relógio (wave 2)
-- [ ] 01-04-PLAN.md — A ferramenta que confronta a frase real contra pixels, o README, e a medição do sentido negativo contra `recordings/` (wave 2)
+- [x] 01-01-PLAN.md — Tracer em três camadas: do `[[boss]]` no arquivo ao aviso (T1), do aviso ao despacho em `sessao.py` (T2), e `montar_vigia_de_bosses` no arranque (T3) — wave 1
+- [x] 01-02-PLAN.md — OPER-01: a calibração deixa de nomear um mob, com guarda AST que impede a volta (wave 2 — o guarda importa `ler_bosses`, que nasce em `01-01`)
+- [x] 01-03-PLAN.md — A matriz que torna os 8 critérios verdadeiros, o vetor de metacaractere fechado, e `bosses.py` no portão AST de relógio (wave 2)
+- [x] 01-04-PLAN.md — A ferramenta que confronta a frase real contra pixels, o README, e a medição do sentido negativo contra `recordings/` (wave 2)
 
 **Nota de planejamento — o desvio declarado de D-12:** o CONTEXT trava que os 7 testes de `tests/test_tiat.py` migrem "INTACTOS, só o import muda". Isso é impossível de cumprir literalmente e a impossibilidade é o objetivo da fase: quatro deles alimentam o vigia com `Tiat`, `TIAT apareceu` e `T1A7 apareceu`, e RECO-01 existe para que esses textos PAREM de disparar; um quinto ponto é que `avaliar` passa a devolver LISTA para que o critério 4 possa emitir dois alertas num tick. O que a restrição protege — o debounce — é preservado por um contrato escrito em `01-01-PLAN.md`: os 7 nomes sobrevivem, a aritmética sobrevive byte a byte, e só três categorias de edição mecânica são permitidas. Nenhuma asserção é enfraquecida.
 
@@ -129,8 +129,8 @@ Consequências que o texto tem que respeitar:
 
 **Plans**: 2 plans (2 waves)
 
-- [ ] 02-01-PLAN.md — Tracer: do nascimento na tela a ancora em disco e ao aviso de abertura no WhatsApp; as quatro mensagens honestas; os tres portoes (relogio, ancora imortal, apelido colidindo) — wave 1
-- [ ] 02-02-PLAN.md — O segundo sitio de fiacao (`--so-agenda`, jogo fechado), OPER-02 nos dois lacos, e o portao AST contra a divergencia — wave 2
+- [x] 02-01-PLAN.md — Tracer: do nascimento na tela a ancora em disco e ao aviso de abertura no WhatsApp; as quatro mensagens honestas; os tres portoes (relogio, ancora imortal, apelido colidindo) — wave 1
+- [x] 02-02-PLAN.md — O segundo sitio de fiacao (`--so-agenda`, jogo fechado), OPER-02 nos dois lacos, e o portao AST contra a divergencia — wave 2
 
 **Nota de planejamento — as decisoes de discricao, resolvidas:** o modulo novo e
 `l2scanner/respawn.py` (`janela.py` foi recusado porque `--janela`, `JanelaDeSilencio` e
