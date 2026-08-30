@@ -250,3 +250,43 @@ conversa_de_destino = ""
 # Na Fase 1 a ponte SO SIMULA: ela mostra a mensagem no console e nao manda
 # nada para o WhatsApp. Deixe true ate o texto de verdade aparecer no console.
 simulacao = true
+
+# ---------------------------------------------------------------------------
+# Os bosses raros vigiados no chat e no alvo — L2 Party Scanner
+#
+# O scanner avisa no WhatsApp quando o SERVIDOR anuncia o nascimento de um
+# destes mobs no chat do jogo, ou quando o nome de um deles aparece no seu
+# alvo selecionado.
+#
+# ACRESCENTAR UM MOB E ACRESCENTAR UM BLOCO AQUI. Nunca e preciso mexer em
+# codigo: o scanner nao conhece mob nenhum por nome, ele so le esta lista.
+#
+# Campos de cada [[boss]]:
+#
+#   nome                como o mob aparece no jogo, do jeito exato. E este
+#                       nome que vai para a mensagem do WhatsApp — o texto
+#                       que o OCR leu nunca vai.
+#   respawn_horas_min   quantas horas, no minimo, o servidor demora para
+#                       renascer o mob depois da morte dele
+#   respawn_horas_max   o limite otimista da mesma janela
+#
+# AS HORAS DE RESPAWN AINDA NAO FAZEM NADA. Sao lidas e conferidas desde ja
+# (um valor torto derruba o arranque dizendo qual campo esta errado), mas
+# quem as usa e a Fase 2, que vai prever a janela do proximo nascimento.
+# Estao aqui agora para voce nao ter que editar este arquivo duas vezes.
+#
+# A regra do servidor para o Tiat: 6 horas fixas, mais 0 a 2 horas
+# aleatorias, contadas a partir da MORTE.
+#
+# SEM NENHUM BLOCO, o scanner sobe normalmente e so avisa no console que a
+# vigilancia de boss esta desligada.
+
+[[boss]]
+nome = "Tiat North"
+respawn_horas_min = 6
+respawn_horas_max = 8
+
+[[boss]]
+nome = "Tiat South"
+respawn_horas_min = 6
+respawn_horas_max = 8

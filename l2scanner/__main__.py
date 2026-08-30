@@ -105,7 +105,7 @@ from .presenca import (  # noqa: E402
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
 from .sessao import Sessao  # noqa: E402
-from .bosses import VigiaDoTiat  # noqa: E402
+from .bosses import VigiaDeBosses  # noqa: E402
 from .visao import EstadoDaLinha  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -339,7 +339,7 @@ def montar_vigia_de_manutencao(regiao) -> VigiaDeManutencao | None:
     )
 
 
-def montar_vigia_do_tiat(cal: Calibracao, na_janela: bool) -> VigiaDoTiat | None:
+def montar_vigia_do_tiat(cal: Calibracao, na_janela: bool) -> VigiaDeBosses | None:
     """Liga o aviso de Tiat quando chat ou alvo foram calibrados."""
     if not cal.tiat_chat and not cal.tiat_alvo:
         log.info(
@@ -363,7 +363,7 @@ def montar_vigia_do_tiat(cal: Calibracao, na_janela: bool) -> VigiaDoTiat | None
         "Aviso de Tiat ativo — lendo %s a cada 2s; um aviso por aparicao.",
         " e ".join(partes),
     )
-    return VigiaDoTiat(ocr.ler_texto)
+    return VigiaDeBosses(ocr.ler_texto)
 
 
 def montar_vigia_do_mercado(cal: Calibracao, na_janela: bool):
