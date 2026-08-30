@@ -1147,12 +1147,42 @@ def _tentar_pelas_janelas_do_jogo() -> Calibracao | None:
     return None
 
 
+# POR QUE OS CAMPOS DA CALIBRACAO NAO ACOMPANHARAM O TEXTO.
+#
+# O texto desta ferramenta parou de nomear um mob (OPER-01), mas os dois campos
+# de `Calibracao`, as chaves de mesmo nome no `calibration.json`, a flag de
+# linha de comando e o `.bat` continuam com o nome antigo. A assimetria e
+# deliberada, e nao inercia:
+#
+#   - `Calibracao.de_dict` le cada chave com `dados.get(...)` e devolve `None`
+#     quando ela falta. Renomear os campos desligaria a vigilancia de boss, EM
+#     SILENCIO, em todo `calibration.json` que ja existe na maquina de quem usa
+#     o scanner: a ferramenta subiria, a party continuaria vigiada, e o aviso
+#     de boss simplesmente nunca mais sairia, sem uma linha de erro.
+#   - A flag e o `.bat` sao a porta de entrada que o usuario ja tem no dedo e
+#     que o README ja documenta. Renomea-los custaria uma quebra real em troca
+#     de estetica.
+#
+# OPER-01 e sobre o TEXTO nao nomear um mob, e nao sobre mudar o formato da
+# calibracao.
 def calibrar_tiat(titulo: str | None = None) -> int:
-    """Marca, na janela do jogo, o chat e/ou o texto do alvo para o Tiat.
+    """Marca, na janela do jogo, as regioes do CHAT e do ALVO.
 
-    Nao existe posicao universal para essas partes do HUD. A selecao manual e
-    curta e pode ser feita com qualquer alvo; o OCR so procura por ``Tiat``
-    depois, quando o scanner esta rodando.
+    Nao existe posicao universal para essas duas partes do HUD: cada jogador
+    arruma o chat onde quer, e a moldura do alvo acompanha a resolucao. Por
+    isso a selecao e manual. Ela e curta, e pode ser feita com qualquer alvo
+    na tela, porque o que se marca aqui e ONDE olhar, e nunca O QUE procurar.
+
+    A MESMA CALIBRACAO SERVE PARA QUALQUER BOSS DA LISTA do `config.toml`.
+    Quem acrescenta um bloco `[[boss]]` novo nao recalibra nada: as duas
+    regioes sao do HUD, e nao de um mob. E por isso que nenhum texto desta
+    ferramenta nomeia um mob especifico. Nomear um faria o usuario concluir
+    que precisa de uma calibracao por mob, e ele gastaria o tempo de uma
+    recalibracao que nao mudaria um pixel do resultado.
+    `tests/test_calibracao_generica.py` guarda essa promessa por escrito.
+
+    OS DOIS CAMPOS GRAVADOS NAO MUDAM DE NOME, e a assimetria com o texto e
+    deliberada: ver o comentario logo acima desta funcao.
     """
     try:
         cal = Calibracao.carregar(ARQUIVO_CALIBRACAO)
@@ -1164,7 +1194,7 @@ def calibrar_tiat(titulo: str | None = None) -> int:
     if not alvo:
         janelas = listar_janelas_do_jogo()
         if len(janelas) != 1:
-            print("Nao sei qual janela do jogo calibrar para o Tiat.")
+            print("Nao sei qual janela do jogo calibrar para o aviso de boss.")
             print("Use: python -m l2scanner.calibrar --tiat --janela \"TITULO\"")
             return 1
         alvo = janelas[0]
@@ -1184,15 +1214,18 @@ def calibrar_tiat(titulo: str | None = None) -> int:
         print("Nenhum frame utilizavel chegou da janela. Ela esta minimizada?")
         return 1
 
-    print("1/2 — marque as linhas do CHAT onde aparece o anuncio de Tiat.")
+    print("As duas regioes valem para QUALQUER boss da sua lista do")
+    print("config.toml. Acrescentar um mob novo la nao pede recalibracao.")
+    print()
+    print("1/2 - marque as linhas do CHAT onde sai o anuncio de nascimento.")
     print("      ENTER confirma; ESC deixa este sinal desligado.")
     chat = _selecionar_regiao(
-        pixels, "Tiat: chat", "Arraste somente sobre as linhas do chat."
+        pixels, "Regiao do chat", "Arraste somente sobre as linhas do chat."
     )
-    print("2/2 — marque APENAS o NOME do alvo selecionado (nao a barra inteira).")
+    print("2/2 - marque APENAS o NOME do alvo selecionado (nao a barra inteira).")
     print("      ENTER confirma; ESC deixa este sinal desligado.")
     alvo_regiao = _selecionar_regiao(
-        pixels, "Tiat: alvo", "Arraste somente sobre o texto do nome do alvo."
+        pixels, "Regiao do alvo", "Arraste somente sobre o texto do nome do alvo."
     )
     if chat is None and alvo_regiao is None:
         print("Nenhuma regiao marcada; a calibracao anterior foi mantida.")
@@ -1205,8 +1238,8 @@ def calibrar_tiat(titulo: str | None = None) -> int:
 
     conferencia = pixels.copy()
     for regiao, texto, cor in (
-        (cal.tiat_chat, "TIAT CHAT", (0, 255, 255)),
-        (cal.tiat_alvo, "TIAT ALVO", (0, 255, 0)),
+        (cal.tiat_chat, "CHAT", (0, 255, 255)),
+        (cal.tiat_alvo, "ALVO", (0, 255, 0)),
     ):
         if regiao is None:
             continue
@@ -1222,7 +1255,7 @@ def calibrar_tiat(titulo: str | None = None) -> int:
             cv2.FONT_HERSHEY_SIMPLEX, 0.5, cor, 1,
         )
     caminho = _gravar_conferencia(conferencia)
-    print(f"Aviso de Tiat calibrado para {alvo!r}.")
+    print(f"Regioes do chat e do alvo calibradas na janela {alvo!r}.")
     if caminho:
         print(f"CONFIRA {caminho}: amarelo = chat; verde = nome do alvo.")
     else:
@@ -1338,7 +1371,8 @@ def main() -> int:
         "--tiat",
         action="store_true",
         help=(
-            "marca as regioes do chat e do alvo para o aviso de Tiat; "
+            "marca as regioes do chat e do alvo para o aviso de boss; "
+            "a mesma calibracao vale para qualquer boss do config.toml e "
             "nao altera a calibracao da party"
         ),
     )
