@@ -29,6 +29,7 @@ da fonte do jogo, que nao esta no repositorio.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import sys
 from pathlib import Path
@@ -231,11 +232,18 @@ class TestOTextoCru:
         assert repr("Tiat North \t") in saida
 
     def test_o_texto_cru_sai_ANTES_do_veredito(self, cenario, capsys):
-        """Mesmo quando tudo da NAO, colar a saida continua sendo informacao."""
+        """Mesmo quando tudo da NAO, colar a saida continua sendo informacao.
+
+        A comparacao comeca no bloco da LEITURA e nao no topo da saida: o
+        cabecalho ja nomeia os bosses lidos do config e ja cita o arquivo, e
+        medir a partir do topo estaria medindo o cabecalho.
+        """
         imagem, config = cenario
         ferramenta.main(argv(imagem, config), motor=motor_falso("nada aqui"))
         saida = capsys.readouterr().out
-        assert saida.index("nada aqui") < saida.index("Tiat North")
+        bloco = saida[saida.index("[deteccao] texto cru") :]
+        assert bloco.index("nada aqui") < bloco.index("veredito:")
+        assert bloco.index("nada aqui") < bloco.index("Tiat North")
 
 
 # ---------------------------------------------------------------------------
@@ -420,11 +428,25 @@ def test_a_ferramenta_nao_escreve_expressao_regular_propria():
     regex. `padrao_do_anuncio` monta com `re.escape` caractere a caractere; uma
     regex local repetiria a construcao sem a garantia e faria a ferramenta
     MEDIR com uma convencao e o scanner DECIDIR com outra.
+
+    A prova e sobre a ARVORE e nao sobre o texto do arquivo. Um `assert
+    "re.compile" not in fonte` acusaria a propria docstring que EXPLICA a
+    mitigacao — e o conserto seria apagar a explicacao, que e o ativo. Pela
+    arvore, `import re` e `from re import ...` sao impossiveis sob qualquer
+    apelido, inclusive `import re as _r`, que um scan de substring deixaria
+    passar.
     """
     fonte = (RAIZ / "tools" / "conferir_anuncio_de_boss.py").read_text(
         encoding="utf-8"
     )
-    assert "re.compile" not in fonte
-    assert "import re" not in fonte
+    importados = set()
+    for no in ast.walk(ast.parse(fonte)):
+        if isinstance(no, ast.Import):
+            importados.update(alias.name for alias in no.names)
+        elif isinstance(no, ast.ImportFrom):
+            importados.add(no.module or "")
+    assert "re" not in importados, f"a ferramenta importou re: {importados}"
+    assert getattr(ferramenta, "re", None) is None
+
     assert "padrao_do_anuncio" in fonte
     assert "padrao_do_nome" in fonte
