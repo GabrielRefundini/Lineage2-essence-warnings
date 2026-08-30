@@ -179,7 +179,40 @@ class TestInterpretar:
             # Por isso ela sai pelas MESMAS cinco travas dos outros e so na
             # conversa de origem, sem eco no grupo. Ver `TestAjuda`.
             Comando.AJUDA,
+            # E desligar/religar TODOS os avisos do Solo Boss. Crescimento DE
+            # PROPOSITO, e de uma natureza nova: e o primeiro par que muda o
+            # que o GRUPO INTEIRO recebe por tempo indeterminado, e o efeito
+            # dele e a AUSENCIA de mensagem — indistinguivel, de fora, do bot
+            # ter caido. Os dois contrapesos: o `/status` conta que esta
+            # desligado, e nenhum dos dois e alcancavel por `[[membro]]`.
+            #
+            # SAO DOIS, E NAO UM COM ARGUMENTO: um `/avisos <evento> off`
+            # alcancaria TvT e Prime, que ninguem pediu. O armazenamento e o
+            # gate ja sao genericos por evento; a SUPERFICIE nao e.
+            Comando.DESATIVAR_SOLO_BOSS,
+            Comando.ATIVAR_SOLO_BOSS,
         }
+
+    def test_as_formas_do_desligamento_do_boss(self):
+        """As duas formas de cada um, e nenhuma a mais.
+
+        Cada palavra registrada no `_VOCABULARIO` e um personagem que deixa de
+        ser consultavel por `/<nick>` — o preco ja documentado ali. Por isso
+        sao duas por comando: a completa, que a ajuda anuncia, e a curta, que a
+        mao digita no meio de um farm.
+        """
+        for forma in ("/desativarsoloboss", "/desativar-solo-boss", "/desativarboss"):
+            assert interpretar(forma) is Comando.DESATIVAR_SOLO_BOSS, forma
+        for forma in ("/ativarsoloboss", "/ativar-solo-boss", "/ativarboss"):
+            assert interpretar(forma) is Comando.ATIVAR_SOLO_BOSS, forma
+
+    def test_desativar_SOZINHO_nao_desliga_nada(self):
+        """A mesma disciplina do D-02 no `.loot`: comando sem argumento nao
+        pode mexer em estado duravel. Quem digita `/desativar` no meio de um
+        farm nao disse O QUE desativar, e adivinhar seria calar o boss por
+        conta propria."""
+        assert interpretar("/desativar") is None
+        assert interpretar("/ativar") is None
 
     def test_as_formas_do_modo_solo(self):
         for forma in (".solo", ".soloplay", ".SOLO"):
@@ -1731,6 +1764,28 @@ class TestFronteiraDeAutorizacao:
                 f"um telefone que so esta em [[membro]] alcancou "
                 f"{comando.name} pela sintaxe {self._sintaxe(comando)!r} — a "
                 f"fronteira vazou"
+            )
+
+    def test_o_party_mate_NAO_cala_o_boss_da_party_inteira(self):
+        """A fronteira dita por extenso para o par que nasceu agora.
+
+        O teste derivado logo acima ja recusa os dois — ele recusa tudo que
+        nao esta em `COMANDOS_DE_MEMBRO`. Esta prova existe porque a razao
+        deste par ficar de fora e DIFERENTE da dos outros, e uma razao que so
+        vive num comentario nao sobrevive ao proximo ajuste.
+
+        `/entrar` mexe numa linha da lista de UMA ocorrencia, e quem digitou ve
+        o efeito. `/desativarsoloboss` apaga 12 chamadas por dia da party
+        INTEIRA, por tempo indeterminado, e o efeito dele e a AUSENCIA de
+        mensagem — do lado dos outros quatro a oito party-mates, calar o bot e
+        indistinguivel do bot ter caido. Nao e um `/entrar` maior; e outra
+        categoria de estrago.
+        """
+        assert Comando.DESATIVAR_SOLO_BOSS not in COMANDOS_DE_MEMBRO
+        assert Comando.ATIVAR_SOLO_BOSS not in COMANDOS_DE_MEMBRO
+        for comando in (Comando.DESATIVAR_SOLO_BOSS, Comando.ATIVAR_SOLO_BOSS):
+            assert self._achados(self.MEMBRO, comando) == [], (
+                f"um telefone de [[membro]] alcancou {comando.name}"
             )
 
     def test_o_membro_ALCANCA_o_que_e_dele_e_chega_com_o_nick(self):
