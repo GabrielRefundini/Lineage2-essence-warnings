@@ -1751,3 +1751,86 @@ class TestJanelaDeSilencio:
         # O scanner NUNCA envia input ao jogo. A frase avisa, nao age.
         assert "vou convidar" not in texto.lower()
         assert "enviando convite" not in texto.lower()
+
+
+class TestOMarcadorDeNascimento:
+    """A ANCORA: o par que a Fase 2 acrescentou ao registro, no molde do
+    `cancelar`/`cancelados`.
+
+    Os dois metodos nao conhecem boss nenhum — recebem e devolvem string opaca.
+    A semantica de boss mora inteira em `respawn.py`, exatamente como a
+    semantica de presenca mora em `presenca.py` e nao em
+    `RegistroEmDisco.presentes`.
+    """
+
+    CHAVE = "2026-08-30_tiat-north-1430_chat"
+
+    def test_registrar_poe_o_prefixo_e_a_chave_crua_fica_no_nome(self, tmp_path):
+        from l2scanner.agenda import PREFIXO_NASCIMENTO, RegistroEmDisco
+
+        registro = RegistroEmDisco(tmp_path)
+        assert registro.registrar_nascimento(self.CHAVE) is True
+        assert (tmp_path / (PREFIXO_NASCIMENTO + self.CHAVE)).exists()
+
+    def test_o_marcador_e_VAZIO(self, tmp_path):
+        """O arquivo vazio E a decisao de despacho inteira (D-18).
+
+        A origem vai no NOME e nunca no CONTEUDO: um "cria e depois escreve"
+        abriria uma janela em que a outra instancia le um arquivo ainda vazio e
+        nao sabe qual sinal ancorou — e a criacao atomica com `O_CREAT|O_EXCL`
+        deixaria de ser a decisao inteira.
+        """
+        from l2scanner.agenda import PREFIXO_NASCIMENTO, RegistroEmDisco
+
+        registro = RegistroEmDisco(tmp_path)
+        registro.registrar_nascimento(self.CHAVE)
+
+        assert (tmp_path / (PREFIXO_NASCIMENTO + self.CHAVE)).stat().st_size == 0
+
+    def test_nascimentos_devolve_sem_o_prefixo(self, tmp_path):
+        from l2scanner.agenda import RegistroEmDisco
+
+        registro = RegistroEmDisco(tmp_path)
+        registro.registrar_nascimento(self.CHAVE)
+
+        assert registro.nascimentos() == {self.CHAVE}
+
+    def test_nascimentos_nao_confunde_os_outros_namespaces(self, tmp_path):
+        """Namespaces diferentes na MESMA pasta.
+
+        Sem o filtro por prefixo, um marcador de aviso de janela (que nao tem
+        prefixo nenhum) entraria na lista de ancoras e seria parseado como
+        nascimento.
+        """
+        from l2scanner.agenda import RegistroEmDisco
+
+        registro = RegistroEmDisco(tmp_path)
+        registro.registrar_nascimento(self.CHAVE)
+        registro.marcar("2026-08-30_tiat-north-1430_abre")
+        registro.cancelar("2026-08-30_solo-boss-2000")
+
+        assert registro.nascimentos() == {self.CHAVE}
+
+    def test_a_segunda_instancia_perde_a_corrida(self, tmp_path):
+        """JANE-06 herdado de `marcar`, sem uma linha de codigo nova."""
+        from l2scanner.agenda import RegistroEmDisco
+
+        yaza = RegistroEmDisco(tmp_path)
+        faer = RegistroEmDisco(tmp_path)
+
+        assert yaza.registrar_nascimento(self.CHAVE) is True
+        assert faer.registrar_nascimento(self.CHAVE) is False
+
+    def test_em_simulacao_nao_grava_ancora_na_pasta_compartilhada(self, tmp_path):
+        """Herdado de `marcar`, e nao reimplementado.
+
+        Uma simulacao que gravasse ancora faria o scanner REAL contar seis
+        horas a partir de um nascimento que a simulacao inventou.
+        """
+        from l2scanner.agenda import RegistroEmDisco
+
+        pasta = tmp_path / "agenda"
+        registro = RegistroEmDisco(pasta, simulando=True)
+
+        assert registro.registrar_nascimento(self.CHAVE) is True
+        assert not pasta.exists()
