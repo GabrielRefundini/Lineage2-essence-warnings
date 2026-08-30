@@ -48,6 +48,8 @@ from l2scanner.calibracao import (
 )
 from l2scanner.frames import Regiao
 
+RAIZ = Path(__file__).resolve().parent.parent
+
 ALFA = "Alfa - XM Essence"
 BETA = "Beta - XM Essence"
 # O titulo COLAPSA na tela de login: sem personagem, so o nome do cliente. Dois
@@ -681,3 +683,56 @@ class TestOCampoJanelaGravado:
         assert cenario.capturas_de_desktop == 1
         gravado = json.loads(alvo.read_text(encoding="utf-8"))
         assert gravado["janela"] == BETA
+
+
+# ---------------------------------------------------------------------------
+# Guarda de DERIVA — a chave documentada e a chave lida
+# ---------------------------------------------------------------------------
+
+
+class TestOConfigDoRepositorio:
+    """O `config.toml` versionado, exatamente como esta no repositorio.
+
+    Mesmo precedente de `tests/test_agenda.py`, e pelo mesmo tipo de razao: uma
+    chave DOCUMENTADA com um nome que o codigo nao le deixa o usuario
+    reeditando para sempre uma linha que nao faz nada, e nada no mundo o avisa.
+
+    `tomllib` nao le comentario, e o bloco entra COMENTADO — entao um assert
+    sobre "o que o comentario diz" so tem como se ancorar no TEXTO do arquivo.
+    As duas pontas sao montadas EM TEMPO DE TESTE a partir das MESMAS
+    constantes que `ler_personagem_do_jogo` usa para indexar o TOML: renomear
+    qualquer um dos dois lados quebra o guarda, que e exatamente o ponto.
+    """
+
+    def test_a_secao_e_a_chave_documentadas_sao_as_que_o_codigo_le(self):
+        texto = (RAIZ / "config.toml").read_text(encoding="utf-8")
+
+        cabecalho = f"[{l2scanner.config.SECAO_DO_JOGO}]"
+        # FRAGMENTO, e nao a linha inteira: o exemplo entra comentado
+        # (`# personagem = "..."`), entao exigir a linha completa faria este
+        # guarda falhar por construcao.
+        exemplo = f"{l2scanner.config.CHAVE_DO_PERSONAGEM} = "
+
+        assert cabecalho in texto, (
+            f"O config.toml nao documenta a secao {cabecalho}, que e a que "
+            f"`ler_personagem_do_jogo` indexa."
+        )
+        assert exemplo in texto, (
+            f"O config.toml nao documenta a chave `{exemplo.strip()}`, que e a "
+            f"que `ler_personagem_do_jogo` indexa."
+        )
+
+    def test_o_arquivo_do_repositorio_nao_carrega_o_personagem_de_ninguem(self):
+        """O bloco fica COMENTADO — mesmo motivo dos `[[membro]]`.
+
+        Prova isso sem casar texto: se alguem descomentar e commitar o proprio
+        personagem, este guarda cai. O caminho e EXPLICITO, entao o
+        `config.local.toml` da maquina de quem roda nao entra na conta.
+        """
+        do_repositorio = l2scanner.config.ler_personagem_do_jogo(
+            RAIZ / "config.toml"
+        )
+        assert do_repositorio is None, (
+            f"O config.toml do repositorio esta mirando '{do_repositorio}' — "
+            f"alguem commitou o proprio personagem."
+        )

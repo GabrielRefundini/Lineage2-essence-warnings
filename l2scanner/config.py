@@ -137,6 +137,16 @@ ARQUIVO_CONFIG = RAIZ / "config.toml"
 # aqui — o porque esta no comentario da secao de membros, la embaixo.
 ARQUIVO_CONFIG_LOCAL = RAIZ / "config.local.toml"
 
+# A secao e a chave da MIRA DA CALIBRACAO, em constante e nao em literal
+# repetido. Isto nao e estilo: `tomllib` nao le comentario, entao um teste que
+# queira afirmar "a chave DOCUMENTADA e a chave LIDA" so tem como se ancorar no
+# TEXTO do `config.toml` — e as duas pontas precisam sair da MESMA constante
+# para que renomear qualquer um dos lados quebre o guarda. Uma chave
+# documentada com um nome que o codigo nao le deixa o usuario reeditando para
+# sempre uma linha que nao faz nada, e nada no mundo o avisa.
+SECAO_DO_JOGO = "jogo"
+CHAVE_DO_PERSONAGEM = "personagem"
+
 
 def ler_agenda(caminho: Path | None = None) -> list[EventoAgendado]:
     """Le os eventos agendados do config.toml.
@@ -537,10 +547,13 @@ def ler_personagem_do_jogo(
 
     if do_local and do_versionado:
         log.warning(
-            "ATENCAO: %s e %s tem [jogo] personagem. Vale o %s ('%s'); o do %s "
-            "esta sendo IGNORADO. Para voltar a usar o %s, apague a chave do %s.",
+            "ATENCAO: %s e %s tem [%s] %s. Vale o %s ('%s'); o do %s esta "
+            "sendo IGNORADO e nao mira ninguem. Para voltar a usar o %s, "
+            "apague a chave do %s.",
             caminho.name,
             caminho_local.name,
+            SECAO_DO_JOGO,
+            CHAVE_DO_PERSONAGEM,
             caminho_local.name,
             do_local,
             caminho.name,
@@ -570,7 +583,7 @@ def _personagem_do_arquivo(caminho: Path | None) -> str | None:
     except tomllib.TOMLDecodeError as erro:
         raise AgendaInvalida(f"{caminho.name} nao e um TOML valido: {erro}") from erro
 
-    bruto = dados.get("jogo", {}).get("personagem")
+    bruto = dados.get(SECAO_DO_JOGO, {}).get(CHAVE_DO_PERSONAGEM)
     if bruto is None:
         return None
     # `personagem = ["Alfa", "Beta"]` produziria um alvo que e uma LISTA, e a
@@ -579,8 +592,8 @@ def _personagem_do_arquivo(caminho: Path | None) -> str | None:
     # `calibrar_mercado.ler_watchlist` faz para `watchlist` string.
     if not isinstance(bruto, str):
         raise AgendaInvalida(
-            f"{caminho.name}: [jogo] personagem precisa ser TEXTO, veio "
-            f"{type(bruto).__name__}.\n"
-            f'  Exemplo: personagem = "Yazalaque"'
+            f"{caminho.name}: [{SECAO_DO_JOGO}] {CHAVE_DO_PERSONAGEM} precisa "
+            f"ser TEXTO, veio {type(bruto).__name__}.\n"
+            f'  Exemplo: {CHAVE_DO_PERSONAGEM} = "Yazalaque"'
         )
     return bruto.strip() or None

@@ -132,6 +132,50 @@ silenciar_minutos = 0
 # telefone = "+5544977776666"
 
 # ---------------------------------------------------------------------------
+# QUAL CLIENTE A CALIBRACAO DEVE MIRAR — para quem roda dois ao mesmo tempo
+#
+# O PROBLEMA: com DOIS clientes abertos, o calibrar.bat capturava a tela
+# inteira e procurava as barras da party em TODA a imagem. Com duas party
+# windows visiveis ele consegue juntar barras dos DOIS clientes e deduzir uma
+# geometria que nao e de nenhum — e grava isso sem reclamar, porque cada passo
+# dele pareceu dar certo. O erro que grita voce conserta; este voce so descobre
+# quando o alerta nao chega.
+#
+# Preenchendo a chave abaixo, a calibracao le SO a janela daquele personagem.
+# Os pixels do outro cliente nunca entram na conta.
+#
+# SEM ESTA CHAVE NADA MUDA. Quem tem um cliente so nao precisa dela: o
+# calibrar.bat continua funcionando exatamente como sempre funcionou.
+#
+# SE A CHAVE APONTAR PARA UMA JANELA QUE NAO EXISTE — jogo fechado, personagem
+# trocado, cliente ainda na tela de login — a ferramenta RECUSA, mostra as
+# janelas do jogo que encontrou e para. Ela nao volta a varrer a tela: voltar
+# seria trazer de novo exatamente o problema que esta chave existe para fechar.
+#
+# ESCREVA O NOME DO PERSONAGEM, e nao o titulo inteiro da janela. Jogando, o
+# titulo e "Yazalaque - XM Essence"; na tela de login ele encolhe para so
+# "XM Essence". Uma chave com o titulo inteiro nao casaria nada nesse estado, e
+# a recusa diria "nao achei essa janela" quando a verdade e "seu cliente ainda
+# esta no login".
+#
+# NA LINHA DE COMANDO, --janela "TITULO EXATO" VENCE esta chave. E a saida de
+# emergencia quando voce quer calibrar o outro cliente sem editar arquivo.
+#
+# ESTA CHAVE DIRIGE A CALIBRACAO, nao o scanner. O vigiar-party.bat aprende a
+# janela pelo calibration.json que a calibracao grava.
+#
+# ISTO NAO E SEGREDO: e um nome publico dentro do jogo, entao pode morar neste
+# arquivo versionado — ao contrario dos telefones ali de cima. Quem preferir
+# pode escrever no config.local.toml, que vence este aqui; com a chave nos dois
+# o arranque avisa alto e diz qual venceu.
+#
+# O exemplo abaixo fica comentado de proposito: o arquivo do repositorio nao
+# carrega o personagem de ninguem.
+#
+# [jogo]
+# personagem = "Yazalaque"
+
+# ---------------------------------------------------------------------------
 # Watchlist do WORLD EXCHANGE — quais itens acompanhar no mercado
 #
 # CONJUNTO FECHADO, de proposito. O scanner nao le nome de item na tela: ele

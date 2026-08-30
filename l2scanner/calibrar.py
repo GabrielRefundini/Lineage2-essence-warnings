@@ -3,12 +3,23 @@
 Duas formas de usar, da mais facil para a mais manual:
 
     python -m l2scanner.calibrar --auto
-        Procura a janela do jogo, varre a tela atras do padrao de barras da
-        party window e deduz todo o layout sozinho. E o caminho normal.
+        Procura o padrao de barras da party window e deduz todo o layout
+        sozinho. E o caminho normal.
 
     python -m l2scanner.calibrar --selecionar
-        Abre a captura da tela e voce arrasta o mouse em volta da party window.
+        Voce arrasta o mouse em volta da party window.
         Use se a deteccao automatica errar.
+
+DE ONDE VEM A IMAGEM: com a mira configurada (`[jogo] personagem` no
+`config.toml`, ou `--janela "TITULO"` na linha de comando) os dois modos leem
+SO a janela mirada, por dentro. Sem mira nenhuma, os dois varrem a tela como
+sempre varreram.
+
+A mira existe porque o usuario pode ter DOIS clientes abertos: varrendo a tela,
+a deteccao automatica consegue juntar barras dos dois e deduzir uma geometria
+que nao e de nenhum — e gravar isso calada, porque cada passo interno dela
+pareceu dar certo. Mira que nao casa exatamente uma janela RECUSA e lista o que
+achou; ela nunca cai de volta para a varredura.
 
 Por que deteccao automatica e nao so arrastar o mouse: as barras da party window
 sao um padrao muito caracteristico — faixas horizontais saturadas, todas com a
@@ -1333,7 +1344,10 @@ def main() -> int:
     )
     parser.add_argument(
         "--janela",
-        help="titulo da janela do jogo (quando ha mais de uma aberta)",
+        help=(
+            "TITULO EXATO da janela do jogo. Vale para --auto, --selecionar, "
+            "--solo e --tiat, e VENCE a chave [jogo] personagem do config.toml"
+        ),
     )
     parser.add_argument(
         "--eu",
