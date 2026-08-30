@@ -264,6 +264,24 @@ def _dirigir(monkeypatch, alvo, argv, party_nova) -> int:
     # rodar os testes. NAO REMOVA.
     monkeypatch.setattr(l2scanner.calibrar, "ARQUIVO_CALIBRACAO", alvo)
 
+    # A MIRA DA JANELA, NEUTRALIZADA. Esta linha e o que mantem esta suite
+    # independente do `config.toml` DA MAQUINA de quem a roda: no dia em que o
+    # usuario preencher `[jogo] personagem`, sem ela estes casos passariam a
+    # tentar abrir uma janela de jogo de verdade e quebrariam por um motivo que
+    # nao tem nada a ver com o que eles afirmam. Um teste que le a configuracao
+    # da maquina de quem o roda nao esta afirmando nada.
+    monkeypatch.setattr(
+        l2scanner.calibrar, "ler_personagem_do_jogo", lambda *a, **k: None
+    )
+    # CINTO. Com o curto-circuito de `main()` — que so enumera janelas quando
+    # alguem pediu alvo — esta funcao nem chega a ser chamada por aqui. Ela
+    # entra justamente por isso: para segurar o dia em que alguem tirar o
+    # curto-circuito sem perceber que ele estava prendendo esta suite ao
+    # `EnumWindows` da maquina.
+    monkeypatch.setattr(
+        l2scanner.calibrar, "listar_janelas_do_jogo", lambda *a, **k: []
+    )
+
     pixels = np.zeros((400, 400, 3), dtype=np.uint8)
     monkeypatch.setattr(l2scanner.calibrar, "capturar_tela", lambda: (pixels, 0, 0))
     monkeypatch.setattr(

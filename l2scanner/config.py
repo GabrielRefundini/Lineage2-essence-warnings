@@ -137,6 +137,16 @@ ARQUIVO_CONFIG = RAIZ / "config.toml"
 # aqui — o porque esta no comentario da secao de membros, la embaixo.
 ARQUIVO_CONFIG_LOCAL = RAIZ / "config.local.toml"
 
+# A secao e a chave da MIRA DA CALIBRACAO, em constante e nao em literal
+# repetido. Isto nao e estilo: `tomllib` nao le comentario, entao um teste que
+# queira afirmar "a chave DOCUMENTADA e a chave LIDA" so tem como se ancorar no
+# TEXTO do `config.toml` — e as duas pontas precisam sair da MESMA constante
+# para que renomear qualquer um dos lados quebre o guarda. Uma chave
+# documentada com um nome que o codigo nao le deixa o usuario reeditando para
+# sempre uma linha que nao faz nada, e nada no mundo o avisa.
+SECAO_DO_JOGO = "jogo"
+CHAVE_DO_PERSONAGEM = "personagem"
+
 
 def ler_agenda(caminho: Path | None = None) -> list[EventoAgendado]:
     """Le os eventos agendados do config.toml.
@@ -482,3 +492,108 @@ def _membro_de_dict(bruto: object, indice: int) -> Membro:
         )
 
     return Membro(nick=nick, telefone=telefone)
+
+
+def ler_personagem_do_jogo(
+    caminho: Path | None = None, caminho_local: Path | None = None
+) -> str | None:
+    """O personagem que a CALIBRACAO deve mirar, vindo de `[jogo] personagem`.
+
+    POR QUE ISSO EXISTE: o usuario roda DOIS clientes ao mesmo tempo. A
+    calibracao automatica capturava o desktop inteiro e procurava faixas
+    vermelhas na imagem TODA, entao com duas party windows visiveis ela podia
+    agrupar barras dos DOIS clientes e deduzir uma geometria que nao e de
+    nenhum — gravada CALADA, porque cada passo interno parecia dar certo.
+
+    O NOME VEM DAQUI E SO DAQUI (ou do `--janela` na linha de comando). Um
+    `"Yazalaque"` escrito no fonte seria constante magica, certa para uma
+    pessoa e errada para todas as outras.
+
+    E o NOME DO PERSONAGEM, nao o titulo inteiro da janela: jogando, o titulo e
+    `Personagem - XM Essence`; na tela de login ele COLAPSA para `XM Essence`
+    (`cliente.esta_na_tela_de_login`). Uma chave com o titulo inteiro casaria
+    nada nesse estado, e a recusa diria "nao achei essa janela" quando a
+    verdade e "seu cliente esta no login".
+
+    Mesma disciplina de `ler_membros`, logo acima, e pelas mesmas razoes.
+
+    ARQUIVO, SECAO OU CHAVE AUSENTE NAO E ERRO: sem chave e sem `--janela` nao
+    ha mira nenhuma, e a calibracao segue exatamente como sempre seguiu. Quem
+    tem um cliente so nao pode ver o `--auto` quebrar por causa de uma
+    funcionalidade que nao pediu.
+
+    ARQUIVO PRESENTE E MAL FORMADO E ERRO, e reusa `AgendaInvalida` pelo motivo
+    ja escrito na docstring de `ler_membros`: ela JA e a excecao de "o
+    config.toml nao faz sentido", ja e capturada onde o arranque quer capturar,
+    e uma segunda classe duplicaria esse tratamento sem ganhar nada.
+
+    `config.local.toml` VENCE o `config.toml`, e quando os DOIS trazem a chave
+    o aviso nomeia o vencedor. Uma chave que nao faz nada e invisivel; uma
+    chave que nao faz nada e nao avisa e uma armadilha — o usuario reedita a
+    noite inteira o arquivo errado.
+
+    UM `caminho` EXPLICITO LE SO AQUELE ARQUIVO, sem procurar vizinho. E disso
+    que depende o guarda que afirma que o `config.toml` do repositorio nao
+    carrega o personagem de ninguem: se um caminho explicito arrastasse junto o
+    `config.local.toml` ao lado, aquele teste passaria a ler a maquina de quem
+    o roda.
+    """
+    if caminho is None and caminho_local is None:
+        caminho_local = ARQUIVO_CONFIG_LOCAL
+    caminho = caminho or ARQUIVO_CONFIG
+
+    do_versionado = _personagem_do_arquivo(caminho)
+    do_local = _personagem_do_arquivo(caminho_local)
+
+    if do_local and do_versionado:
+        log.warning(
+            "ATENCAO: %s e %s tem [%s] %s. Vale o %s ('%s'); o do %s esta "
+            "sendo IGNORADO e nao mira ninguem. Para voltar a usar o %s, "
+            "apague a chave do %s.",
+            caminho.name,
+            caminho_local.name,
+            SECAO_DO_JOGO,
+            CHAVE_DO_PERSONAGEM,
+            caminho_local.name,
+            do_local,
+            caminho.name,
+            caminho.name,
+            caminho_local.name,
+        )
+
+    return do_local or do_versionado
+
+
+def _personagem_do_arquivo(caminho: Path | None) -> str | None:
+    """A chave `[jogo] personagem` de UM arquivo, ja com `strip` aplicado.
+
+    A leitura e separada da precedencia pelo mesmo motivo de
+    `_blocos_de_membro`: para saber qual dos dois arquivos manda e preciso
+    primeiro saber quais tem a chave.
+
+    Texto so de espacos e AUSENCIA, e nao um alvo chamado "   ": uma mira vazia
+    nao casaria janela nenhuma e a recusa citaria um personagem invisivel.
+    """
+    if caminho is None or not caminho.exists():
+        return None
+
+    try:
+        with caminho.open("rb") as arquivo:
+            dados = tomllib.load(arquivo)
+    except tomllib.TOMLDecodeError as erro:
+        raise AgendaInvalida(f"{caminho.name} nao e um TOML valido: {erro}") from erro
+
+    bruto = dados.get(SECAO_DO_JOGO, {}).get(CHAVE_DO_PERSONAGEM)
+    if bruto is None:
+        return None
+    # `personagem = ["Alfa", "Beta"]` produziria um alvo que e uma LISTA, e a
+    # comparacao com titulo de janela nunca casaria — em silencio, porque nada
+    # levanta ao comparar tipos diferentes. Mesmo espirito da recusa que
+    # `calibrar_mercado.ler_watchlist` faz para `watchlist` string.
+    if not isinstance(bruto, str):
+        raise AgendaInvalida(
+            f"{caminho.name}: [{SECAO_DO_JOGO}] {CHAVE_DO_PERSONAGEM} precisa "
+            f"ser TEXTO, veio {type(bruto).__name__}.\n"
+            f'  Exemplo: {CHAVE_DO_PERSONAGEM} = "Yazalaque"'
+        )
+    return bruto.strip() or None
