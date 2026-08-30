@@ -47,6 +47,9 @@ from .captura_janela import (  # noqa: E402
     origem_da_janela,
     achar_janela,
 )
+from .agenda import AgendaInvalida  # noqa: E402
+from .cliente import nome_do_personagem  # noqa: E402
+from .config import ler_personagem_do_jogo  # noqa: E402
 from .identidade import criar_assinatura  # noqa: E402
 from .frames import Regiao  # noqa: E402
 
@@ -913,6 +916,139 @@ def calibrar_so_a_propria_barra(titulo: str | None = None):
     return cal, pixels
 
 
+class MiraNaoResolvida(Exception):
+    """A mira nao resolveu para exatamente UMA janela do jogo.
+
+    A mensagem que esta excecao carrega e PRONTA PARA O USUARIO: quem a captura
+    so imprime e devolve 1. Nada de traceback — a ferramenta e disparada por um
+    clique no `calibrar.bat`, e um traceback ali nao ensina nada a ninguem.
+    """
+
+
+def escolher_janela_do_jogo(
+    janelas: list[str], pedido: str | None, personagem: str | None
+) -> str | None:
+    """Qual das janelas do jogo a calibracao deve ler. `None` = nao ha mira.
+
+    FUNCAO PURA: a lista de titulos ENTRA por parametro e nao ha chamada Win32
+    aqui dentro. E o que permite testar as quatro recusas com o jogo fechado.
+
+    `pedido` e `personagem` NAO TEM VALOR PADRAO de proposito. E a prova
+    estrutural de que nenhum nome de personagem esta escrito neste arquivo:
+    sem valor padrao nao existe onde um se esconder. Um `"Yazalaque"` aqui
+    estaria errado para qualquer outra pessoa que usasse o projeto.
+
+    PRECEDENCIA: `pedido` (o `--janela` da linha de comando, TITULO EXATO)
+    vence `personagem` (a chave do `config.toml`, NOME DO PERSONAGEM). O
+    `--janela` continua com semantica de titulo exato porque `--solo` e
+    `--tiat` ja comparam `j == titulo`: dar ao mesmo argumento um segundo
+    significado dentro da mesma ferramenta seria pior que a assimetria.
+
+    A comparacao por personagem IGNORA A CAIXA, depois de `strip`. O servidor
+    nao permite dois personagens cujos nomes so diferem em caixa, entao ignorar
+    a caixa nao pode criar ambiguidade que ja nao existisse — e recusar um
+    `yazalaque` digitado em minusculas seria crueldade sem ganho.
+
+    OS DOIS AUSENTES DEVOLVEM `None`: sem mira nao ha o que recusar. A recusa
+    fechada so existe quando alguem PEDIU um alvo.
+
+    ZERO OU DUAS OU MAIS JANELAS CASANDO LEVANTA. Escolher uma das duas seria
+    reinventar o `_tentar_pelas_janelas_do_jogo` ("a primeira que funcionar")
+    dentro da propria mira — e nunca cair para a varredura do desktop, que e
+    exatamente o defeito que a mira existe para fechar.
+    """
+    pedido = (pedido or "").strip() or None
+    personagem = (personagem or "").strip() or None
+
+    if pedido is None and personagem is None:
+        return None
+
+    alvo = pedido or personagem
+    if not janelas:
+        raise MiraNaoResolvida(
+            f"Nao achei nenhuma janela do XM Essence para mirar '{alvo}'.\n"
+            "  O jogo esta aberto?"
+        )
+
+    if pedido is not None:
+        casadas = [j for j in janelas if j == pedido]
+    else:
+        procurado = personagem.casefold()
+        casadas = [
+            j
+            for j in janelas
+            if (nome_do_personagem(j) or "").strip().casefold() == procurado
+        ]
+
+    if len(casadas) == 1:
+        return casadas[0]
+
+    if not casadas:
+        raise MiraNaoResolvida(
+            f"Nao achei janela do jogo para '{alvo}'.\n"
+            + _linhas_de_janela(janelas)
+        )
+
+    raise MiraNaoResolvida(
+        f"'{alvo}' casa mais de uma janela do jogo — nao da para escolher.\n"
+        + _linhas_de_janela(casadas)
+    )
+
+
+def _linhas_de_janela(janelas: list[str]) -> str:
+    """As janelas, uma por linha, com o argumento pronto para copiar.
+
+    Mesmo formato de `calibrar_so_a_propria_barra`: o usuario nao tem de
+    digitar um titulo que ele leu numa mensagem de erro — ele copia a linha.
+    """
+    return "\n".join(f'    --janela "{j}"' for j in janelas)
+
+
+def capturar_a_janela_mirada(titulo: str) -> tuple[np.ndarray, int, int]:
+    """O frame da janela mirada, e a origem dela em coordenadas de desktop.
+
+    DEVOLVE A MESMA TRINCA QUE `capturar_tela()`: `(pixels, ox, oy)`. E isso
+    que a torna um DROP-IN no unico ponto de captura de `main()` — a conta
+    `origem = (jx - ox, jy - oy)`, o `party_window_na_janela` e os recortes de
+    assinatura continuam valendo sem uma linha de edicao, porque nenhum deles
+    sabe (nem precisa saber) de onde os pixels vieram. O contrato ja esta
+    provado em campo por `_tentar_pelas_janelas_do_jogo`, que usa exatamente
+    esse par.
+
+    Ler a janela POR DENTRO tambem enxerga por baixo de outro programa que
+    esteja por cima — mas nao por baixo da UI do proprio jogo, que e desenhada
+    por ele.
+    """
+    try:
+        hwnd = achar_janela(titulo)
+        ox, oy = origem_da_janela(hwnd)
+        fonte = JanelaSource(titulo, Regiao(ox, oy, 1, 1))
+    except MiraNaoResolvida:
+        raise
+    except Exception as erro:  # noqa: BLE001
+        # SEM TRACEBACK: a causa mais provavel aqui e janela minimizada, que e
+        # o erro que o usuario comete com mais frequencia. Deixar essa subir
+        # crua faria a mensagem mais comum de todas sair como pilha de chamada.
+        raise MiraNaoResolvida(
+            f"Nao consegui ler a janela '{titulo}': {erro}"
+        ) from erro
+
+    try:
+        time.sleep(0.6)  # deixa chegar um frame de verdade
+        pixels = fonte.capturar_completo()
+    finally:
+        fonte.fechar()
+
+    if pixels is None or pixels.size == 0:
+        raise MiraNaoResolvida(
+            f"Nenhum frame utilizavel chegou de '{titulo}'.\n"
+            "  A janela esta minimizada? Janela minimizada nao produz frame — "
+            "nenhuma API do Windows contorna isso."
+        )
+
+    return pixels, ox, oy
+
+
 def _tentar_pelas_janelas_do_jogo() -> Calibracao | None:
     """Procura a party window lendo cada janela do jogo por dentro.
 
@@ -1212,8 +1348,37 @@ def main() -> int:
         print("rode calibrar.bat normal com a party na tela.")
         return 0
 
-    print("Capturando a tela...")
-    pixels, ox, oy = capturar_tela()
+    # A MIRA. Com dois clientes abertos, varrer o desktop deixa `calibrar_
+    # automatico` agrupar barras dos DOIS e deduzir uma geometria que nao e de
+    # nenhum — gravada calada. Mirar uma janela fecha isso na origem: os pixels
+    # do outro cliente nunca entram na imagem analisada.
+    #
+    # O `try` cobre a RESOLUCAO e a CAPTURA de proposito: `capturar_a_janela_
+    # mirada` tambem levanta `MiraNaoResolvida` (janela minimizada), e deixa-la
+    # de fora faria a mensagem mais provavel de todas sair como traceback.
+    alvo: str | None = None
+    try:
+        personagem = ler_personagem_do_jogo()
+        # SO ENUMERA JANELAS QUANDO ALGUEM PEDIU ALVO. Sem este curto-circuito,
+        # o caminho SEM mira passaria a fazer um EnumWindows que hoje nao
+        # acontece aqui — mudando o comportamento de quem nao pediu nada.
+        if args.janela or personagem:
+            alvo = escolher_janela_do_jogo(
+                listar_janelas_do_jogo(), args.janela, personagem
+            )
+
+        if alvo:
+            de_onde = "--janela" if args.janela else "config.toml"
+            print(f"Mirando a janela {alvo!r} (a mira veio de {de_onde}).")
+            pixels, ox, oy = capturar_a_janela_mirada(alvo)
+        else:
+            print("Capturando a tela...")
+            pixels, ox, oy = capturar_tela()
+    except (MiraNaoResolvida, AgendaInvalida) as erro:
+        print()
+        print(erro)
+        return 1
+
     print(f"  {pixels.shape[1]}x{pixels.shape[0]} a partir de ({ox},{oy})\n")
 
     if args.selecionar:
@@ -1225,7 +1390,12 @@ def main() -> int:
         # personagem ou qualquer painel estiver aberto sobre a party window, a
         # busca falha. Nesse caso olhamos a janela do jogo direto, que enxerga
         # por baixo — assim o usuario nao precisa fechar o que estava fazendo.
-        if cal is None:
+        #
+        # COM MIRA ATIVA ISSO NAO RODA: ler a janela mirada por dentro ja E o
+        # que o fallback faz. O que sobraria dele seria so a parte errada —
+        # iterar todas as janelas aceitando a primeira que funcionar, que e o
+        # defeito do desktop em miniatura e uma desobediencia direta a mira.
+        if cal is None and alvo is None:
             cal = _tentar_pelas_janelas_do_jogo()
 
     if cal is None:
@@ -1245,10 +1415,22 @@ def main() -> int:
     # party a instancia vizinha — foi o que aconteceu, o canto caiu 12 px
     # dentro da janela da Faerlina e a calibracao inteira saiu no cliente
     # errado.
-    cal.janela = janela_que_contem(
-        cal.party_window.esquerda + cal.party_window.largura // 2,
-        cal.party_window.topo + cal.party_window.altura // 2,
-    )
+    #
+    # COM MIRA, O PALPITE GEOMETRICO NAO E CONSULTADO. Os pixels vieram do
+    # frame daquela janela POR CONSTRUCAO, entao a dona e conhecida com
+    # certeza, e adivinhar so pode subtrair certeza: com os dois clientes
+    # SOBREPOSTOS — justamente o cenario que ler a janela por dentro resolve —
+    # a party window achada tem coordenadas de desktop que caem dentro do
+    # retangulo do cliente de CIMA, e `janela_que_contem` devolveria esse. Dali
+    # para baixo `party_window_na_janela`, `nome_proprio` e o SCANNER EM
+    # PRODUCAO herdariam o cliente errado, gravado calado.
+    if alvo:
+        cal.janela = alvo
+    else:
+        cal.janela = janela_que_contem(
+            cal.party_window.esquerda + cal.party_window.largura // 2,
+            cal.party_window.topo + cal.party_window.altura // 2,
+        )
 
     # A barra do proprio personagem. Sem ela a morte do usuario nunca e
     # detectada — e ele e quem tem mais chance de morrer AFK, porque e o unico
