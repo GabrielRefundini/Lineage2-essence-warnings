@@ -509,12 +509,22 @@ def acusacoes(texto: str) -> list[str]:
     return [token for token in TOKENS_PROIBIDOS if token in minusculo]
 
 
-def todos_os_textos() -> list[str]:
-    """As quatro frases da matriz, e o ponto de extensao do plano 02-02.
+def as_quatro_frases() -> list[str]:
+    """So a matriz `{ABRE, LIMITE} x {anuncio, alvo}` do WhatsApp.
 
-    Parametrizado sobre uma LISTA para que acrescentar a quinta origem de texto
-    (as linhas de previsao do console, que o plano 02-02 cria) seja acrescentar
-    um item, e nao escrever um segundo portao que pode divergir deste.
+    SEPARADA DE `todos_os_textos()` de proposito. Ha duas familias de
+    afirmacao neste arquivo e elas nao tem o mesmo dominio:
+
+    - as que valem para TODO texto que esta fase produz — nenhuma afirmacao de
+      encerramento (D-19), nada fora do ASCII, nenhum travessao — e essas
+      recebem `todos_os_textos()`;
+    - as que sao das QUATRO FRASES — comecar pelo nome do boss e CITAR o
+      nascimento — e essas recebem esta lista.
+
+    A separacao nao afrouxa nada: as quatro frases continuam sendo afirmadas
+    exatamente como antes. Ela existe porque a linha de previsao de um boss SEM
+    ancora nao pode citar nascimento nenhum — nao ha um para citar, e inventar
+    um e literalmente o defeito que T-02-13 existe para impedir.
     """
     textos = []
     for origem in (OrigemDoAviso.CHAT, OrigemDoAviso.ALVO):
@@ -538,20 +548,25 @@ def todos_os_textos() -> list[str]:
                 )
             )
 
-    # A QUINTA ORIGEM DE TEXTO: as linhas de previsao do console (plano 02-02).
-    #
-    # Entram AQUI, na mesma lista, e nao num segundo portao: a lista de tokens
-    # proibidos de D-19 vale para TODO texto que esta fase produz, e nao so para
-    # as quatro frases do WhatsApp. Um segundo portao poderia divergir deste no
-    # dia em que alguem acrescentasse um token a um so dos dois.
-    #
-    # As duas origens e os dois casos entram: `NORTH` tem ancora e `SOUTH` nao,
-    # entao a linha do "ainda nao vi nascimento" tambem passa pelo portao.
+    return textos
+
+
+def todos_os_textos() -> list[str]:
+    """TODO texto que esta fase entrega a um ser humano — o portao de D-19.
+
+    Parametrizado sobre uma LISTA para que acrescentar a quinta origem de texto
+    (as linhas de previsao do console, que o plano 02-02 criou) seja acrescentar
+    um item, e nao escrever um segundo portao que pode divergir deste no dia em
+    que alguem acrescentar um token a um so dos dois.
+
+    As duas origens e os DOIS casos entram: `NORTH` tem ancora e `SOUTH` nao,
+    entao a linha do "ainda nao vi nascimento" tambem passa pelo portao.
+    """
+    textos = as_quatro_frases()
     for origem in (OrigemDoAviso.CHAT, OrigemDoAviso.ALVO):
         textos.extend(
             linhas_de_previsao(ABRE_EM, [NORTH, SOUTH], so_north(origem=origem))
         )
-
     return textos
 
 
@@ -580,7 +595,13 @@ class TestNenhumaAfirmacaoDeEncerramento:
     """
 
     @pytest.mark.parametrize("texto", todos_os_textos())
-    def test_nenhuma_das_quatro_frases_afirma_encerramento(self, texto):
+    def test_nenhum_texto_desta_fase_afirma_encerramento(self, texto):
+        """Vale para as quatro frases do WhatsApp E para as linhas do console.
+
+        A proibicao e sobre a AFIRMACAO e nao sobre o canal: uma linha de
+        console dizendo que a janela fechou mandaria a party desistir do mesmo
+        jeito.
+        """
         assert acusacoes(texto) == [], f"a frase afirma o que a conta nao autoriza: {texto}"
 
     def test_a_prova_nao_e_vazia_o_detector_acusa_o_texto_de_controle(self):
@@ -669,7 +690,7 @@ class TestAsQuatroFrases:
         texto = texto_da_janela(aviso_de(TipoDeJanela.LIMITE, OrigemDoAviso.CHAT))
         assert "o tempo em que o boss ficou vivo ainda nao entrou nela" in texto
 
-    @pytest.mark.parametrize("texto", todos_os_textos())
+    @pytest.mark.parametrize("texto", as_quatro_frases())
     def test_toda_frase_comeca_pelo_boss_e_cita_o_nascimento(self, texto):
         assert texto.startswith("Tiat North:")
         assert "14:30 de 30/08" in texto
@@ -870,6 +891,18 @@ class TestAsLinhasDePrevisaoDoConsole:
         outro = linhas_de_previsao(ABRE_EM, [NORTH, SOUTH], so_north())
 
         assert um == outro
+
+    def test_toda_linha_comeca_pelo_NOME_DO_BOSS(self):
+        """D-14 tambem no console: e a informacao que decide para onde a party
+        se desloca, e ela nao pode estar no meio da frase.
+
+        Afirmado sobre as DUAS linhas — a com ancora e a sem — porque e o unico
+        pedaco de `test_toda_frase_comeca_pelo_boss_e_cita_o_nascimento` que
+        vale tambem para quem nao tem nascimento para citar.
+        """
+        for linha in linhas_de_previsao(ABRE_EM, [NORTH, SOUTH], so_north()):
+            nome = linha.split(":")[0]
+            assert nome in ("Tiat North", "Tiat South"), linha
 
     def test_a_ordem_e_a_do_config(self):
         """Uma ordem que muda entre arranques faria o usuario reler a lista

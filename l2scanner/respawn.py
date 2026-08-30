@@ -425,3 +425,100 @@ def texto_da_janela(aviso: AvisoDeJanela) -> str:
         f"Esse era o limite otimista da conta, e dele para a frente ele pode "
         f"nascer a qualquer momento."
     )
+
+
+def _citacao_da_ancora(boss_no_config: str, ancora: Ancora) -> tuple[str, str]:
+    """A citacao da origem e a ressalva, na MESMA distincao das quatro frases.
+
+    Extraida para o console e a mensagem do grupo nao poderem divergir na
+    unica coisa que D-16 protege: quem le o console tem que poder julgar o
+    numero com a mesma informacao de quem le o grupo.
+    """
+    instante = ancora.instante
+    hora = f"{instante.hour:02d}:{instante.minute:02d}"
+    data = f"{instante.day:02d}/{instante.month:02d}"
+
+    if ancora.origem is not OrigemDoAviso.ALVO:
+        return (
+            f"do nascimento que o servidor anunciou as {hora} de {data}",
+            "",
+        )
+    return (
+        f"da ultima vez que seu alvo virou {boss_no_config}, "
+        f"as {hora} de {data}",
+        " Ter o boss no alvo nao prova nascimento, entao este numero pode "
+        "estar adiantado.",
+    )
+
+
+def linhas_de_previsao(
+    agora: datetime, bosses: Iterable[Boss], ancoras: dict[str, Ancora]
+) -> list[str]:
+    """O que o console diz no arranque sobre cada boss vigiado (OPER-02).
+
+    FUNCAO PURA, no molde de `texto_da_janela`: devolve texto e quem imprime e
+    o chamador — a mesma disciplina que faz `presenca.texto_de_fechamento` so
+    formatar. Uma linha por `Boss`, na ordem do `config.toml`, porque uma ordem
+    que muda entre arranques faria o usuario reler a lista inteira toda vez.
+
+    A METADE QUE JA EXISTIA. `montar_vigia_de_bosses` NOMEIA os bosses vigiados
+    desde a Fase 1, e a linha dela foi escrita assim de proposito para o nome
+    poder virar a ancora deste texto. As duas juntas sao OPER-02 inteiro; esta
+    aqui e a metade "qual a proxima janela".
+
+    A LINHA DE QUEM NAO TEM ANCORA NAO CONTEM HORARIO NENHUM, e isso e a coisa
+    mais importante desta funcao. O console dizendo "ainda nao vi nascimento
+    deste boss" e a RESPOSTA CORRETA, e nao uma degradacao: um horario
+    inventado ali seria a mesma familia de defeito que a poda de tres dias
+    existe para impedir — uma afirmacao sobre o futuro que ninguem tem como
+    conferir — so que na tela em vez de no grupo (T-02-13).
+
+    LISTA DE BOSSES VAZIA DEVOLVE LISTA VAZIA, e nao uma linha dizendo que nao
+    ha bosses: `montar_vigia_de_bosses` ja diz isso, e com o texto que ensina a
+    ligar. Repetir treinaria o usuario a ignorar as duas.
+
+    O `agora` ENTRA POR PARAMETRO e nao e lido aqui dentro, pela razao ja
+    escrita em `_anunciar_proximo`: e o que impede esta funcao de ser a ultima
+    do arquivo a perguntar as horas ao Windows. Ele decide so o TEMPO VERBAL —
+    uma janela que abre daqui a pouco e uma que ja abriu sao fatos diferentes,
+    e o console que os confunde manda a party sair na hora errada.
+
+    NENHUMA LINHA AFIRMA ENCERRAMENTO (D-19), pela mesma aritmetica das quatro
+    frases: a conta parte do NASCIMENTO e nao da morte, entao o limite otimista
+    passa `k` cedo, onde `k` e o tempo que o boss ficou vivo. As linhas entram
+    no MESMO portao de tokens de `tests/test_respawn.py`, e nao num segundo que
+    poderia divergir dele.
+    """
+    linhas: list[str] = []
+    for boss in bosses:
+        ancora = ancoras.get(apelido_do_evento(boss.nome))
+        if ancora is None:
+            linhas.append(
+                f"{boss.nome}: ainda nao vi nascimento nenhum deste boss, "
+                f"entao nao tenho previsao de janela para ele."
+            )
+            continue
+
+        abre = ancora.instante + timedelta(hours=boss.respawn_horas_min)
+        limite = ancora.instante + timedelta(hours=boss.respawn_horas_max)
+        desde, ressalva = _citacao_da_ancora(boss.nome, ancora)
+        linhas.append(
+            f"{boss.nome}: a janela "
+            f"{'abre' if agora < abre else 'abriu'} em {_quando(abre)} e o "
+            f"limite otimista "
+            f"{'passa' if agora < limite else 'passou'} em {_quando(limite)}, "
+            f"contados {desde}.{ressalva}"
+        )
+    return linhas
+
+
+def _quando(instante: datetime) -> str:
+    """O MESMO formato de `_anunciar_proximo` (`%d/%m %H:%M`).
+
+    Duas formas de data no mesmo bloco de arranque fariam o usuario decidir, a
+    cada linha, qual campo e o dia.
+    """
+    return (
+        f"{instante.day:02d}/{instante.month:02d} "
+        f"{instante.hour:02d}:{instante.minute:02d}"
+    )

@@ -105,7 +105,11 @@ from .presenca import (  # noqa: E402
 )
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
-from .respawn import anunciar_janelas  # noqa: E402
+from .respawn import (  # noqa: E402
+    ancoras_mais_recentes,
+    anunciar_janelas,
+    linhas_de_previsao,
+)
 from .sessao import Sessao  # noqa: E402
 from .bosses import BossInvalido, VigiaDeBosses  # noqa: E402
 from .visao import EstadoDaLinha  # noqa: E402
@@ -1370,6 +1374,27 @@ def _avisar_janelas_de_respawn(registro, bosses, agora, despachante) -> list:
     return avisados
 
 
+def _anunciar_previsao_de_janelas(registro, bosses, agora: datetime) -> None:
+    """Diz no console, para cada boss vigiado, quando a janela dele abre.
+
+    OPER-02, no molde de `_anunciar_proximo`: o instante entra por PARAMETRO em
+    vez de ser lido aqui dentro, pela mesma razao ja escrita ali — e o que
+    impede este caminho de ser o ultimo do arquivo a perguntar as horas ao
+    Windows. O texto mora em `respawn.linhas_de_previsao`, que e pura; aqui fica
+    so o log.
+
+    A UNICA LEITURA DE DISCO QUE OS CAMINHOS DE JANELA FAZEM FORA DE
+    `anunciar_janelas` E ESTE `registro.nascimentos()`, e a excecao e segura
+    porque esta funcao SO IMPRIME: ela nao marca, nao despacha e nao decide
+    nada. A proibicao de D-21 e sobre CHECAR ANTES DE MARCAR, e nao ha `marcar`
+    nenhum neste caminho.
+    """
+    for linha in linhas_de_previsao(
+        agora, bosses, ancoras_mais_recentes(registro.nascimentos())
+    ):
+        log.info(linha)
+
+
 def laco_da_agenda(args: argparse.Namespace) -> int:
     """So o relogio. Sem jogo, sem calibracao, sem captura, sem rastreador.
 
@@ -1398,10 +1423,13 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
         # boss e nao configurou nenhum `[[evento]]` ficaria sem o unico modo que
         # entrega a janela com o jogo fechado — e ele e o publico inteiro de
         # JANE-05.
+        # SEM TRAVESSAO no texto que o usuario le: o console do Windows ja
+        # entregou travessao como lixo neste projeto, e num texto de erro um
+        # caractere corrompido faz o usuario duvidar da mensagem inteira.
         log.error(
             "Nao ha nada para o relogio vigiar. Crie um config.toml com pelo "
             "menos um [[evento]] (os lembretes de horario) ou um [[boss]] (a "
-            "janela de respawn) — veja o exemplo comentado no repositorio."
+            "janela de respawn). Veja o exemplo comentado no repositorio."
         )
         return 2
 
@@ -1430,11 +1458,12 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
         # direito de subir este modo so com `[[boss]]`.
         log.info(
             "Modo agenda: vigiando o relogio, nao a tela. Sem nenhum "
-            "[[evento]] no config.toml — o que esta sendo vigiado aqui e a "
+            "[[evento]] no config.toml: o que esta sendo vigiado aqui e a "
             "janela de respawn dos bosses."
         )
     log.info("O jogo NAO precisa estar aberto. O PC, sim.")
     _anunciar_proximo(eventos, relogio)
+    _anunciar_previsao_de_janelas(registro, bosses, relogio.agora())
 
     ultimo_anuncio = relogio.agora()
     try:
@@ -1527,6 +1556,12 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
                         janela.fim.strftime("%H:%M"),
                     )
                 _anunciar_proximo(eventos, relogio)
+                # A previsao de janela entra na MESMA repeticao horaria, e nao
+                # so no arranque: o `--so-agenda` roda por DIAS, e o ROADMAP e
+                # explicito em que este e "o modo de quem mais precisa da
+                # linha". Repetir so o proximo evento deixaria de fora
+                # justamente a informacao deste workstream.
+                _anunciar_previsao_de_janelas(registro, bosses, agora)
                 ultimo_anuncio = agora
 
             time.sleep(args.intervalo)
@@ -1903,6 +1938,23 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
                 proximo[0],
                 proximo[1].strftime("%d/%m %H:%M"),
             )
+
+    # A PREVISAO DE JANELA, DELIBERADAMENTE FORA DE `montar_vigia_de_bosses` E
+    # FORA DE QUALQUER `if`.
+    #
+    # Ela depende so da ancora em disco e do relogio, entao tem que sair mesmo
+    # quando o vigia esta `None` por falta de calibracao ou de OCR. Amarra-la ao
+    # vigia faria uma calibracao quebrada APAGAR, em silencio, a previsao de uma
+    # ancora que continua perfeitamente correta em disco — que e a mesma razao
+    # pela qual a `Sessao` recebe `regras_de_respawn` separado de `bosses`.
+    #
+    # A linha de `montar_vigia_de_bosses` que NOMEIA os bosses vigiados nao
+    # muda: ela e a metade "quem esta sendo vigiado" que a Fase 1 entregou, e
+    # estas linhas sao a metade "qual a proxima janela". As duas juntas sao
+    # OPER-02 inteiro.
+    _anunciar_previsao_de_janelas(
+        registro_da_agenda, regras_de_respawn, relogio.agora()
+    )
 
     todos = list(cal.nomes)
     if cal.nome_proprio and cal.hp_proprio:

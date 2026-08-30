@@ -567,9 +567,11 @@ class TestAPrevisaoNoArranque:
         )
 
         assert len(despachante.despachos) == 1
+        # A frase do WhatsApp, e nao "a janela abriu": a linha de previsao
+        # tambem contem esse pedaco, e casar por ele acharia a propria previsao.
         despachada = next(
             i for i, m in enumerate(mensagens)
-            if "a janela abriu" in m
+            if "Antes de agora ele nao nascia" in m
         )
         assert com_ancora < despachada and sem_ancora < despachada, (
             "a previsao do arranque saiu depois do primeiro aviso"
