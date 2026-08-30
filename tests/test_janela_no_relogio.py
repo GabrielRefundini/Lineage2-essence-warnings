@@ -86,6 +86,15 @@ def _funcao_do_main(nome: str) -> ast.FunctionDef:
     return _funcao("__main__.py", nome)
 
 
+def _funcao_de_fonte(fonte: str, nome: str) -> ast.FunctionDef:
+    """A mesma busca, sobre um fonte FABRICADO. E o que prova o detector."""
+    return next(
+        no
+        for no in ast.walk(ast.parse(fonte))
+        if isinstance(no, ast.FunctionDef) and no.name == nome
+    )
+
+
 def _chamadas(no: ast.AST, alvo: str) -> list[ast.Call]:
     """Toda chamada a `alvo` na subarvore, seja `alvo(...)` ou `x.alvo(...)`."""
     return [
@@ -630,3 +639,244 @@ class TestAPrevisaoNoArranque:
             "condicao: uma calibracao quebrada apagaria a previsao de uma "
             "ancora que continua correta em disco"
         )
+
+
+# ---------------------------------------------------------------------------
+# O PORTAO CONTRA A DIVERGENCIA DOS DOIS LACOS (risco 1 do ROADMAP, T-02-10).
+#
+# Tudo daqui para baixo e lido por AST e NUNCA por busca textual, pela razao que
+# este projeto ja escreveu tres vezes: as docstrings desta fase citam os nomes
+# proibidos de proposito, para explicar por escrito o que a regra proibe, e um
+# `grep` daria positivo justamente na documentacao que a protege.
+# ---------------------------------------------------------------------------
+
+# Os DOIS shells que embrulham `anunciar_janelas` — um por laco.
+SHELLS = (
+    ("__main__.py", "_avisar_janelas_de_respawn"),
+    ("sessao.py", "_processar_janelas"),
+)
+
+# O que NENHUM dos dois shells pode chamar por conta propria.
+#
+# `janelas_devidas` e `texto_da_janela` sao propriedade EXCLUSIVA de
+# `anunciar_janelas`: uma copia da sequencia num dos shells ficaria VERDE em
+# todos os outros testes desta fase, porque cada laco tem os seus, e a
+# divergencia so apareceria no dia em que alguem consertasse UM lado. E
+# literalmente o defeito WR-08 que `presenca` ja pagou.
+#
+# `enviados` esta aqui por uma razao diferente e pior. Proibir so o CALCULO
+# deixaria um furo: nada impediria alguem de escrever, dentro de um dos shells,
+# uma consulta a `registro.enviados()` para "evitar mandar de novo". Essa e
+# exatamente a forma que a docstring de `RegistroEmDisco.marcar` proibe por
+# escrito — a decisao de despachar tem que SER aquela chamada, nunca uma
+# checagem anterior — e ela reintroduz a janela de corrida entre ler e escrever
+# que o `O_CREAT|O_EXCL` existe para fechar, bem no caminho das DUAS instancias
+# do usuario. O sintoma seria um aviso PERDIDO e nao duplicado, porque as duas
+# instancias se veriam livres para calar achando que a outra falou, e NENHUM
+# teste desta fase o veria: cada instancia ficaria verde sozinha.
+CHAMADAS_PROIBIDAS_NOS_SHELLS = ("janelas_devidas", "texto_da_janela", "enviados")
+
+# O que nenhum dos dois ARQUIVOS pode chamar, em lugar nenhum.
+#
+# `enviados` NAO entra nesta lista, e a diferenca de escopo e deliberada:
+# `laco_da_agenda` chama `registro.enviados()` para os avisos de AGENDA desde a
+# Fase 6 e continua podendo. Uma proibicao de arquivo inteiro quebraria um
+# recurso que nao tem nada a ver com janela de boss.
+CHAMADAS_PROIBIDAS_NOS_ARQUIVOS = ("janelas_devidas", "texto_da_janela")
+
+# O SHELL DE MENTIRA, para provar que o detector morde.
+#
+# Um portao que nao pode falhar nao e portao — e decoracao. Este e o molde de
+# `test_a_prova_pega_de_verdade_um_relogio_proprio`: o detector aplicado a uma
+# arvore sintatica FABRICADA, que contem a chamada proibida, tem que acusar.
+SHELL_COM_CHECAGEM_ANTERIOR = '''
+def _avisar_janelas_de_respawn(registro, bosses, agora, despachante):
+    """Um shell que reintroduz o read-then-write que D-21 proibe."""
+    ja_sairam = registro.enviados()
+    for aviso, texto in anunciar_janelas(registro, bosses, agora):
+        if aviso.chave in ja_sairam:
+            continue
+        despachante.despachar(texto)
+'''
+
+SHELL_QUE_CALCULA_SOZINHO = '''
+def _processar_janelas(self, agora, resultado):
+    """Um shell que copiou a sequencia em vez de chamar a funcao unica."""
+    devidos = janelas_devidas(agora, self.bosses, ancoras, ja_enviados)
+    for aviso in devidos:
+        resultado.avisos.append(texto_da_janela(aviso))
+'''
+
+
+def _acusacoes_no_shell(no: ast.AST) -> list[str]:
+    """As chamadas proibidas que este corpo de shell contem."""
+    return sorted(
+        alvo for alvo in CHAMADAS_PROIBIDAS_NOS_SHELLS if _chama(no, alvo)
+    )
+
+
+class TestOsDoisLacosPassamPelaMesmaImplementacao:
+    """Risco 1 do ROADMAP, fechado por ESTRUTURA e nao por politica.
+
+    O laco principal e o `--so-agenda` escrevem na MESMA `.agenda/` e falam no
+    MESMO grupo, e o usuario roda os dois modos. Um conserto aplicado a um lado
+    so faria os dois anunciarem coisas diferentes sobre o mesmo boss — e
+    `presenca` ja pagou exatamente esse preco (WR-08).
+
+    Depois deste portao, ou o conserto vai para `respawn.py` e vale para os
+    dois, ou um teste NOMEADO quebra dizendo qual elo divergiu.
+    """
+
+    @pytest.mark.parametrize(
+        "arquivo,funcao,alvo",
+        [
+            ("sessao.py", "_processar_janelas", "anunciar_janelas"),
+            ("__main__.py", "_avisar_janelas_de_respawn", "anunciar_janelas"),
+            ("__main__.py", "laco_da_agenda", "_avisar_janelas_de_respawn"),
+        ],
+    )
+    def test_o_elo_existe(self, arquivo, funcao, alvo):
+        """Cada elo dito por nome, para a quebra dizer QUAL deles quebrou."""
+        assert _chama(_funcao(arquivo, funcao), alvo), (
+            f"{arquivo}::{funcao} nao chama {alvo}: o elo que faz os dois "
+            f"lacos passarem pela mesma implementacao esta rompido"
+        )
+
+    @pytest.mark.parametrize("arquivo", ["sessao.py", "__main__.py"])
+    @pytest.mark.parametrize("alvo", CHAMADAS_PROIBIDAS_NOS_ARQUIVOS)
+    def test_nenhum_dos_dois_arquivos_calcula_por_conta_propria(
+        self, arquivo, alvo
+    ):
+        """`janelas_devidas` e `texto_da_janela` sao de `anunciar_janelas`.
+
+        A EXCECAO DE `chave_do_nascimento` E DELIBERADA E NAO E ESQUECIMENTO.
+        Ela e chamada em `sessao._processar_bosses`, que e o UNICO sitio de
+        ESCRITA de ancora do projeto, porque ancorar exige PIXELS e so o laco
+        principal tem pixels. A assimetria (dois sitios de anuncio, um de
+        escrita) esta escrita no proprio `_processar_bosses` para quem for
+        procurar a simetria nao concluir que falta uma escrita no `--so-agenda`.
+        """
+        arvore = ast.parse(_fonte(arquivo))
+        assert not _chamadas(arvore, alvo), (
+            f"{arquivo} chama {alvo} por conta propria: a decisao e o texto "
+            "da janela sairam de respawn.anunciar_janelas e os dois lacos "
+            "podem passar a divergir"
+        )
+
+    def test_a_escrita_da_ancora_continua_no_unico_sitio_que_tem_pixels(self):
+        """A excecao acima, afirmada e nao so comentada."""
+        assert _chama(
+            _funcao("sessao.py", "_processar_bosses"), "chave_do_nascimento"
+        )
+        assert not _chamadas(
+            ast.parse(_fonte("__main__.py")), "chave_do_nascimento"
+        ), (
+            "o --so-agenda passou a escrever ancora: um modo sem tela estaria "
+            "inventando nascimentos"
+        )
+
+    @pytest.mark.parametrize("arquivo,funcao", SHELLS)
+    def test_nenhum_shell_checa_antes_de_marcar(self, arquivo, funcao):
+        """D-21: o `marcar` E a decisao, e nunca uma checagem anterior.
+
+        O sintoma de violar isto e um aviso PERDIDO, nao duplicado — as duas
+        instancias do usuario se veriam livres para calar achando que a outra
+        falou — e nenhum outro teste desta fase o veria.
+        """
+        assert _acusacoes_no_shell(_funcao(arquivo, funcao)) == [], (
+            f"{arquivo}::{funcao} calcula ou checa por conta propria"
+        )
+
+    def test_o_laco_da_agenda_AINDA_PODE_ler_enviados(self):
+        """A proibicao e do SHELL, e nao do arquivo. Prova pelos dois lados.
+
+        `laco_da_agenda` consulta `registro.enviados()` para os avisos de
+        AGENDA desde a Fase 6. Um portao de arquivo inteiro quebraria um
+        recurso que nao tem nada a ver com janela de boss — e este teste fica
+        vermelho se alguem alargar o escopo sem perceber.
+        """
+        assert _chama(_funcao_do_main("laco_da_agenda"), "enviados")
+
+    def test_o_unico_leitor_de_disco_fora_de_anunciar_janelas_so_imprime(self):
+        """`_anunciar_previsao_de_janelas` le `nascimentos()`, e pode.
+
+        Nomeada aqui com a razao: ela NAO marca, NAO despacha e NAO decide nada
+        — so imprime no console. A proibicao de D-21 e sobre checar antes de
+        MARCAR, e neste caminho nao ha `marcar` nenhum.
+        """
+        previsao = _funcao_do_main("_anunciar_previsao_de_janelas")
+
+        assert _chama(previsao, "nascimentos")
+        assert not _chama(previsao, "marcar")
+        assert not _chama(previsao, "despachar")
+        assert not _chama(previsao, "enviados")
+
+
+class TestAProvaNaoEVazia:
+    """Um portao que nao pode falhar e decoracao.
+
+    Molde de `test_a_prova_pega_de_verdade_um_relogio_proprio` e de
+    `test_a_prova_nao_e_vazia_o_detector_acusa_o_texto_de_controle`: o detector
+    aplicado a uma arvore FABRICADA, que contem a chamada proibida, tem que
+    acusar. Sem isto, um detector que procurasse o nome errado ficaria verde
+    para sempre.
+    """
+
+    def test_o_detector_acusa_uma_checagem_anterior_fabricada(self):
+        fabricado = _funcao_de_fonte(
+            SHELL_COM_CHECAGEM_ANTERIOR, "_avisar_janelas_de_respawn"
+        )
+
+        assert _acusacoes_no_shell(fabricado) == ["enviados"]
+
+    def test_o_detector_acusa_um_shell_que_calcula_sozinho(self):
+        fabricado = _funcao_de_fonte(
+            SHELL_QUE_CALCULA_SOZINHO, "_processar_janelas"
+        )
+
+        assert _acusacoes_no_shell(fabricado) == [
+            "janelas_devidas",
+            "texto_da_janela",
+        ]
+
+    def test_o_detector_de_elo_acusa_um_shell_que_nao_chama_a_funcao_unica(self):
+        """O outro lado do portao: o elo QUEBRADO tambem tem que ser visto."""
+        fabricado = _funcao_de_fonte(
+            SHELL_QUE_CALCULA_SOZINHO, "_processar_janelas"
+        )
+
+        assert not _chama(fabricado, "anunciar_janelas")
+
+    @pytest.mark.parametrize("alvo", CHAMADAS_PROIBIDAS_NOS_SHELLS)
+    def test_cada_nome_proibido_pega_alguma_coisa(self, alvo):
+        """Um nome com erro de digitacao deixaria a lista parecendo mais forte
+        do que e."""
+        fonte = f"def qualquer(registro):\n    return registro.{alvo}()\n"
+
+        assert _chama(_funcao_de_fonte(fonte, "qualquer"), alvo)
+
+
+class TestOsDoisLacosLeemOsBossesEAnunciamAPrevisao:
+    """Parametrizado sobre os DOIS lacos, e nao so o principal.
+
+    Sem a leitura, um dos lacos poderia passar uma lista vazia e ficar MUDO com
+    todos os testes verdes. Sem a previsao, OPER-02 valeria so para quem esta
+    com o jogo aberto — e o ROADMAP e explicito em que o `--so-agenda` e "o modo
+    de quem mais precisa da linha".
+    """
+
+    @pytest.mark.parametrize("laco", ["laco_principal", "laco_da_agenda"])
+    @pytest.mark.parametrize(
+        "alvo", ["ler_bosses", "_anunciar_previsao_de_janelas"]
+    )
+    def test_os_dois_lacos_chamam(self, laco, alvo):
+        assert _chama(_funcao_do_main(laco), alvo), (
+            f"{laco} nao chama {alvo}"
+        )
+
+    @pytest.mark.parametrize("laco", ["laco_principal", "laco_da_agenda"])
+    def test_cada_laco_le_os_bosses_UMA_VEZ_SO(self, laco):
+        """Duas chamadas a `ler_bosses()` abririam a possibilidade de o usuario
+        editar o arquivo entre elas e o scanner subir vigiando um conjunto de
+        bosses e prevendo outro."""
+        assert len(_chamadas(_funcao_do_main(laco), "ler_bosses")) == 1
