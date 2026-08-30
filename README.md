@@ -330,6 +330,8 @@ Comandos, sempre com barra na frente:
 |---|---|
 | `/help` | Responde com esta mesma lista, direto no WhatsApp |
 | `/cancelar` | Tira o silêncio de TvT/Prime que estiver rolando |
+| `/desativarsoloboss` | Para com **tudo** do Solo Boss: nem a chamada de 1h50, nem o lembrete de 10 min |
+| `/ativarsoloboss` | Volta a chamar e a lembrar do Solo Boss |
 | `/status` | Diz se está vigiando ou calado, e qual o próximo evento |
 | `/solo` | Vigia só o seu personagem e para de reclamar de party ausente |
 | `/party` | Volta a vigiar a party inteira |
@@ -340,6 +342,20 @@ Comandos, sempre com barra na frente:
 | `/<nick>` | Quantos loots o char já pegou, e quando foi o último |
 | `/corrigir-<nick>` | Troca o dono do último loot já registrado |
 | `/pegou <hora> <nick>` | Registra quem pegou o loot de um boss que já passou, mesmo sem ter sido marcado antes |
+
+**`/desativarsoloboss` é tudo ou nada, e ele gruda.** Ele desliga os *dois*
+avisos do Solo Boss de uma vez — não existe jeito de calar só a chamada ou só
+o lembrete, porque meia-mudez é pior que as duas pontas: a chamada sem o
+lembrete convida a party para um boss que ninguém lembra de ir, e o lembrete
+sem a chamada avisa dez minutos antes uma party que nunca foi consultada.
+
+E ele **sobrevive a fechar e reabrir o `vigiar-party.bat`** — a decisão fica
+gravada em disco, não na memória do processo. Nada religa sozinho: só o
+`/ativarsoloboss`. Por isso o `/status` passa a dizer `avisos DESATIVADOS de
+Solo Boss` enquanto estiver assim; se você esquecer que desligou, essa linha é
+a única coisa entre você e um boss perdido em silêncio. Também valem
+`/desativarboss` e `/ativarboss`, para quem não quer digitar dezessete letras
+no meio de um farm.
 
 Também valem `/ajuda`, `/comandos` e `/?` no lugar de `/help` — quem está no
 jogo pergunta pelo WhatsApp e recebe a lista sem sair da tela. **Essa lista é
