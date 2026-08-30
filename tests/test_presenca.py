@@ -1402,6 +1402,15 @@ class TestDestinoDosComandosAntigos:
         (".<nick>", ".J4guar", False),
         (".corrigir-<nick>", ".corrigir-Korzis", False),
         (".pegou <hora> <nick>", ".pegou 18:00 Korzis", False),
+        # Os dois do desligamento do Solo Boss. Nao sao "antigos" — entraram
+        # nesta tabela porque o tripwire logo abaixo os TROUXE, derivando a
+        # cobertura de `set(Comando)`. E entram com o mesmo contrato de destino
+        # do `.cancelar`, pela mesma razao dele: mudam o que o GRUPO INTEIRO
+        # recebe daqui pra frente. Aqui pesa mais — sao 12 chamadas por dia da
+        # party toda, e o efeito e a AUSENCIA de mensagem, que do lado dos
+        # outros e indistinguivel do bot ter caido.
+        (".desativarsoloboss", ".desativarsoloboss", True),
+        (".ativarsoloboss", ".ativarsoloboss", True),
     ]
 
     def _loot(self, tmp_path):

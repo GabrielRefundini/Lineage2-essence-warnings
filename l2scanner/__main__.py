@@ -37,7 +37,10 @@ from .agenda import (  # noqa: E402
     TipoDeAviso,
     avisos_devidos,
     HORAS_PARA_CANCELAR_ANTECIPADO,
+    NOME_DO_SOLO_BOSS,
+    nomes_calados,
     proxima_ocorrencia,
+    responder_silenciamento,
     silencio_ativo,
     texto_de_cancelamento,
     texto_de_encerramento,
@@ -943,6 +946,19 @@ def atender_comandos(
             # Muda o que o GRUPO vai receber daqui pra frente: em solo o
             # scanner para de falar sobre a party. Todo mundo merece saber.
             avisar_o_grupo = True
+        elif pedido.comando in (
+            Comando.DESATIVAR_SOLO_BOSS,
+            Comando.ATIVAR_SOLO_BOSS,
+        ):
+            calar = pedido.comando is Comando.DESATIVAR_SOLO_BOSS
+            resposta = responder_silenciamento(
+                registro, eventos_agendados, NOME_DO_SOLO_BOSS, calar, quem
+            )
+            # Muda o que o GRUPO recebe daqui pra frente — mesmo racional do
+            # `.cancelar` e do `.solo`. Aqui pesa mais: sao 12 chamadas por dia
+            # da party inteira, e o efeito e a AUSENCIA de mensagem. Calar isso
+            # em segredo faria os outros concluirem que o bot caiu.
+            avisar_o_grupo = True
         elif pedido.comando is Comando.LOOT_DESIGNAR:
             if loot is None:
                 resposta = "Nao consigo mexer no loot agora."
@@ -1141,6 +1157,13 @@ def _obedecer_status(registro, eventos, agora, rastreador=None) -> str:
         )
     else:
         partes.append("Vigiando normalmente")
+    # UM OFF-SWITCH QUE PERSISTE E QUE O STATUS NAO MOSTRA E ESTADO ESCONDIDO.
+    # O `/desativarsoloboss` sobrevive a reiniciar o scanner, entao esta linha
+    # e a unica coisa entre o usuario que esqueceu que desligou e um boss
+    # perdido em silencio.
+    calados = nomes_calados(eventos, registro.eventos_calados())
+    if calados:
+        partes.append("avisos DESATIVADOS de " + ", ".join(calados))
     if proximo:
         partes.append(f"proximo: {proximo[0]} as {proximo[1].strftime('%H:%M')}")
     return "Scanner: " + ", ".join(partes) + "."
@@ -1325,7 +1348,10 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
             # Boss. Lida antes do loop, para todos os avisos deste tick
             # enxergarem a mesma.
             designacao = registro_de_loot.designacao()
-            for aviso in avisos_devidos(agora, eventos, registro.enviados()):
+            for aviso in avisos_devidos(
+                agora, eventos, registro.enviados(),
+                eventos_calados=registro.eventos_calados(),
+            ):
                 if not registro.marcar(aviso.chave):
                     continue
                 texto = texto_do_aviso(aviso, nick_para_o_aviso(aviso, designacao))

@@ -1464,26 +1464,43 @@ class TestPodaAlcancaTodosOsPrefixos:
     """
 
     def test_a_lista_de_prefixos_conhecidos_nao_deixa_ninguem_de_fora(self):
-        """Todo `PREFIXO_*` do modulo tem que estar em `_PREFIXOS_CONHECIDOS`.
+        """Todo `PREFIXO_*` do modulo tem que estar CLASSIFICADO.
 
-        O `parametrize` abaixo e escrito A MAO, e por isso um `PREFIXO_X`
-        acrescentado numa fase futura nasceria IMORTAL sem quebrar teste
-        nenhum — o mesmo defeito que esta classe existe para consertar,
-        reaparecendo por outra porta.
+        SAO DOIS BALDES DESDE O `/desativarsoloboss`, e a exigencia nao
+        afrouxou: `_PREFIXOS_CONHECIDOS` (tem data, a poda alcanca) ou
+        `_PREFIXOS_SEM_DATA` (nao tem data, nao expira NUNCA, por decisao).
+        Um prefixo novo continua quebrando este teste enquanto ninguem
+        escolher um dos dois por escrito.
 
-        E exatamente a armadilha que `COMANDOS_DE_MEMBRO` evitou de proposito
-        no plano 10-01 derivando a recusa de `set(Comando)` em vez de listar.
-        Aqui a derivacao e por introspecao do modulo: prefixo novo sem entrada
-        na tupla quebra ESTE teste, nomeando-o.
+        O segundo balde nasceu de uma decisao explicita do usuario: o
+        desligamento do Solo Boss nao pode expirar sozinho. Force-lo para
+        dentro do primeiro balde, so para o teste passar, o faria religar o
+        boss tres dias depois — sem ninguem mandar e sem nada dizer.
         """
         declarados = {
             valor
             for nome, valor in vars(agenda).items()
             if nome.startswith("PREFIXO_") and isinstance(valor, str)
         }
-        esquecidos = declarados - set(agenda._PREFIXOS_CONHECIDOS)
+        classificados = set(agenda._PREFIXOS_CONHECIDOS) | set(
+            agenda._PREFIXOS_SEM_DATA
+        )
+        esquecidos = declarados - classificados
         assert not esquecidos, (
-            f"prefixo(s) fora de _PREFIXOS_CONHECIDOS, logo imortais: {esquecidos}"
+            f"prefixo(s) sem balde — nem podavel nem imortal-por-decisao, "
+            f"logo imortal por acidente: {esquecidos}"
+        )
+
+    def test_os_dois_baldes_de_prefixo_nao_se_sobrepoem(self):
+        """Um prefixo nos dois seria a poda contradizendo a decisao.
+
+        Se `PREFIXO_EVENTO_CALADO` entrasse tambem em `_PREFIXOS_CONHECIDOS`,
+        `podar` passaria a retira-lo antes de ler a data e o teste acima
+        continuaria verde — a contradicao so apareceria no dia em que o boss
+        religasse sozinho.
+        """
+        assert not (
+            set(agenda._PREFIXOS_CONHECIDOS) & set(agenda._PREFIXOS_SEM_DATA)
         )
 
     @pytest.mark.parametrize(
