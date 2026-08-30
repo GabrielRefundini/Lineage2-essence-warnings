@@ -334,6 +334,13 @@ class TestARespostaDoComando:
         assert "110" in resposta
         assert "10 minutos" in resposta
         assert "Yazalaque" in resposta
+        # O SEGUNDO "nem" — e ele nao e enfeite. Sem esta asercao a frase saiu
+        # "nem a chamada de 110 minutos antes, o lembrete de 10 minutos antes",
+        # que se le como se so a chamada tivesse sido desligada. Numa
+        # funcionalidade cuja regra e "tudo ou nada", a frase que sugere metade
+        # e um defeito de produto, nao de redacao.
+        assert "nem a chamada de 110" in resposta
+        assert "nem o lembrete de 10 minutos" in resposta
 
     def test_desativar_diz_que_sobrevive_ao_restart(self, tmp_path):
         """Decisao 1 do usuario dita EM VOZ ALTA, e nao so implementada.
@@ -370,6 +377,32 @@ class TestARespostaDoComando:
 
         assert registro.eventos_calados() == frozenset()
         assert "110" in resposta and "10 minutos" in resposta
+        # "A e B", e nao "nem A, nem B": e a mesma lista com a conjuncao da
+        # outra direcao. Uma frase so para os dois sentidos leria errado num
+        # deles, sempre.
+        assert "antes e o lembrete" in resposta
+
+    def test_um_evento_que_so_faz_UM_aviso_nao_ganha_conjuncao_solta(
+        self, tmp_path
+    ):
+        """Lista de uma parte so nao pode sair com um "nem" pendurado.
+
+        Nao e um evento hipotetico: basta o usuario apagar a linha
+        `chamar_minutos_antes` do `config.toml`, que o proprio arquivo convida
+        a apagar ("se nao valer a pena, apague a linha e nada mais muda").
+        """
+        so_lembrete = EventoAgendado(
+            nome="Solo Boss",
+            horarios=((20, 0),),
+            avisar_minutos_antes=10,
+            avisar_no_horario=False,
+        )
+        resposta = responder_silenciamento(
+            self._registro(tmp_path), [so_lembrete], "Solo Boss", True, "quem"
+        )
+
+        assert "nem o lembrete de 10 minutos antes." in resposta
+        assert "chamada" not in resposta
 
     def test_ativar_o_que_nunca_foi_desativado_diz_a_verdade(self, tmp_path):
         resposta = responder_silenciamento(

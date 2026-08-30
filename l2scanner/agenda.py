@@ -366,6 +366,22 @@ PREFIXO_EVENTO_CALADO = "evento_calado_"
 # monotonico), que e outro desenho e outra fase.
 _PREFIXOS_CONHECIDOS = (PREFIXO_CANCELADO, PREFIXO_PRESENCA, PREFIXO_FECHADO)
 
+# O SEGUNDO destino possivel de um prefixo: os que NAO tem data e nao expiram
+# NUNCA — por decisao, e nao por esquecimento.
+#
+# Esta tupla existe para preservar a forca do tripwire de
+# `TestPodaAlcancaTodosOsPrefixos`, que deriva a prova por introspecao dos
+# `PREFIXO_*` do modulo. Sem ela, a unica forma de o marcador de evento calado
+# passar naquele teste seria entrar em `_PREFIXOS_CONHECIDOS` e ganhar uma
+# data — e ai o Solo Boss religaria sozinho tres dias depois de o usuario o ter
+# desligado, sem ninguem mandar e sem nada dizer.
+#
+# Com os DOIS baldes declarados, todo prefixo novo continua obrigado a
+# escolher um deles por escrito, e continua quebrando o teste enquanto nao
+# escolher. O que mudou nao foi a exigencia — foi so passarem a existir duas
+# respostas certas em vez de uma.
+_PREFIXOS_SEM_DATA = (PREFIXO_EVENTO_CALADO,)
+
 
 class RegistroEmDisco:
     """Quais avisos ja sairam — a prova de restart E de duas instancias.
@@ -926,13 +942,19 @@ def nomes_calados(
     return [e.nome for e in eventos if apelido_do_evento(e.nome) in calados]
 
 
-def _o_que_o_evento_anuncia(evento: EventoAgendado) -> str:
+def _o_que_o_evento_anuncia(evento: EventoAgendado) -> tuple[str, ...]:
     """Os avisos que este evento faz, por extenso e com os minutos do config.
 
     OS NUMEROS SAEM DO `EventoAgendado`, NUNCA DE UM LITERAL. A resposta que
     dissesse "110" a mao passaria a mentir no dia em que o usuario editasse
     `chamar_minutos_antes` — e mentir sobre o que acabou de ser desligado e
     pior do que nao explicar, porque quem leu para de conferir.
+
+    Devolve as PARTES e nao a frase pronta: as duas respostas as coem com
+    conjuncoes diferentes ("nem A, nem B" contra "A e B"), e uma frase montada
+    aqui obrigaria uma delas a ler errado. Foi exatamente o que aconteceu na
+    primeira versao — "nem a chamada de 110 minutos antes, o lembrete de 10
+    minutos antes", com o segundo "nem" faltando.
     """
     partes = []
     if evento.chamar_minutos_antes > 0:
@@ -941,7 +963,24 @@ def _o_que_o_evento_anuncia(evento: EventoAgendado) -> str:
         partes.append(f"o lembrete de {evento.avisar_minutos_antes} minutos antes")
     if evento.avisar_no_horario:
         partes.append("o aviso na hora")
-    return ", ".join(partes) if partes else "os avisos"
+    return tuple(partes) if partes else ("os avisos",)
+
+
+def _lista_em_prosa(partes: tuple[str, ...], cauda: str) -> str:
+    """As partes numa frase que uma pessoa leria em voz alta.
+
+    `cauda` e o que liga a ULTIMA parte as demais, com pontuacao e espacos
+    inteiros: `", nem "` para o que foi desligado, `" e "` para o que volta.
+    Vem pronta do chamador porque a pontuacao muda junto com a conjuncao, e
+    montar `f" {conjuncao} "` aqui produziria "a chamada ... nem o lembrete",
+    sem a virgula que a enumeracao negativa pede.
+
+    Uma a tres partes e o tamanho real disto — a lista vem de tres campos do
+    `EventoAgendado` —, entao nao ha lista longa para tratar.
+    """
+    if len(partes) == 1:
+        return partes[0]
+    return ", ".join(partes[:-1]) + cauda + partes[-1]
 
 
 def responder_silenciamento(
@@ -997,9 +1036,10 @@ def responder_silenciamento(
                 f"/desativarsoloboss de novo."
             )
         return (
-            f"{quem} desativou os avisos do {nome}: nem {avisos}. "
+            f"{quem} desativou os avisos do {nome}: "
+            f"nem {_lista_em_prosa(avisos, ', nem ')}. "
             f"Nada disso volta sozinho — nem reiniciando o scanner. "
-            f"Mande /ativarsoloboss para religar os dois de uma vez."
+            f"Mande /ativarsoloboss para religar tudo de uma vez."
         )
 
     desfecho = registro.voltar_a_avisar(nome)
@@ -1013,4 +1053,7 @@ def responder_silenciamento(
             f"Nao consegui apagar o desligamento do {nome} — o disco recusou. "
             f"Os avisos CONTINUAM desativados; mande /ativarsoloboss de novo."
         )
-    return f"{quem} reativou os avisos do {nome}: volto a mandar {avisos}."
+    return (
+        f"{quem} reativou os avisos do {nome}: "
+        f"volto a mandar {_lista_em_prosa(avisos, ' e ')}."
+    )
