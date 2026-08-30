@@ -78,7 +78,7 @@ Plans:
   2. Os preços e quantidades lidos batem dígito a dígito com o que o usuário vê no frame — separador de milhar tratado como glifo de primeira classe; quando o frame está ilegível, a linha aparece como descartada, nunca como um número plausível. O número NUNCA vem do motor de OCR que lê o nome: medido contra as gravações da Fase 1, ele perde a vírgula decimal e devolve `1650` onde a tela diz `16,50` — erro de 100x com aparência plausível, exatamente o que LEIT-02 existe para impedir
   3. Uma página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS; frames bit a bit idênticos são reportados como captura congelada, não aceitos como acordo
 
-**Plans**: 4/6 plans executed (6 waves - a fase e SERIAL por construcao: um portao humano, duas ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
+**Plans**: 4/7 plans executed (7 waves - a fase e SERIAL por construcao: um portao humano, tres ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
 
 Plans:
 **Wave 1**
@@ -101,13 +101,17 @@ Plans:
 
 - [ ] 02-06-PLAN.md - (wave 5) A guarda de cruzamento `Total` contra `Unit price x Quantity` - ligada com a tolerancia que o 02-02 mediu, ou desligada com a refutacao escrita no fonte
 
-**Wave 6** *(blocked on Wave 5)*
+**Wave 6** *(blocked on Wave 5 - compartilha `mercado_leitura.py` com o 02-06)*
 
-- [ ] 02-05-PLAN.md - (wave 6) O catalogo em `.mercado/catalogo-de-nomes.csv` (atomico, defensivo, sem poda), o estabilizador completo (congelamento pela janela inteira + acordo sobre a tupla parseada) e o replay atras do `pytest.skip`
+- [ ] 02-07-PLAN.md - (wave 6) Medicao III: `tools/medir_brilho_da_quantidade.py` - o piso de brilho PROPRIO da coluna Quantity, medido com rotulo derivado de `Total`/`Unit price`, porque o digito `1` nao se le (tronco a V=177 contra o piso 180) e quantidade `1` e o caso comum do mercado
+
+**Wave 7** *(blocked on Wave 6 - o replay so mede a fase depois que o piso da Quantity existe, senao o rendimento e artefato)*
+
+- [ ] 02-05-PLAN.md - (wave 7) O catalogo em `.mercado/catalogo-de-nomes.csv` (atomico, defensivo, sem poda), o estabilizador completo (congelamento pela janela inteira + acordo sobre a tupla parseada) e o replay atras do `pytest.skip`
 
 **Bloqueio externo - explicito:** o `calibration.json` da maquina do usuario diz hoje `layout: "adena"`, e a aba Adena **nao tem nome de item** (o OCR da primeira coluna devolve literalmente `'Adena'`). LEIT-01 e LEIT-05 nao tem objeto naquele layout, e o censo das 335 gravacoes da ~25 frames de Adena contra ~283 da grade de negociacao. So o USUARIO pode recalibrar - a fase PARA na Wave 1 e espera.
 
-**Nota sobre as varreduras:** as tasks de medicao (02-02, 02-03) rodam no checkout PRINCIPAL, nao em worktree. `recordings/` e gitignored e nao se materializa num worktree, e produzir o numero a partir dele e PRODUCAO DE DADO, nao teste. O que roda em qualquer lugar e o teste de regressao, sobre fixture versionada em `tests/fixtures/mercado/`.
+**Nota sobre as varreduras:** as tasks de medicao (02-02, 02-03, 02-07) rodam no checkout PRINCIPAL, nao em worktree. `recordings/` e gitignored e nao se materializa num worktree, e produzir o numero a partir dele e PRODUCAO DE DADO, nao teste. O que roda em qualquer lugar e o teste de regressao, sobre fixture versionada em `tests/fixtures/mercado/`.
 
 ### Phase 3: Persistência de observações
 
