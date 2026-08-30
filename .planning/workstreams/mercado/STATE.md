@@ -6,10 +6,10 @@ current_phase: 2
 current_phase_name: Leitura de pagina
 status: executing
 stopped_at: "02-03 Task 1 COMPLETA; parado no checkpoint:decision da Task 2 (gate=blocking-human) — a FONTE da assinatura de digitos da chave da serie"
-last_updated: "2026-08-30T13:44:34.662Z"
+last_updated: "2026-08-30T15:48:25.392Z"
 last_activity: 2026-08-30
 last_activity_desc: "Fase 2 plano 02: a sonda de oclusao, o limiar de dispersao, o piso de linhas comparadas e o piso/margem de leitura de glifo — seis chaves MEDIDAS por varredura sobre 478 frames e 55.342 glifos; a guarda de cruzamento REPROVOU e ficou desligada"
-state_head: 3c6acdb5737b240cb550f99878d2df8c65c295c9
+state_head: a216daa4e701feba748617c12b8676ffc9bcca44
 progress:
   total_phases: 4
   completed_phases: 1
@@ -29,9 +29,9 @@ progress:
 ## Current Position
 
 Phase: 2 — Leitura de pagina
-Plan: 3 of 6
-Status: HALTED no portao de decisao do 02-03 (Task 2, gate=blocking-human)
-Last activity: 2026-08-30 — 02-03 Task 1 medida: corte 0,894737, piso 0,883732, e a suposicao A8 REFUTADA
+Plan: 4 of 6
+Status: Ready to execute
+Last activity: 2026-08-30 — Completed 02-03: corte 0,894737 e piso 0,883732 medidos, A8 REFUTADA, e a fonte da assinatura decidida pelo usuario: `ocr-estrito`
 
 Progress: [███░░░░░░░] 25%
 
@@ -75,17 +75,19 @@ Progress: [███░░░░░░░] 25%
 - [Phase 2]: [Phase 02]: A suposicao A8 esta REFUTADA. Com a posicao do digito dada DE FORA o molde acerta 9 de 9 contra o gabarito de encanto; com a regra de producao (cada run sozinho, digito quando passa no piso) acerta 0 de 10 e devolve '7655' onde a resposta e '6'. Os 13 moldes NAO TEM CLASSE DE REJEICAO: nao ha molde de letra. Ha vao entre digito verdadeiro (min 0,8510) e falso positivo (max 0,6947), mas o piso de hoje (0,4698, medido em colunas de NUMERO) nao separa.
 - [Phase 2]: [Phase 02]: As duas populacoes de uma medicao tem de se apoiar na MESMA nocao de confianca. Aqui e o VOCABULARIO DE CONSENSO (50 nomes que as duas escalas leram identicos). Sem ele, '-ano' x '\ufffdano' (duas leituras FALHADAS) puxava o corte de 0,8947 para 0,7500, e leituras corrompidas por oclusao entravam como 'itens diferentes'.
 - [Phase 2]: [Phase 02]: A rota 'ocr-igualdade' NAO cria as series duplicadas que a hipotese previa: ZERO nas 8 gravacoes. Ela recusa a linha antes de duplicar, e em troca perde 5 linhas a mais que 'ocr-estrito'. O argumento contra ela virou 'estritamente dominada', e nao 'suja o catalogo'.
+- [Phase 2]: [Phase 02]: A FONTE da assinatura de digitos da chave da serie e o OCR (rota `ocr-estrito`), escolhida pelo usuario no portao do 02-03 em 2026-08-30. A `molde` caiu apesar dos 95,32% (A8 refutada: 0 de 10 sob a regra de producao; chave `7655` inutil num CSV que se le a olho); a `ocr-igualdade` caiu por dominancia estrita. Custo aceito: 8,86% das linhas caem, as vezes pagina inteira. Caminho de volta medido (vao +0,1563 entre 0,8510 e 0,6947) na docstring de assinatura_por_molde.
 
 ### Blockers
 
-- **PORTAO ABERTO — o 02-03 esta parado esperando o usuario.** Ver o blocker abaixo.
+- **Nenhum bloqueio ativo.** O portao do 02-03 fechou em 2026-08-30: o usuario escolheu
+  `ocr-estrito`.
 
 - O bloqueio da Fase 1 (só o usuário podia gravar o World
   Exchange) foi cumprido: 8 gravações feitas, spike respondido e validado seção por seção,
   calibração completa pela mão do usuário em 2026-08-29.
 
 - JANELA 13 ABERTA: `l2scanner/calibrar.py` (calibracao de PARTY) apaga TODA a calibracao de mercado — `calibrar_selecionando` monta uma Calibracao do zero (calibrar.py:353) e o fluxo grava por cima do arquivo inteiro (calibrar.py:1244). Confirmado em campo 2026-08-30. Enquanto nao for consertado, recalibrar a party DE NOVO custa a calibracao de mercado outra vez. Resgate em calibration.RESGATE-13-glifos.json.
-- DECISAO PENDENTE (02-03 Task 2, porta de mao unica): de onde vem a assinatura de digitos da chave da serie — molde (95,32%, mas A8 REFUTADA: 0/10 no gabarito sob a regra de producao, assinatura instavel que ja duplicou 'Adena'), ocr-estrito (82,44%, 0 duplicatas, perde 311 linhas de 3.511 por Lv. I x Lv. 1) ou ocr-igualdade (82,20%, 0 duplicatas, estritamente dominada). Numeros no 02-03-SUMMARY.md, relatorios 3 e 4.
+- ~~DECISAO PENDENTE (02-03 Task 2): a fonte da assinatura de digitos.~~ **RESOLVIDA em 2026-08-30: `ocr-estrito`.** O usuario aceitou o custo de 8,86% das linhas caindo (as vezes pagina inteira) para nao pagar uma chave `7655` que ele nao consegue ler no CSV. O caminho de volta da rota `molde` esta medido e escrito na docstring de `mercado_catalogo.assinatura_por_molde` (vao +0,1563, entre 0,8510 e 0,6947).
 
 ### Quick Tasks Completed
 
@@ -137,7 +139,7 @@ Progress: [███░░░░░░░] 25%
 
 **Last session:** 2026-08-30T13:44:08.518Z
 
-**Stopped At:** 02-03 Task 1 COMPLETA; parado no checkpoint:decision da Task 2 (gate=blocking-human) — a FONTE da assinatura de digitos da chave da serie
+**Stopped At:** Completed 02-03-PLAN.md (corte e piso medidos; A8 refutada; fonte da assinatura decidida: `ocr-estrito`)
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
