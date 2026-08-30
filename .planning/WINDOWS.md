@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 9
+open_count: 10
 waived_count: 1
 fixed_count: 2
-total_count: 12
-last_updated: 2026-08-29T23:08:10.741Z
+total_count: 13
+last_updated: 2026-08-30T10:16:35.946Z
 ---
 
 # Broken Windows Ledger
@@ -27,6 +27,7 @@ last_updated: 2026-08-29T23:08:10.741Z
 | 10 | 1 | unrun-verify | PORTAO-DISCORD.txt |  | Criterio 2 da Fase 1 (texto real no console) nao conferido: os 4 passos do portao humano do Discord nao foram dados | open |  | 2026-08-28T17:31:16.484Z |  |
 | 11 | 1 | unrun-verify | l2scanner/__main__.py |  | Task 3 do 01-04: a sessao ao vivo --janela SEM calibracao de mercado nao foi rodada com o jogo aberto. O caminho degenerado esta provado por teste (campo None, extras sem a chave), mas o comportamento identico ao de antes num farm real nao foi observado | open |  | 2026-08-28T20:04:07.455Z |  |
 | 12 | quick-260829-rd9 | unmet-truth | .planning/workstreams/mercado/STATE.md | 72 | Todo da watchlist cita verbatim o criterio 1 da Fase 2 que foi substituido em 260829-rd9; a watchlist deixou de ser pre-requisito de bloqueio | fixed |  | 2026-08-29T23:05:24.348Z | 2026-08-29T23:08:10.741Z |
+| 13 | 02 | deviation | l2scanner/calibrar.py |  | calibrar.py (calibracao de PARTY) apaga TODA a calibracao de mercado: calibrar_selecionando monta uma Calibracao do zero (calibrar.py:353) e o fluxo grava por cima do arquivo inteiro (calibrar.py:1244). CONFIRMADO EM CAMPO 2026-08-30: o usuario rodou calibrar.bat e perdeu 13 moldes de glifo, 3 ancoras, mercado_grade e mercado_limiar_de_glifo. E a gemea exata do CR-04, ja consertado do lado do mercado e nunca do lado da party. Resgate em calibration.RESGATE-13-glifos.json | open |  | 2026-08-30T10:16:35.946Z |  |
 
 ````json
 [
@@ -173,6 +174,18 @@ last_updated: 2026-08-29T23:08:10.741Z
     "reason": "",
     "recorded_at": "2026-08-29T23:05:24.348Z",
     "resolved_at": "2026-08-29T23:08:10.741Z"
+  },
+  {
+    "id": 13,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "l2scanner/calibrar.py",
+    "line": null,
+    "description": "calibrar.py (calibracao de PARTY) apaga TODA a calibracao de mercado: calibrar_selecionando monta uma Calibracao do zero (calibrar.py:353) e o fluxo grava por cima do arquivo inteiro (calibrar.py:1244). CONFIRMADO EM CAMPO 2026-08-30: o usuario rodou calibrar.bat e perdeu 13 moldes de glifo, 3 ancoras, mercado_grade e mercado_limiar_de_glifo. E a gemea exata do CR-04, ja consertado do lado do mercado e nunca do lado da party. Resgate em calibration.RESGATE-13-glifos.json",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-30T10:16:35.946Z",
+    "resolved_at": null
   }
 ]
 ````
