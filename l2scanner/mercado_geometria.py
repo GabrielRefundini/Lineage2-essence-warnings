@@ -396,6 +396,82 @@ def fim_da_alternancia(
     return coluna_inicial + int(colunas[-1]) + 1
 
 
+def nivel_de_fundo_da_linha(
+    cinza: np.ndarray, retangulo: tuple[int, int, int, int], folga: int
+) -> tuple[int, float] | None:
+    """A moda do fundo de um trecho SEM TEXTO da linha, e o quanto ele se suja.
+
+    Devolve `(moda, dispersao)`, onde `dispersao` e a FRACAO de pixels que se
+    afastam da moda por mais de `TOLERANCIA_DE_NIVEL`. Sobre fundo limpo ela
+    fica no chao; sobre qualquer coisa desenhada por cima ela sobe.
+
+    O LIMIAR DE DECISAO NAO MORA AQUI. Esta funcao MEDE; quem decide "esta linha
+    esta coberta, descarte-a" e `mercado_leitura.py`, com o numero vindo do
+    `calibration.json` (`mercado_limiar_de_dispersao_do_fundo`), produzido pela
+    varredura de `tools/medir_oclusao.py` sobre as 8 gravacoes de campo. Um
+    corte escrito aqui seria constante magica no fonte de producao — a coisa que
+    este projeto nao faz — e viajaria de layout em layout sem ser remedido.
+
+    POR QUE DISPERSAO, E NAO "A MODA E 48 OU 66"
+    --------------------------------------------
+    O fundo das linhas alterna entre 48 e 66 (o comentario de
+    `DEGRAU_MINIMO_DE_BANDA` registra a medicao), e a tentacao obvia e testar se
+    a moda e um desses dois. ELA FALHA, e a refutacao esta medida:
+
+        MEDIDO em `recordings/20260828-061253-mercado-tooltip/frame_000015.png`:
+        com a tooltip semitransparente por cima, as linhas 2, 4 e 6 continuam
+        lendo moda 48. Um teste de moda aprovaria tres linhas cobertas.
+
+    A tooltip e SEMITRANSPARENTE: ela nao substitui o fundo, ela o mistura — e
+    onde a mistura calha de cair perto do valor original a moda sobrevive. O que
+    NAO sobrevive e a uniformidade: o fundo limpo e chapado (a mediana por
+    coluna le 48 e 66 cravados, ver `perfil_por_mediana`) e o fundo misturado
+    nao e. A dispersao mede exatamente isso, e ela e AUTO-REFERENTE: nao precisa
+    saber quanto vale o fundo desta pele de jogo, desta resolucao ou deste
+    layout. Medido no mesmo frame, no vao sem texto: 0,0024 nas linhas limpas
+    contra 0,5157 na linha 0 coberta.
+
+    A FOLGA NAS PONTAS e o mesmo cuidado de `fim_da_alternancia` (:470-472): a
+    linha de transicao entre duas bandas nao pertence a nenhuma das duas e
+    diluiria a medida. Ela vem por parametro, e nao como constante, porque quem
+    a escolheu foi a varredura que produziu a sonda — e ela e gravada junto do
+    retangulo, no mesmo objeto (`mercado_sonda_do_fundo`).
+
+    `None` — nunca uma excecao — quando o recorte fica vazio, sai da imagem, ou
+    a folga come a linha inteira. O charter deste modulo e reportar: ele nao
+    abre janela, nao le teclado, nao escreve arquivo e nao levanta por geometria
+    ruim. Quem chama trata `None` como "esta linha nao da para medir", que e uma
+    resposta legitima e diferente de "esta linha esta limpa".
+    """
+    if cinza.size == 0 or cinza.ndim != 2:
+        return None
+
+    x, y, largura, altura = (int(v) for v in retangulo)
+    folga = int(folga)
+    if folga < 0 or largura <= 0 or altura <= 0:
+        return None
+
+    altura_da_imagem, largura_da_imagem = cinza.shape[:2]
+    if x < 0 or y < 0:
+        return None
+    if x + largura > largura_da_imagem or y + altura > altura_da_imagem:
+        return None
+
+    topo, base = y + folga, y + altura - folga
+    if base <= topo:
+        return None
+
+    recorte = cinza[topo:base, x : x + largura]
+    if recorte.size == 0:
+        return None
+
+    valores = recorte.astype(np.int32).ravel()
+    niveis, contagens = np.unique(valores, return_counts=True)
+    moda = int(niveis[int(np.argmax(contagens))])
+    fora = np.abs(valores - moda) > TOLERANCIA_DE_NIVEL
+    return moda, float(np.count_nonzero(fora) / valores.size)
+
+
 def medir_a_grade(
     pixels: np.ndarray, ancora_do_titulo: tuple[int, int, int, int]
 ) -> GradeMedida | None:
