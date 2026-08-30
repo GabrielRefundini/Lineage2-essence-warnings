@@ -78,7 +78,7 @@ Plans:
   2. Os preços e quantidades lidos batem dígito a dígito com o que o usuário vê no frame — separador de milhar tratado como glifo de primeira classe; quando o frame está ilegível, a linha aparece como descartada, nunca como um número plausível. O número NUNCA vem do motor de OCR que lê o nome: medido contra as gravações da Fase 1, ele perde a vírgula decimal e devolve `1650` onde a tela diz `16,50` — erro de 100x com aparência plausível, exatamente o que LEIT-02 existe para impedir
   3. Uma página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS; frames bit a bit idênticos são reportados como captura congelada, não aceitos como acordo
 
-**Plans**: 3/6 plans executed (6 waves - a fase e SERIAL por construcao: um portao humano, duas ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
+**Plans**: 4/6 plans executed (6 waves - a fase e SERIAL por construcao: um portao humano, duas ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
 
 Plans:
 **Wave 1**
@@ -95,7 +95,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3)*
 
-- [ ] 02-04-PLAN.md - (wave 4) **TRACER** - uma linha atravessa todas as camadas ate uma pagina aceita; a promocao das primitivas de `calibrar_mercado.py` para `mercado_leitura.py`; a sonda de oclusao ANTES do OCR; e o portao de layout
+- [x] 02-04-PLAN.md - (wave 4) **TRACER** - uma linha atravessa todas as camadas ate uma pagina aceita; a promocao das primitivas de `calibrar_mercado.py` para `mercado_leitura.py`; a sonda de oclusao ANTES do OCR; e o portao de layout
 
 **Wave 5** *(blocked on Wave 4)*
 
@@ -155,7 +155,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fundação — firewall, gravador e spike de campo | 5/5 | ✓ Complete | 2026-08-29 |
-| 2. Leitura de página | 3/6 | In Progress|  |
+| 2. Leitura de página | 4/6 | In Progress|  |
 | 3. Persistência de observações | 0/TBD | Not started | - |
 | 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
 

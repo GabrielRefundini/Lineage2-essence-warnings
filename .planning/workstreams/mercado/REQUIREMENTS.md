@@ -28,7 +28,7 @@ Requisitos do milestone v1-mercado. Cada um mapeia para uma fase do roadmap.
 - [ ] **LEIT-02**: Preços e quantidades lidos por template-por-dígito com falha FECHADA: frame ilegível é descartado, preço nunca é inventado
 - [ ] **LEIT-03**: Página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS (nunca em pixels — frames bit a bit idênticos são o sinal de captura congelada)
 - [ ] **LEIT-04**: Console mostra ao vivo páginas lidas/perdidas e último item reconhecido; resumo final conta as duas metades ("li 7, perdi 3")
-- [ ] **LEIT-05**: A leitura do nome usa o recorte da COLUNA DO NOME, nunca a linha inteira — a coluna é calibrada e persistida em `calibration.json`. Medido: com a tooltip aberta, o texto dela vaza para dentro da linha e viraria nome de item
+- [x] **LEIT-05**: A leitura do nome usa o recorte da COLUNA DO NOME, nunca a linha inteira — a coluna é calibrada e persistida em `calibration.json`. Medido: com a tooltip aberta, o texto dela vaza para dentro da linha e viraria nome de item
 
 #### Por que o OCR de nomes voltou ao escopo
 
@@ -86,9 +86,11 @@ terceira perdeu para um caso de uso que ninguém tinha declarado:
    usuário corrigiu que **o mercado lê SEMPRE do Yazalaque**. Há um único escritor. As duas
    instâncias de party continuam existindo (é a razão da AGEN-07), mas nenhuma escreve dado
    de mercado.
+
 2. **Dedup de custo constante por índice `UNIQUE`** — enfraqueceu junto: com um escritor só,
    o conjunto de chaves de conteúdo cabe em memória, carregado uma vez no arranque. O custo
    linear que eu temia era do cenário multiprocesso que não existe.
+
 3. **Consultas de análise a cada tick** — real, mas dimensionada errada. O volume aqui é de
    milhares de linhas, não milhões; `statistics` sobre uma lista em memória resolve.
 
@@ -106,9 +108,11 @@ mecanismo próprio.
   uma, e na leitura tolerar uma última linha malformada descartando-a com aviso — nunca
   tratando o arquivo inteiro como corrompido. Esta é a mesma família do FUND-01: o dado
   parcial não pode virar dado plausível.
+
 - **Dedup vira responsabilidade nossa.** Carregar as chaves de conteúdo existentes no
   arranque, manter em memória, conferir antes de escrever. Se o arquivo não puder ser lido,
   a feature desliga alto (PERS-03) em vez de duplicar calado.
+
 - **O separador decimal colide com o separador de campo.** A decisão travada em
   `SPIKE-RESPOSTAS.md` seção 2 é exibição em padrão brasileiro (`5.000.000` e `62,00`), e a
   vírgula decimal quebraria um CSV separado por vírgula. **Separador de campo: `;`** — que é
@@ -167,7 +171,7 @@ Preenchida na criação do roadmap (2026-08-27).
 | LEIT-02 | Phase 2 | Pending |
 | LEIT-03 | Phase 2 | Pending |
 | LEIT-04 | Phase 4 | Pending |
-| LEIT-05 | Phase 2 | Pending |
+| LEIT-05 | Phase 2 | Complete |
 | PERS-01 | Phase 3 | Pending |
 | PERS-02 | Phase 3 | Pending |
 | PERS-03 | Phase 3 | Pending |

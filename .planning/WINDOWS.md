@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 12
+open_count: 16
 waived_count: 1
 fixed_count: 2
-total_count: 15
-last_updated: 2026-08-30T13:43:57.709Z
+total_count: 19
+last_updated: 2026-08-30T16:31:02.167Z
 ---
 
 # Broken Windows Ledger
@@ -30,6 +30,10 @@ last_updated: 2026-08-30T13:43:57.709Z
 | 13 | 02 | deviation | l2scanner/calibrar.py |  | calibrar.py (calibracao de PARTY) apaga TODA a calibracao de mercado: calibrar_selecionando monta uma Calibracao do zero (calibrar.py:353) e o fluxo grava por cima do arquivo inteiro (calibrar.py:1244). CONFIRMADO EM CAMPO 2026-08-30: o usuario rodou calibrar.bat e perdeu 13 moldes de glifo, 3 ancoras, mercado_grade e mercado_limiar_de_glifo. E a gemea exata do CR-04, ja consertado do lado do mercado e nunca do lado da party. Resgate em calibration.RESGATE-13-glifos.json | open |  | 2026-08-30T10:16:35.946Z |  |
 | 14 | 2 | deviation | l2scanner/mercado_catalogo.py |  | O corte 0,894737 funde 'B-grade Gemstone' com 'C-grade Gemstone' (0,9375): a trava de digitos nao alcanca uma diferenca de LETRA de grade, e as duas assinaturas sao vazias. Unica fusao conhecida sobre os 50 nomes confirmados; presa por teste em test_medir_agrupamento_de_nome.py. | open |  | 2026-08-30T13:43:57.341Z |  |
 | 15 | 2 | deviation | tools/medir_agrupamento_de_nome.py |  | T-02-11 agravado: a sonda de fundo do 02-02 mede x em [207,417) a partir de gx e NAO alcanca o inicio do nome. Medido, 'Cohi nn Mafia Leader Luciano Doll' (marcacao de alvo sobre o inicio) passou como linha limpa. O 02-04 poe a sonda no pipeline e precisa saber disso. | open |  | 2026-08-30T13:43:57.709Z |  |
+| 16 | 2 | unmet-truth | l2scanner/mercado_leitura.py |  | O digito 1 da coluna Quantity NAO se le, e isso derruba a maioria das linhas do mercado. MEDIDO em pagina-cheia/frame_000010: o tronco do 1 da quantidade e desenhado a V=177, ABAIXO do piso 180 de identidade.mascara_de_texto, enquanto o tronco do 1 do 100,00 da coluna Total tem V=205. A mascara fica so com a serifa e a base, o casamento devolve 0,2988 (o proprio molde 1 vale -0,1810) e o piso de leitura 0,4698 reprova. Falha FECHADA, comportamento certo, custo alto: nas gravacoes tooltip e alvo-sobreposto ZERO linhas atravessam por causa disso. Conserto = piso de brilho PROPRIO da coluna Quantity, MEDIDO por varredura, no mesmo padrao de VALOR_MINIMO_DO_SUFIXO=120. A7 do 02-RESEARCH volta a ficar aberta. | open |  | 2026-08-30T16:30:42.703Z |  |
+| 17 | 2 | unmet-truth | l2scanner/mercado_leitura.py |  | A sonda de oclusao NAO ve tooltip na metade DIREITA da grade. Ela mede dx [207,417) a partir de gx, e em pagina-cheia/frame_000010 a tooltip cobre a coluna Total das linhas 0 a 3 com dispersao 0,0000 nas dez linhas. Complementa o windows #15 (que registrou o lado esquerdo). Quem pega o caso hoje e o tudo-ou-nada + gramatica, que falham FECHADO; mas uma tooltip semitransparente sobre um numero pode produzir glifo plausivel que passe nas duas peneiras. Fecha de vez com a guarda de cruzamento do 02-06 ou com uma sonda por FAIXA em vez de trecho unico. | open |  | 2026-08-30T16:31:01.391Z |  |
+| 18 | 2 | deviation | .planning/workstreams/mercado/phases/02-leitura-de-p-gina/02-04-PLAN.md |  | Tres fixturas que o plano 02-04 nomeou foram trocadas por medicao: (a) a linha 0 de janela_negociacao_f010.png NAO vira LinhaLida (tooltip sobre a coluna Total; atravessam a 6 e a 8); (b) janela_negociacao_f010_repetida.png nao existe — f010 nao e pagina parada, os vizinhos f009/f011 mostram paginas diferentes, e o par parado medido e f005/f006; (c) tooltip/frame_000015 NAO serve para provar recusa por linha porque a tooltip cobre tambem o cabecalho e o portao de layout recusa a pagina inteira (casamento 0,4469 contra limiar 0,73) — o frame que serve e o 000012 (cabecalho 0,9196, 8 linhas cobertas e 2 nao). | open |  | 2026-08-30T16:31:01.783Z |  |
+| 19 | 2 | unrun-verify | l2scanner/mercado_pagina.py |  | O tracer nunca rodou com o JOGO ABERTO e OCR de verdade. Toda a suite do 02-04 injeta as duas leitoras (o Python global nao tem as bindings WinRT), entao a leitura de nome ponta a ponta com Windows.Media.Ocr sobre a coluna calibrada segue sem observacao ao vivo. Portao humano de fim de fase. | open |  | 2026-08-30T16:31:02.167Z |  |
 
 ````json
 [
@@ -211,6 +215,54 @@ last_updated: 2026-08-30T13:43:57.709Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-30T13:43:57.709Z",
+    "resolved_at": null
+  },
+  {
+    "id": 16,
+    "kind": "unmet-truth",
+    "phase": "2",
+    "file": "l2scanner/mercado_leitura.py",
+    "line": null,
+    "description": "O digito 1 da coluna Quantity NAO se le, e isso derruba a maioria das linhas do mercado. MEDIDO em pagina-cheia/frame_000010: o tronco do 1 da quantidade e desenhado a V=177, ABAIXO do piso 180 de identidade.mascara_de_texto, enquanto o tronco do 1 do 100,00 da coluna Total tem V=205. A mascara fica so com a serifa e a base, o casamento devolve 0,2988 (o proprio molde 1 vale -0,1810) e o piso de leitura 0,4698 reprova. Falha FECHADA, comportamento certo, custo alto: nas gravacoes tooltip e alvo-sobreposto ZERO linhas atravessam por causa disso. Conserto = piso de brilho PROPRIO da coluna Quantity, MEDIDO por varredura, no mesmo padrao de VALOR_MINIMO_DO_SUFIXO=120. A7 do 02-RESEARCH volta a ficar aberta.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-30T16:30:42.703Z",
+    "resolved_at": null
+  },
+  {
+    "id": 17,
+    "kind": "unmet-truth",
+    "phase": "2",
+    "file": "l2scanner/mercado_leitura.py",
+    "line": null,
+    "description": "A sonda de oclusao NAO ve tooltip na metade DIREITA da grade. Ela mede dx [207,417) a partir de gx, e em pagina-cheia/frame_000010 a tooltip cobre a coluna Total das linhas 0 a 3 com dispersao 0,0000 nas dez linhas. Complementa o windows #15 (que registrou o lado esquerdo). Quem pega o caso hoje e o tudo-ou-nada + gramatica, que falham FECHADO; mas uma tooltip semitransparente sobre um numero pode produzir glifo plausivel que passe nas duas peneiras. Fecha de vez com a guarda de cruzamento do 02-06 ou com uma sonda por FAIXA em vez de trecho unico.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-30T16:31:01.391Z",
+    "resolved_at": null
+  },
+  {
+    "id": 18,
+    "kind": "deviation",
+    "phase": "2",
+    "file": ".planning/workstreams/mercado/phases/02-leitura-de-p-gina/02-04-PLAN.md",
+    "line": null,
+    "description": "Tres fixturas que o plano 02-04 nomeou foram trocadas por medicao: (a) a linha 0 de janela_negociacao_f010.png NAO vira LinhaLida (tooltip sobre a coluna Total; atravessam a 6 e a 8); (b) janela_negociacao_f010_repetida.png nao existe — f010 nao e pagina parada, os vizinhos f009/f011 mostram paginas diferentes, e o par parado medido e f005/f006; (c) tooltip/frame_000015 NAO serve para provar recusa por linha porque a tooltip cobre tambem o cabecalho e o portao de layout recusa a pagina inteira (casamento 0,4469 contra limiar 0,73) — o frame que serve e o 000012 (cabecalho 0,9196, 8 linhas cobertas e 2 nao).",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-30T16:31:01.783Z",
+    "resolved_at": null
+  },
+  {
+    "id": 19,
+    "kind": "unrun-verify",
+    "phase": "2",
+    "file": "l2scanner/mercado_pagina.py",
+    "line": null,
+    "description": "O tracer nunca rodou com o JOGO ABERTO e OCR de verdade. Toda a suite do 02-04 injeta as duas leitoras (o Python global nao tem as bindings WinRT), entao a leitura de nome ponta a ponta com Windows.Media.Ocr sobre a coluna calibrada segue sem observacao ao vivo. Portao humano de fim de fase.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-30T16:31:02.167Z",
     "resolved_at": null
   }
 ]
