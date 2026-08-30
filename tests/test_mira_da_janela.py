@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -49,6 +50,10 @@ from l2scanner.frames import Regiao
 
 ALFA = "Alfa - XM Essence"
 BETA = "Beta - XM Essence"
+# O titulo COLAPSA na tela de login: sem personagem, so o nome do cliente. Dois
+# clientes no login tem titulos identicos — e por isso que ate um `--janela` de
+# titulo exato consegue casar duas janelas.
+NO_LOGIN = "XM Essence"
 
 # A origem da janela mirada, em coordenadas de desktop. Escolhida diferente de
 # (0,0) de proposito: e o que permite afirmar que o `(ox, oy)` que chegou ao
@@ -242,6 +247,31 @@ class TestALeituraDaChave:
             l2scanner.config.ler_personagem_do_jogo(caminho)
         assert "list" in str(erro.value)
 
+    def test_o_local_vence_o_versionado_e_o_aviso_nomeia_o_vencedor(
+        self, tmp_path, caplog
+    ):
+        """D-08 — mesma precedencia de `ler_membros`, pelo mesmo motivo.
+
+        Uma chave que nao faz nada e invisivel; uma chave que nao faz nada e
+        nao avisa e uma armadilha: o usuario reedita a noite inteira o arquivo
+        errado. E ele JA tem o habito do `config.local.toml` — e onde moram os
+        `[[membro]]`.
+        """
+        versionado = _escrever_toml(
+            tmp_path / "config.toml", '[jogo]\npersonagem = "Alfa"\n'
+        )
+        local = _escrever_toml(
+            tmp_path / "config.local.toml", '[jogo]\npersonagem = "Beta"\n'
+        )
+
+        with caplog.at_level(logging.WARNING):
+            escolhido = l2scanner.config.ler_personagem_do_jogo(versionado, local)
+
+        assert escolhido == "Beta"
+        aviso = caplog.text
+        assert "config.local.toml" in aviso
+        assert "config.toml" in aviso
+
     def test_um_caminho_explicito_le_so_aquele_arquivo(self, tmp_path):
         """Sem isso, o guarda do arquivo do repositorio leria a maquina."""
         _escrever_toml(tmp_path / "config.local.toml", '[jogo]\npersonagem = "Beta"\n')
@@ -296,6 +326,182 @@ class TestAEscolhaDaJanela:
                 f"`{nome}` ganhou valor padrao — e onde um nome de personagem "
                 f"se esconderia."
             )
+
+
+# ---------------------------------------------------------------------------
+# As quatro recusas — falha FECHADA (D-02, D-07)
+# ---------------------------------------------------------------------------
+
+
+class TestARecusaEFechada:
+    """Nenhuma destas recusas sugere tentar o desktop, e o codigo nao tem
+    caminho para isso: cair na varredura reintroduziria o defeito inteiro que
+    a mira existe para fechar."""
+
+    def test_nenhuma_janela_do_jogo_pergunta_se_o_jogo_esta_aberto(
+        self, monkeypatch, tmp_path, capsys, geo
+    ):
+        """(a) — listar o vazio nao diz nada; perguntar diz."""
+        rc, cenario = _dirigir(
+            monkeypatch,
+            tmp_path,
+            ["--auto"],
+            personagem="Alfa",
+            janelas=[],
+            party=_party(geo),
+        )
+        saida = capsys.readouterr().out
+        assert rc == 1
+        assert "aberto" in saida.lower()
+        assert cenario.capturas_de_desktop == 0
+
+    def test_personagem_que_nao_casa_lista_as_janelas_com_a_linha_pronta(
+        self, monkeypatch, tmp_path, capsys, geo
+    ):
+        """(b) — o usuario copia a linha, nao redigita um titulo lido no erro."""
+        rc, cenario = _dirigir(
+            monkeypatch,
+            tmp_path,
+            ["--auto"],
+            personagem="Gama",
+            janelas=[ALFA, BETA],
+            party=_party(geo),
+        )
+        saida = capsys.readouterr().out
+        assert rc == 1
+        assert "Gama" in saida
+        assert f'--janela "{ALFA}"' in saida
+        assert f'--janela "{BETA}"' in saida
+        assert cenario.capturas_de_desktop == 0
+
+    def test_titulo_pedido_que_nao_existe_cita_o_titulo(
+        self, monkeypatch, tmp_path, capsys, geo
+    ):
+        """(c) — o `--janela` tem semantica de TITULO EXATO."""
+        rc, _ = _dirigir(
+            monkeypatch,
+            tmp_path,
+            ["--auto", "--janela", "Gama - XM Essence"],
+            janelas=[ALFA, BETA],
+            party=_party(geo),
+        )
+        saida = capsys.readouterr().out
+        assert rc == 1
+        assert "Gama - XM Essence" in saida
+        assert f'--janela "{ALFA}"' in saida
+
+    def test_duas_janelas_casando_o_mesmo_personagem_recusa_nomeando_as_duas(
+        self, monkeypatch, tmp_path, capsys, geo
+    ):
+        """(d), D-07 — escolher uma seria reinventar a `primeira que funcionar`."""
+        rc, cenario = _dirigir(
+            monkeypatch,
+            tmp_path,
+            ["--auto"],
+            personagem="Alfa",
+            janelas=[ALFA, ALFA],
+            party=_party(geo),
+        )
+        saida = capsys.readouterr().out
+        assert rc == 1
+        assert saida.count(f'--janela "{ALFA}"') >= 2
+        assert cenario.titulos_abertos == []
+
+    def test_dois_clientes_no_login_com_titulo_identico_recusam_por_ambiguidade(
+        self, monkeypatch, tmp_path, capsys, geo
+    ):
+        """D-07 — o caso real e nada teorico: no login os dois titulos sao iguais,
+        entao ate um `--janela` de titulo exato casa duas janelas."""
+        rc, cenario = _dirigir(
+            monkeypatch,
+            tmp_path,
+            ["--auto", "--janela", NO_LOGIN],
+            janelas=[NO_LOGIN, NO_LOGIN],
+            party=_party(geo),
+        )
+        saida = capsys.readouterr().out
+        assert rc == 1
+        assert NO_LOGIN in saida
+        assert cenario.titulos_abertos == []
+
+    def test_janela_no_login_e_apontada_como_login_e_nao_so_como_nao_achei(
+        self, monkeypatch, tmp_path, capsys, geo
+    ):
+        """D-03 — a verdade e `seu cliente esta no login`, nao `nao achei`.
+
+        Sem esta linha a recusa mente por omissao: ela diz que a janela nao
+        existe quando a janela esta ali, e do jogo, e so nao tem personagem no
+        titulo ainda. O usuario ficaria conferindo a grafia do nick.
+        """
+        rc, _ = _dirigir(
+            monkeypatch,
+            tmp_path,
+            ["--auto"],
+            personagem="Alfa",
+            janelas=[NO_LOGIN],
+            party=_party(geo),
+        )
+        saida = capsys.readouterr().out
+        assert rc == 1
+        assert "login" in saida.lower()
+
+    def test_a_recusa_nao_grava_nada_no_disco(self, monkeypatch, tmp_path, geo):
+        """A recusa retorna antes de `fundir_com_a_calibracao_em_disco`."""
+        alvo = tmp_path / "calibration.json"
+        alvo.write_text('{"marcador": "intocado"}', encoding="utf-8")
+        antes = alvo.read_bytes()
+
+        rc, cenario = _dirigir(
+            monkeypatch,
+            tmp_path,
+            ["--auto"],
+            personagem="Gama",
+            janelas=[ALFA],
+            party=_party(geo),
+            alvo_calibracao=alvo,
+        )
+
+        assert rc == 1
+        assert alvo.read_bytes() == antes
+        assert cenario.capturas_de_desktop == 0
+
+    def test_janela_minimizada_recusa_sem_traceback(
+        self, monkeypatch, tmp_path, capsys, geo
+    ):
+        """A excecao vem da CAPTURA, nao da resolucao — e o `try` cobre as duas.
+
+        E a mensagem mais provavel de todas: o usuario esqueceu o cliente
+        minimizado. Sair como traceback seria o pior lugar para ela sair.
+        """
+        rc, _ = _dirigir(
+            monkeypatch,
+            tmp_path,
+            ["--auto"],
+            personagem="Alfa",
+            janelas=[ALFA],
+            party=_party(geo),
+            erro_ao_abrir=RuntimeError(
+                "Nenhum frame chegou de 'Alfa - XM Essence' em 5s. "
+                "A janela esta minimizada? Janela minimizada nao produz frame."
+            ),
+        )
+        saida = capsys.readouterr().out
+        assert rc == 1
+        assert "minimizada" in saida.lower()
+
+    def test_frame_vazio_recusa_explicando(self, monkeypatch, tmp_path, capsys, geo):
+        rc, _ = _dirigir(
+            monkeypatch,
+            tmp_path,
+            ["--auto"],
+            personagem="Alfa",
+            janelas=[ALFA],
+            party=_party(geo),
+            frame=np.zeros((0, 0, 3), dtype=np.uint8),
+        )
+        saida = capsys.readouterr().out
+        assert rc == 1
+        assert "minimizada" in saida.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -362,6 +568,68 @@ class TestAMiraLeUmaJanelaSo:
         assert rc == 0
         assert ALFA in saida
         assert "config.toml" in saida
+
+    def test_o_janela_da_linha_de_comando_vence_a_chave_do_config(
+        self, monkeypatch, tmp_path, capsys, geo
+    ):
+        """D-01 — a saida de emergencia, quando a chave aponta para o cliente
+        errado e o usuario nao quer editar arquivo no meio do farm."""
+        rc, cenario = _dirigir(
+            monkeypatch,
+            tmp_path,
+            ["--auto", "--janela", BETA],
+            personagem="Alfa",
+            janelas=[ALFA, BETA],
+            party=_party(geo),
+        )
+        saida = capsys.readouterr().out
+        assert rc == 0
+        assert cenario.titulos_abertos == [BETA]
+        assert "--janela" in saida
+
+    def test_selecionar_tambem_obedece_a_mira(self, monkeypatch, tmp_path, geo):
+        """D-04 — `main()` tem UM ponto de captura, e ele alimenta os dois ramos.
+
+        A calibracao que sai do `--selecionar` continua em coordenadas de
+        DESKTOP: `calibrar_selecionando` repassa `ox + x, oy + y`, e com
+        `(ox, oy)` sendo a origem da janela a conta fecha igual.
+        """
+        rc, cenario = _dirigir(
+            monkeypatch,
+            tmp_path,
+            ["--selecionar"],
+            personagem="Alfa",
+            janelas=[ALFA, BETA],
+            party=_party(geo),
+        )
+        assert rc == 0
+        assert cenario.titulos_abertos == [ALFA]
+        assert cenario.capturas_de_desktop == 0
+        assert len(cenario.selecoes) == 1
+        _, ox, oy = cenario.selecoes[0]
+        assert (ox, oy) == ORIGEM_MIRADA
+
+
+class TestSemMiraNadaMuda:
+    def test_sem_chave_e_sem_janela_o_desktop_e_o_fallback_continuam(
+        self, monkeypatch, tmp_path, geo
+    ):
+        """D-06 e D-05 — quebrar o `--auto` de quem tem um cliente so seria
+        regressao, e nao rigor. Duas janelas abertas e nenhuma mira: nao ha
+        ordem para contrariar, entao o fallback continua vivo."""
+        rc, cenario = _dirigir(
+            monkeypatch,
+            tmp_path,
+            ["--auto"],
+            personagem=None,
+            janelas=[ALFA, BETA],
+            party=None,
+        )
+
+        assert rc == 1  # `calibrar_automatico` e o fallback devolveram None
+        assert cenario.capturas_de_desktop == 1
+        assert cenario.fallbacks == 1
+        assert cenario.titulos_abertos == []
 
 
 class TestOCampoJanelaGravado:
