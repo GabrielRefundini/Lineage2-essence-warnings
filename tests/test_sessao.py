@@ -10,8 +10,9 @@ Agora chama.
 
 from __future__ import annotations
 
+import os
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import cv2
@@ -28,6 +29,7 @@ from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.notificador import Categoria
 from l2scanner.rastreador import Rastreador
+from l2scanner.respawn import TipoDeJanela
 from l2scanner.sessao import Sessao
 
 SEGUNDA = datetime(2026, 8, 24)
@@ -76,6 +78,7 @@ def nova_sessao(
     membros=(),
     registro=None,
     bosses=None,
+    regras_de_respawn=(),
 ):
     return Sessao(
         cal=calibracao,
@@ -88,6 +91,7 @@ def nova_sessao(
         manutencao=manutencao,
         membros=membros,
         bosses=bosses,
+        regras_de_respawn=regras_de_respawn,
     )
 
 
@@ -1296,4 +1300,242 @@ class TestOSeamDosBosses:
         r = s.tick(frame_real, momento=em(12, 0))
 
         assert r.avisos_de_boss == []
+        assert not r.falhou_ao_analisar
+
+
+class TestAFatiaInteiraDaJanelaDeRespawn:
+    """DA TELA AO WHATSAPP, atravessando o disco e seis horas de relogio.
+
+    Este e o unico teste do projeto que exercita o caminho INTEIRO da Fase 2:
+    um anuncio no recorte do chat as 14:30 vira um arquivo vazio em `.agenda/`,
+    e as 20:30 esse arquivo vira uma mensagem no grupo — sem tela, sem rede, e
+    possivelmente noutro processo.
+
+    AS HORAS VEM DO `Boss` CONSTRUIDO AQUI, e nunca do `config.toml` do
+    repositorio. Aquele arquivo e do usuario e ele o edita: um teste que
+    fixasse `20:30` sobre o `respawn_horas_min` de la ficaria vermelho no dia
+    em que ele trocasse 6 por 5, sem defeito nenhum.
+    """
+
+    NORTH = Boss(nome="Tiat North", respawn_horas_min=6, respawn_horas_max=8)
+    ANUNCIO = "Tiat North [Lv. 60] has spawned!"
+
+    NASCIMENTO = datetime(2026, 8, 30, 14, 30)
+    ANCORA = "nascimento_2026-08-30_tiat-north-1430"
+
+    def quando(self, **desloc):
+        return (self.NASCIMENTO + timedelta(**desloc)).timestamp()
+
+    def vigia(self, chat, alvo):
+        """Le `chat` e `alvo` no primeiro tick e NADA em todos os seguintes.
+
+        Um `iter` de dois itens levantaria `StopIteration` no segundo tick, e o
+        teste da janela precisa de pelo menos dois: o que ancora e o que
+        anuncia. Depois do primeiro, os recortes voltam limpos — que e o que
+        acontece de verdade seis horas depois.
+        """
+        restantes = [chat, alvo]
+
+        def ler(_pixels):
+            return restantes.pop(0) if restantes else ""
+
+        return VigiaDeBosses(
+            ler, bosses=(self.NORTH,), segundos_entre_leituras=1
+        )
+
+    def frame(self, frame_real):
+        recorte = np.zeros((5, 5, 3), dtype=np.uint8)
+        return replace(
+            frame_real, extras={"tiat_chat": recorte, "tiat_alvo": recorte}
+        )
+
+    def sessao(self, calibracao, tmp_path, pasta, com_vigia=True):
+        return nova_sessao(
+            calibracao,
+            tmp_path,
+            registro=RegistroEmDisco(pasta),
+            bosses=self.vigia(self.ANUNCIO, "") if com_vigia else None,
+            regras_de_respawn=[self.NORTH],
+        )
+
+    # -- 1. a ancora ------------------------------------------------------
+
+    def test_o_anuncio_grava_exatamente_uma_ancora_com_o_nome_duravel(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """D-18 literal: a ORIGEM entra no NOME, e nao no conteudo.
+
+        A forma e uma porta de mao unica ja atravessada pelo usuario. Mudar
+        qualquer byte dela invalida todo marcador ja gravado: a contagem
+        reinicia do nada e um aviso ja enviado sai de novo no grupo.
+        """
+        pasta = tmp_path / "agenda"
+        s = self.sessao(calibracao, tmp_path, pasta)
+
+        s.tick(self.frame(frame_real), momento=self.quando())
+
+        ancoras = [n for n in os.listdir(pasta) if n.startswith("nascimento_")]
+        assert ancoras == [f"{self.ANCORA}_chat"]
+
+    def test_o_resultado_carrega_a_ancora_estruturada(
+        self, calibracao, frame_real, tmp_path
+    ):
+        pasta = tmp_path / "agenda"
+        s = self.sessao(calibracao, tmp_path, pasta)
+
+        r = s.tick(self.frame(frame_real), momento=self.quando())
+
+        assert r.ancoras_gravadas == [("Tiat North", OrigemDoAviso.CHAT)]
+
+    # -- 2. a janela ------------------------------------------------------
+
+    def test_um_minuto_antes_da_janela_nao_sai_nada(
+        self, calibracao, frame_real, tmp_path
+    ):
+        pasta = tmp_path / "agenda"
+        s = self.sessao(calibracao, tmp_path, pasta)
+        s.tick(self.frame(frame_real), momento=self.quando())
+
+        r = s.tick(
+            self.frame(frame_real), momento=self.quando(hours=6, minutes=-1)
+        )
+
+        assert r.avisos_de_janela == []
+
+    def test_na_abertura_sai_um_aviso_que_atravessa_o_silencio(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """D-23: `Categoria.SEMPRE`.
+
+        Um boss nascendo durante o Prime e exatamente a informacao que ninguem
+        quer perder — a mesma razao ja escrita em `_processar_bosses`.
+        """
+        pasta = tmp_path / "agenda"
+        s = self.sessao(calibracao, tmp_path, pasta)
+        s.tick(self.frame(frame_real), momento=self.quando())
+        antes = len(s.tick(self.frame(frame_real), momento=self.quando(hours=1)).despachos)
+
+        r = s.tick(self.frame(frame_real), momento=self.quando(hours=6))
+
+        assert antes == 0
+        assert len(r.avisos_de_janela) == 1
+        boss, tipo = r.avisos_de_janela[0]
+        assert boss == "Tiat North"
+        assert tipo is TipoDeJanela.ABRE
+
+        assert len(r.despachos) == 1
+        texto, categoria, _alvo = r.despachos[0]
+        assert categoria is Categoria.SEMPRE
+        assert "Tiat North" in texto
+        assert "14:30" in texto
+
+    def test_o_segundo_tick_dentro_da_tolerancia_nao_repete(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """O `marcar` recusou: e ELE a decisao de despachar, e nao uma
+        checagem anterior."""
+        pasta = tmp_path / "agenda"
+        s = self.sessao(calibracao, tmp_path, pasta)
+        s.tick(self.frame(frame_real), momento=self.quando())
+        s.tick(self.frame(frame_real), momento=self.quando(hours=6))
+
+        r = s.tick(
+            self.frame(frame_real), momento=self.quando(hours=6, minutes=1)
+        )
+
+        assert r.avisos_de_janela == []
+        assert r.despachos == []
+
+    # -- 3. a contagem nunca esteve em memoria ----------------------------
+
+    def test_um_processo_novo_sobre_a_mesma_pasta_anuncia_igual(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """A PROVA DE JANE-01, e a razao de a ancora morar em disco.
+
+        Esta segunda `Sessao` nunca viu o nascimento e nem sequer tem vigia de
+        bosses ligado. Se o instante morasse em memoria, ela nao teria o que
+        anunciar — e derrubar e subir o scanner perderia o ciclo inteiro.
+        """
+        pasta = tmp_path / "agenda"
+        primeira = self.sessao(calibracao, tmp_path, pasta)
+        primeira.tick(self.frame(frame_real), momento=self.quando())
+
+        segunda = self.sessao(calibracao, tmp_path, pasta, com_vigia=False)
+        r = segunda.tick(frame_real, momento=self.quando(hours=6))
+
+        assert len(r.avisos_de_janela) == 1
+        assert "14:30" in r.despachos[0][0]
+
+    def test_a_previsao_existe_mesmo_com_o_vigia_desligado(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """`regras_de_respawn` e kwarg SEPARADO de `bosses`, de proposito.
+
+        Sem calibracao dos recortes ou sem OCR o vigia fica `None` — mas a
+        ancora ja esta em disco e a previsao continua correta. Amarrar a
+        previsao ao vigia faria uma calibracao quebrada apagar, em silencio,
+        uma funcionalidade que so depende do relogio.
+        """
+        pasta = tmp_path / "agenda"
+        semente = RegistroEmDisco(pasta)
+        semente.registrar_nascimento("2026-08-30_tiat-north-1430_chat")
+
+        s = self.sessao(calibracao, tmp_path, pasta, com_vigia=False)
+        r = s.tick(frame_real, momento=self.quando(hours=6))
+
+        assert len(r.avisos_de_janela) == 1
+
+    def test_sem_regras_de_respawn_nada_muda(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """As construcoes de `Sessao` que ja existem nao passam o kwarg."""
+        pasta = tmp_path / "agenda"
+        semente = RegistroEmDisco(pasta)
+        semente.registrar_nascimento("2026-08-30_tiat-north-1430_chat")
+
+        s = nova_sessao(calibracao, tmp_path, registro=RegistroEmDisco(pasta))
+        r = s.tick(frame_real, momento=self.quando(hours=6))
+
+        assert r.avisos_de_janela == []
+        assert r.despachos == []
+        assert not r.falhou_ao_analisar
+
+    # -- 4. JANE-04 dentro de UM tick -------------------------------------
+
+    def test_ancorar_vem_antes_de_anunciar_no_mesmo_tick(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """D-20 valendo DENTRO de um unico tick, e nao so entre ticks.
+
+        As 20:30 o aviso do ciclo das 14:30 venceria. Se um nascimento NOVO
+        chega no mesmo tick, a ancora nova ja esta em disco quando
+        `anunciar_janelas` monta as ancoras: a chave velha nao e gerada e o
+        aviso obsoleto nao sai. Inverter a ordem das duas chamadas anunciaria
+        uma janela que o proprio tick acabou de invalidar.
+        """
+        pasta = tmp_path / "agenda"
+        semente = RegistroEmDisco(pasta)
+        semente.registrar_nascimento("2026-08-30_tiat-north-1430_chat")
+
+        s = self.sessao(calibracao, tmp_path, pasta)
+        r = s.tick(self.frame(frame_real), momento=self.quando(hours=6))
+
+        assert r.ancoras_gravadas == [("Tiat North", OrigemDoAviso.CHAT)]
+        assert r.avisos_de_janela == [], (
+            "o aviso do ciclo velho saiu depois de o ciclo novo ter ancorado"
+        )
+
+    def test_uma_ancora_torta_na_pasta_nao_derruba_o_tick(
+        self, calibracao, frame_real, tmp_path
+    ):
+        pasta = tmp_path / "agenda"
+        semente = RegistroEmDisco(pasta)
+        semente.registrar_nascimento("2026-08-30_tiat-north-1430_chat")
+        (pasta / "nascimento_lixo").touch()
+
+        s = self.sessao(calibracao, tmp_path, pasta, com_vigia=False)
+        r = s.tick(frame_real, momento=self.quando(hours=6))
+
+        assert len(r.avisos_de_janela) == 1
         assert not r.falhou_ao_analisar

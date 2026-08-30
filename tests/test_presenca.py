@@ -1151,6 +1151,49 @@ class TestDirecaoDeImportacao:
         importados = _modulos_importados(RAIZ / "l2scanner" / "agenda.py")
         assert not ({"loot", "presenca", "comandos"} & importados)
 
+    def test_respawn_so_conhece_agenda_e_bosses(self):
+        """A direcao e `respawn -> {agenda, bosses}`, e nada mais.
+
+        `respawn.py` e chamado pelos DOIS lacos (o principal, na `sessao`, e o
+        `--so-agenda` do plano 02-02). Um import de `sessao` aqui fecharia o
+        ciclo na hora; um import de `comandos` ou `loot` arrastaria para dentro
+        da previsao de respawn dependencias que ela nao tem motivo para ter.
+        """
+        importados = _modulos_importados(RAIZ / "l2scanner" / "respawn.py")
+        proibidos = {
+            "comandos",
+            "sessao",
+            "presenca",
+            "loot",
+            "__main__",
+        } & importados
+        assert not proibidos, f"respawn.py importa {proibidos}"
+
+    def test_respawn_importa_mesmo_de_agenda_e_de_bosses(self):
+        """Guarda contra prova vazia, no molde do teste da `presenca`.
+
+        Um `respawn.py` que nao importasse NADA passaria no teste acima sem
+        provar coisa alguma. Este afirma que a direcao permitida esta em uso —
+        e ela precisa estar: `apelido_do_evento` vindo da `agenda` e o que faz
+        a chave da ancora casar com a poda, e uma quinta copia daquela
+        expressao regular divergiria no primeiro ajuste.
+        """
+        importados = _modulos_importados(RAIZ / "l2scanner" / "respawn.py")
+        assert "agenda" in importados
+        assert "bosses" in importados
+
+    def test_nem_agenda_nem_bosses_importam_respawn(self):
+        """A volta do ciclo, afirmada do outro lado.
+
+        `agenda.py` declara `PREFIXO_NASCIMENTO` e `bosses.py` declara
+        `OrigemDoAviso` — os dois dados que a ancora usa. A tentacao de fazer
+        um deles chamar `respawn` para "fechar a semantica" mataria os tres com
+        `ImportError` no arranque.
+        """
+        for modulo in ("agenda.py", "bosses.py"):
+            importados = _modulos_importados(RAIZ / "l2scanner" / modulo)
+            assert "respawn" not in importados, f"{modulo} importa respawn"
+
     def test_presenca_importa_mesmo_de_agenda_e_de_loot(self):
         """Guarda contra prova vazia.
 
@@ -1201,14 +1244,29 @@ class TestSemRelogioProprio:
     cara de uma certa. Adotar agora custa uma linha, porque o modulo ja cumpre
     a regra; adotar na Fase 2 seria adotar um modulo que ja pode ter violado
     a regra, e o portao nasceria vermelho ou nasceria afrouxado.
+
+    `respawn.py` entrou na Fase 2 do workstream `tiat`, e nele a regra tem um
+    DENTE A MAIS do que em `agenda.py`. O instante que `janelas_devidas` recebe
+    e o mesmo que decide se uma mensagem sai AGORA ou NUNCA — a janela de
+    tolerancia e de cinco minutos, e fora dela o aviso nao ressuscita. Um
+    relogio proprio enfiado ali faria os testes continuarem verdes passando um
+    `agora` que o codigo ja nao usaria, e as quatro bordas de tolerancia
+    deixariam de provar qualquer coisa.
+
+    A diferenca em relacao a `agenda.py` e que aqui o instante da ancora
+    tambem foi LIDO DE DISCO horas antes. Uma divergencia entre o relogio do
+    CALCULO e o relogio da ANCORA nao produz um aviso faltando — produz uma
+    previsao ERRADA, entregue no grupo, com exatamente a mesma cara de uma
+    certa. E o modo de falha caro desta fase, e ele nao aparece em teste
+    nenhum que passe o tempo por parametro.
     """
 
-    MODULOS = ("agenda.py", "loot.py", "presenca.py", "bosses.py")
+    MODULOS = ("agenda.py", "loot.py", "presenca.py", "bosses.py", "respawn.py")
 
-    @pytest.mark.parametrize("modulo", MODULOS)
-    def test_nenhum_now_de_datetime_na_arvore(self, modulo):
-        arvore = ast.parse((RAIZ / "l2scanner" / modulo).read_text(encoding="utf-8"))
-        achados = [
+    @staticmethod
+    def _relogios_proprios(fonte: str) -> list[str]:
+        arvore = ast.parse(fonte)
+        return [
             f"{getattr(no.value, 'id', None) or getattr(no.value, 'attr', '?')}.{no.attr}"
             for no in ast.walk(arvore)
             if isinstance(no, ast.Attribute)
@@ -1216,7 +1274,30 @@ class TestSemRelogioProprio:
             and (getattr(no.value, "id", None) or getattr(no.value, "attr", None))
             in {"datetime", "date", "time"}
         ]
+
+    @pytest.mark.parametrize("modulo", MODULOS)
+    def test_nenhum_now_de_datetime_na_arvore(self, modulo):
+        fonte = (RAIZ / "l2scanner" / modulo).read_text(encoding="utf-8")
+        achados = self._relogios_proprios(fonte)
         assert not achados, f"{modulo} tem relogio proprio: {achados}"
+
+    @pytest.mark.parametrize("modulo", MODULOS)
+    def test_a_prova_pega_um_relogio_enfiado_em_CADA_modulo(self, modulo):
+        """Guarda contra prova vazia, POR MODULO.
+
+        O teste generico de detector (abaixo) prova que a busca funciona sobre
+        um fonte de mentira. Este prova que ela funciona sobre o fonte REAL de
+        cada modulo — injetando a linha proibida no fim do arquivo em memoria e
+        exigindo que o detector a acuse. Sem ele, um modulo cujo caminho
+        estivesse errado passaria verde para sempre.
+        """
+        fonte = (RAIZ / "l2scanner" / modulo).read_text(encoding="utf-8")
+        assert self._relogios_proprios(fonte) == []
+
+        envenenado = fonte + "\n_agora_escondido = datetime.now()\n"
+        assert self._relogios_proprios(envenenado), (
+            f"o portao nao acusaria um datetime.now() dentro de {modulo}"
+        )
 
     def test_a_prova_pega_de_verdade_um_relogio_proprio(self):
         """Guarda contra prova vazia: o detector acha o que deveria achar."""

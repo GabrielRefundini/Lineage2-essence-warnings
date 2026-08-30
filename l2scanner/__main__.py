@@ -1684,8 +1684,16 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     # A lista de bosses vem do `config.toml` e nao do codigo (VIGI-01). Lida
     # aqui, ao lado da agenda, porque as duas sao a mesma coisa: dado que o
     # usuario escreve a mao e que o arranque tem que conferir antes de subir.
+    #
+    # UMA LEITURA SO, EM VARIAVEL, e ela tem dois consumidores que precisam
+    # enxergar a MESMA lista: o vigia (que reconhece o nascimento na tela) e as
+    # regras de respawn da `Sessao` (que preveem a janela pelo relogio). Duas
+    # chamadas a `ler_bosses()` abririam a possibilidade de o usuario editar o
+    # arquivo entre elas e o scanner subir vigiando um conjunto de bosses e
+    # prevendo outro.
+    regras_de_respawn = ler_bosses()
     vigia_bosses = montar_vigia_de_bosses(
-        cal, na_janela=bool(args.janela), bosses=ler_bosses()
+        cal, na_janela=bool(args.janela), bosses=regras_de_respawn
     )
     if vigia_bosses is not None:
         if cal.tiat_chat:
@@ -1836,6 +1844,11 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         loot=registro_de_loot,
         manutencao=vigia_manutencao,
         bosses=vigia_bosses,
+        # As REGRAS de respawn entram separadas do vigia, de proposito: a
+        # previsao da janela so depende do relogio e da ancora em disco, e tem
+        # que continuar valendo quando o vigia esta `None` por falta de
+        # calibracao ou de OCR.
+        regras_de_respawn=regras_de_respawn,
         # O sinal do mercado entra por AQUI e sai no console, e so. O
         # `rastreador` nao o recebe, nao o le e nao tem como: ver o tripwire de
         # arquitetura em `tests/test_mercado_27x.py`.

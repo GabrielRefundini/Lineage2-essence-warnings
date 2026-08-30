@@ -120,15 +120,27 @@ def apelido_do_evento(nome: str) -> str:
 
     UM SO APELIDO PARA TODOS OS USOS, e isto nao e arrumacao. A mesma linha
     estava escrita duas vezes — em `Aviso.chave` e em `chave_da_ocorrencia` — e
-    agora tem um terceiro consumidor, o marcador de evento calado. Tres copias
-    da mesma expressao divergem no primeiro ajuste, e a divergencia aqui e
-    invisivel: o gate procuraria `soloboss` enquanto a agenda escreve
-    `solo-boss`, ninguem levantaria excecao nenhuma, e o boss simplesmente
-    continuaria falando depois de o usuario o ter desligado.
+    agora tem um terceiro consumidor, o marcador de evento calado, e um quarto,
+    o `respawn.py` da janela de boss (`chave_do_nascimento` e
+    `AvisoDeJanela.chave`). Quatro copias da mesma expressao divergem no
+    primeiro ajuste, e a divergencia aqui e invisivel: o gate procuraria
+    `soloboss` enquanto a agenda escreve `solo-boss`, ninguem levantaria
+    excecao nenhuma, e o boss simplesmente continuaria falando depois de o
+    usuario o ter desligado.
 
     O VALOR E DURAVEL. Ele ja e nome de arquivo em `.agenda/` desde a Fase 6 —
     muda-lo faria todo marcador gravado deixar de casar, e a party receberia
-    de novo tudo que ja tinha recebido.
+    de novo tudo que ja tinha recebido. Desde a Fase 2 do workstream `tiat` ele
+    tambem e a identidade da ANCORA de respawn, e ali o custo de mudar e outro:
+    a contagem de seis horas reinicia do nada, em silencio.
+
+    E POR ISSO QUE A REDUCAO E POR LISTA DE PERMISSAO, e nao por lista de
+    recusa. So `a-z` e `0-9` sobrevivem; todo o resto vira hifen. Um `nome` de
+    `[[boss]]` escrito a mao no `config.toml` nao consegue produzir separador
+    de diretorio, ponto, nem sequencia de subida de nivel dentro de `.agenda/`
+    (T-02-04). Isso era verdade por consequencia enquanto o valor so nomeava
+    eventos; virou propriedade a defender quando o `nome` do boss passou a ser
+    nome de arquivo.
     """
     return re.sub(r"[^a-z0-9]+", "-", nome.lower()).strip("-")
 
@@ -350,6 +362,34 @@ PREFIXO_FECHADO = "fechado_"
 # `test_a_poda_nao_expira_o_desligamento`.
 PREFIXO_EVENTO_CALADO = "evento_calado_"
 
+# Prefixo da ANCORA de nascimento de boss — o instante em que um boss nasceu,
+# gravado como arquivo VAZIO para a contagem de respawn nao morar em memoria.
+# O nome completo e `nascimento_<YYYY-MM-DD>_<boss-slug>-<HHMM>_<origem>`, e a
+# ORIGEM VAI NO NOME (D-18): a mensagem que sai seis horas depois precisa citar
+# QUAL sinal ancorou, e guardar isso no CONTEUDO quebraria a propriedade que
+# sustenta a pasta inteira — um "cria e depois escreve" abriria uma janela em
+# que a outra instancia le um arquivo ainda vazio e nao sabe a origem.
+#
+# ENTRA EM `_PREFIXOS_CONHECIDOS`, e a escolha do balde tem duas metades.
+#
+# A primeira: a ancora e EFEMERA POR CONSTRUCAO. A vida util dela acaba no
+# proximo nascimento e, no maximo, em `respawn_horas_max` mais a tolerancia —
+# oito horas e cinco minutos, contra os 3 dias de `DIAS_DE_MARCADOR`. Nenhuma
+# ancora legitima chega perto do limite da poda.
+#
+# A segunda, e a que importa: UMA ANCORA VELHA NAO E NEUTRA, E PERIGOSA. Ela
+# nao fica so ocupando disco como um marcador de aviso vencido — ela continua
+# PRODUZINDO janelas, e as janelas erradas tem exatamente a mesma cara das
+# certas. O modo de falha e uma previsao confiante sobre um nascimento que
+# nunca existiu, entregue no grupo, e e ela que a poda de 3 dias limita
+# (T-02-01, T-02-03).
+#
+# `_PREFIXOS_SEM_DATA` foi considerado e RECUSADO. Aquele balde existe para a
+# imortalidade DELIBERADA do evento calado, que e uma decisao do usuario e nao
+# expira. Uma ancora e o oposto disso: e um fato datado que deve morrer, e o
+# unico dos dois baldes em que "nao expira" seria esquecimento e nao decisao.
+PREFIXO_NASCIMENTO = "nascimento_"
+
 # Todo namespace que a poda sabe desmontar.
 #
 # CONSERTA UM DEFEITO REAL: ate esta fase a poda retirava UM prefixo
@@ -364,7 +404,12 @@ PREFIXO_EVENTO_CALADO = "evento_calado_"
 # sao podados — mas por outro motivo, o de nao existir data nenhuma no nome
 # deles. Resolve-los pede um segundo criterio de idade (mtime, ou id
 # monotonico), que e outro desenho e outra fase.
-_PREFIXOS_CONHECIDOS = (PREFIXO_CANCELADO, PREFIXO_PRESENCA, PREFIXO_FECHADO)
+_PREFIXOS_CONHECIDOS = (
+    PREFIXO_CANCELADO,
+    PREFIXO_PRESENCA,
+    PREFIXO_FECHADO,
+    PREFIXO_NASCIMENTO,
+)
 
 # O SEGUNDO destino possivel de um prefixo: os que NAO tem data e nao expiram
 # NUNCA — por decisao, e nao por esquecimento.
@@ -509,6 +554,45 @@ class RegistroEmDisco:
             nome[len(PREFIXO_CANCELADO) :]
             for nome in self.enviados()
             if nome.startswith(PREFIXO_CANCELADO)
+        }
+
+    # -- ancoras de nascimento de boss --------------------------------------
+
+    def registrar_nascimento(self, chave: str) -> bool:
+        """Grava a ANCORA de um nascimento. True se ESTE processo gravou.
+
+        A `chave` e OPACA: este metodo nao conhece boss nenhum, nao sabe o que
+        e uma origem e nunca parseia o que recebe. A semantica inteira mora em
+        `respawn.py`, exatamente como a semantica de presenca mora em
+        `presenca.py` e nao em `presentes`. E o que mantem `agenda.py` sem
+        importar nada do pacote.
+
+        HERDA DE `marcar` AS DUAS PROPRIEDADES QUE A FASE PRECISA, e nao
+        reimplementa nenhuma:
+
+        - **Em `--dry-run` devolve True sem encostar no disco.** Uma simulacao
+          nao pode gravar ancora na pasta COMPARTILHADA: o scanner real
+          passaria a contar seis horas a partir de um nascimento que a
+          simulacao inventou, e a previsao errada sairia no grupo horas depois
+          com a mesma cara de uma certa.
+        - **Entre as duas instancias do usuario, exatamente uma cria o
+          arquivo.** Mesmo `O_CREAT|O_EXCL` dos avisos — nenhuma corrida nova
+          foi introduzida por este namespace.
+        """
+        return self.marcar(PREFIXO_NASCIMENTO + chave)
+
+    def nascimentos(self) -> set[str]:
+        """As ancoras gravadas, sem o prefixo.
+
+        O filtro por prefixo e o que mantem os namespaces separados dentro da
+        MESMA pasta: sem ele, um marcador de aviso de janela (que nao tem
+        prefixo nenhum) entraria nesta lista e seria lido como se fosse um
+        nascimento.
+        """
+        return {
+            nome[len(PREFIXO_NASCIMENTO) :]
+            for nome in self.enviados()
+            if nome.startswith(PREFIXO_NASCIMENTO)
         }
 
     # -- eventos calados por comando ----------------------------------------

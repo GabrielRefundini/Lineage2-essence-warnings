@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 17
+open_count: 18
 waived_count: 1
 fixed_count: 2
-total_count: 20
-last_updated: 2026-08-30T17:06:37.685Z
+total_count: 21
+last_updated: 2026-08-30T22:50:55.361Z
 ---
 
 # Broken Windows Ledger
@@ -35,6 +35,7 @@ last_updated: 2026-08-30T17:06:37.685Z
 | 18 | 2 | deviation | .planning/workstreams/mercado/phases/02-leitura-de-p-gina/02-04-PLAN.md |  | Tres fixturas que o plano 02-04 nomeou foram trocadas por medicao: (a) a linha 0 de janela_negociacao_f010.png NAO vira LinhaLida (tooltip sobre a coluna Total; atravessam a 6 e a 8); (b) janela_negociacao_f010_repetida.png nao existe — f010 nao e pagina parada, os vizinhos f009/f011 mostram paginas diferentes, e o par parado medido e f005/f006; (c) tooltip/frame_000015 NAO serve para provar recusa por linha porque a tooltip cobre tambem o cabecalho e o portao de layout recusa a pagina inteira (casamento 0,4469 contra limiar 0,73) — o frame que serve e o 000012 (cabecalho 0,9196, 8 linhas cobertas e 2 nao). | open |  | 2026-08-30T16:31:01.783Z |  |
 | 19 | 2 | unrun-verify | l2scanner/mercado_pagina.py |  | O tracer nunca rodou com o JOGO ABERTO e OCR de verdade. Toda a suite do 02-04 injeta as duas leitoras (o Python global nao tem as bindings WinRT), entao a leitura de nome ponta a ponta com Windows.Media.Ocr sobre a coluna calibrada segue sem observacao ao vivo. Portao humano de fim de fase. | open |  | 2026-08-30T16:31:02.167Z |  |
 | 20 | 01 | unrun-verify | l2scanner/bosses.py |  | A frase real do servidor nunca passou pelo OCR deste projeto: toda a suite alimenta o vigia com texto ja decodificado. A folga de OCR e um palpite calibrado, nao uma medicao — o plano 01-04 constroi a ferramenta que confronta a frase contra pixels. | open |  | 2026-08-30T17:06:37.685Z |  |
+| 21 | 02 | deviation | l2scanner/respawn.py |  | Task 2 sem fase RED: as quatro frases foram escritas na Task 1 para nao existir commit em que a origem ALVO atribua a citacao ao servidor; compensado por conferencia via mutacao | open |  | 2026-08-30T22:50:55.361Z |  |
 
 ````json
 [
@@ -276,6 +277,18 @@ last_updated: 2026-08-30T17:06:37.685Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-30T17:06:37.685Z",
+    "resolved_at": null
+  },
+  {
+    "id": 21,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "l2scanner/respawn.py",
+    "line": null,
+    "description": "Task 2 sem fase RED: as quatro frases foram escritas na Task 1 para nao existir commit em que a origem ALVO atribua a citacao ao servidor; compensado por conferencia via mutacao",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-30T22:50:55.361Z",
     "resolved_at": null
   }
 ]
