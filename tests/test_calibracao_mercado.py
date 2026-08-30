@@ -354,6 +354,10 @@ AS_QUATORZE = (
     "mercado_piso_de_similaridade",
     "mercado_tolerancia_do_cruzamento",
     "mercado_minimo_de_linhas_comparadas",
+    # A DECIMA QUINTA, do 02-07: o piso de brilho PROPRIO da coluna Quantity.
+    # Ela entra na MESMA parametrizacao das outras porque a regra e a mesma —
+    # `.get` opcional, `None` legitimo, `VERSAO_DO_ESQUEMA` intacta em 2.
+    "mercado_limiar_de_brilho_da_quantidade",
 )
 
 AS_QUATRO_COLUNAS = (
@@ -370,6 +374,59 @@ def _mexido(tmp_path: Path, nome: str = "mexido.json", **chaves) -> Path:
     destino = tmp_path / nome
     destino.write_text(json.dumps(dados), encoding="utf-8")
     return destino
+
+
+class TestOPisoDeBrilhoDaQuantidadeEConferidoNoARRANQUE:
+    """Faixa `[1, 254]`, `bool` recusado, `None` sempre passa.
+
+    Ele e o piso da mascara `V > piso` da coluna que diz QUANTAS unidades o
+    preco cobre, e a Fase 3 multiplica preco por quantidade. Um valor errado
+    aqui nao acrescenta ruido: ele TROCA o numero.
+    """
+
+    def test_None_passa_e_significa_feature_OFF(self, tmp_path):
+        caminho = _mexido(
+            tmp_path, mercado_limiar_de_brilho_da_quantidade=None
+        )
+        cal = Calibracao.carregar(caminho)
+        assert cal.mercado_limiar_de_brilho_da_quantidade is None
+
+    def test_um_inteiro_na_faixa_carrega(self, tmp_path):
+        caminho = _mexido(tmp_path, mercado_limiar_de_brilho_da_quantidade=165)
+        assert Calibracao.carregar(caminho).mercado_limiar_de_brilho_da_quantidade == 165
+
+    @pytest.mark.parametrize("valor", [0, 255, 300, -1])
+    def test_fora_da_faixa_LEVANTA_no_arranque(self, tmp_path, valor):
+        """Piso 0 faz a mascara CHEIA: toda celula vira ruido. Piso 255 faz a
+        mascara VAZIA: toda celula cai. Os dois desligariam a leitura calados.
+        """
+        caminho = _mexido(
+            tmp_path, mercado_limiar_de_brilho_da_quantidade=valor
+        )
+        with pytest.raises(CalibracaoInvalida):
+            Calibracao.carregar(caminho)
+
+    def test_um_bool_e_recusado_explicitamente(self, tmp_path):
+        """`bool` e subclasse de `int`: `True` viraria piso 1 CALADO."""
+        caminho = _mexido(
+            tmp_path, mercado_limiar_de_brilho_da_quantidade=True
+        )
+        with pytest.raises(CalibracaoInvalida):
+            Calibracao.carregar(caminho)
+
+    @pytest.mark.parametrize("valor", [165.5, "165"])
+    def test_o_que_nao_e_inteiro_e_recusado(self, tmp_path, valor):
+        caminho = _mexido(
+            tmp_path, mercado_limiar_de_brilho_da_quantidade=valor
+        )
+        with pytest.raises(CalibracaoInvalida):
+            Calibracao.carregar(caminho)
+
+    def test_a_mensagem_diz_o_que_rodar(self, tmp_path):
+        caminho = _mexido(tmp_path, mercado_limiar_de_brilho_da_quantidade=0)
+        with pytest.raises(CalibracaoInvalida) as erro:
+            Calibracao.carregar(caminho)
+        assert "medir_brilho_da_quantidade" in str(erro.value)
 
 
 class TestAsQuatorzeChavesNovasSaoOPCIONAIS:

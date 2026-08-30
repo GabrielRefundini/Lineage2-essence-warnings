@@ -56,6 +56,7 @@ import numpy as np
 import pytest
 
 from l2scanner.calibracao import Calibracao
+from l2scanner.identidade import VALOR_MINIMO_DO_TEXTO, mascara_de_texto
 from l2scanner.mercado_catalogo import EntradaDoCatalogo
 from l2scanner.mercado_leitura import (
     MOTIVO_DA_DISCORDANCIA,
@@ -68,6 +69,7 @@ from l2scanner.mercado_leitura import (
     centesimos_de_moeda,
     cruzamento_confere,
     inteiro_de_quantidade,
+    ler_celula,
     ler_celula_de_numero,
     ler_celula_de_quantidade,
     ler_glifos,
@@ -75,9 +77,11 @@ from l2scanner.mercado_leitura import (
     limite_derivado_do_cruzamento,
     linha_ocluida,
     linha_vazia,
+    mascara_de_numero,
     numero_valido,
     residuo_do_cruzamento,
     segmentar_glifos,
+    segmentar_glifos_no_brilho,
 )
 from l2scanner.mercado_pagina import LeitorDePagina, PaginaAceita
 from l2scanner.mercado_visao import (
@@ -209,6 +213,93 @@ class TestOCharterDoModuloPuro:
             assinatura = inspect.signature(funcao)
             assert assinatura.parameters["piso"].default is inspect.Parameter.empty
             assert assinatura.parameters["margem"].default is inspect.Parameter.empty
+
+    def test_o_PISO_DE_BRILHO_tambem_chega_sem_valor_de_fabrica(self) -> None:
+        """Um default aqui e constante magica no caminho que decide QUANTIDADE.
+
+        E a quantidade multiplica o preco no CSV da Fase 3: um piso errado nao
+        acrescenta ruido, ele TROCA o numero.
+        """
+        for funcao in (ler_celula, ler_celula_de_numero, ler_celula_de_quantidade):
+            assinatura = inspect.signature(funcao)
+            assert (
+                assinatura.parameters["valor_minimo"].default
+                is inspect.Parameter.empty
+            ), funcao.__name__
+
+    def test_ler_linha_recebe_os_DOIS_pisos_sem_valor_de_fabrica(self) -> None:
+        """Sao DOIS e nao um porque as duas faixas sao DISJUNTAS.
+
+        A coluna de MOEDA carrega a palavra de sufixo dentro do proprio recorte
+        (`XM Coin` vive entre V=120 e V=173), e um piso unico mais baixo
+        arrastaria a palavra para dentro da celula: sondado, `18,90` vira
+        `18,907` ja no piso 170.
+        """
+        parametros = inspect.signature(ler_linha).parameters
+        for nome in ("valor_minimo_do_numero", "valor_minimo_da_quantidade"):
+            assert parametros[nome].default is inspect.Parameter.empty, nome
+
+    def test_omitir_o_piso_de_brilho_levanta_TypeError(self, moldes) -> None:
+        """Nao ha como esquecer o parametro e ganhar um default calado."""
+        vazio = np.zeros((4, 4, 3), dtype=np.uint8)
+        with pytest.raises(TypeError):
+            ler_celula_de_quantidade(vazio, moldes, 0.5, 0.05)
+
+
+class TestAsPrimitivasIRMASDoPisoDeBrilho:
+    """`mascara_de_numero` e `segmentar_glifos_no_brilho` nascem AO LADO.
+
+    Elas nao substituem nada: `segmentar_glifos` mantem a assinatura intacta
+    porque tem 35 pontos de chamada em producao, ferramentas e testes, todos
+    querendo o piso COMPARTILHADO. Quebrar os 35 por causa de UMA coluna seria
+    custo sem informacao — o mesmo raciocinio que fez `mascara_do_sufixo` nascer
+    ao lado de `mascara_de_texto` em vez de substitui-la.
+    """
+
+    def test_no_piso_compartilhado_a_mascara_nova_e_IGUAL_a_de_texto(
+        self, janela_f010, cal
+    ) -> None:
+        """Pixel a pixel. E esta igualdade que prova que nada mudou para quem
+        nao pediu piso proprio — as colunas de MOEDA inclusive.
+        """
+        recorte = recorte_de_coluna(
+            cal, janela_f010, 6, "mercado_coluna_do_total"
+        )
+        assert np.array_equal(
+            mascara_de_numero(recorte, VALOR_MINIMO_DO_TEXTO),
+            mascara_de_texto(recorte),
+        )
+
+    def test_um_recorte_vazio_devolve_matriz_vazia_e_nao_levanta(self) -> None:
+        vazio = np.zeros((0, 0, 3), dtype=np.uint8)
+        assert mascara_de_numero(vazio, VALOR_MINIMO_DO_TEXTO).size == 0
+
+    @pytest.mark.parametrize(
+        "fixtura", ["glifos_precos_f010.png", "glifos_quantidade_f012.png"]
+    )
+    def test_segmentar_no_piso_compartilhado_devolve_O_MESMO_de_antes(
+        self, fixtura: str
+    ) -> None:
+        """A casca fina nao pode mudar o que os 35 chamadores ja recebiam."""
+        recorte = ler_fixtura(FIXTURES / fixtura)
+        assert segmentar_glifos_no_brilho(
+            recorte, VALOR_MINIMO_DO_TEXTO
+        ) == segmentar_glifos(recorte)
+
+    def test_a_casca_nomeia_o_piso_compartilhado_UMA_vez(self) -> None:
+        """Nomear uma vez e o contrario de espalhar o numero pelo repositorio."""
+        fonte = inspect.getsource(segmentar_glifos)
+        assert "VALOR_MINIMO_DO_TEXTO" in fonte
+
+    def test_um_piso_mais_baixo_enxerga_MAIS_pixel(self, cal, janela_f010) -> None:
+        """A mascara e `V > piso`: baixar o piso so pode ACRESCENTAR pixel."""
+        recorte = recorte_de_coluna(
+            cal, janela_f010, 6, "mercado_coluna_da_quantidade"
+        )
+        alta = mascara_de_numero(recorte, VALOR_MINIMO_DO_TEXTO)
+        baixa = mascara_de_numero(recorte, 150)
+        assert baixa.sum() >= alta.sum()
+        assert np.array_equal(alta & baixa, alta)
 
 
 class TestAGramaticaDoNumero:

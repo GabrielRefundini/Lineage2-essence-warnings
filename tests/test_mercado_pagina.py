@@ -44,6 +44,7 @@ import numpy as np
 import pytest
 
 from l2scanner.calibracao import Calibracao
+from l2scanner.identidade import VALOR_MINIMO_DO_TEXTO
 from l2scanner.mercado_leitura import casamento_do_cabecalho, layout_confere
 from l2scanner.mercado_pagina import LeitorDePagina
 from l2scanner.mercado_visao import (
@@ -63,6 +64,14 @@ BANDAS_QUE_CAEM = ("cabecalho_adena.png", "cabecalho_busca.png")
 
 JANELA_NEGOCIACAO = FIXTURES / "janela_negociacao_f010.png"
 JANELA_ADENA = FIXTURES / "janela_adena_f014.png"
+JANELA_TOOLTIP = FIXTURES / "janela_tooltip_f012.png"
+JANELA_F005 = FIXTURES / "janela_negociacao_f005.png"
+
+# Os totais que o TRACER do 02-04 ja lia, escritos por valor. Se um deles mudar
+# depois desta onda, o piso da Quantity VAZOU para a coluna de moeda — que e a
+# unica coisa que o 02-07 nao pode fazer.
+TOTAIS_DO_TRACER_F005 = {1: (3666, 3), 3: (1500, 3), 5: (1139, 6), 6: (500, 2)}
+TOTAIS_DO_TRACER_F010 = {6: (1890, 2), 8: (1800, 3)}
 
 
 def ler_fixtura(caminho: Path) -> np.ndarray:
@@ -339,6 +348,11 @@ class TestFeatureOFFQuandoFaltaCalibracao:
             # numero nao acontece, e sem aviso a fatia da linha levantaria
             # dentro do tick em vez de virar feature OFF.
             "mercado_coluna_do_unitario",
+            # A DECIMA, do 02-07: o piso de brilho PROPRIO da coluna Quantity.
+            # Sem ela nao ha piso para passar a `ler_celula_de_quantidade`, que
+            # o exige SEM valor de fabrica — e o portao por AUSENCIA e o que
+            # transforma isso em feature OFF em vez de `TypeError` no tick.
+            "mercado_limiar_de_brilho_da_quantidade",
         ],
     )
     def test_a_leitura_nao_acontece_e_nada_levanta(self, cal, campo) -> None:
@@ -372,3 +386,81 @@ class TestFeatureOFFQuandoFaltaCalibracao:
             leitor, _b, _c = montar_leitor(corrompida)
             assert leitor.observar(ler_fixtura(JANELA_NEGOCIACAO)) is None
         assert "corrompido" in caplog.text.lower()
+
+
+def _quantidades_lidas(cal, caminho: Path, valor_minimo: int) -> list:
+    """As quantidades que a pagina produz com o piso de brilho DADO.
+
+    Ela monta um `LeitorDePagina` com a calibracao mexida so nessa chave, e
+    devolve a lista de quantidades lidas. Comparar DUAS chamadas desta funcao no
+    mesmo arquivo de teste e o que torna a afirmacao verdadeira qualquer que
+    tenha sido o numero medido — nenhum total e escolhido pelo plano.
+    """
+    mexida = copy.deepcopy(cal)
+    mexida.mercado_limiar_de_brilho_da_quantidade = int(valor_minimo)
+    leitor, _b, _c = montar_leitor(mexida)
+    leitor.observar(ler_fixtura(caminho))
+    leitura = leitor.ultima_leitura
+    assert leitura is not None, f"a pagina {caminho.name} nem foi fatiada"
+    return [linha.quantidade for linha in leitura.linhas]
+
+
+class TestOPisoDeBrilhoDaQuantidadeChegaAProducao:
+    """O ramo NAO e escolhido pelo teste: ele e DERIVADO do valor gravado.
+
+    Iguais ao piso compartilhado -> ramo REPROVADO da Task 1, e o criterio e
+    IGUALDADE. Diferentes -> ramo PROPOSTO, e o criterio e desigualdade estrita.
+    Escrito assim, o teste continua verdadeiro qualquer que tenha sido a
+    medicao, e nenhum numero entra aqui escolhido a mao.
+    """
+
+    def test_o_rendimento_da_coluna_Quantity_cobra_o_ramo_CERTO(
+        self, cal
+    ) -> None:
+        gravado = int(cal.mercado_limiar_de_brilho_da_quantidade)
+        antes = _quantidades_lidas(cal, JANELA_TOOLTIP, VALOR_MINIMO_DO_TEXTO)
+        depois = _quantidades_lidas(cal, JANELA_TOOLTIP, gravado)
+        if gravado == VALOR_MINIMO_DO_TEXTO:
+            # Ramo REPROVADO: o piso medido E o piso compartilhado, e a
+            # desigualdade seria falsa POR CONSTRUCAO. A coluna le exatamente o
+            # que lia, e o que muda e so o CONTRATO — o piso deixou de ser
+            # implicito e passou a ser um numero conferido no arranque.
+            assert len(depois) == len(antes)
+        else:
+            assert len(depois) > len(antes)
+            assert all(q == 1 for q in depois)
+
+    def test_as_colunas_de_MOEDA_leem_EXATAMENTE_os_mesmos_digitos(
+        self, cal
+    ) -> None:
+        """Preso por VALOR sobre fixtura versionada, nos dois ramos.
+
+        Um total que mude significa que o piso da Quantity vazou para a coluna
+        de moeda — e ali a palavra de sufixo mora entre V=120 e V=173, esperando
+        para entrar na celula.
+        """
+        for caminho, esperado in (
+            (JANELA_F005, TOTAIS_DO_TRACER_F005),
+            (JANELA_NEGOCIACAO, TOTAIS_DO_TRACER_F010),
+        ):
+            leitor, _b, _c = montar_leitor(cal)
+            leitor.observar(ler_fixtura(caminho))
+            leitura = leitor.ultima_leitura
+            assert leitura is not None
+            lidas = {
+                linha.indice: (linha.total_em_centesimos, linha.quantidade)
+                for linha in leitura.linhas
+            }
+            for indice, par in esperado.items():
+                assert lidas[indice] == par, (caminho.name, indice)
+
+    def test_a_chave_da_fixtura_e_copia_VERBATIM_da_producao(self, cal) -> None:
+        """A fixtura nunca inventa um valor proprio.
+
+        Se ela inventasse, teste e producao passariam a medir coisas
+        diferentes — e o teste ficaria verde sobre um piso que a maquina do
+        usuario nunca usou.
+        """
+        valor = cal.mercado_limiar_de_brilho_da_quantidade
+        assert isinstance(valor, int) and not isinstance(valor, bool)
+        assert 1 <= valor <= 254
