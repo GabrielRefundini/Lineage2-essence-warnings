@@ -51,7 +51,20 @@ O comando `/morreu` (MORT-01, v2) e o aprendizado do tempo-de-vida (APRE-01, v2)
 ### Herdadas do ROADMAP (nao sao decisao nova, sao restricao)
 
 - **A ancora mora em `.agenda/`**, marcador vazio, prefixo proprio, forma
-  `nascimento_<YYYY-MM-DD>_<boss-slug>-<HHMM>`. A poda de 3 dias e a razao da
+  `nascimento_<YYYY-MM-DD>_<boss-slug>-<HHMM>_<origem>`.
+
+  A ORIGEM ENTRA NO NOME, e nao no conteudo (decidido pelo usuario em
+  2026-08-30, no checkpoint bloqueante do plano 02-01). D-16 exige que a
+  mensagem cite qual sinal ancorou, e essa informacao precisa sobreviver as 6
+  horas entre o nascimento e o aviso — inclusive a um reinicio. Poe-la no
+  CONTEUDO quebraria a propriedade que sustenta tudo: o marcador e VAZIO, e a
+  criacao atomica com `O_CREAT|O_EXCL` E a decisao inteira de despacho. Um
+  "cria e depois escreve" abriria uma janela em que a outra instancia le um
+  arquivo vazio e nao sabe a origem.
+
+  Esta forma SUBSTITUI a escrita mais acima nesta secao; ela e a que vale.
+  A decisao e de mao unica: depois que o primeiro arquivo existir, mudar o
+  formato invalida as ancoras ja gravadas. A poda de 3 dias e a razao da
   escolha, e nao um efeito colateral: uma ancora velha NAO e neutra, e
   PERIGOSA — no `.loot/`, que nunca poda, uma ancora de duas semanas
   continuaria produzindo janelas erradas com cara de certas. 3 dias e 9x a vida
