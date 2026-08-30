@@ -293,6 +293,58 @@ class TestAPistaDeDivergencia:
         )
         assert "PISTA" not in capsys.readouterr().out
 
+    @pytest.mark.parametrize(
+        "linha",
+        [
+            # Os trechos que MAIS dispararam PISTA na varredura de 2.110 frames
+            # de chat real, todos em 0,60 exatos. Nenhum parece `Tiat North`.
+            "Wait for the animation for Transformation to finish",
+            "You cannot attack that target. The target is invalid",
+            "MST : Team: Normal mode party recruiting",
+            "Fulano : ele tei mato tudo sozinho",
+        ],
+    )
+    def test_o_ruido_de_chat_real_medido_nao_produz_pista(
+        self, cenario, capsys, linha
+    ):
+        """O corte de 0,6 foi REFUTADO em campo, e este teste prende o novo.
+
+        Em 0,6 a varredura de 2.110 frames cuspiu 320 linhas PISTA com ZERO
+        near-miss de verdade no meio. Uma pista que dispara 320 vezes enterra a
+        unica que importa no dia em que o usuario colar o print do spawn.
+        """
+        imagem, config = cenario
+        ferramenta.main(argv(imagem, config), motor=motor_falso(linha))
+        assert "PISTA" not in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "trecho,perdido",
+        [
+            ("T1at N0rlh", ("t", "l")),  # 0,700 — o pior do lote medido
+            ("Tiat Nortb", ("h", "b")),  # 0,900
+            ("Tiat Nonth", ("r", "n")),  # 0,900
+        ],
+    )
+    def test_o_near_miss_de_verdade_continua_produzindo_pista(
+        self, cenario, capsys, trecho, perdido
+    ):
+        """O outro lado do corte: subir o piso nao pode calar o caso util.
+
+        `T1at N0rlh` esta em 0,700 e e o pior near-miss medido — se ele parar
+        de dar pista, o piso subiu demais e o relatorio perdeu a razao de
+        existir.
+        """
+        imagem, config = cenario
+        esperado, lido = perdido
+        ferramenta.main(
+            argv(imagem, config),
+            motor=motor_falso(f"{trecho} [Lv. 60] has spawned!"),
+        )
+        saida = capsys.readouterr().out
+        assert "PISTA" in saida
+        assert repr(esperado) in saida
+        assert repr(lido) in saida
+
 
 # ---------------------------------------------------------------------------
 # As recusas: quando a ferramenta NAO CONSEGUIU medir

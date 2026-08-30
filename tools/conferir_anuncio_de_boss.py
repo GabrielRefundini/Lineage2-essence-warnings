@@ -113,14 +113,36 @@ from l2scanner.config import ler_bosses  # noqa: E402
 from l2scanner.frames import Regiao  # noqa: E402
 
 # Quanta semelhanca um trecho do texto lido precisa ter com o nome do boss para
-# merecer uma linha PISTA. 0,6 e o mesmo corte que `difflib.get_close_matches`
-# usa por padrao para "parecido".
+# merecer uma linha PISTA.
 #
 # ESTE NUMERO NAO DECIDE NADA. Ele so escolhe quando vale a pena GASTAR UMA
 # LINHA de saida apontando uma divergencia; o veredito ja foi calculado antes,
-# pelos padroes de producao, e nao muda. Abaixar isto produz mais ruido, nunca
-# um casamento a mais.
-SEMELHANCA_MINIMA_PARA_PISTA = 0.6
+# pelos padroes de producao, e nao muda. Mexer nele nunca produz um casamento a
+# mais nem a menos.
+#
+# 0,65 E MEDIDO, e o 0,6 que estava aqui antes (o corte que
+# `difflib.get_close_matches` usa por padrao) foi REFUTADO pela varredura de
+# 2.110 frames de chat real. As duas populacoes, medidas contra `tiat north`:
+#
+#     NEAR-MISS de verdade      0,700  'T1at N0rlh'  (t -> l, o pior do lote)
+#                               0,900  'Tiat Nortb'  (h -> b)
+#                               0,947  'Tiat Nort'   (o h sumiu)
+#     RUIDO de chat real        0,600  'tion for T'  (112 ocorrencias)
+#                               0,600  'target. Th'  (68)
+#                               0,600  'Team: Norm'  (20)
+#                               0,400  'ta sozinho'
+#
+# Em 0,6 a varredura cuspiu 320 linhas PISTA com ZERO near-miss de verdade no
+# meio — e uma pista que dispara 320 vezes enterra a unica que importa no dia
+# em que o usuario colar o print do spawn. Como as duas populacoes nao se
+# sobrepoem (pior near-miss 0,700, pior ruido 0,600), o corte vai no meio.
+#
+# A margem e fina dos DOIS lados, e por isso vale dizer para onde o erro cai:
+# uma pista que deixa de disparar custa uma linha a menos para um humano que ja
+# tem o texto CRU impresso logo acima; uma pista que dispara demais custa o
+# relatorio inteiro. Por isso o corte sobe ate onde a populacao de near-miss
+# medida permite, e nao mais.
+SEMELHANCA_MINIMA_PARA_PISTA = 0.65
 
 # A ultima varredura, para os testes afirmarem sobre a ESTRUTURA em vez de
 # sobre a formatacao do relatorio. Uma asseracao contra texto impresso quebra
