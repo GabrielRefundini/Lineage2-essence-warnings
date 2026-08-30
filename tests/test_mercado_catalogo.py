@@ -225,14 +225,16 @@ class TestOAgrupamento:
         assert r.nova is True
 
     def test_a_faixa_cinzenta_descarta_sem_agrupar_e_sem_criar(self):
-        """D-06: fusao no CSV e irreversivel, descarte nao e."""
-        catalogo = [_entrada(AZTAC)]
-        similar = similaridade(AZTAC_LONGO, AZTAC)
-        assert self.PISO <= similar < self.CORTE, similar
-        r = agrupar(AZTAC_LONGO, "200", catalogo, self.CORTE, self.PISO)
-        # A assinatura difere, entao a trava ja separa: para exercitar a faixa
-        # cinzenta os dois precisam da MESMA assinatura.
+        """D-06: fusao no CSV e irreversivel, descarte nao e.
+
+        Os dois nomes entram com a MESMA assinatura de proposito — com
+        assinaturas diferentes a trava de digitos ja separaria e a faixa
+        cinzenta nunca seria exercitada. O piso 0,60 e escolhido para colocar o
+        0,6486 medido do par DENTRO da faixa.
+        """
         catalogo = [EntradaDoCatalogo(chave_da_serie(AZTAC, ""), AZTAC, "")]
+        similar = similaridade(AZTAC_LONGO, AZTAC)
+        assert 0.60 <= similar < self.CORTE, similar
         r = agrupar(AZTAC_LONGO, "", catalogo, self.CORTE, 0.60)
         assert r.chave is None
         assert r.nova is False
@@ -414,7 +416,6 @@ class TestOCharterDoModulo:
         import l2scanner.mercado_catalogo as m
 
         fonte = inspect.getsource(m)
-        assert "calibrar_mercado" not in fonte.split('"""')[2:] or True
         linhas_de_import = [
             linha
             for linha in fonte.splitlines()
