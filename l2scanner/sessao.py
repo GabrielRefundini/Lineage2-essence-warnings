@@ -48,6 +48,7 @@ from .loot import Designacao, nick_para_o_aviso
 from .notificador import Categoria
 from .presenca import fechar_e_narrar
 from .rastreador import Evento
+from .respawn import anunciar_janelas, chave_do_nascimento
 from .visao import EstadoDaLinha, Observacao, extrair
 
 log = logging.getLogger("l2scanner")
@@ -92,6 +93,22 @@ class ResultadoDoTick:
     # dois avisos, a origem sozinha nao diz mais de quem ela e.
     avisos_de_boss: list = field(default_factory=list)
 
+    # As ANCORAS de nascimento que ESTE tick gravou, como pares
+    # `(boss, origem)`. Estruturado e nao texto, no mesmo molde de
+    # `avisos_de_boss`: o teste precisa afirmar QUE a contagem comecou e por
+    # qual sinal, e casar isso com o nome do arquivo prenderia o teste a um
+    # formato que a chave estruturada existe justamente para poder mudar.
+    #
+    # SO ENTRA QUANDO O MARCADOR FOI CRIADO POR ESTE PROCESSO. Com as duas
+    # instancias do usuario sobre a mesma pasta, a que perde a corrida do
+    # `O_CREAT|O_EXCL` nao gravou nada e nao pode dizer que gravou.
+    ancoras_gravadas: list = field(default_factory=list)
+
+    # Os avisos de janela de respawn deste tick, como pares `(boss, tipo)`.
+    # Estruturado pela mesma razao de sempre: a redacao das quatro frases muda
+    # toda vez que alguem a melhora, e a chave em disco nao muda junto.
+    avisos_de_janela: list = field(default_factory=list)
+
     # As listas de presenca que ESTE tick fechou (`presenca.Fechamento`).
     # Estruturado, e nao so texto, pelo mesmo motivo de `despachos` existir: o
     # teste precisa afirmar QUEM confirmou e de QUAL ocorrencia, e casar isso
@@ -130,6 +147,7 @@ class Sessao:
         membros=(),
         mercado=None,
         bosses=None,
+        regras_de_respawn=(),
     ) -> None:
         self.cal = cal
         self.rastreador = rastreador
@@ -167,6 +185,21 @@ class Sessao:
         # calibracao dos recortes ou sem OCR o recurso fica inteiro OFF, o tick
         # simplesmente nao fala de boss, e nada mais muda.
         self.bosses = bosses
+        # Os `[[boss]]` do config.toml, so as REGRAS de respawn — a lista de
+        # `bosses.Boss` que diz de quantas em quantas horas cada um nasce.
+        #
+        # KWARG SEPARADO DE `bosses`, E A SEPARACAO E A DECISAO. Aquele e o
+        # `VigiaDeBosses`, que precisa de OCR e de recortes calibrados; este e
+        # so a regra em horas. Os avisos de janela tem que existir MESMO com o
+        # vigia desligado, porque a ancora ja esta em disco e a previsao
+        # continua correta: amarrar a previsao ao vigia faria uma calibracao
+        # quebrada apagar, em silencio, uma funcionalidade que so depende do
+        # relogio e do disco.
+        #
+        # Default vazio pela mesma razao do `loot`, do `manutencao` e do
+        # `mercado`: toda construcao de `Sessao` que ja existe continua valida
+        # sem edicao, e sem regra nenhuma o tick simplesmente nao preve nada.
+        self.regras_de_respawn = regras_de_respawn
         # Ja avisamos que o recorte da janela nao chega? Uma vez, e so uma.
         #
         # Um vigia ligado que nunca recebe pixels e degradacao SILENCIOSA — o
@@ -256,6 +289,22 @@ class Sessao:
         self._processar_manutencao(agora, frame, resultado)
         self._processar_bosses(frame, agora, resultado)
 
+        # ANCORAR ANTES DE ANUNCIAR, e a ordem e a propria regra de D-20 valendo
+        # dentro de UM tick — nao so entre ticks.
+        #
+        # Um nascimento novo e a janela do ciclo anterior podem cair no mesmo
+        # tick (o boss de 6h nascendo de novo as 20:30, quando o aviso de
+        # abertura do ciclo das 14:30 vence). Com a ancora nova ja em disco,
+        # `anunciar_janelas` monta as ancoras e enxerga so a mais recente: a
+        # chave velha nao e gerada e o aviso obsoleto nao sai. Invertidas, as
+        # duas linhas anunciariam uma janela que o proprio tick acabou de
+        # invalidar.
+        #
+        # Fica ANTES da extracao pela mesma razao que a agenda: nao depende de
+        # um unico pixel, e o `except` do bloco abaixo retorna cedo — um erro
+        # de leitura da party engoliria a previsao junto.
+        self._processar_janelas(agora, resultado)
+
         try:
             observacao = extrair(frame, self.cal)
             if self.fonte is not None and hasattr(self.fonte, "estado_do_cliente"):
@@ -322,6 +371,57 @@ class Sessao:
             # de TvT: um boss nascendo durante o Prime e exatamente a
             # informacao que ninguem quer perder.
             self._despachar(aviso.texto, Categoria.SEMPRE, resultado=resultado)
+
+            # ESTE E O UNICO SITIO DE ESCRITA DE ANCORA DO PROJETO, e a
+            # assimetria com os avisos de janela e o ponto que precisa ficar
+            # escrito. ANCORAR exige pixels, e so o laco principal tem pixels;
+            # ANUNCIAR exige apenas o relogio e o disco, e por isso o anuncio
+            # tem DOIS sitios (aqui e o `--so-agenda`) e a ancora tem UM. Quem
+            # for procurar a simetria vai concluir que falta uma escrita no
+            # `--so-agenda`: ela nao falta, e por-la la faria um modo sem tela
+            # inventar nascimentos.
+            #
+            # O CUSTO DE D-15, MEDIDO EM CAMPO E ACEITO PELO USUARIO: o alvo
+            # REARMA quando ele desmarca e remarca o boss, entao um `Tiat
+            # South` retomado as 15h grava uma ancora nova sobre a mesma
+            # criatura que ja estava viva as 14h30, e a conta reinicia. Foi
+            # escolha por COBERTURA, com o preco apresentado; a mitigacao e
+            # D-16 — a mensagem cita que a origem foi o alvo, e quem le julga.
+            if self.registro.registrar_nascimento(
+                chave_do_nascimento(aviso.boss, agora, aviso.origem)
+            ):
+                resultado.ancoras_gravadas.append((aviso.boss, aviso.origem))
+
+    def _processar_janelas(self, agora: datetime, resultado: ResultadoDoTick) -> None:
+        """As janelas de respawn que venceram. Sempre categoria SEMPRE.
+
+        A SEQUENCIA INTEIRA MORA EM `respawn.anunciar_janelas`, e nao aqui,
+        pela mesma razao que o fechamento de lista mora em
+        `presenca.fechar_e_narrar`: o plano 02-02 leva o mesmo anuncio ao
+        `--so-agenda`, e as duas copias escreveriam na MESMA `.agenda/` e
+        falariam no MESMO grupo. Aqui fica so o que e do tick — o resultado, a
+        moldura e o despacho.
+
+        `Categoria.SEMPRE` (D-23): um boss nascendo durante o Prime e
+        exatamente a informacao que ninguem quer perder, que e a mesma razao ja
+        escrita em `_processar_bosses`.
+        """
+        if not self.regras_de_respawn:
+            return
+
+        for aviso, texto in anunciar_janelas(
+            self.registro, self.regras_de_respawn, agora
+        ):
+            resultado.avisos_de_janela.append((aviso.boss, aviso.tipo))
+            # CRU no resultado, MOLDURADO no despacho — o console monta a
+            # propria moldura (com cor) a partir de `avisos`; moldurar aqui
+            # tambem faria o bloco sair dentro de outro bloco na tela.
+            resultado.avisos.append(texto)
+            self._despachar(
+                moldurar(texto, agora.strftime("%H:%M")),
+                Categoria.SEMPRE,
+                resultado=resultado,
+            )
 
     def _olhar_o_mercado(self, frame: Frame) -> bool | None:
         """O painel do World Exchange esta aberto? `None` = ninguem olhou.
