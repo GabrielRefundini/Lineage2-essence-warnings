@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 10
+open_count: 12
 waived_count: 1
 fixed_count: 2
-total_count: 13
-last_updated: 2026-08-30T10:16:35.946Z
+total_count: 15
+last_updated: 2026-08-30T13:43:57.709Z
 ---
 
 # Broken Windows Ledger
@@ -28,6 +28,8 @@ last_updated: 2026-08-30T10:16:35.946Z
 | 11 | 1 | unrun-verify | l2scanner/__main__.py |  | Task 3 do 01-04: a sessao ao vivo --janela SEM calibracao de mercado nao foi rodada com o jogo aberto. O caminho degenerado esta provado por teste (campo None, extras sem a chave), mas o comportamento identico ao de antes num farm real nao foi observado | open |  | 2026-08-28T20:04:07.455Z |  |
 | 12 | quick-260829-rd9 | unmet-truth | .planning/workstreams/mercado/STATE.md | 72 | Todo da watchlist cita verbatim o criterio 1 da Fase 2 que foi substituido em 260829-rd9; a watchlist deixou de ser pre-requisito de bloqueio | fixed |  | 2026-08-29T23:05:24.348Z | 2026-08-29T23:08:10.741Z |
 | 13 | 02 | deviation | l2scanner/calibrar.py |  | calibrar.py (calibracao de PARTY) apaga TODA a calibracao de mercado: calibrar_selecionando monta uma Calibracao do zero (calibrar.py:353) e o fluxo grava por cima do arquivo inteiro (calibrar.py:1244). CONFIRMADO EM CAMPO 2026-08-30: o usuario rodou calibrar.bat e perdeu 13 moldes de glifo, 3 ancoras, mercado_grade e mercado_limiar_de_glifo. E a gemea exata do CR-04, ja consertado do lado do mercado e nunca do lado da party. Resgate em calibration.RESGATE-13-glifos.json | open |  | 2026-08-30T10:16:35.946Z |  |
+| 14 | 2 | deviation | l2scanner/mercado_catalogo.py |  | O corte 0,894737 funde 'B-grade Gemstone' com 'C-grade Gemstone' (0,9375): a trava de digitos nao alcanca uma diferenca de LETRA de grade, e as duas assinaturas sao vazias. Unica fusao conhecida sobre os 50 nomes confirmados; presa por teste em test_medir_agrupamento_de_nome.py. | open |  | 2026-08-30T13:43:57.341Z |  |
+| 15 | 2 | deviation | tools/medir_agrupamento_de_nome.py |  | T-02-11 agravado: a sonda de fundo do 02-02 mede x em [207,417) a partir de gx e NAO alcanca o inicio do nome. Medido, 'Cohi nn Mafia Leader Luciano Doll' (marcacao de alvo sobre o inicio) passou como linha limpa. O 02-04 poe a sonda no pipeline e precisa saber disso. | open |  | 2026-08-30T13:43:57.709Z |  |
 
 ````json
 [
@@ -185,6 +187,30 @@ last_updated: 2026-08-30T10:16:35.946Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-30T10:16:35.946Z",
+    "resolved_at": null
+  },
+  {
+    "id": 14,
+    "kind": "deviation",
+    "phase": "2",
+    "file": "l2scanner/mercado_catalogo.py",
+    "line": null,
+    "description": "O corte 0,894737 funde 'B-grade Gemstone' com 'C-grade Gemstone' (0,9375): a trava de digitos nao alcanca uma diferenca de LETRA de grade, e as duas assinaturas sao vazias. Unica fusao conhecida sobre os 50 nomes confirmados; presa por teste em test_medir_agrupamento_de_nome.py.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-30T13:43:57.341Z",
+    "resolved_at": null
+  },
+  {
+    "id": 15,
+    "kind": "deviation",
+    "phase": "2",
+    "file": "tools/medir_agrupamento_de_nome.py",
+    "line": null,
+    "description": "T-02-11 agravado: a sonda de fundo do 02-02 mede x em [207,417) a partir de gx e NAO alcanca o inicio do nome. Medido, 'Cohi nn Mafia Leader Luciano Doll' (marcacao de alvo sobre o inicio) passou como linha limpa. O 02-04 poe a sonda no pipeline e precisa saber disso.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-30T13:43:57.709Z",
     "resolved_at": null
   }
 ]

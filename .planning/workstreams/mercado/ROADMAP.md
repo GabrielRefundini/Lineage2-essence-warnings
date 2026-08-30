@@ -78,7 +78,7 @@ Plans:
   2. Os preços e quantidades lidos batem dígito a dígito com o que o usuário vê no frame — separador de milhar tratado como glifo de primeira classe; quando o frame está ilegível, a linha aparece como descartada, nunca como um número plausível. O número NUNCA vem do motor de OCR que lê o nome: medido contra as gravações da Fase 1, ele perde a vírgula decimal e devolve `1650` onde a tela diz `16,50` — erro de 100x com aparência plausível, exatamente o que LEIT-02 existe para impedir
   3. Uma página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS; frames bit a bit idênticos são reportados como captura congelada, não aceitos como acordo
 
-**Plans**: 2/6 plans executed (6 waves - a fase e SERIAL por construcao: um portao humano, duas ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
+**Plans**: 3/6 plans executed (6 waves - a fase e SERIAL por construcao: um portao humano, duas ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
 
 Plans:
 **Wave 1**
@@ -91,7 +91,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 - as duas ondas gravam no mesmo `calibration.json`, e `os.replace` escreve o arquivo inteiro)*
 
-- [ ] 02-03-PLAN.md - (wave 3) Medicao II: os predicados puros do agrupamento em `mercado_catalogo.py`, `tools/medir_agrupamento_de_nome.py`, e o **portao de decisao: de onde vem a assinatura de digitos da chave da serie** (porta de mao unica, tres rotas medidas)
+- [x] 02-03-PLAN.md - (wave 3) Medicao II: os predicados puros do agrupamento em `mercado_catalogo.py`, `tools/medir_agrupamento_de_nome.py`, e o **portao de decisao: de onde vem a assinatura de digitos da chave da serie** (porta de mao unica, tres rotas medidas)
 
 **Wave 4** *(blocked on Wave 3)*
 
@@ -155,7 +155,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fundação — firewall, gravador e spike de campo | 5/5 | ✓ Complete | 2026-08-29 |
-| 2. Leitura de página | 2/6 | In Progress|  |
+| 2. Leitura de página | 3/6 | In Progress|  |
 | 3. Persistência de observações | 0/TBD | Not started | - |
 | 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
 

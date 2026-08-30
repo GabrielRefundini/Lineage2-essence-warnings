@@ -5,16 +5,16 @@ milestone_name: )
 current_phase: 2
 current_phase_name: Leitura de pagina
 status: executing
-stopped_at: Completed 02-02-PLAN.md (6 chaves medidas; guarda de cruzamento REPROVADA e desligada)
-last_updated: "2026-08-30T12:45:48.265Z"
+stopped_at: "02-03 Task 1 COMPLETA; parado no checkpoint:decision da Task 2 (gate=blocking-human) — a FONTE da assinatura de digitos da chave da serie"
+last_updated: "2026-08-30T13:44:34.662Z"
 last_activity: 2026-08-30
 last_activity_desc: "Fase 2 plano 02: a sonda de oclusao, o limiar de dispersao, o piso de linhas comparadas e o piso/margem de leitura de glifo — seis chaves MEDIDAS por varredura sobre 478 frames e 55.342 glifos; a guarda de cruzamento REPROVOU e ficou desligada"
-state_head: 45e0156ebecb017036b8df64ed9c7b699e0cd06c
+state_head: 3c6acdb5737b240cb550f99878d2df8c65c295c9
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 7
+  completed_plans: 8
   percent: 25
 ---
 
@@ -30,8 +30,8 @@ progress:
 
 Phase: 2 — Leitura de pagina
 Plan: 3 of 6
-Status: Ready to execute
-Last activity: 2026-08-30 — Completed 02-02: a sonda de oclusao e o piso de leitura, medidos por varredura
+Status: HALTED no portao de decisao do 02-03 (Task 2, gate=blocking-human)
+Last activity: 2026-08-30 — 02-03 Task 1 medida: corte 0,894737, piso 0,883732, e a suposicao A8 REFUTADA
 
 Progress: [███░░░░░░░] 25%
 
@@ -71,14 +71,21 @@ Progress: [███░░░░░░░] 25%
 - [Phase 02]: Escolher o trecho da sonda por "menor dispersao mediana" tambem foi REFUTADO: o trecho de mediana zero rejeita 22,4% de TODAS as linhas de campo. A escolha e a MAIOR FOLGA RELATIVA contra o gabarito, e um candidato cuja pior limpa e exatamente 0 e descartado — a razao contra zero nao e medicao. Escolhido `x em [207, 417)` com folga 7,67x.
 - [Phase 02]: O piso de LEITURA de glifo e 0,4698 e a margem 0,0370, MEDIDOS sobre 55.342 runs de 4.374 linhas. O limiar de COLISAO 0,8555 rejeitaria 39,4% dos glifos reais e a margem 0,12 herdada de identidade.py rejeitaria 26,7% — por isso os dois vivem em chaves proprias. A margem medida confirma de forma independente os 0,0370 do par `0`x`8` da pesquisa.
 - [Phase 02]: A guarda de cruzamento `Total / Quantity` REPROVOU e ficou DESLIGADA (`mercado_tolerancia_do_cruzamento = None`): tolerancia 1273 centesimos por unidade contra o maximo 1,0, fechamento no limite derivado 0,6525, deteccao 0,0164 sobre 1.893 substituicoes `0`<->`8` injetadas. O 02-04 Task 4 le a linha `GUARDA REPROVADA por tolerancia, 1273.0000 centesimos por unidade (maximo 1.0)` e registra a refutacao em vez de ligar o mecanismo.
+- [Phase 2]: [Phase 02]: A trava de digitos e o que torna o corte PROPONIVEL, e agora e numero: sem ela as populacoes se sobrepoem (vao -0,054416, 182 pares, '+6 Agathion' x 'Agathion' a 0,9492); com ela o vao e +0,022010. Corte 0,894737, piso 0,883732 (o MEIO do vao, nao o extremo — no extremo 'Wind Spirit Evolution Stone' ficaria permanentemente invisivel).
+- [Phase 2]: [Phase 02]: A suposicao A8 esta REFUTADA. Com a posicao do digito dada DE FORA o molde acerta 9 de 9 contra o gabarito de encanto; com a regra de producao (cada run sozinho, digito quando passa no piso) acerta 0 de 10 e devolve '7655' onde a resposta e '6'. Os 13 moldes NAO TEM CLASSE DE REJEICAO: nao ha molde de letra. Ha vao entre digito verdadeiro (min 0,8510) e falso positivo (max 0,6947), mas o piso de hoje (0,4698, medido em colunas de NUMERO) nao separa.
+- [Phase 2]: [Phase 02]: As duas populacoes de uma medicao tem de se apoiar na MESMA nocao de confianca. Aqui e o VOCABULARIO DE CONSENSO (50 nomes que as duas escalas leram identicos). Sem ele, '-ano' x '\ufffdano' (duas leituras FALHADAS) puxava o corte de 0,8947 para 0,7500, e leituras corrompidas por oclusao entravam como 'itens diferentes'.
+- [Phase 2]: [Phase 02]: A rota 'ocr-igualdade' NAO cria as series duplicadas que a hipotese previa: ZERO nas 8 gravacoes. Ela recusa a linha antes de duplicar, e em troca perde 5 linhas a mais que 'ocr-estrito'. O argumento contra ela virou 'estritamente dominada', e nao 'suja o catalogo'.
 
 ### Blockers
 
-- **Nenhum bloqueio ativo.** O bloqueio da Fase 1 (só o usuário podia gravar o World
+- **PORTAO ABERTO — o 02-03 esta parado esperando o usuario.** Ver o blocker abaixo.
+
+- O bloqueio da Fase 1 (só o usuário podia gravar o World
   Exchange) foi cumprido: 8 gravações feitas, spike respondido e validado seção por seção,
   calibração completa pela mão do usuário em 2026-08-29.
 
 - JANELA 13 ABERTA: `l2scanner/calibrar.py` (calibracao de PARTY) apaga TODA a calibracao de mercado — `calibrar_selecionando` monta uma Calibracao do zero (calibrar.py:353) e o fluxo grava por cima do arquivo inteiro (calibrar.py:1244). Confirmado em campo 2026-08-30. Enquanto nao for consertado, recalibrar a party DE NOVO custa a calibracao de mercado outra vez. Resgate em calibration.RESGATE-13-glifos.json.
+- DECISAO PENDENTE (02-03 Task 2, porta de mao unica): de onde vem a assinatura de digitos da chave da serie — molde (95,32%, mas A8 REFUTADA: 0/10 no gabarito sob a regra de producao, assinatura instavel que ja duplicou 'Adena'), ocr-estrito (82,44%, 0 duplicatas, perde 311 linhas de 3.511 por Lv. I x Lv. 1) ou ocr-igualdade (82,20%, 0 duplicatas, estritamente dominada). Numeros no 02-03-SUMMARY.md, relatorios 3 e 4.
 
 ### Quick Tasks Completed
 
@@ -128,9 +135,9 @@ Progress: [███░░░░░░░] 25%
 
 ## Session Continuity
 
-**Last session:** 2026-08-30T12:45:48.119Z
+**Last session:** 2026-08-30T13:44:08.518Z
 
-**Stopped At:** Completed 02-02-PLAN.md (6 chaves medidas; guarda de cruzamento REPROVADA e desligada)
+**Stopped At:** 02-03 Task 1 COMPLETA; parado no checkpoint:decision da Task 2 (gate=blocking-human) — a FONTE da assinatura de digitos da chave da serie
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -141,3 +148,4 @@ Progress: [███░░░░░░░] 25%
 | Phase 1 P1 | 8 min | 3 tasks | 4 files |
 | Phase 02 P01 | 8h 14m | 3 tasks | 9 files |
 | Phase 02 P02 | 1h 25m | 2 tasks | 12 files |
+| Phase 02 P03 | 1h 45m | 1 tasks | 8 files |
