@@ -1,8 +1,15 @@
 # Phase 2: Leitura de página - Context
 
 **Gathered:** 2026-08-29
+**Revised:** 2026-08-29, depois da pesquisa — três decisões caíram por medição
 **Status:** Ready for planning
 **Mode:** Smart discuss (autonomous) — 4 áreas propostas, 16 decisões, todas aceitas pelo usuário
+
+> **TRÊS DECISÕES DESTE ARQUIVO FORAM SUBSTITUÍDAS NO MESMO DIA.** A `02-RESEARCH.md` mediu
+> as propostas e refutou três delas; o usuário confirmou as substituições. As decisões
+> antigas ficam registradas abaixo, riscadas e com o número que as derrubou — apagar teria
+> escondido que o processo funcionou. As três são: o scorer de agrupamento (`WRatio` + 88),
+> o predicado de acordo entre escalas, e QUAL layout se calibra.
 
 <domain>
 ## Phase Boundary
@@ -35,10 +42,45 @@ nome, nunca a linha inteira).
   medição de 2026-08-29 mostrou as escalas divergindo exatamente onde o motor erra
   (`Evolution` em 2x/3x contra `Ewlution` em 4x). Duas leituras pelo MESMO método concordam
   no mesmo erro; é por isso que a segunda opinião tem de ser um método diferente.
-- **Agrupamento por `rapidfuzz.WRatio` com corte em 88, e uma FAIXA CINZENTA de 80 a 88 que
-  não agrupa NEM cria série nova — a linha é descartada com aviso.** O motivo é medido na
-  página real do usuário: `Common Aztac` e `Common Aztac M. Def. +200` coexistem, e um corte
-  permissivo funde as duas séries. Fusão no CSV é irreversível; descarte não é.
+- **O PREDICADO do acordo é "as duas leituras caem na MESMA SÉRIE do catálogo"** — não
+  igualdade de string. **REVISADO 2026-08-29 por medição:** a igualdade estrita acertou 30 de
+  60 linhas em 6 frames, e em `scroll-transicao/frame_000016` acertou **0 de 10** — a página
+  inteira perdida por um `I` contra um `1`. As discordâncias medidas são todas ruído de 1–2
+  caracteres (`Lv. I`/`Lv. 1`, `Kng`/`King`), que o agrupamento absorve. A diversidade de
+  método fica preservada: um erro de método REAL — um nome lido como outro item — leva as
+  duas escalas a séries diferentes e a linha cai.
+  ~~Predicado original: igualdade exata de string entre as duas escalas.~~
+- **Agrupamento por `difflib.SequenceMatcher` (stdlib), E uma trava de dígitos: a sequência
+  ordenada de dígitos do nome tem de bater EXATAMENTE antes de qualquer similaridade.**
+  **REVISADO 2026-08-29 por medição** — a proposta anterior era `rapidfuzz.WRatio` com corte
+  88, e ela funde exatamente as séries que existia para separar. Rodada contra a
+  implementação de referência do rapidfuzz 3.14.5:
+
+  | par | WRatio | precisa |
+  |---|---|---|
+  | `Common Aztac` × `Common Aztac M. Def. +200` | **90,00** | separar |
+  | `+6 Agathion Alpha Hunter Sealed` × `+4 …` | **96,77** | separar |
+  | `Hardin's Soul Crystal Lv. 1` × `Lv. 3` | **96,30** | separar |
+  | `Hardin's Soul Crystal Lv. I` × `Lv. 1` | **96,30** | **agrupar** (ruído de OCR) |
+
+  As duas últimas linhas são o achado que decide o desenho: **o mesmo número teria de decidir
+  coisas opostas.** Nenhum corte escalar resolve, em nenhuma métrica de distância de edição —
+  e os três casos aparecem juntos num frame real. Por isso a trava de dígitos: `+6 X` ≠
+  `+4 X` e `Lv. 1` ≠ `Lv. 3` **por construção**, não por limiar. A similaridade decide só o
+  resto do nome.
+  ~~Scorer original: `rapidfuzz.WRatio` com corte 88 e faixa cinzenta 80–88.~~
+- **`difflib` da stdlib, e NÃO `rapidfuzz`.** `rapidfuzz` não está instalado nem no
+  `requirements.txt`, e medido sobre estes nomes (curtos, sem tokens reordenados, diferenças
+  de 1–2 caracteres) `difflib.SequenceMatcher` e `rapidfuzz.fuzz.ratio` dão praticamente o
+  mesmo número. Não vale uma dependência nova para 10 linhas por segundo contra um catálogo
+  de algumas centenas de nomes.
+- **O CORTE precisa ser REMEDIDO, e com ferramenta.** O 88 foi escolhido pensando no
+  `WRatio`, que é um scorer composto; trocada a métrica, o número é herança de outro
+  contexto. Remedir é o jeito da casa: uma ferramenta que passa todas as leituras das 8
+  gravações pela métrica escolhida e mostra o histograma dos pares que agrupam e dos que
+  separam. **Nenhum corte entra no código antes dessa medição.**
+- **A faixa cinzenta continua existindo** — abaixo do corte e acima de um piso, a linha não
+  agrupa NEM cria série: é descartada com aviso. Fusão no CSV é irreversível; descarte não é.
 - **O catálogo de nomes já vistos vive em ARQUIVO PRÓPRIO, ao lado do CSV de observações.**
   Não em `calibration.json`: aquele arquivo é reescrito inteiro pela ferramenta de
   calibração, e o catálogo é dado ACUMULADO — sumiria na primeira recalibração.
@@ -49,12 +91,30 @@ nome, nunca a linha inteira).
 
 ### Coluna do nome e os três layouts
 
-- **O v1 lê SOMENTE o layout que está calibrado.** Hoje o `calibration.json` da máquina do
-  usuário traz `mercado_grade.layout: "adena"`. Página de outro layout é RECUSADA com aviso
-  alto, nunca lida. O spike mediu três layouts com colunas diferentes e significados
-  diferentes (a aba Adena tem `5 mln increment`, que é normalizado por 5 milhões de adena e
-  NÃO por unidade) — ler a coluna errada com confiança é exatamente o modo de falha que
-  esta fase existe para impedir.
+- **O v1 lê SOMENTE o layout que está calibrado — e o layout calibrado passa a ser a GRADE DE
+  NEGOCIAÇÃO** (`Goods | Quantity | Total | Unit price | Buy`). Página de outro layout é
+  RECUSADA com aviso alto, nunca lida. O spike mediu três layouts com colunas e significados
+  diferentes (a aba Adena tem `5 mln increment`, normalizado por 5 milhões de adena e NÃO por
+  unidade) — ler a coluna errada com confiança é o modo de falha que esta fase existe para
+  impedir.
+  **REVISADO 2026-08-29 por medição.** O `calibration.json` da máquina do usuário dizia
+  `layout: "adena"`, e isso quebrava a fase por dois motivos independentes:
+  1. **Material:** censo das 335 gravações — ~25 frames de Adena contra ~283 da grade de
+     negociação. O replay recusaria 283 dos ~308 frames com painel aberto, e o critério de
+     sucesso 1 não seria demonstrável contra as fixtures que existem.
+  2. **Mais forte que material: a aba Adena não tem nome de item.** A mercadoria ali É adena;
+     o OCR da primeira coluna devolve literalmente `'Adena'` em todas as linhas. **LEIT-01
+     (nome por OCR) e LEIT-05 (coluna do nome) não têm objeto na aba Adena** — eles descrevem
+     a grade de negociação.
+
+  ~~Layout original: o que estivesse em `mercado_grade.layout`, que era `adena`.~~
+
+- **PORTÃO HUMANO — o usuário recalibra.** Escolhido por ele em 2026-08-29 sobre a
+  alternativa de dar ao teste uma calibração de fixture própria: aquela não custaria nada ao
+  usuário, mas deixaria produção e teste calibrados em layouts DIFERENTES, que é exatamente a
+  divergência que este projeto evita. O plano precisa parar e esperar: `calibrar-mercado.bat`
+  rodado sobre um frame da grade de negociação, com `mercado_grade.layout` gravado como tal.
+  Frames de negociação bons para calibrar estão em `<specifics>`.
 - **O layout é reconhecido por molde do cabeçalho de coluna, cortado SEM a seta de
   ordenação.** Medido na seção 3 do spike: a seta fica DENTRO da célula de cabeçalho e muda
   de coluna conforme o usuário ordena — um molde cortado com a seta não casa a mesma coluna
