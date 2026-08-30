@@ -59,7 +59,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import pytest
 
 from l2scanner.calibracao import Calibracao
 from l2scanner.identidade import VALOR_MINIMO_DO_TEXTO
