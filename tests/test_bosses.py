@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 
-from l2scanner.tiat import OrigemDoTiat, VigiaDoTiat
+from l2scanner.bosses import OrigemDoTiat, VigiaDoTiat
 
 
 PIXELS = np.zeros((5, 5, 3), dtype=np.uint8)

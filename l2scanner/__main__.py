@@ -105,7 +105,7 @@ from .presenca import (  # noqa: E402
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
 from .sessao import Sessao  # noqa: E402
-from .tiat import VigiaDoTiat  # noqa: E402
+from .bosses import VigiaDoTiat  # noqa: E402
 from .visao import EstadoDaLinha  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
