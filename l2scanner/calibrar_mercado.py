@@ -55,6 +55,7 @@ import sys  # noqa: E402
 import tomllib  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
 from pathlib import Path  # noqa: E402
+from statistics import median_low  # noqa: E402
 
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
@@ -1251,7 +1252,12 @@ def _texto_final_da_conferencia(caminho: Path | None, arquivo: Path) -> None:
         print(f"\nABRA {caminho}")
         print("e confira se os retangulos verdes caem onde voce espera: a faixa")
         print("de titulo do painel, o X de fechar, a seta de rolagem, a area da")
-        print("lista e a primeira linha.")
+        print("lista, a primeira linha, as QUATRO COLUNAS (nome, Quantity,")
+        print("Total e Unit price) e a faixa do CABECALHO.")
+        print("")
+        print("O que mais importa olhar: a coluna do NOME tem de comecar depois")
+        print("do icone e cobrir o nome MAIS LONGO da pagina inteiro. Um nome")
+        print("cortado vira serie nova no CSV, e a fusao nao volta atras.")
         return
 
     print("\nA CONFERENCIA VISUAL NAO ACONTECEU: nenhuma imagem foi gravada.")
@@ -1657,6 +1663,28 @@ def grupos_do_cabecalho(
     return _grupos_de_colunas(presenca, LACUNA_ENTRE_GRUPOS_DE_TEXTO)
 
 
+def _corte_pelo_maior_vao(picos: list[int]) -> int | None:
+    """O meio do MAIOR VAO entre valores consecutivos. `None` se nao ha vao.
+
+    E o unico jeito que este projeto aceita de tirar um limiar de uma imagem:
+    nao ha constante nenhuma, entao uma tela mais clara ou uma pele diferente
+    move os aglomerados JUNTOS e o vao continua onde estava. Uma constante
+    escrita no fonte seria a medicao de UMA maquina virando promessa para
+    todas.
+
+    `None` quando o corte nao ficaria ESTRITAMENTE dentro do vao: igual ao
+    valor de baixo ele nao separa nada, igual ao de cima ele separa tudo.
+    """
+    unicos = sorted({int(p) for p in picos})
+    if len(unicos) < 2:
+        return None
+    baixo, alto = max(zip(unicos, unicos[1:]), key=lambda par: par[1] - par[0])
+    corte = (baixo + alto) // 2
+    if not baixo < corte < alto:
+        return None
+    return int(corte)
+
+
 def medir_o_corte_de_brilho_do_cabecalho(banda: np.ndarray) -> int | None:
     """O nivel de brilho que separa os ROTULOS da SETA DE ORDENACAO.
 
@@ -1687,16 +1715,7 @@ def medir_o_corte_de_brilho_do_cabecalho(banda: np.ndarray) -> int | None:
     if len(grupos) < 2:
         return None
     valor = _valor_da_banda(banda)
-    picos = sorted({int(valor[:, a:b].max()) for a, b in grupos})
-    if len(picos) < 2:
-        return None
-    baixo, alto = max(zip(picos, picos[1:]), key=lambda par: par[1] - par[0])
-    corte = (baixo + alto) // 2
-    # O corte tem de ficar ESTRITAMENTE dentro do vao: igual ao pico de baixo
-    # ele nao remove nada, igual ao de cima ele remove tudo.
-    if not baixo < corte < alto:
-        return None
-    return int(corte)
+    return _corte_pelo_maior_vao([int(valor[:, a:b].max()) for a, b in grupos])
 
 
 def sugerir_o_molde_do_cabecalho(
@@ -1761,21 +1780,134 @@ def _grupos_claros_por_linha(
     return saida
 
 
-def _borda_votada(cheias: list[list[tuple[int, int]]], k: int) -> tuple[int, int]:
+def _borda_votada(
+    cheias: list[list[tuple[int, int]]], k: int
+) -> tuple[int, int]:
     """A coluna `k` como as linhas a mostram: voto na BORDA DIREITA.
 
-    O VOTO E NA DIREITA, E ISSO FOI MEDIDO, NAO ESCOLHIDO — a razao inteira
-    esta na docstring de `sugerir_a_coluna_de_preco`: o numero e alinhado a
-    DIREITA, entao a borda esquerda muda com o comprimento e votar nela divide
-    os votos entre `100,00` e `3,00`. Com a direita decidida, a esquerda e a
-    MENOR entre as linhas que votaram nela — a que cabe o numero mais longo.
+    `k` E CONTADO A PARTIR DA DIREITA (`-1` e a ultima coluna), e isso e
+    medicao, nao gosto. Contar da esquerda presume que o icone e o nome saem
+    como dois grupos, e eles nem sempre saem: medido, em
+    `pagina-cheia/frame_000010` o vao entre eles tem 13 px e eles se separam;
+    em `063752-mercado-aberto/frame_000000` tem 5 px e eles se FUNDEM. Da
+    direita as colunas de numero sao sempre as mesmas quatro (Buy, Unit price,
+    Total, Quantity), nas duas fixtures e em toda linha.
+
+    O VOTO E NA DIREITA, E ISSO TAMBEM FOI MEDIDO — a razao inteira esta na
+    docstring de `sugerir_a_coluna_de_preco`: o numero e alinhado a DIREITA,
+    entao a borda esquerda muda com o comprimento e votar nela divide os votos
+    entre `100,00` e `3,00`. Com a direita decidida, a esquerda e a MENOR entre
+    as linhas que votaram nela — a que cabe o numero mais longo. E uma tooltip
+    cobrindo quatro linhas perde a votacao sozinha, sem regra especial.
     """
     direitas = [linha[k][1] for linha in cheias]
     direita = max(set(direitas), key=lambda v: (direitas.count(v), v))
-    esquerda = min(
-        linha[k][0] for linha in cheias if linha[k][1] == direita
-    )
+    esquerda = min(linha[k][0] for linha in cheias if linha[k][1] == direita)
     return int(esquerda), int(direita)
+
+
+def _fim_do_icone(
+    pixels: np.ndarray,
+    grade,
+    limite: int,
+    colunas_de_texto: list[tuple[int, int]],
+) -> int | None:
+    """Onde acaba o icone do item, MEDIDO PELA SATURACAO. Relativo a grade.
+
+    A SATURACAO E O SINAL, E A ESCOLHA E O AVESSO EXATO DE `mascara_de_texto`.
+    Aquela funcao e SO brilho de proposito, e a razao esta escrita nela: um
+    filtro de saturacao rejeitaria o nome amarelo do lider da party. Aqui a
+    pergunta e a oposta — "onde acaba a ARTE e comeca o TEXTO" — e a resposta e
+    limpa. Medido nas duas fixtures, saturacao maxima por coluna:
+
+        icone do item      84 a 255
+        texto do painel     0 a  12
+
+    POR QUE NAO SEPARAR PELO VAO ENTRE OS GRUPOS DE BRILHO: porque o vao nao
+    separa. Medido, o espaco entre o icone e o nome tem 5 px em
+    `063752/frame_000000` e 13 px em `pagina-cheia/frame_000010`, enquanto os
+    vaos DENTRO de um nome chegam a 5 px nos dois. Qualquer lacuna que separe o
+    icone num frame parte o nome no outro.
+
+    E POR QUE A REFERENCIA VEM DAS COLUNAS DE NUMERO, e nao de um corte
+    calculado no proprio perfil: porque O ICONE TEM ESTRUTURA INTERNA. Medido
+    em `063752/frame_000000`, o miolo dele cai para 84–107 entre bordas de
+    193–255, e todo corte automatico que tentei (maior vao, Otsu) pousa nesse
+    miolo e parte o icone ao meio — devolvendo 22 onde a resposta e 42. As
+    colunas de numero da MESMA linha sao texto puro, sem arte nenhuma, e dizem
+    quanta saturacao o texto deste frame tem. Comparar contra elas e comparar
+    contra a coisa certa.
+
+    DUAS MEDIANAS, E CADA UMA CONTRA UM RUIDO DIFERENTE. A referencia e a
+    MEDIANA entre as linhas porque uma tooltip colorida por cima de uma linha
+    faz a coluna de numero daquela linha marcar 119 ou 255 (medido) — e uma
+    referencia alta demais apagaria o icone inteiro. O fim tambem e a MEDIANA
+    porque as mesmas linhas cobertas devolvem valores absurdos: 366 quando a
+    tooltip funde o icone com meia pagina. Medido nas tres fixtures, a mediana
+    acerta nas tres; a moda acerta por um voto de folga.
+
+    O icone e o grupo saturado que CONTEM a primeira coluna de conteudo da
+    linha, e nao o primeiro nem o mais largo: um respingo de 1 px na borda
+    esquerda da grade (medido em `pagina-cheia/frame_000010`, saturacao 36 na
+    coluna 0) seria o primeiro, e o nome fundido com a tooltip seria o mais
+    largo.
+
+    `None` quando nao da para medir — e ai a janela abre vazia.
+    """
+    if limite <= 0 or not colunas_de_texto:
+        return None
+    esquerda = int(grade.esquerda)
+    altura_do_frame, largura_do_frame = pixels.shape[:2]
+    direita = min(largura_do_frame, esquerda + int(grade.largura))
+    if esquerda < 0 or direita <= esquerda:
+        return None
+
+    perfis: list[tuple[np.ndarray, np.ndarray]] = []
+    for indice in range(int(grade.linhas)):
+        _, topo, _, altura = grade.linha(indice)
+        if topo < 0 or topo + altura > altura_do_frame:
+            continue
+        faixa = pixels[topo : topo + altura, esquerda:direita]
+        if faixa.size == 0:
+            continue
+        perfis.append(
+            (
+                cv2.cvtColor(faixa, cv2.COLOR_BGR2HSV)[:, :, 1].max(axis=0),
+                mascara_de_texto(faixa).astype(bool),
+            )
+        )
+    if not perfis:
+        return None
+
+    referencias = [
+        max(
+            int(saturacao[a:b].max())
+            for a, b in colunas_de_texto
+            if 0 <= a < b <= saturacao.size
+        )
+        for saturacao, _ in perfis
+    ]
+    if not referencias:
+        return None
+    referencia = int(median_low(referencias))
+
+    fins: list[int] = []
+    for saturacao, mascara in perfis:
+        brilho = _grupos_de_colunas(
+            mascara.any(axis=0), LACUNA_ENTRE_GRUPOS_DE_TEXTO
+        )
+        if not brilho or brilho[0][0] >= limite:
+            continue
+        inicio = brilho[0][0]
+        saturados = _grupos_de_colunas(
+            saturacao[:limite] > referencia, LACUNA_ENTRE_GRUPOS_DE_TEXTO
+        )
+        dono = next((g for g in saturados if g[0] <= inicio < g[1]), None)
+        if dono is not None:
+            fins.append(int(dono[1]))
+    if not fins:
+        return None
+    return int(median_low(fins))
 
 
 def sugerir_as_colunas(
@@ -1788,17 +1920,18 @@ def sugerir_as_colunas(
     confiando nela.
 
     A GUARDA QUE FAZ ISTO VALER E O CRUZAMENTO DE DUAS MEDICOES INDEPENDENTES.
-    O cabecalho diz quantas colunas ha (um grupo claro por rotulo, depois de a
-    seta de ordenacao sair pelo corte de brilho); as linhas dizem quantos
-    grupos de conteudo ha (o icone, mais um por coluna). Quando os dois numeros
-    nao batem, a leitura da grade nao e a que o cabecalho descreve — outro
-    layout, um frame cortado, uma janela por cima — e nada e proposto.
+    O cabecalho diz onde cada COLUNA comeca (um rotulo por coluna, depois de a
+    seta de ordenacao sair pelo corte de brilho); as linhas dizem onde cada
+    NUMERO esta. Cada numero tem de cair dentro do intervalo do seu proprio
+    rotulo, e antes do rotulo seguinte. Quando isso nao vale, a grade lida nao
+    e a que o cabecalho descreve — outro layout, um frame cortado, uma janela
+    por cima — e nada e proposto.
 
     A COLUNA DO NOME E O CASO ESPECIAL, E ELE E MEDIDO. As tres de numero sao
     limitadas pelo proprio conteudo, porque numero e alinhado a DIREITA e a
     coluna acaba onde o numero mais longo acaba. O NOME e alinhado a esquerda e
     varia de comprimento: nesta pagina os dez nomes sao o mesmo
-    `Earth Spirit Evolution Stone` e medir por eles daria 263 px. Medido em
+    `Earth Spirit Evolution Stone`, e medir por eles daria 263 px. Medido em
     campo, um nome num recorte de 143 px saiu truncado
     (`Common Mafia Leader Lucia`) e com 270 px saiu inteiro — cortar do nosso
     lado e um modo de falha conhecido. Por isso o limite direito do nome e o
@@ -1818,46 +1951,73 @@ def sugerir_as_colunas(
     if corte is None:
         return vazio
     rotulos = grupos_do_cabecalho(banda, corte)
-    if len(rotulos) < 4:
+    # `Quantity`, `Total`, `Unit price` e `Buy` — as quatro contadas da direita.
+    if len(rotulos) < len(COLUNAS_DE_NUMERO) + 1:
         return vazio
 
-    esperado = len(rotulos) + 1
     cheias = [
         linha for linha in _grupos_claros_por_linha(pixels, grade)
-        if len(linha) == esperado
+        if len(linha) >= len(COLUNAS_DE_NUMERO) + 1
     ]
     if len(cheias) < 2:
         return vazio
 
-    bordas = [_borda_votada(cheias, k) for k in range(esperado)]
+    # O rotulo `Quantity` e o penultimo grupo antes das tres colunas contadas
+    # da direita: `[..., Quantity, Total, Unit price, Buy]`.
+    inicio_do_rotulo = {
+        nome: rotulos[-(len(COLUNAS_DE_NUMERO) + 1) + posicao][0]
+        for posicao, nome in enumerate(COLUNAS_DE_NUMERO)
+    }
+    proximo_rotulo = {
+        nome: rotulos[-len(COLUNAS_DE_NUMERO) + posicao][0]
+        for posicao, nome in enumerate(COLUNAS_DE_NUMERO)
+    }
+
     esquerda_da_grade = int(grade.esquerda)
-    limite_da_grade = esquerda_da_grade + int(grade.largura)
+    limite_da_grade = int(grade.largura)
     topo, altura = int(grade.topo), int(grade.altura)
 
-    inicio_da_quantidade = esquerda_da_grade + rotulos[1][0]
-    fim_do_icone = esquerda_da_grade + bordas[0][1]
-    if inicio_da_quantidade <= fim_do_icone:
+    # O CONTEUDO DAS TRES COLUNAS DE NUMERO VEM PRIMEIRO, porque e ele que
+    # serve de referencia de saturacao para achar o fim do icone: sao as unicas
+    # regioes da linha que se sabe serem texto puro, sem arte nenhuma.
+    conteudo: dict[str, tuple[int, int]] = {}
+    for posicao, nome in enumerate(COLUNAS_DE_NUMERO):
+        k = posicao - len(COLUNAS_DE_NUMERO) - 1  # -4, -3, -2 (Buy fica em -1)
+        conteudo[nome] = _borda_votada(cheias, k)
+        # O CRUZAMENTO: o numero tem de cair depois do SEU rotulo e antes do
+        # rotulo seguinte. Se nao cai, as duas medicoes discordam sobre o que
+        # esta na tela e nao ha proposta honesta a dar.
+        if conteudo[nome][0] < inicio_do_rotulo[nome]:
+            return vazio
+        if conteudo[nome][1] > proximo_rotulo[nome]:
+            return vazio
+
+    fim_do_nome = inicio_do_rotulo[COLUNAS_DE_NUMERO[0]]
+    fim_do_icone = _fim_do_icone(
+        pixels, grade, fim_do_nome, list(conteudo.values())
+    )
+    if fim_do_icone is None or fim_do_nome <= fim_do_icone:
         return vazio
 
-    colunas = {
-        "nome": (fim_do_icone, inicio_da_quantidade),
-    }
-    anterior = inicio_da_quantidade
-    for nome, k in (("quantidade", 2), ("total", 3), ("unitario", 4)):
-        if k >= esperado:
-            return vazio
-        _, direita = bordas[k]
-        proxima = bordas[k + 1][0] if k + 1 < esperado else int(grade.largura)
-        fim = esquerda_da_grade + (direita + proxima) // 2
-        fim = min(fim, limite_da_grade)
+    faixas: dict[str, tuple[int, int]] = {"nome": (fim_do_icone, fim_do_nome)}
+    anterior = fim_do_nome
+    for posicao, nome in enumerate(COLUNAS_DE_NUMERO):
+        k = posicao - len(COLUNAS_DE_NUMERO) - 1
+        seguinte = _borda_votada(cheias, k + 1)[0]
+        fim = min((conteudo[nome][1] + seguinte) // 2, limite_da_grade)
         if fim <= anterior:
             return vazio
-        colunas[nome] = (anterior, fim)
+        faixas[nome] = (anterior, fim)
         anterior = fim
 
     return {
-        nome: (inicio, topo, fim - inicio, altura)
-        for nome, (inicio, fim) in colunas.items()
+        nome: (
+            esquerda_da_grade + inicio,
+            topo,
+            fim - inicio,
+            altura,
+        )
+        for nome, (inicio, fim) in faixas.items()
     }
 
 
@@ -1927,6 +2087,11 @@ COLUNAS_A_MARCAR = (
     ("total", "Total"),
     ("unitario", "Unit price"),
 )
+
+# As tres de NUMERO, na ordem da tela. Elas sao contadas A PARTIR DA DIREITA
+# tanto nos rotulos do cabecalho quanto no conteudo das linhas, com `Buy` como
+# a ancora final — ver `_borda_votada`.
+COLUNAS_DE_NUMERO = ("quantidade", "total", "unitario")
 
 
 def _grade_do_desenho(

@@ -1862,9 +1862,17 @@ class TestASugestaoDaColunaDoNome:
         assert caixa is not None
         x, y, largura, altura = caixa
 
-        # O icone da linha vai de +11 a +35 a partir da esquerda da grade,
-        # medido nas dez linhas desta fixture.
-        assert x >= GRADE_F010.esquerda + 35, "o retangulo comecou dentro do icone"
+        # O ICONE VAI DE +11 A +42 e o NOME COMECA EM +48, medidos nas dez
+        # linhas desta fixture. O retangulo tem de cair na terra de ninguem
+        # entre os dois.
+        #
+        # A PONTA DE BAIXO E A QUE PEGA A REGRESSAO REAL: o icone tem miolo
+        # escuro (saturacao 84-107 entre bordas de 193-255), e todo corte
+        # automatico que tentei — maior vao, Otsu — pousa nesse miolo e devolve
+        # ~+30, partindo o icone ao meio e deixando metade dele dentro do
+        # recorte que vai para o OCR.
+        assert x >= GRADE_F010.esquerda + 43, "o retangulo comecou dentro do icone"
+        assert x <= GRADE_F010.esquerda + 48, "o retangulo comeu o inicio do nome"
         assert largura >= 270, (
             f"a coluna do nome saiu com {largura} px; 270 e o piso medido em "
             f"campo para um nome longo nao truncar"
