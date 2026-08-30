@@ -1798,7 +1798,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         ao_registrar=_registrar_evento_no_console,
         loot=registro_de_loot,
         manutencao=vigia_manutencao,
-        tiat=vigia_tiat,
+        bosses=vigia_tiat,
         # O sinal do mercado entra por AQUI e sai no console, e so. O
         # `rastreador` nao o recebe, nao o le e nao tem como: ver o tripwire de
         # arquitetura em `tests/test_mercado_27x.py`.
