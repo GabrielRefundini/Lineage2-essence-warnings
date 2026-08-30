@@ -963,6 +963,89 @@ def _tentar_pelas_janelas_do_jogo() -> Calibracao | None:
     return None
 
 
+def calibrar_tiat(titulo: str | None = None) -> int:
+    """Marca, na janela do jogo, o chat e/ou o texto do alvo para o Tiat.
+
+    Nao existe posicao universal para essas partes do HUD. A selecao manual e
+    curta e pode ser feita com qualquer alvo; o OCR so procura por ``Tiat``
+    depois, quando o scanner esta rodando.
+    """
+    try:
+        cal = Calibracao.carregar(ARQUIVO_CALIBRACAO)
+    except Exception as erro:  # a ferramenta precisa explicar sem traceback
+        print(f"Nao consegui abrir a calibracao existente: {erro}")
+        return 1
+
+    alvo = titulo or cal.janela
+    if not alvo:
+        janelas = listar_janelas_do_jogo()
+        if len(janelas) != 1:
+            print("Nao sei qual janela do jogo calibrar para o Tiat.")
+            print("Use: python -m l2scanner.calibrar --tiat --janela \"TITULO\"")
+            return 1
+        alvo = janelas[0]
+
+    try:
+        fonte = JanelaSource(alvo, Regiao(0, 0, 1, 1))
+        time.sleep(0.3)
+        pixels = fonte.capturar_completo()
+    except Exception as erro:  # noqa: BLE001 - borda da ferramenta interativa
+        print(f"Nao consegui ler a janela {alvo!r}: {erro}")
+        return 1
+    finally:
+        if "fonte" in locals():
+            fonte.fechar()
+
+    if pixels is None or pixels.size == 0:
+        print("Nenhum frame utilizavel chegou da janela. Ela esta minimizada?")
+        return 1
+
+    print("1/2 — marque as linhas do CHAT onde aparece o anuncio de Tiat.")
+    print("      ENTER confirma; ESC deixa este sinal desligado.")
+    chat = _selecionar_regiao(
+        pixels, "Tiat: chat", "Arraste somente sobre as linhas do chat."
+    )
+    print("2/2 — marque APENAS o NOME do alvo selecionado (nao a barra inteira).")
+    print("      ENTER confirma; ESC deixa este sinal desligado.")
+    alvo_regiao = _selecionar_regiao(
+        pixels, "Tiat: alvo", "Arraste somente sobre o texto do nome do alvo."
+    )
+    if chat is None and alvo_regiao is None:
+        print("Nenhuma regiao marcada; a calibracao anterior foi mantida.")
+        return 1
+
+    cal.janela = alvo
+    cal.tiat_chat = Regiao(*chat) if chat is not None else None
+    cal.tiat_alvo = Regiao(*alvo_regiao) if alvo_regiao is not None else None
+    cal.salvar(ARQUIVO_CALIBRACAO)
+
+    conferencia = pixels.copy()
+    for regiao, texto, cor in (
+        (cal.tiat_chat, "TIAT CHAT", (0, 255, 255)),
+        (cal.tiat_alvo, "TIAT ALVO", (0, 255, 0)),
+    ):
+        if regiao is None:
+            continue
+        cv2.rectangle(
+            conferencia,
+            (regiao.esquerda, regiao.topo),
+            (regiao.esquerda + regiao.largura, regiao.topo + regiao.altura),
+            cor,
+            2,
+        )
+        cv2.putText(
+            conferencia, texto, (regiao.esquerda, max(16, regiao.topo - 6)),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, cor, 1,
+        )
+    caminho = _gravar_conferencia(conferencia)
+    print(f"Aviso de Tiat calibrado para {alvo!r}.")
+    if caminho:
+        print(f"CONFIRA {caminho}: amarelo = chat; verde = nome do alvo.")
+    else:
+        print("A calibracao foi salva, mas nao consegui gravar a imagem de conferencia.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="l2scanner.calibrar",
@@ -987,6 +1070,14 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--tiat",
+        action="store_true",
+        help=(
+            "marca as regioes do chat e do alvo para o aviso de Tiat; "
+            "nao altera a calibracao da party"
+        ),
+    )
+    parser.add_argument(
         "--janela",
         help="titulo da janela do jogo (quando ha mais de uma aberta)",
     )
@@ -1004,6 +1095,9 @@ def main() -> int:
     if _MODO_DPI.startswith("FALHOU"):
         print("AVISO: nao consegui declarar consciencia de DPI.")
         print("Se a escala da sua tela nao for 100%, as coordenadas sairao erradas.\n")
+
+    if args.tiat:
+        return calibrar_tiat(args.janela)
 
     if args.solo:
         print("Modo solo: procurando so a SUA barra de HP.")

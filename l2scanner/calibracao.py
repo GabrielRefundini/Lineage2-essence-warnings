@@ -213,6 +213,12 @@ class Calibracao:
     # conferencia.
     banner_manutencao: Regiao | None = None
 
+    # Regioes, relativas a janela do jogo, para o aviso de Tiat. Nao ha
+    # coordenada padrao honesta: chat e alvo mudam conforme o HUD do jogador.
+    # Sao opcionais para uma calibracao anterior continuar funcionando igual.
+    tiat_chat: Regiao | None = None
+    tiat_alvo: Regiao | None = None
+
     # --- Mercado (World Exchange / "XM Market") ---
     #
     # OPCIONAIS de proposito, e por isso a VERSAO_DO_ESQUEMA SEGUE EM 2, pelo
@@ -399,6 +405,8 @@ class Calibracao:
             "banner_manutencao": (
                 self.banner_manutencao.como_dict() if self.banner_manutencao else None
             ),
+            "tiat_chat": self.tiat_chat.como_dict() if self.tiat_chat else None,
+            "tiat_alvo": self.tiat_alvo.como_dict() if self.tiat_alvo else None,
             # Serializacao condicional, trilho do `banner_manutencao`: um campo
             # nao preenchido vira `null` e o `.get` do `carregar` o devolve como
             # None, sem migracao.
@@ -489,6 +497,16 @@ class Calibracao:
             banner_manutencao=(
                 Regiao.de_dict(dados["banner_manutencao"])
                 if dados.get("banner_manutencao")
+                else None
+            ),
+            tiat_chat=(
+                Regiao.de_dict(dados["tiat_chat"])
+                if dados.get("tiat_chat")
+                else None
+            ),
+            tiat_alvo=(
+                Regiao.de_dict(dados["tiat_alvo"])
+                if dados.get("tiat_alvo")
                 else None
             ),
             # As quatro de mercado seguem o MESMO `.get`: e o que faz um

@@ -84,6 +84,10 @@ class ResultadoDoTick:
     # estrutura, e a redacao muda toda vez que alguem a melhora.
     avisos_de_manutencao: list = field(default_factory=list)
 
+    # Avisos de Tiat emitidos neste tick. Estruturado para os testes afirmarem
+    # a origem (chat, alvo ou ambos), sem depender da redacao do WhatsApp.
+    avisos_de_tiat: list = field(default_factory=list)
+
     # As listas de presenca que ESTE tick fechou (`presenca.Fechamento`).
     # Estruturado, e nao so texto, pelo mesmo motivo de `despachos` existir: o
     # teste precisa afirmar QUEM confirmou e de QUAL ocorrencia, e casar isso
@@ -121,6 +125,7 @@ class Sessao:
         manutencao=None,
         membros=(),
         mercado=None,
+        tiat=None,
     ) -> None:
         self.cal = cal
         self.rastreador = rastreador
@@ -153,6 +158,7 @@ class Sessao:
         # `extrair` e uma funcao pura por contrato — mesmo frame, mesma saida —
         # e essa pureza e o que torna o resto da leitura testavel sem laco.
         self.mercado = mercado
+        self.tiat = tiat
         # Ja avisamos que o recorte da janela nao chega? Uma vez, e so uma.
         #
         # Um vigia ligado que nunca recebe pixels e degradacao SILENCIOSA — o
@@ -240,6 +246,7 @@ class Sessao:
         # manutencao junto — e manutencao e justamente o que costuma DERRUBAR a
         # leitura da party.
         self._processar_manutencao(agora, frame, resultado)
+        self._processar_tiat(frame, agora, resultado)
 
         try:
             observacao = extrair(frame, self.cal)
@@ -279,6 +286,21 @@ class Sessao:
             self._despachar(texto_do_evento(evento), resultado=resultado)
 
         return resultado
+
+    def _processar_tiat(
+        self, frame: Frame, agora: datetime, resultado: ResultadoDoTick
+    ) -> None:
+        """Le chat/alvo fora do rastreador: e aviso, nunca automacao de jogo."""
+        if self.tiat is None:
+            return
+        aviso = self.tiat.avaliar(
+            frame.extras.get("tiat_chat"), frame.extras.get("tiat_alvo"), agora
+        )
+        if aviso is None:
+            return
+        resultado.avisos_de_tiat.append(aviso.origem)
+        # Spawn e alvo novo sao urgentes e devem atravessar o silencio de TvT.
+        self._despachar(aviso.texto, Categoria.SEMPRE, resultado=resultado)
 
     def _olhar_o_mercado(self, frame: Frame) -> bool | None:
         """O painel do World Exchange esta aberto? `None` = ninguem olhou.

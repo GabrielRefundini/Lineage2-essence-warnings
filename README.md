@@ -237,6 +237,21 @@ reproduzida em trinta segundos produz exatamente os mesmos eventos.
 | `--sem-aviso-de-inicio` | Não avisa no WhatsApp ao ligar e desligar |
 | `-v` | Log detalhado |
 
+## Aviso de Tiat
+
+O scanner também pode avisar no WhatsApp quando o chat anunciar **Tiat** e/ou
+quando o seu alvo virar **Tiat**. O jogo continua sendo somente lido da tela:
+não há clique, tecla, leitura de memória ou automação de target.
+
+Com o jogo aberto, rode uma vez `calibrar-tiat.bat`. Ele pede duas seleções na
+janela do jogo: as linhas do chat que recebem o anúncio e somente o texto do
+nome do alvo. Pode marcar apenas uma delas. Confira a imagem indicada no final.
+
+Depois basta usar `vigiar-party.bat` como sempre. O aviso procura Tiat a cada
+dois segundos e manda uma única mensagem por aparição, mesmo que chat e target
+confirmem juntos. Ele volta a armar apenas depois de duas leituras sem Tiat,
+para um mesmo boss persistente não virar spam.
+
 ## Como ele evita alarme falso
 
 Um scanner que acerta 90% das vezes é pior do que nenhum scanner: a party silencia

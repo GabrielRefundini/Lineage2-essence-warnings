@@ -102,6 +102,7 @@ from .presenca import (  # noqa: E402
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
 from .sessao import Sessao  # noqa: E402
+from .tiat import VigiaDoTiat  # noqa: E402
 from .visao import EstadoDaLinha  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -333,6 +334,33 @@ def montar_vigia_de_manutencao(regiao) -> VigiaDeManutencao | None:
         ler_texto=ocr.ler_texto,
         ler_texto_conferencia=ocr.ler_texto_ampliado,
     )
+
+
+def montar_vigia_do_tiat(cal: Calibracao, na_janela: bool) -> VigiaDoTiat | None:
+    """Liga o aviso de Tiat quando chat ou alvo foram calibrados."""
+    if not cal.tiat_chat and not cal.tiat_alvo:
+        log.info(
+            "Aviso de Tiat desligado: rode calibrar-tiat.bat para marcar o "
+            "chat e/ou o nome do alvo."
+        )
+        return None
+    if not na_janela:
+        log.warning("Aviso de Tiat desligado: ele precisa de --janela.")
+        return None
+    if not ocr.disponivel():
+        log.warning("Aviso de Tiat DESATIVADO — %s", ocr.motivo_indisponivel())
+        return None
+
+    partes = []
+    if cal.tiat_chat:
+        partes.append("chat")
+    if cal.tiat_alvo:
+        partes.append("alvo")
+    log.info(
+        "Aviso de Tiat ativo — lendo %s a cada 2s; um aviso por aparicao.",
+        " e ".join(partes),
+    )
+    return VigiaDoTiat(ocr.ler_texto)
 
 
 def montar_vigia_do_mercado(cal: Calibracao, na_janela: bool):
@@ -1595,6 +1623,13 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
             na_janela=bool(args.janela)
         )
 
+    vigia_tiat = montar_vigia_do_tiat(cal, na_janela=bool(args.janela))
+    if vigia_tiat is not None:
+        if cal.tiat_chat:
+            extras["tiat_chat"] = cal.tiat_chat
+        if cal.tiat_alvo:
+            extras["tiat_alvo"] = cal.tiat_alvo
+
     # O MERCADO PEDE A JANELA INTEIRA, e nao o retangulo da ancora.
     #
     # O painel ANDA: entre dois frames do incidente 27x ele apareceu 181 px a
@@ -1737,6 +1772,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         ao_registrar=_registrar_evento_no_console,
         loot=registro_de_loot,
         manutencao=vigia_manutencao,
+        tiat=vigia_tiat,
         # O sinal do mercado entra por AQUI e sai no console, e so. O
         # `rastreador` nao o recebe, nao o le e nao tem como: ver o tripwire de
         # arquitetura em `tests/test_mercado_27x.py`.
