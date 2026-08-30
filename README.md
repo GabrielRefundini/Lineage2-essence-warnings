@@ -237,20 +237,72 @@ reproduzida em trinta segundos produz exatamente os mesmos eventos.
 | `--sem-aviso-de-inicio` | Não avisa no WhatsApp ao ligar e desligar |
 | `-v` | Log detalhado |
 
-## Aviso de Tiat
+## Aviso de nascimento de boss
 
-O scanner também pode avisar no WhatsApp quando o chat anunciar **Tiat** e/ou
-quando o seu alvo virar **Tiat**. O jogo continua sendo somente lido da tela:
-não há clique, tecla, leitura de memória ou automação de target.
+O scanner avisa no WhatsApp quando o **chat do jogo recebe o anúncio de
+nascimento do servidor** — a frase com o nome do boss, o nível entre colchetes
+e `has spawned` — ou quando o **seu alvo vira** um dos bosses da lista. O jogo
+continua sendo somente lido da tela: não há clique, tecla, leitura de memória
+ou automação de target.
+
+**Alguém digitando o nome do boss no chat geral não dispara nada.** Essa é a
+mudança que você mais vai notar nesta versão. Antes bastava a palavra aparecer
+no recorte do chat, e num chat movimentado isso significava alerta toda vez que
+alguém perguntava "tiat já nasceu?". Agora a linha precisa ter o nível seguido
+de `has spawned`, que é o que só o servidor escreve.
+
+### Quem é vigiado
+
+A lista mora no `config.toml`, em blocos `[[boss]]`. Cada bloco tem três
+campos:
+
+```toml
+[[boss]]
+nome = "Tiat North"
+respawn_horas_min = 6
+respawn_horas_max = 8
+```
+
+- `nome` — como o mob aparece no jogo, do jeito exato. É este nome que vai para
+  a mensagem do WhatsApp; o texto que o OCR leu nunca vai.
+- `respawn_horas_min` e `respawn_horas_max` — a janela de renascimento depois da
+  morte.
+
+Para vigiar um mob novo, acrescente um bloco. Você nunca precisa editar código.
+
+**As horas de respawn ainda não fazem nada.** Elas são lidas e conferidas desde
+já (um valor torto derruba o arranque dizendo qual campo está errado), mas quem
+as usa é a próxima versão, que vai prever a janela do próximo nascimento. Estão
+no arquivo agora para você não ter que editá-lo duas vezes.
+
+### A calibração
 
 Com o jogo aberto, rode uma vez `calibrar-tiat.bat`. Ele pede duas seleções na
 janela do jogo: as linhas do chat que recebem o anúncio e somente o texto do
 nome do alvo. Pode marcar apenas uma delas. Confira a imagem indicada no final.
 
-Depois basta usar `vigiar-party.bat` como sempre. O aviso procura Tiat a cada
-dois segundos e manda uma única mensagem por aparição, mesmo que chat e target
-confirmem juntos. Ele volta a armar apenas depois de duas leituras sem Tiat,
-para um mesmo boss persistente não virar spam.
+**A mesma calibração serve para qualquer boss da lista.** Acrescentar um bloco
+`[[boss]]` não pede recalibragem — o que a calibração marca é *onde olhar*, e
+não *o que procurar*.
+
+### Quando algo falta ou está errado
+
+- **Sem nenhum bloco `[[boss]]`**, a vigilância fica desligada, o console diz
+  isso e diz como ligar, e o scanner sobe normalmente. Quem nunca pediu essa
+  funcionalidade não vê nada quebrar.
+- **Com um bloco mal escrito**, o arranque cai nomeando o boss e o campo. É de
+  propósito: subir vigiando errado em silêncio é pior do que não subir.
+
+### O que evita spam
+
+Depois basta usar `vigiar-party.bat` como sempre. O aviso procura os bosses a
+cada dois segundos e manda uma única mensagem por aparição, mesmo que chat e
+target confirmem juntos. Ele volta a armar apenas depois de duas leituras
+limpas, para um mesmo boss persistente não virar spam.
+
+**O rearme agora é por boss.** Um segundo boss alvejado enquanto o anúncio do
+primeiro ainda persiste no chat não é engolido — cada um tem o seu próprio
+estado.
 
 ## Como ele evita alarme falso
 
