@@ -142,14 +142,14 @@ molde literal de `presenca.fechar_e_narrar`. O ponto cego do guarda de prefixos 
 pelas DUAS opcoes que o ROADMAP admitia, e nao por uma: o prefixo e declarado dentro de
 `agenda.py` **e** o guarda passa a varrer o modulo novo.
 
-**Nota de planejamento — o desvio declarado de D-18:** o CONTEXT trava a forma da ancora
-como `nascimento_<YYYY-MM-DD>_<boss-slug>-<HHMM>`, sem a origem. O plano acrescenta
-`_<origem>` ao fim, porque a outra decisao travada (a mensagem cita QUAL sinal ancorou)
-exige que a origem sobreviva ao reinicio que separa a ancora do aviso em 6 a 8 horas — e o
-unico outro lugar para guarda-la seria o conteudo do arquivo, que quebraria a propriedade
-de marcador vazio que faz `O_CREAT|O_EXCL` ser sozinho a decisao de despacho. O desvio nao
-e resolvido em silencio: `02-01-PLAN.md` abre com um `checkpoint:decision` bloqueante que
-apresenta as tres opcoes ao usuario antes de o primeiro arquivo ser gravado.
+**Nota de planejamento — a forma duravel das duas chaves, ja decidida:** o usuario decidiu
+em 2026-08-30 que a ORIGEM entra no NOME da ancora, e `02-CONTEXT.md` (linhas 53-71)
+registra a forma `nascimento_<YYYY-MM-DD>_<boss-slug>-<HHMM>_<origem>` dizendo que ela
+substitui a escrita anterior. A razao: D-16 exige que a mensagem cite qual sinal ancorou, e
+essa informacao precisa sobreviver as 6 a 8 horas (e ao reinicio) entre o nascimento e o
+aviso; guarda-la no conteudo quebraria a propriedade de marcador vazio que faz
+`O_CREAT|O_EXCL` ser sozinho a decisao de despacho. A decisao e de mao unica e esta travada
+em D-18 no `02-01-PLAN.md` — os dois planos sao autonomos e nao tem nenhum gate humano.
 
 ## Progress
 
