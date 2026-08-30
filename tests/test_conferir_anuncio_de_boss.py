@@ -554,3 +554,93 @@ def test_a_ferramenta_nao_escreve_expressao_regular_propria():
 
     assert "padrao_do_anuncio" in fonte
     assert "padrao_do_nome" in fonte
+
+
+class TestAsRegioesDoTiatSaoRELATIVASAJanela:
+    """G-01: a ferramenta subtraia uma origem que nao deve ser subtraida.
+
+    `calibrar_tiat` captura com `JanelaSource(...).capturar_completo()` — o
+    frame COMPLETO DA JANELA — e roda `_selecionar_regiao` sobre ele. Logo
+    `tiat_chat` e `tiat_alvo` nascem, SEMPRE, em coordenada de janela. Nao ha
+    caminho no projeto que os grave em coordenada de desktop.
+
+    A producao concorda: `laco_principal` passa
+    `relativa=cal.party_window_na_janela is not None`, e o ramo `relativa` de
+    `_extra_para_janela` usa `extra.esquerda` CRU.
+
+    O defeito era a condicao INVERTIDA: a ferramenta subtraia a origem
+    exatamente no caso (`party_window` e `party_window_na_janela` presentes) em
+    que a producao usa o valor cru.
+
+    MEDIDO em 2026-08-30 com a calibracao real: origem (1720,0) e
+    `tiat_chat.esquerda = 8` davam -1712, e a ferramenta recusava tudo saindo
+    com 1. O mesmo retangulo passado por `--recorte 8 878 625 455` lia o chat e
+    casava `Tiat North` no `frame_000030`.
+    """
+
+    def _calibracao(self, tmp_path):
+        """Uma calibracao VALIDA, gravada pelo proprio `Calibracao.salvar`.
+
+        Pelo construtor e nao por JSON escrito a mao: um dict incompleto
+        falharia no `carregar` e o teste ficaria vermelho por outro motivo,
+        provando nada sobre G-01.
+        """
+        from l2scanner.calibracao import (
+            LIMIARES_HP_PADRAO,
+            LIMIARES_MP_PADRAO,
+            Calibracao,
+            LayoutDaParty,
+            Regiao,
+        )
+
+        cal = Calibracao(
+            # party_window em DESKTOP; a mesma em coordenada de JANELA. A
+            # diferenca (1720,0) e a origem que a ferramenta subtraia.
+            party_window=Regiao(esquerda=1738, topo=325, largura=174, altura=522),
+            party_window_na_janela=Regiao(
+                esquerda=18, topo=325, largura=174, altura=522
+            ),
+            ancora=Regiao(esquerda=0, topo=0, largura=40, altura=28),
+            layout=LayoutDaParty(
+                icone_x=12,
+                icone_y=34,
+                icone_tamanho=24,
+                barra_x=42,
+                barra_largura=120,
+                barra_altura=8,
+                hp_y=40,
+                mp_y=51,
+                passo=61,
+                max_linhas=8,
+            ),
+            limiares_hp=LIMIARES_HP_PADRAO,
+            limiares_mp=LIMIARES_MP_PADRAO,
+            geometria_da_tela="3440x1440+0+0",
+            tiat_chat=Regiao(esquerda=8, topo=878, largura=625, altura=455),
+            tiat_alvo=Regiao(esquerda=350, topo=772, largura=160, altura=24),
+        )
+        caminho = tmp_path / "calibration.json"
+        cal.salvar(caminho)
+        return caminho
+
+    def test_o_chat_volta_como_foi_gravado(self, tmp_path) -> None:
+        regiao, _ = ferramenta.regiao_da_calibracao(self._calibracao(tmp_path), "chat")
+        assert regiao is not None, "a regiao do chat foi recusada"
+        assert (regiao.esquerda, regiao.topo) == (8, 878)
+        assert (regiao.largura, regiao.altura) == (625, 455)
+
+    def test_o_alvo_volta_como_foi_gravado(self, tmp_path) -> None:
+        regiao, _ = ferramenta.regiao_da_calibracao(self._calibracao(tmp_path), "alvo")
+        assert regiao is not None, "a regiao do alvo foi recusada"
+        assert (regiao.esquerda, regiao.topo) == (350, 772)
+
+    def test_nenhuma_coordenada_fica_negativa(self, tmp_path) -> None:
+        """O sintoma que o usuario via: recorte negativo, ferramenta saindo 1."""
+        for qual in ("chat", "alvo"):
+            regiao, motivo = ferramenta.regiao_da_calibracao(
+                self._calibracao(tmp_path), qual
+            )
+            assert regiao is not None, f"{qual} recusada: {motivo}"
+            assert regiao.esquerda >= 0 and regiao.topo >= 0, (
+                f"{qual} saiu negativa: {regiao} — a origem foi subtraida de novo"
+            )

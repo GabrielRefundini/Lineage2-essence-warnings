@@ -418,16 +418,28 @@ def imagens_de(caminho: Path) -> "list[Path]":
 
 
 def regiao_da_calibracao(caminho: Path, qual: str):
-    """O retangulo do chat ou do alvo, ja trazido para dentro da JANELA.
+    """O retangulo do chat ou do alvo, COMO ESTA GRAVADO.
 
-    A calibracao guarda `tiat_chat` em coordenadas de DESKTOP, e um PNG do
-    `gravador` comeca no canto da JANELA — usar o retangulo cru recortaria o
-    lugar errado calado. A conversao e a mesma de
-    `captura_janela._extra_para_janela`: subtrair a origem da janela. Aqui a
-    origem nao vem do `hwnd` (o jogo esta fechado), vem da calibracao:
-    `party_window` esta em desktop e `party_window_na_janela` e o MESMO
-    retangulo em coordenadas de janela, entao a diferenca entre os dois E a
+    `tiat_chat` e `tiat_alvo` ja estao em coordenada de JANELA, e por isso nao
+    ha conversao nenhuma a fazer: `calibrar_tiat` captura com
+    `JanelaSource(...).capturar_completo()` — o frame COMPLETO DA JANELA — e
+    roda `_selecionar_regiao` sobre ele. Nao existe caminho neste projeto que
+    grave essas duas regioes em coordenada de desktop. Elas sao diferentes de
+    `party_window`, que vem de uma varredura do desktop e por isso PRECISA da
     origem.
+
+    A producao concorda: `laco_principal` passa
+    `relativa=cal.party_window_na_janela is not None`, e o ramo `relativa` de
+    `_extra_para_janela` usa `extra.esquerda` CRU.
+
+    ESTA FUNCAO JA SUBTRAIU UMA ORIGEM AQUI (G-01, corrigido em 2026-08-30), e
+    a condicao estava INVERTIDA: ela convertia exatamente no caso em que a
+    producao usa o valor cru. MEDIDO contra a calibracao real: origem
+    (1720,0) e `tiat_chat.esquerda = 8` davam -1712, a ferramenta recusava
+    tudo e saia com 1 — enquanto o mesmo retangulo por `--recorte 8 878 625
+    455` lia o chat e casava `Tiat North` no `frame_000030`. O defeito
+    atravessou porque este era o unico trecho da fase sem teste; agora tem
+    `TestAsRegioesDoTiatSaoRELATIVASAJanela`.
 
     Devolve `(regiao, explicacao)` ou `(None, motivo)`.
     """
@@ -445,19 +457,7 @@ def regiao_da_calibracao(caminho: Path, qual: str):
             "(rode calibrar-tiat.bat, ou passe --recorte)"
         )
 
-    if cal.party_window and cal.party_window_na_janela:
-        ox = cal.party_window.esquerda - cal.party_window_na_janela.esquerda
-        oy = cal.party_window.topo - cal.party_window_na_janela.topo
-        return (
-            Regiao(
-                esquerda=regiao.esquerda - ox,
-                topo=regiao.topo - oy,
-                largura=regiao.largura,
-                altura=regiao.altura,
-            ),
-            f"{caminho.name}, trazida para dentro da janela (origem {ox},{oy})",
-        )
-    return regiao, f"{caminho.name}, como esta gravada"
+    return regiao, f"{caminho.name}, como esta gravada (coordenada de janela)"
 
 
 def recortar(imagem, regiao: Regiao):
