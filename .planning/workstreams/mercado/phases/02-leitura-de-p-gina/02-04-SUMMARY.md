@@ -174,7 +174,7 @@ coverage:
         ref: "tests/test_mercado_leitura.py::TestALeituraDeCelula::test_le_a_quantidade_da_linha_6_da_fixtura"
         status: pass
     human_judgment: true
-    rationale: "MEDIDO E REPROVADO NO VOLUME: o digito `1` da coluna Quantity nao se le (V=177 contra o piso 180), e a maioria das linhas do mercado tem quantidade 1. A leitura funciona para 2..9 e falha FECHADA para 1, entao nada errado e gravado — mas o rendimento em campo e baixo e so um humano decide se isso basta para a Fase 3 comecar. Registrado em WINDOWS.md #17."
+    rationale: "MEDIDO E REPROVADO NO VOLUME: o digito `1` da coluna Quantity nao se le (V=177 contra o piso 180), e a maioria das linhas do mercado tem quantidade 1. A leitura funciona para 2..9 e falha FECHADA para 1, entao nada errado e gravado — mas o rendimento em campo e baixo e so um humano decide se isso basta para a Fase 3 comecar. Registrado em WINDOWS.md #16 (o SUMMARY dizia #17; o ledger tem a coluna Quantity em #16 e o ponto cego da sonda em #17 — corrigido em 2026-08-30 durante o planejamento do 02-07)."
 
 duration: 3h 25m
 completed: 2026-08-30
@@ -240,7 +240,7 @@ Quem pega o buraco e a peneira seguinte: os 23 runs que a coluna coberta produz 
 
 As linhas que atravessam de verdade em `f010` sao a **6** (`18,90` x 2) e a **8** (`18,00` x 3).
 
-Registrado em `WINDOWS.md #18`, e a lacuna da sonda em `#18` complementa o `#15` que o 02-03 abriu para o lado esquerdo.
+Registrado em `WINDOWS.md #17`, e a lacuna da sonda em `#17` complementa o `#15` que o 02-03 abriu para o lado esquerdo. (Este paragrafo dizia `#18` nas duas pontas: erro de um no ledger, corrigido em 2026-08-30 no planejamento do 02-07. O `#18` e a entrada das tres fixturas trocadas.)
 
 ## 2. `janela_negociacao_f010_repetida.png` nao existe — `f010` nao e pagina parada
 
@@ -300,7 +300,7 @@ O casamento com o molde `1` devolve **-0,1810**; o melhor casamento e `0` a **0,
 
 **O custo medido e alto.** Varrendo as gravacoes de tooltip e alvo-sobreposto inteiras, com o portao de layout e a sonda ligados: **ZERO linhas atravessam**, porque todas as quantidades daquelas paginas sao `1`. Em `pagina-cheia` atravessam 1 a 4 linhas por frame — sempre as de quantidade 2 ou mais.
 
-**O conserto tem forma conhecida e falta um numero:** um piso de brilho PROPRIO da coluna Quantity, MEDIDO por varredura sobre as 8 gravacoes e gravado no `calibration.json` (chave nova, algo como `mercado_limiar_de_brilho_da_quantidade`). Ele NAO foi inventado aqui: escrever um numero novo sem medi-lo e a constante magica que este projeto recusa, e a medicao e uma onda, nao um `if`. Registrado em `WINDOWS.md #17`.
+**O conserto tem forma conhecida e falta um numero:** um piso de brilho PROPRIO da coluna Quantity, MEDIDO por varredura sobre as 8 gravacoes e gravado no `calibration.json` (chave nova, algo como `mercado_limiar_de_brilho_da_quantidade`). Ele NAO foi inventado aqui: escrever um numero novo sem medi-lo e a constante magica que este projeto recusa, e a medicao e uma onda, nao um `if`. Registrado em `WINDOWS.md #16`.
 
 ---
 
@@ -379,7 +379,7 @@ None — nenhuma configuracao de servico externo.
 **Bloqueios e preocupacoes:**
 1. **O piso de brilho da coluna Quantity precisa ser MEDIDO** antes de a Fase 3 valer a pena em volume. E uma varredura como as do 02-02/02-03, com portao humano no fim.
 2. **O tracer nunca rodou com OCR de verdade** — o Python global nao tem WinRT. Portao humano de fim de fase (`WINDOWS.md #19`).
-3. **A sonda de oclusao tem dois pontos cegos medidos** — o inicio do nome (`#15`) e a metade direita da grade (`#18`). A guarda de cruzamento do 02-06 e o que mais se aproxima de fechar os dois.
+3. **A sonda de oclusao tem dois pontos cegos medidos** — o inicio do nome (`#15`) e a metade direita da grade (`#17`, e nao `#18` como este SUMMARY dizia — corrigido em 2026-08-30). A guarda de cruzamento do 02-06 e o que mais se aproxima de fechar os dois.
 
 ---
 *Phase: 02-leitura-de-p-gina*
