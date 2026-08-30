@@ -1,7 +1,7 @@
 """A LEITURA de glifo: o piso proprio dela, e a guarda de cruzamento.
 
 Tudo aqui roda sobre fixtures VERSIONADAS em `tests/fixtures/mercado/`, e nunca
-sobre `recordings/` nem sobre o `calibration.json` — os dois sao gitignored e nao
+sobre `recordings/` nem sobre o `calibration.json` - os dois sao gitignored e nao
 vem de clone limpo, entao um teste que dependesse deles ficaria verde nesta
 maquina e amarelo em toda outra. A varredura que PRODUZ os numeros
 (`tools/medir_leitura_de_glifo.py`) e outra coisa e roda no checkout principal.
@@ -11,7 +11,7 @@ maquina e amarelo em toda outra. A varredura que PRODUZ os numeros
     glifos_unitario_f010.png    Unit price do mesmo frame, `6,00`
     glifos_quantidade_f012.png  123x45x3, coluna Quantity de
         scroll-transicao/frame_000012, linhas 5 a 7 da pagina: `10`, `48`, `5`
-        — as tres que a secao 4 do SPIKE-RESPOSTAS nomeia, ao lado dos totais
+        - as tres que a secao 4 do SPIKE-RESPOSTAS nomeia, ao lado dos totais
         `24,90`, `40,00` e `17,00` e dos unitarios `2,49`, `0,83` e `3,40`
 
 O PISO DE LEITURA NAO E `mercado_limiar_de_glifo`
@@ -20,7 +20,7 @@ O PISO DE LEITURA NAO E `mercado_limiar_de_glifo`
 `(1.0 + pior_par)/2` sobre molde-contra-molde. Ele certifica que o CONJUNTO de
 moldes e separavel; ele nao foi medido sobre glifo REAL de tela. A pesquisa
 mediu 2.057 glifos de campo e achou 18% deles abaixo dele, com o `8` tendo
-MEDIANA 0,7242 contra o proprio molde — um piso ali mataria todo preco com `8`.
+MEDIANA 0,7242 contra o proprio molde - um piso ali mataria todo preco com `8`.
 
 `TestOLimiarDeCOLISAONaoServeDePiso` prende isso por escrito: sobre as MESMAS
 seis linhas, o piso de colisao perde leitura que o piso medido mantem.
@@ -41,6 +41,7 @@ que a medicao de `calibrar_mercado.py:1364-1375` mostrou NAO casar 1,000.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import cv2
@@ -59,6 +60,9 @@ def _carregar_a_ferramenta(nome: str):
     spec = importlib.util.spec_from_file_location(nome, caminho)
     assert spec and spec.loader, f"nao carreguei {caminho}"
     modulo = importlib.util.module_from_spec(spec)
+    # Registrar ANTES de executar: `@dataclass` resolve as anotacoes por
+    # `sys.modules[cls.__module__]`, e sem isto ele encontra None.
+    sys.modules[nome] = modulo
     spec.loader.exec_module(modulo)
     return modulo
 
@@ -86,12 +90,17 @@ ROTULOS_DAS_QUANTIDADES = ("10", "48", "5")
 # este arquivo existe em boa parte para provar isso.
 LIMIAR_DE_COLISAO = 0.8554906845092773
 
-# O par (piso, margem) MEDIDO sobre estas fixtures, com os moldes cortadas
-# delas: pior score 0,7559 (o `8` de `18,00` contra o molde tirado de `18,90`,
-# banda de fundo oposta) e pior margem 0,0449. O par abaixo fica logo abaixo dos
-# dois, com a folga declarada. Ele NAO e o numero de producao — quem produz
-# aquele e a varredura sobre as 8 gravacoes, e ele mora no `calibration.json`.
-PISO_DA_FIXTURA = 0.70
+# O par (piso, margem) MEDIDO sobre estas tres fixtures, com os moldes
+# recortados delas:
+#
+#     pior score   0,5948  o `1` de `10` na coluna Quantity, contra o molde de
+#                          `1` tirado de `100,00` - bandas de fundo opostas
+#     pior margem  0,0449  o `0` de `10`, contra o `8`
+#
+# O par abaixo fica logo abaixo dos dois, com a folga declarada. Ele NAO e o
+# numero de producao - quem produz aquele e a varredura sobre as 8 gravacoes, e
+# ele mora no `calibration.json`.
+PISO_DA_FIXTURA = 0.55
 MARGEM_DA_FIXTURA = 0.04
 
 
@@ -325,9 +334,21 @@ class TestAsFerramentasNAO_ESCREVEM_EM_RECORDINGS:
         assert "imwrite" not in fonte, "ferramenta de medicao nao grava imagem"
         for suspeito in ("shutil.rmtree", "os.remove(", "unlink(", "rmdir("):
             assert suspeito not in fonte, f"{nome} apaga arquivo: {suspeito}"
-        # A UNICA escrita permitida e o load-mutate-save do calibration.json,
-        # e ela e feita por `os.replace` sobre um arquivo temporario.
+        # `recordings/` so aparece em `cv2.imread`, em `glob` e em prosa. A
+        # UNICA escrita e o load-mutate-save do `calibration.json`, e ela nao
+        # passa por `Path.write_*` nem por `open` sobre caminho de gravacao:
+        # e um `NamedTemporaryFile` seguido de `os.replace`.
+        for suspeito in ("write_text(", "write_bytes(", "savez", "np.save"):
+            assert suspeito not in fonte, f"{nome} escreve: {suspeito}"
+        assert "NamedTemporaryFile" in fonte
+        assert "os.replace" in fonte
         for linha in fonte.splitlines():
-            if "cv2.imread" in linha:
+            if "recordings" not in linha:
                 continue
-            assert "recordings" not in linha or "#" in linha or '"' in linha
+            assert (
+                "imread" in linha
+                or "glob" in linha
+                or linha.lstrip().startswith("#")
+                or "gravacoes" in linha
+                or '"' not in linha
+            ), f"{nome}: linha suspeita sobre recordings -> {linha}"
