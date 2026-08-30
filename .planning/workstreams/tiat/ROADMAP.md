@@ -92,7 +92,14 @@ Consequências que o texto tem que respeitar:
 - **O nome do módulo vira mentira.** `tiat.py` deixa de descrever o que o módulo faz assim que a lista é configurável. Renomear é decisão do plano; a restrição é que os 7 testes de `tests/test_tiat.py` atravessem intactos, porque eles são a régua do debounce que esta fase não pode quebrar.
 - **O debounce por rearme é o ativo mais valioso do módulo** e é o que muda de forma nesta fase (de global para por boss). Os testes existentes de persistência e de "duas leituras limpas" precisam continuar valendo para cada boss individualmente.
 
-**Plans**: TBD
+**Plans**: 4 plans (2 waves)
+
+- [ ] 01-01-PLAN.md — Tracer: do `[[boss]]` no `config.toml` ao despacho nomeando o boss, com rearme por boss e `montar_vigia_de_bosses` no arranque (wave 1)
+- [ ] 01-02-PLAN.md — OPER-01: a calibração deixa de nomear um mob, com guarda AST que impede a volta (wave 1)
+- [ ] 01-03-PLAN.md — A matriz que torna os 8 critérios verdadeiros, o vetor de metacaractere fechado, e `bosses.py` no portão AST de relógio (wave 2)
+- [ ] 01-04-PLAN.md — A ferramenta que confronta a frase real contra pixels, o README, e a medição do sentido negativo contra `recordings/` (wave 2)
+
+**Nota de planejamento — o desvio declarado de D-12:** o CONTEXT trava que os 7 testes de `tests/test_tiat.py` migrem "INTACTOS, só o import muda". Isso é impossível de cumprir literalmente e a impossibilidade é o objetivo da fase: quatro deles alimentam o vigia com `Tiat`, `TIAT apareceu` e `T1A7 apareceu`, e RECO-01 existe para que esses textos PAREM de disparar; um quinto ponto é que `avaliar` passa a devolver LISTA para que o critério 4 possa emitir dois alertas num tick. O que a restrição protege — o debounce — é preservado por um contrato escrito em `01-01-PLAN.md`: os 7 nomes sobrevivem, a aritmética sobrevive byte a byte, e só três categorias de edição mecânica são permitidas. Nenhuma asserção é enfraquecida.
 
 ### Phase 2: Janela de respawn
 
@@ -126,7 +133,7 @@ Consequências que o texto tem que respeitar:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Reconhecimento preciso e lista de bosses no config | 0/? | Not started | - |
+| 1. Reconhecimento preciso e lista de bosses no config | 0/4 | Planned | - |
 | 2. Janela de respawn | 0/? | Not started | - |
 
 ## Coverage
