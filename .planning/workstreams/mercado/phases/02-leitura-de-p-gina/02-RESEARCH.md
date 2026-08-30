@@ -1209,9 +1209,25 @@ categorias que **de fato** aplicam:
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **🚩 O layout calibrado é `adena`, mas LEIT-01/LEIT-05 só existem na grade de negociação —
+> **As 6 foram fechadas em 2026-08-29, no planejamento da fase.** A tabela abaixo diz onde cada
+> uma foi resolvida; as perguntas ficam escritas logo depois, porque o que foi perguntado explica
+> por que a resposta tem a forma que tem.
+
+| # | Pergunta | Resolucao | Onde |
+|---|---|---|---|
+| 1 | O layout calibrado e `adena`, mas LEIT-01/05 so existem na negociacao | **Decisao do usuario:** recalibrar para a grade de negociacao (D-09, D-10) | `02-01-PLAN.md` Task 3, portao humano bloqueante |
+| 2 | Os moldes de digito servem para ler o `+N` e o `Lv. N` dentro do nome? | **Medicao planejada:** o relatorio 3 mede contra o gabarito `+6/+4/+2/+7/(nenhum)/+5/+7/+5/+7/+6`, e o portao de decisao escolhe a fonte da assinatura | `02-03-PLAN.md` Tasks 1 e 2 |
+| 3 | Qual predicado de "acordo" entre 2x e 3x? | **Decisao do usuario:** "as duas leituras caem na MESMA SERIE do catalogo" (D-02). O conflito que ela cria com a trava de digitos (D-03) foi achado no planejamento e vai ao portao com as tres rotas medidas | `02-CONTEXT.md` D-02; `02-03-PLAN.md` Task 2 |
+| 4 | Qual o limiar de LEITURA de glifo, e qual a margem? | **Ferramenta:** `tools/medir_leitura_de_glifo.py` varre as 8 gravacoes do censo e propoe o par (piso, margem) em chaves proprias, nunca herdando `mercado_limiar_de_glifo` | `02-02-PLAN.md` Task 2 |
+| 5 | A coluna `Quantity` le pelo mesmo caminho? | **Ferramenta:** relatorio 2 da mesma varredura, conferido contra o gabarito 10/5/48 do spike. A suposicao A7 era deducao e deixa de ser | `02-02-PLAN.md` Task 2 |
+| 6 | Existe um cross-check independente para os numeros? | **Decisao do usuario (2026-08-29): LIGAR, condicionada a medicao.** O 02-02 mede fechamento e poder de deteccao com criterio decidivel; o 02-06 liga o mecanismo se aprovou, ou registra a refutacao no fonte se nao | `02-02-PLAN.md` Task 2; `02-06-PLAN.md` |
+
+### As perguntas como foram escritas
+
+
+1. **[RESOLVIDA - `02-01` Task 3, portao humano] 🚩 O layout calibrado é `adena`, mas LEIT-01/LEIT-05 só existem na grade de negociação —
    e ~283 de ~308 frames de fixture são negociação.**
    - O que sabemos: a aba Adena não tem nome de item (medido: OCR devolve `'Adena'`); o censo
      de layouts está feito; a decisão "só o layout calibrado" é travada e correta.
@@ -1221,7 +1237,7 @@ categorias que **de fato** aplicam:
      e teste no mesmo layout, e é o único em que o critério de sucesso 1 da fase é
      demonstrável.
 
-2. **🚩 Os moldes de dígito servem para ler o `+N` e o `Lv. N` DENTRO do nome?**
+2. **[RESOLVIDA - `02-03` Task 1 mede, Task 2 decide] 🚩 Os moldes de dígito servem para ler o `+N` e o `Lv. N` DENTRO do nome?**
    - O que sabemos: eles leem a coluna de preço com 25/25 de acerto; a fonte do jogo é a mesma;
      `mascara_de_texto` (V>180) é o piso do texto claro.
    - O que não sabemos: se o texto do nome tem o mesmo brilho e o mesmo tamanho do preço.
@@ -1231,7 +1247,7 @@ categorias que **de fato** aplicam:
      Se casar, a proposta 3 da §3 fica disponível e o problema `Lv. 1`×`Lv. 3` some por
      construção.
 
-3. **🚩 Qual predicado de "acordo" entre 2x e 3x?**
+3. **[RESOLVIDA - D-02 no `02-CONTEXT.md`; o conflito com D-03 vai ao portao do `02-03`] 🚩 Qual predicado de "acordo" entre 2x e 3x?**
    - O que sabemos: igualdade de string rende 50%; as discordâncias medidas são de 1–2
      caracteres.
    - O que não sabemos: se o usuário aceita "concordam quando caem na mesma série" como forma
@@ -1239,14 +1255,14 @@ categorias que **de fato** aplicam:
    - Recomendação: apresentar as duas taxas medidas e deixar ele decidir. É uma decisão de
      produto (perder metade das leituras vs. afrouxar o guard), não técnica.
 
-4. **Qual o limiar de LEITURA de glifo, e qual a margem?**
+4. **[RESOLVIDA - `02-02` Task 2, por ferramenta que mede] Qual o limiar de LEITURA de glifo, e qual a margem?**
    - O que sabemos: a distribuição de 2.057 glifos (p5 = 0,7242 de score; p5 = 0,0607 de
      margem); que 0,8555 rejeita 18% e que 0,12 de margem rejeita 7%.
    - O que não sabemos: o número certo — ele depende de os moldes serem melhorados ou não.
    - Recomendação: ferramenta de varredura que produz a distribuição e propõe o par
      (piso, margem), gravando em chaves próprias. Nunca herdar `mercado_limiar_de_glifo`.
 
-5. **A coluna `Quantity` lê pelo mesmo caminho?**
+5. **[RESOLVIDA - `02-02` Task 2, relatorio 2] A coluna `Quantity` lê pelo mesmo caminho?**
    - O que sabemos: ela não tem sufixo de moeda, então `numeros_com_sufixo` não a localiza;
      em compensação, com retângulo calibrado a localização deixa de ser problema.
    - O que não sabemos: se a quantidade tem separador de milhar e como o carimbo de quantidade
@@ -1254,7 +1270,7 @@ categorias que **de fato** aplicam:
    - Recomendação: medir na mesma Wave 0, com o mesmo gabarito de
      `scroll-transicao/frame_000012` (quantidades 10, 5, 48 registradas no spike §4).
 
-6. **Existe um cross-check independente para os números?**
+6. **[RESOLVIDA - decisao do usuario 2026-08-29: LIGAR condicionada a medicao; `02-02` mede, `02-06` liga] Existe um cross-check independente para os números?**
    - O que sabemos: na grade de negociação, `Total ÷ Quantity ≈ Unit price` com arredondamento
      conhecido a 2 casas (medido no spike: `40,00 ÷ 48 = 0,8333…` exibido como `0,83`). Isso é
      uma **segunda leitura independente** do mesmo fato — exatamente a diversidade de método

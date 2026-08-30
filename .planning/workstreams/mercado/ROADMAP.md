@@ -78,27 +78,36 @@ Plans:
   2. Os preços e quantidades lidos batem dígito a dígito com o que o usuário vê no frame — separador de milhar tratado como glifo de primeira classe; quando o frame está ilegível, a linha aparece como descartada, nunca como um número plausível. O número NUNCA vem do motor de OCR que lê o nome: medido contra as gravações da Fase 1, ele perde a vírgula decimal e devolve `1650` onde a tela diz `16,50` — erro de 100x com aparência plausível, exatamente o que LEIT-02 existe para impedir
   3. Uma página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS; frames bit a bit idênticos são reportados como captura congelada, não aceitos como acordo
 
-**Plans**: 5 plans (4 waves — a fase é quase serial por construção: um portão humano, uma onda de medição, e só então o código de leitura)
+**Plans**: 6 plans (6 waves - a fase e SERIAL por construcao: um portao humano, duas ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
 
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — (wave 1) As 12 chaves novas de mercado no `calibration.json`, a marcação propor-e-confirmar das quatro colunas e do molde de cabeçalho, e o **portão humano: o usuário recalibra para a GRADE DE NEGOCIAÇÃO**
+- [ ] 02-01-PLAN.md - (wave 1) As 14 chaves novas de mercado no `calibration.json`, a marcacao propor-e-confirmar das quatro colunas e do molde de cabecalho, e o **portao humano: o usuario recalibra para a GRADE DE NEGOCIACAO**
 
-**Wave 2** *(blocked on Wave 1 completion)*
+**Wave 2** *(blocked on Wave 1)*
 
-- [ ] 02-02-PLAN.md — (wave 2) A onda de medição I: `nivel_de_fundo_da_linha` + `tools/medir_oclusao.py` e `tools/medir_leitura_de_glifo.py` — o limiar de dispersão e o par (piso, margem) de leitura, medidos por varredura sobre as 8 gravações
-- [ ] 02-03-PLAN.md — (wave 2) A onda de medição II: os predicados puros do agrupamento em `mercado_catalogo.py`, `tools/medir_agrupamento_de_nome.py`, e o **portão de decisão: de onde vem a assinatura de dígitos da chave da série** (porta de mão única)
+- [ ] 02-02-PLAN.md - (wave 2) Medicao I: `nivel_de_fundo_da_linha` + `tools/medir_oclusao.py` e `tools/medir_leitura_de_glifo.py` - limiar de dispersao, piso do estabilizador, par (piso, margem) de leitura, e o veredito decidivel da guarda de cruzamento
 
-**Wave 3** *(blocked on Wave 2 completion)*
+**Wave 3** *(blocked on Wave 2 - as duas ondas gravam no mesmo `calibration.json`, e `os.replace` escreve o arquivo inteiro)*
 
-- [ ] 02-04-PLAN.md — (wave 3) **TRACER** — uma linha atravessa todas as camadas até uma página aceita; a promoção das primitivas de `calibrar_mercado.py` para `mercado_leitura.py`; a sonda de oclusão ANTES do OCR; e o portão de layout
+- [ ] 02-03-PLAN.md - (wave 3) Medicao II: os predicados puros do agrupamento em `mercado_catalogo.py`, `tools/medir_agrupamento_de_nome.py`, e o **portao de decisao: de onde vem a assinatura de digitos da chave da serie** (porta de mao unica, tres rotas medidas)
 
-**Wave 4** *(blocked on Wave 3 completion)*
+**Wave 4** *(blocked on Wave 3)*
 
-- [ ] 02-05-PLAN.md — (wave 4) O catálogo em `.mercado/catalogo-de-nomes.csv` (atômico, defensivo, sem poda), o estabilizador completo (congelamento pela janela inteira + acordo sobre a tupla parseada) e o replay atrás do `pytest.skip`
+- [ ] 02-04-PLAN.md - (wave 4) **TRACER** - uma linha atravessa todas as camadas ate uma pagina aceita; a promocao das primitivas de `calibrar_mercado.py` para `mercado_leitura.py`; a sonda de oclusao ANTES do OCR; e o portao de layout
 
-**Bloqueio externo — explícito:** o `calibration.json` da máquina do usuário diz hoje `layout: "adena"`, e a aba Adena **não tem nome de item** (o OCR da primeira coluna devolve literalmente `'Adena'`). LEIT-01 e LEIT-05 não têm objeto naquele layout, e o censo das 335 gravações dá ~25 frames de Adena contra ~283 da grade de negociação. Só o USUÁRIO pode recalibrar — a fase PARA na Wave 1 e espera.
+**Wave 5** *(blocked on Wave 4)*
+
+- [ ] 02-06-PLAN.md - (wave 5) A guarda de cruzamento `Total` contra `Unit price x Quantity` - ligada com a tolerancia que o 02-02 mediu, ou desligada com a refutacao escrita no fonte
+
+**Wave 6** *(blocked on Wave 5)*
+
+- [ ] 02-05-PLAN.md - (wave 6) O catalogo em `.mercado/catalogo-de-nomes.csv` (atomico, defensivo, sem poda), o estabilizador completo (congelamento pela janela inteira + acordo sobre a tupla parseada) e o replay atras do `pytest.skip`
+
+**Bloqueio externo - explicito:** o `calibration.json` da maquina do usuario diz hoje `layout: "adena"`, e a aba Adena **nao tem nome de item** (o OCR da primeira coluna devolve literalmente `'Adena'`). LEIT-01 e LEIT-05 nao tem objeto naquele layout, e o censo das 335 gravacoes da ~25 frames de Adena contra ~283 da grade de negociacao. So o USUARIO pode recalibrar - a fase PARA na Wave 1 e espera.
+
+**Nota sobre as varreduras:** as tasks de medicao (02-02, 02-03) rodam no checkout PRINCIPAL, nao em worktree. `recordings/` e gitignored e nao se materializa num worktree, e produzir o numero a partir dele e PRODUCAO DE DADO, nao teste. O que roda em qualquer lugar e o teste de regressao, sobre fixture versionada em `tests/fixtures/mercado/`.
 
 ### Phase 3: Persistência de observações
 
@@ -146,7 +155,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fundação — firewall, gravador e spike de campo | 5/5 | ✓ Complete | 2026-08-29 |
-| 2. Leitura de página | 0/5 | Not started | - |
+| 2. Leitura de página | 0/6 | Not started | - |
 | 3. Persistência de observações | 0/TBD | Not started | - |
 | 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
 
