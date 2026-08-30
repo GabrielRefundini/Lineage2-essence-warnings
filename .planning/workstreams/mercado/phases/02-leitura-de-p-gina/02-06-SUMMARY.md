@@ -305,7 +305,20 @@ comportamento e esquece o chamador que fatia os pixels.
 
 ## Issues Encountered
 
-Nenhum. O GREEN passou na primeira execucao completa, e `ruff check` passou limpo sem retoque.
+**Um incidente de PROCESSO, ja reparado, e registrado aqui porque apagar esconderia que a arvore e
+compartilhada.** Depois do commit de metadados (`94a0e63`), um `git commit --amend` para acrescentar
+uma nota de flake ao SUMMARY caiu sobre o commit ERRADO: entre os dois instantes, o executor do
+02-07 commitou por cima (`a3b7d5e`), e o amend reescreveu o commit DELE, dobrando a minha alteracao
+dentro dele e trocando o hash. Reparado com `git reset --soft a3b7d5e` — que devolveu o commit
+alheio byte-identico, com o hash original — e a minha alteracao virou commit proprio em cima.
+Nenhum conteudo se perdeu, e o `git add -A` nunca foi usado: os arquivos de outros agentes que
+estavam no index ficaram fora do meu commit, feito com pathspec explicito.
+
+**A licao, para quem vier depois:** nesta arvore ha mais de um executor commitando. `--amend` supoe
+que o HEAD ainda e seu, e essa suposicao nao vale aqui. Um commit novo custa uma linha de log e nao
+reescreve o trabalho de ninguem.
+
+Fora isso: o GREEN passou na primeira execucao completa, e `ruff check` passou limpo sem retoque.
 
 ## Threat Flags
 
@@ -341,7 +354,14 @@ desde o 02-01 (portao humano de 2026-08-29) e na `calibracao_de_fixture.json`.
 | `python -m pytest tests/test_mercado_27x.py -q` | verde — o detector de morte segue intocado |
 | `python -m pytest tests/test_firewall_escopo.py -q` | verde |
 | `python -m pytest tests/test_medir_leitura_de_glifo.py -q` | **35 passed**, sem alterar um teste |
-| `python -m pytest -q --ignore=tests/test_agenda.py` | **2112 passed, 2 skipped** |
+| `python -m pytest -q --ignore=tests/test_agenda.py` | **2122 passed, 2 skipped** |
+
+_Sobre o numero: 2.112 logo depois do GREEN, e 2.122 na conferencia final — os 10 casos a
+mais vieram do merge concorrente do workstream `tiat` (`9deb2da`), que caiu entre os dois
+commits deste plano. **Flake novo observado uma vez** e nao reproduzido:
+`test_janela_de_selecao.py::TestODrenoDaFilaDeTeclas::test_dreno_por_tempo_e_nao_por_numero_de_sondagens`
+(teste de relogio de parede, arquivo alheio a este plano, ultimo tocado por `d89436d`).
+Passou isolado 2 de 2 e na suite completa da rodada seguinte._
 | `python -m pytest tests/test_agenda.py -q` | **132 passed** |
 | `ruff check` nos 5 arquivos | `All checks passed!` |
 
