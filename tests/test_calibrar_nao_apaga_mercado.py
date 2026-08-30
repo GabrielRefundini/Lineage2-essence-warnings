@@ -390,3 +390,76 @@ class TestAPartyNaoApagaOQueNaoEDela:
             "Um arquivo ilegivel foi sobrescrito CALADO — o usuario nao ficou "
             "sabendo que a calibracao de mercado e as regioes do Tiat se foram."
         )
+
+
+class _JanelaFalsa:
+    """Um `JanelaSource` que nao abre janela nenhuma."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def capturar_completo(self):
+        return np.zeros((400, 400, 3), dtype=np.uint8)
+
+    def fechar(self):
+        pass
+
+
+class TestOModoSoloContinuaPreservando:
+    """GUARDA DE REGRESSAO do caminho `--solo`.
+
+    `--solo` JA preservava antes desta rodada: `calibrar_so_a_propria_barra`
+    parte de `Calibracao.carregar(ARQUIVO_CALIBRACAO)`. Este caso nao prova o
+    conserto — prova a INVARIANTE, para que `--solo` nao deixe de preservar numa
+    refatoracao futura. E exatamente assim que o lado da party ficou aberto
+    depois do CR-04: o conserto foi feito de um lado, e nada prendeu o outro.
+    """
+
+    def test_solo_preserva_os_27_campos_e_muda_so_o_que_e_dele(
+        self, monkeypatch, tmp_path, geo
+    ):
+        alvo = tmp_path / "calibration.json"
+        antes = _semear(alvo, geo)
+
+        # O mesmo motivo de sempre: sem esta linha a suite escreve no
+        # calibration.json da maquina de quem roda os testes. NAO REMOVA.
+        monkeypatch.setattr(l2scanner.calibrar, "ARQUIVO_CALIBRACAO", alvo)
+
+        titulo = "Yazalaque - XM Essence"
+        monkeypatch.setattr(
+            l2scanner.calibrar, "listar_janelas_do_jogo", lambda: [titulo]
+        )
+        monkeypatch.setattr(l2scanner.calibrar, "achar_janela", lambda *a: 4242)
+        monkeypatch.setattr(l2scanner.calibrar, "origem_da_janela", lambda *a: (0, 0))
+        monkeypatch.setattr(l2scanner.calibrar, "JanelaSource", _JanelaFalsa)
+        monkeypatch.setattr(
+            l2scanner.calibrar,
+            "achar_barra_do_proprio",
+            lambda *a, **k: Regiao(esquerda=60, topo=70, largura=80, altura=9),
+        )
+        # Grava PNG na raiz do repositorio e nada tem a dizer sobre a invariante.
+        monkeypatch.setattr(
+            l2scanner.calibrar, "_conferencia_do_solo", lambda *a, **k: None
+        )
+        monkeypatch.setattr(sys, "argv", ["l2scanner.calibrar", "--solo"])
+
+        assert l2scanner.calibrar.main() == 0
+
+        depois = json.loads(alvo.read_text(encoding="utf-8"))
+        perdidos = _perdidos(antes, depois)
+        assert not perdidos, (
+            "O modo --solo APAGOU campos que nao sao dele: " + ", ".join(perdidos)
+        )
+
+        # O que o modo solo LEGITIMAMENTE muda:
+        assert depois["janela"] == titulo
+        assert depois["nome_proprio"] == "Yazalaque"
+        assert depois["hp_proprio"] == {
+            "esquerda": 60,
+            "topo": 70,
+            "largura": 80,
+            "altura": 9,
+        }
+        # E o que ele promete por escrito ao usuario no `.bat`: a party window
+        # da calibracao anterior sobrevive.
+        assert depois["party_window"] == antes["party_window"]
