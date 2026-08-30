@@ -23,6 +23,7 @@ from l2scanner.agenda import (
     RegistroEmDisco,
     chave_da_ocorrencia,
 )
+from l2scanner.bosses import Boss, OrigemDoAviso, VigiaDeBosses
 from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.notificador import Categoria
@@ -74,6 +75,7 @@ def nova_sessao(
     manutencao=None,
     membros=(),
     registro=None,
+    bosses=None,
 ):
     return Sessao(
         cal=calibracao,
@@ -85,6 +87,7 @@ def nova_sessao(
         loot=loot,
         manutencao=manutencao,
         membros=membros,
+        bosses=bosses,
     )
 
 
@@ -1165,3 +1168,132 @@ class TestSimulacaoNoLacoPrincipal:
         assert (pasta / self.MARCADOR).exists(), (
             "o tick nao alcancou o aviso; os testes de simulacao seriam vazios"
         )
+
+
+class TestOSeamDosBosses:
+    """O unico teste que existe do caminho `_processar_bosses`.
+
+    Ate aqui aquele seam nao tinha teste nenhum — e a docstring de abertura
+    deste arquivo diz, por escrito, que TODOS os bugs de integracao deste
+    projeto moraram exatamente no codigo sem teste de laco.
+
+    A fatia que `tests/test_bosses.py` prova do arquivo ate a mensagem pronta
+    chega aqui ate `resultado.despachos`, que e o funil de saida de verdade.
+    """
+
+    NORTH = Boss(nome="Tiat North", respawn_horas_min=6, respawn_horas_max=8)
+    SOUTH = Boss(nome="Tiat South", respawn_horas_min=6, respawn_horas_max=8)
+    ANUNCIO = "Tiat North [Lv. 60] has spawned!"
+
+    def vigia(self, chat, alvo):
+        """Molde do `Leitor` de `tests/test_bosses.py`: chat primeiro."""
+        textos = iter([chat, alvo])
+
+        def ler(_pixels):
+            return next(textos)
+
+        return VigiaDeBosses(
+            ler, bosses=(self.NORTH, self.SOUTH), segundos_entre_leituras=1
+        )
+
+    def frame_com_recortes(self, frame_real):
+        """Os `extras` que o `laco_principal` monta quando o vigia existe.
+
+        As chaves continuam `tiat_chat` e `tiat_alvo` de proposito: renomea-las
+        desligaria a vigilancia, em silencio, em todo `calibration.json` que ja
+        existe na maquina do usuario.
+        """
+        recorte = np.zeros((5, 5, 3), dtype=np.uint8)
+        return replace(
+            frame_real, extras={"tiat_chat": recorte, "tiat_alvo": recorte}
+        )
+
+    def test_o_anuncio_no_chat_vira_um_despacho_que_comeca_pelo_boss(
+        self, calibracao, frame_real, tmp_path
+    ):
+        s = nova_sessao(
+            calibracao, tmp_path, bosses=self.vigia(self.ANUNCIO, "")
+        )
+
+        r = s.tick(self.frame_com_recortes(frame_real), momento=em(12, 0))
+
+        assert len(r.despachos) == 1
+        texto, categoria, _alvo = r.despachos[0]
+        assert texto.startswith("Tiat North")
+        # Spawn e urgente: tem que atravessar o silencio de TvT.
+        assert categoria is Categoria.SEMPRE
+
+    def test_o_resultado_carrega_o_par_boss_e_origem_e_nao_o_texto(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """Estruturado, e nao texto: casar com a frase quebraria na primeira
+        melhoria de redacao. O `boss` entra no par porque, com dois avisos num
+        tick, a origem sozinha nao diz mais de quem ela e.
+        """
+        s = nova_sessao(
+            calibracao, tmp_path, bosses=self.vigia(self.ANUNCIO, "")
+        )
+
+        r = s.tick(self.frame_com_recortes(frame_real), momento=em(12, 0))
+
+        assert r.avisos_de_boss == [("Tiat North", OrigemDoAviso.CHAT)]
+
+    def test_chat_com_um_boss_e_alvo_com_outro_produzem_dois_despachos(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """Criterio 4: um tick pode entregar DOIS avisos."""
+        s = nova_sessao(
+            calibracao, tmp_path, bosses=self.vigia(self.ANUNCIO, "Tiat South")
+        )
+
+        r = s.tick(self.frame_com_recortes(frame_real), momento=em(12, 0))
+
+        assert len(r.despachos) == 2
+        assert [b for b, _origem in r.avisos_de_boss] == [
+            "Tiat North",
+            "Tiat South",
+        ]
+
+    def test_a_pergunta_digitada_no_chat_nao_despacha_nada(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """RECO-01 afirmado sobre uma `Sessao` de verdade, e nao so no vigia."""
+        s = nova_sessao(
+            calibracao,
+            tmp_path,
+            bosses=self.vigia("Fulano: tiat ja nasceu?", ""),
+        )
+
+        r = s.tick(self.frame_com_recortes(frame_real), momento=em(12, 0))
+
+        assert r.despachos == []
+        assert r.avisos_de_boss == []
+
+    def test_uma_sessao_sem_vigia_roda_um_tick_identico_ao_de_hoje(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """As cinco construcoes de `Sessao` que ja existem no repositorio nao
+        passam `bosses=`, e o default `None` e o que as mantem validas sem
+        edicao nenhuma.
+        """
+        s = nova_sessao(calibracao, tmp_path)
+
+        r = s.tick(self.frame_com_recortes(frame_real), momento=em(12, 0))
+
+        assert r.avisos_de_boss == []
+        assert r.despachos == []
+        assert r.observacao is not None
+        assert not r.falhou_ao_analisar
+
+    def test_sem_recorte_calibrado_o_tick_nao_quebra(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """Vigia ligado e `extras` vazio: o `_ler` devolve None sem levantar."""
+        s = nova_sessao(
+            calibracao, tmp_path, bosses=self.vigia(self.ANUNCIO, "")
+        )
+
+        r = s.tick(frame_real, momento=em(12, 0))
+
+        assert r.avisos_de_boss == []
+        assert not r.falhou_ao_analisar
