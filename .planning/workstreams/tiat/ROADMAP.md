@@ -94,8 +94,8 @@ Consequências que o texto tem que respeitar:
 
 **Plans**: 4 plans (2 waves)
 
-- [ ] 01-01-PLAN.md — Tracer: do `[[boss]]` no `config.toml` ao despacho nomeando o boss, com rearme por boss e `montar_vigia_de_bosses` no arranque (wave 1)
-- [ ] 01-02-PLAN.md — OPER-01: a calibração deixa de nomear um mob, com guarda AST que impede a volta (wave 1)
+- [ ] 01-01-PLAN.md — Tracer em três camadas: do `[[boss]]` no arquivo ao aviso (T1), do aviso ao despacho em `sessao.py` (T2), e `montar_vigia_de_bosses` no arranque (T3) — wave 1
+- [ ] 01-02-PLAN.md — OPER-01: a calibração deixa de nomear um mob, com guarda AST que impede a volta (wave 2 — o guarda importa `ler_bosses`, que nasce em `01-01`)
 - [ ] 01-03-PLAN.md — A matriz que torna os 8 critérios verdadeiros, o vetor de metacaractere fechado, e `bosses.py` no portão AST de relógio (wave 2)
 - [ ] 01-04-PLAN.md — A ferramenta que confronta a frase real contra pixels, o README, e a medição do sentido negativo contra `recordings/` (wave 2)
 
