@@ -70,7 +70,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from .identidade import mascara_de_texto
+from .identidade import VALOR_MINIMO_DO_TEXTO
 from .mercado_catalogo import EntradaDoCatalogo, agrupar, assinatura_por_ocr
 from .mercado_geometria import nivel_de_fundo_da_linha
 from .mercado_visao import casamento_da_ancora
@@ -127,11 +127,68 @@ def segmentar_glifos(
 
     Recorte vazio ou sem pixel de texto devolve `(None, [])` e NAO levanta: o
     laco interativo trata isso como "remarque", nao como defeito.
+
+    ELA E UMA CASCA FINA DESDE O 02-07, E A ASSINATURA FICA INTACTA DE
+    PROPOSITO. O corpo mudou de casa para `segmentar_glifos_no_brilho`, que
+    recebe o piso por parametro; aqui fica a chamada com o piso COMPARTILHADO.
+    Manter a assinatura nao e conservadorismo: ela tem 35 pontos de chamada (60
+    mencoes em 11 arquivos, contados) em producao, ferramentas e testes, e TODOS
+    querem o piso compartilhado. Quebrar os 35 por causa de UMA coluna seria
+    custo sem informacao — e este e o unico lugar do repositorio que nomeia o
+    piso compartilhado para a leitura de mercado, porque nomear uma vez e o
+    contrario de espalhar.
     """
-    if recorte.size == 0:
+    return segmentar_glifos_no_brilho(recorte, VALOR_MINIMO_DO_TEXTO)
+
+
+def mascara_de_numero(bgr: np.ndarray, valor_minimo: int) -> np.ndarray:
+    """A mascara de brilho de um recorte de numero, no piso RECEBIDO.
+
+    A IRMA de `mascara_do_sufixo`, e nasce ao lado dela pela mesma razao: a
+    mecanica e a de `identidade.mascara_de_texto` — so o canal V, sem filtro de
+    saturacao —, e o que muda e de onde vem o piso. Ali ele e uma constante de
+    modulo medida para as PALAVRAS; aqui ele vem de FORA, porque cada coluna de
+    numero tem o seu e o da Quantity foi medido no censo (02-07).
+
+    Com `valor_minimo = identidade.VALOR_MINIMO_DO_TEXTO` ela e IGUAL a
+    `mascara_de_texto` pixel a pixel sobre o mesmo recorte — e e essa igualdade
+    que prova que NADA muda para quem nao pediu piso proprio, as colunas de
+    moeda inclusive.
+
+    Recorte vazio devolve matriz vazia e NAO levanta: isto roda dentro do tick.
+    """
+    if bgr is None or getattr(bgr, "size", 0) == 0:
+        return np.zeros((0, 0), dtype=np.uint8)
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    return (hsv[:, :, 2] > int(valor_minimo)).astype(np.uint8)
+
+
+def segmentar_glifos_no_brilho(
+    recorte: np.ndarray, valor_minimo: int
+) -> tuple[tuple[int, int] | None, list[tuple[int, int]]]:
+    """`segmentar_glifos` com o piso de brilho por parametro.
+
+    O corpo que morava em `segmentar_glifos` mora aqui desde o 02-07, e a
+    CONVENCAO DE FAIXA COMPARTILHADA fica intacta: uma so faixa de linhas para o
+    retangulo inteiro, porque e a posicao vertical relativa que distingue a
+    virgula (baixa) do digito (altura cheia). Qualquer coluna vazia separa, sem
+    tolerancia de lacuna — a menor lacuna real medida entre dois glifos vizinhos
+    e de exatamente uma coluna.
+
+    POR QUE UM PISO POR COLUNA, E NAO UM GLOBAL. Medido no 02-04: o tronco do
+    `1` da coluna Quantity e desenhado a V = 177, ABAIXO do piso 180, enquanto o
+    MESMO `1` da coluna Total tem V = 205. E a coluna Total NAO pode descer
+    junto: ela carrega a palavra de sufixo dentro do proprio recorte, e a palavra
+    vive entre V = 120 e V = 173 (ver `VALOR_MINIMO_DO_SUFIXO`). Sondado, `18,90`
+    vira `18,907` ja no piso 170. As duas faixas sao DISJUNTAS.
+
+    `valor_minimo` NAO tem valor de fabrica onde ele decide leitura de producao;
+    aqui ele e posicional e obrigatorio pela mesma razao.
+    """
+    if recorte is None or getattr(recorte, "size", 0) == 0:
         return None, []
 
-    mascara = mascara_de_texto(recorte)
+    mascara = mascara_de_numero(recorte, valor_minimo)
     if mascara.size == 0:
         return None, []
 
@@ -475,20 +532,34 @@ def ler_celula(
     moldes: dict[str, np.ndarray],
     piso: float,
     margem: float,
+    *,
+    valor_minimo: int,
 ) -> str | None:
     """O texto de UMA celula de numero, ou `None`. Nunca levanta.
 
-    Segmenta com `segmentar_glifos` (a convencao de faixa compartilhada) e
-    classifica com `ler_glifos`. E so a composicao das duas — existe para que o
-    chamador nao precise repetir a sequencia e escolher a mascara errada.
+    Segmenta com `segmentar_glifos_no_brilho` (a convencao de faixa
+    compartilhada) e classifica com `ler_glifos`. E so a composicao das duas —
+    existe para que o chamador nao precise repetir a sequencia e escolher a
+    mascara errada.
+
+    `valor_minimo` E SOMENTE-NOMEADO E NAO TEM VALOR DE FABRICA. Ele e o piso de
+    brilho da mascara, e cada coluna de numero tem o seu: o das colunas de moeda
+    e `identidade.VALOR_MINIMO_DO_TEXTO`, e o da coluna Quantity e
+    `mercado_limiar_de_brilho_da_quantidade`, MEDIDO no censo pelo 02-07. Um
+    default aqui seria constante magica no caminho que decide preco e
+    quantidade.
+
+    A MASCARA E A SEGMENTACAO RECEBEM O MESMO `valor_minimo`, e isso nao e
+    detalhe: segmentar num piso e pontuar em outro produziria runs apontando
+    para colunas que a mascara nao tem, e o casamento leria lixo com confianca.
     """
     if bgr is None or getattr(bgr, "size", 0) == 0:
         return None
     try:
-        faixa, runs = segmentar_glifos(bgr)
+        faixa, runs = segmentar_glifos_no_brilho(bgr, valor_minimo)
         if faixa is None or not runs:
             return None
-        mascara = (mascara_de_texto(bgr) * 255).astype(np.uint8)
+        mascara = (mascara_de_numero(bgr, valor_minimo) * 255).astype(np.uint8)
         return ler_glifos(mascara, faixa, runs, moldes, piso, margem)
     except Exception as erro:  # noqa: BLE001 - roda dentro do tick
         log.debug("leitura de celula falhou neste recorte: %s", erro)
@@ -500,6 +571,8 @@ def ler_celula_de_numero(
     moldes: dict[str, np.ndarray],
     piso: float,
     margem: float,
+    *,
+    valor_minimo: int,
 ) -> int | None:
     """O valor da celula de MOEDA, em CENTESIMOS como inteiro. Nunca float.
 
@@ -517,8 +590,16 @@ def ler_celula_de_numero(
 
     Duas peneiras, nesta ordem: a gramatica (`numero_valido`) e a conversao de
     moeda. As duas dizem `None` na duvida.
+
+    O `valor_minimo` DESTA COLUNA CONTINUA SENDO O COMPARTILHADO (180), e o
+    02-07 nao o mexeu — ele so deixou de ser implicito. A razao e medida: a
+    palavra de sufixo (`XM Coin`, `Adena`) vive DENTRO deste recorte, entre
+    V = 120 e V = 173, e o piso 180 e exatamente o que a mantem FORA da celula.
+    Sondado em tres frames, com o piso em 170 o `18,90` vira `18,907` e o score
+    cai de 1,000 para 0,293. Baixar o piso desta coluna nao melhora nada e
+    quebra tudo.
     """
-    lido = ler_celula(bgr, moldes, piso, margem)
+    lido = ler_celula(bgr, moldes, piso, margem, valor_minimo=valor_minimo)
     if not numero_valido(lido):
         return None
     return centesimos_de_moeda(lido)
@@ -529,6 +610,8 @@ def ler_celula_de_quantidade(
     moldes: dict[str, np.ndarray],
     piso: float,
     margem: float,
+    *,
+    valor_minimo: int,
 ) -> int | None:
     """A quantidade da linha, inteira. `None` quando nao da para afirmar.
 
@@ -552,14 +635,27 @@ def ler_celula_de_quantidade(
     que e o comportamento certo — mas o custo e alto, porque a maioria das
     linhas do mercado tem quantidade 1.
 
-    O conserto e o mesmo padrao que `calibrar_mercado.VALOR_MINIMO_DO_SUFIXO`
-    ja usou para as palavras `XM Coin` e `Adena` (piso 120, medido, porque elas
-    ficam inteiras abaixo de 180): um piso de brilho PROPRIO da coluna Quantity,
-    MEDIDO por varredura e gravado no `calibration.json`. Ele nao e inventado
-    aqui: escrever um numero novo sem medi-lo e exatamente a constante magica
-    que este projeto recusa.
+    O CONSERTO CHEGOU NO 02-07, E ELE E UM NUMERO MEDIDO. Ele segue o mesmo
+    padrao que `VALOR_MINIMO_DO_SUFIXO` ja usou para as palavras `XM Coin` e
+    `Adena` (piso 120, medido, porque elas ficam inteiras abaixo de 180): um
+    piso de brilho PROPRIO da coluna, que chega por `valor_minimo` a partir de
+    `mercado_limiar_de_brilho_da_quantidade` no `calibration.json`. Ele nao e
+    inventado aqui — escrever um numero novo sem medi-lo e exatamente a
+    constante magica que este projeto recusa —, e a medicao que o produziu esta
+    no SUMMARY do 02-07, com a tabela de TODOS os pisos candidatos, os tres
+    baldes de cada um e as DUAS folgas.
+
+    O PISO TEM TETO, E O TETO E O QUE DIMENSIONA O RISCO. Baixa-lo demais nao
+    volta a falhar FECHADO: passa a falhar ABERTO. Sondado em
+    `scroll-transicao/frame_000016`, com o piso em 150 o `30` da quantidade vira
+    `38` com score 0,724 e margem 0,127 — os dois ACIMA do piso de leitura
+    0,4698 e da margem 0,0370, entao ele atravessa as duas peneiras e vira
+    numero errado no CSV. Por isso a ferramenta que mediu o piso recusa propor
+    quando existe UMA leitura divergente do rotulo derivado, e por isso o piso
+    gravado e sempre um piso que foi MEDIDO — nunca um ponto entre dois que
+    foram.
     """
-    lido = ler_celula(bgr, moldes, piso, margem)
+    lido = ler_celula(bgr, moldes, piso, margem, valor_minimo=valor_minimo)
     if not numero_valido(lido):
         return None
     return inteiro_de_quantidade(lido)
@@ -880,6 +976,8 @@ def ler_linha(
     moldes: dict[str, np.ndarray],
     piso: float,
     margem: float,
+    valor_minimo_do_numero: int,
+    valor_minimo_da_quantidade: int,
     sonda: dict | None,
     limiar_de_dispersao: float,
     tolerancia_do_cruzamento: float | None,
@@ -923,6 +1021,18 @@ def ler_linha(
 
     O unitario ILEGIVEL nao derruba a linha — ele so cala a guarda.
 
+    SAO DOIS PISOS DE BRILHO E NAO UM, E A RAZAO E MEDIDA. As colunas de MOEDA
+    (`Total` e `Unit price`) recebem `valor_minimo_do_numero`, o piso
+    COMPARTILHADO; a coluna Quantity recebe `valor_minimo_da_quantidade`, o piso
+    PROPRIO dela, medido no censo pelo 02-07. As duas faixas sao DISJUNTAS:
+    a coluna de moeda carrega a palavra de sufixo DENTRO do proprio recorte, e a
+    palavra vive entre V = 120 e V = 173 — sondado, `18,90` vira `18,907` ja no
+    piso 170 —, enquanto o tronco do `1` da Quantity fica a V = 177 e exige um
+    piso ABAIXO dele. Nao existe piso global, e um parametro so seria uma
+    afirmacao de que existe.
+
+    Os dois chegam SEM VALOR DE FABRICA, pela regra do charter deste modulo.
+
     NAO HA RAMO DEDICADO A MARCACAO DE ALVO (D-16). Ela e opaca e previsivel, e
     o mesmo detector de fundo que pega a tooltip pega ela. Um `if` proprio seria
     um caminho a mais para manter e uma promessa a mais para quebrar.
@@ -939,13 +1049,23 @@ def ler_linha(
         if linha_ocluida(cinza, sonda, limiar_de_dispersao):
             return _recusar(indice, MOTIVO_DA_OCLUSAO, "fundo nao uniforme")
 
-        total = ler_celula_de_numero(recorte_do_total, moldes, piso, margem)
+        total = ler_celula_de_numero(
+            recorte_do_total,
+            moldes,
+            piso,
+            margem,
+            valor_minimo=valor_minimo_do_numero,
+        )
         if total is None:
             return _recusar(
                 indice, MOTIVO_DA_GRAMATICA, "a coluna Total nao se leu inteira"
             )
         quantidade = ler_celula_de_quantidade(
-            recorte_da_quantidade, moldes, piso, margem
+            recorte_da_quantidade,
+            moldes,
+            piso,
+            margem,
+            valor_minimo=valor_minimo_da_quantidade,
         )
         if quantidade is None:
             return _recusar(
@@ -954,11 +1074,16 @@ def ler_linha(
                 "a coluna Quantity nao se leu inteira",
             )
         # A TERCEIRA leitura. Ela usa a MESMA `ler_celula_de_numero` das outras
-        # duas, com o mesmo piso e a mesma margem: o unitario tambem e moeda, e
-        # uma segunda opiniao lida por regra diferente seria outra opiniao sobre
-        # outra coisa.
+        # duas, com o mesmo piso, a mesma margem E O MESMO PISO DE BRILHO do
+        # `Total`: o unitario tambem e moeda, carrega a mesma palavra de sufixo
+        # dentro do recorte, e uma segunda opiniao lida por regra diferente
+        # seria outra opiniao sobre outra coisa.
         unitario = ler_celula_de_numero(
-            recorte_do_unitario, moldes, piso, margem
+            recorte_do_unitario,
+            moldes,
+            piso,
+            margem,
+            valor_minimo=valor_minimo_do_numero,
         )
 
         residuo = residuo_do_cruzamento(total, unitario, quantidade)

@@ -69,17 +69,18 @@ so nasceu no 02-04. Medir a coluna Quantity sobre a aba Adena seria medir uma
 coluna que nem existe la (`5 mln increment`), e o rotulo derivado nao vale por
 construcao naquela aba.
 
-DUAS PRIMITIVAS NASCEM AQUI E SAO PROMOVIDAS NA TASK 2
---------------------------------------------------------
+AS DUAS PRIMITIVAS IRMAS SAO IMPORTADAS, E NUNCA COPIADAS
+-----------------------------------------------------------
 `mascara_de_numero` e `segmentar_glifos_no_brilho` sao a mecanica de
 `identidade.mascara_de_texto` e de `mercado_leitura.segmentar_glifos` com o piso
-vindo de FORA em vez de constante de modulo. Elas nascem aqui porque e aqui que
-o piso variavel e necessario primeiro, e sao MOVIDAS para
-`l2scanner.mercado_leitura` na Task 2 deste mesmo plano — o mesmo caminho de
-`segmentar_glifos`, `pontuar_glifos`, `centesimos_de_moeda` e
-`limite_derivado_do_cruzamento`, todas nascidas em ferramenta e promovidas
-quando a producao passou a precisar delas. Depois da promocao este modulo as
-IMPORTA; nunca ha duas copias.
+vindo de FORA em vez de constante de modulo. Elas NASCERAM nesta ferramenta, na
+Task 1 deste plano — que e onde o piso variavel foi necessario primeiro —, e
+foram PROMOVIDAS para `l2scanner.mercado_leitura` na Task 2, quando a producao
+passou a precisar delas. E o mesmo caminho de `segmentar_glifos`,
+`pontuar_glifos`, `centesimos_de_moeda` e `limite_derivado_do_cruzamento`: a
+seta aponta ferramenta -> puro, e uma copia local faria esta varredura MEDIR com
+uma convencao e o scanner DECIDIR com outra no dia em que uma das duas fosse
+corrigida.
 
 Uso (no checkout PRINCIPAL — `recordings/` e `calibration.json` sao gitignored):
 
@@ -119,10 +120,12 @@ from l2scanner.mercado_leitura import (  # noqa: E402
     inteiro_de_quantidade,
     layout_confere,
     limite_derivado_do_cruzamento,
-    ler_glifos,
+    ler_celula,
+    mascara_de_numero,
     numero_valido,
     pontuar_glifos,
     residuo_do_cruzamento,
+    segmentar_glifos_no_brilho,
 )
 from l2scanner.mercado_visao import (  # noqa: E402
     RastreioDoPainel,
@@ -191,84 +194,6 @@ def faixa_de_candidatos() -> np.ndarray:
     )
 
 
-# ---------------------------------------------------------------------------
-# As duas primitivas que NASCEM AQUI e sao PROMOVIDAS na Task 2
-# ---------------------------------------------------------------------------
-
-
-def mascara_de_numero(bgr: np.ndarray, valor_minimo: int) -> np.ndarray:
-    """A mascara de brilho de um recorte de numero, no piso RECEBIDO.
-
-    Mesma mecanica de `identidade.mascara_de_texto` — so o canal V, sem filtro
-    de saturacao — com o piso vindo de fora em vez de constante de modulo. Com
-    `valor_minimo = PISO_COMPARTILHADO` ela e IGUAL a `mascara_de_texto` pixel a
-    pixel, e e essa igualdade que prova que nada muda para quem nao pediu piso
-    proprio.
-    """
-    if bgr is None or getattr(bgr, "size", 0) == 0:
-        return np.zeros((0, 0), dtype=np.uint8)
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    return (hsv[:, :, 2] > int(valor_minimo)).astype(np.uint8)
-
-
-def segmentar_glifos_no_brilho(
-    recorte: np.ndarray, valor_minimo: int
-) -> tuple[tuple[int, int] | None, list[tuple[int, int]]]:
-    """`segmentar_glifos` com o piso de brilho por parametro.
-
-    A convencao de FAIXA COMPARTILHADA fica intacta e nao e negociavel: uma so
-    faixa de linhas para o retangulo inteiro, porque e a posicao vertical
-    relativa que distingue a virgula (baixa) do digito (altura cheia). Qualquer
-    coluna vazia separa, sem tolerancia de lacuna.
-    """
-    if recorte is None or getattr(recorte, "size", 0) == 0:
-        return None, []
-    mascara = mascara_de_numero(recorte, valor_minimo)
-    if mascara.size == 0:
-        return None, []
-    linhas = np.flatnonzero(mascara.any(axis=1))
-    if linhas.size == 0:
-        return None, []
-    faixa = (int(linhas[0]), int(linhas[-1]) + 1)
-
-    runs: list[tuple[int, int]] = []
-    inicio: int | None = None
-    for coluna, tem_texto in enumerate(mascara.any(axis=0)):
-        if tem_texto and inicio is None:
-            inicio = coluna
-        elif not tem_texto and inicio is not None:
-            runs.append((inicio, coluna))
-            inicio = None
-    if inicio is not None:
-        runs.append((inicio, int(mascara.shape[1])))
-    return faixa, runs
-
-
-def ler_celula_no_brilho(
-    bgr: np.ndarray,
-    moldes: dict,
-    piso: float,
-    margem: float,
-    valor_minimo: int,
-) -> str | None:
-    """O texto de UMA celula no piso de brilho dado, ou `None`. Nunca levanta.
-
-    A MASCARA E A SEGMENTACAO USAM O MESMO `valor_minimo`: segmentar num piso e
-    pontuar em outro produziria runs apontando para colunas que a mascara nao
-    tem.
-    """
-    if bgr is None or getattr(bgr, "size", 0) == 0:
-        return None
-    try:
-        faixa, runs = segmentar_glifos_no_brilho(bgr, valor_minimo)
-        if faixa is None or not runs:
-            return None
-        mascara = (mascara_de_numero(bgr, valor_minimo) * 255).astype(np.uint8)
-        return ler_glifos(mascara, faixa, runs, moldes, piso, margem)
-    except Exception:  # noqa: BLE001 — a varredura nao para por um recorte ruim
-        return None
-
-
 def pior_score_e_margem(
     bgr: np.ndarray, moldes: dict, valor_minimo: int
 ) -> tuple[float, float] | None:
@@ -296,41 +221,72 @@ def pior_score_e_margem(
 
 
 def quantidade_derivada(total: int | None, unitario: int | None) -> int | None:
-    """A quantidade que `Total` e `Unit price` implicam. `None` na duvida.
+    """A quantidade que `Total` e `Unit price` implicam, quando ela e UNICA.
 
     ESTE E O UNICO ROTULO NAO CIRCULAR DISPONIVEL. Ela recebe DOIS INTEIROS e
     mais nada: sem recorte, sem moldes, sem piso de brilho. Nao ha por onde um
     pixel da coluna Quantity entrar, e e essa a propriedade que a torna um
     gabarito em vez de um espelho.
 
-    A tela exibe `unitario = round(total / quantidade, 2)`, entao a quantidade
-    e `round(total / unitario)` — aceita SO quando o residuo cabe no limite
-    DERIVADO do arredondamento a duas casas. A aritmetica vem de
-    `l2scanner.mercado_leitura`, onde ela mora desde o 02-06; ela nao e
-    reescrita aqui nem puxada pela ferramenta irma, o que inverteria a seta.
+    O CRITERIO E DE INTERVALO, E NAO DE RESIDUO — E ISSO E CORRECAO DE MEDICAO,
+    NAO PREFERENCIA. A primeira versao desta funcao fazia `round(total/unitario)`
+    e aceitava quando o residuo cabia em `quantidade/2` centesimos, o limite
+    DERIVADO do arredondamento a duas casas. A varredura do censo REFUTOU esse
+    criterio com o proprio material:
 
-    ROTULO DE MEDICAO, E NUNCA GUARDA DE PRODUCAO. A guarda de cruzamento
-    REPROVOU no 02-02 — tolerancia de 1273 centesimos por unidade contra o
-    maximo 1,0 — e `mercado_tolerancia_do_cruzamento` segue gravada como `None`.
-    A diferenca e de CRITERIO, e ela e o motivo de a mesma aritmetica servir
-    aqui: um rotulo precisa de precisao alta e pode ter recall baixo, porque a
-    linha que nao fecha simplesmente NAO ENTRA na medicao; uma guarda precisa
-    das duas, porque toda linha que ela nao fecha e uma linha DESCARTADA.
-    Confundi-los seria ressuscitar por acidente um mecanismo que ja reprovou.
+        053105-mercado-aberto/frame_000066 L1
+        Total `12,00`  Unit price `0,23`  Quantity na tela `51`
+        round(1200/23) = 52, residuo |1200 - 23x52| = 4, limite 26  -> ROTULO 52
+
+    O rotulo dizia 52 e a tela dizia 51 — e a leitura, que estava CERTA, seria
+    contada como erro. A causa ja estava escrita em
+    `mercado_leitura.limite_derivado_do_cruzamento`: o cliente parece TRUNCAR o
+    unitario, e nao arredonda-lo (`11,39` por 6 exibe `1,89`, mas `1139/6`
+    arredondaria para `1,90`). Truncar deixa `total/unitario` MAIOR que a
+    quantidade real, e o erro relativo do truncamento cresce quando o unitario e
+    pequeno: aqui `0,529/23` = 2,3%, que sobre 51 unidades vale mais de uma
+    unidade inteira. Um rotulo com falso positivo nao mede nada — ele inventa a
+    populacao contra a qual tudo o mais e julgado.
+
+    O CRITERIO CORRIGIDO NAO ESCOLHE ENTRE TRUNCAR E ARREDONDAR: ele aceita os
+    DOIS e so responde quando as duas hipoteses juntas deixam UM inteiro de pe.
+
+        truncamento    unitario <= total/q < unitario + 1
+        arredondamento unitario - 0,5 <= total/q < unitario + 0,5
+
+    A uniao das duas da `total/(unitario+1) < q <= total/(unitario-0,5)`, que em
+    aritmetica inteira e `total//(unitario+1) + 1 <= q <= (2*total)//(2*unitario-1)`.
+    UM candidato -> rotulo. Zero ou dois ou mais -> `None`, sem opinar.
+
+    ARITMETICA INTEIRA, SEM UMA DIVISAO DE PONTO FLUTUANTE, pela mesma razao ja
+    escrita em `residuo_do_cruzamento`: um erro de `1e-13` decidiria a fronteira
+    de um intervalo e escolheria o inteiro errado.
+
+    PRECISAO ALTA, RECALL BAIXO, E DE PROPOSITO. O caso `12,00 / 0,23` devolve
+    `None` porque `{51, 52, 53}` cabem todos: a linha simplesmente NAO ENTRA na
+    medicao, o que custa uma amostra e nao custa a verdade. E a diferenca de
+    criterio que separa este rotulo de uma GUARDA de producao — a guarda de
+    cruzamento REPROVOU no 02-02 (tolerancia de 1273 centesimos por unidade
+    contra o maximo 1,0) e continua DESLIGADA, porque toda linha que ela nao
+    fecha e uma linha DESCARTADA. Confundi-los seria ressuscitar por acidente um
+    mecanismo que o usuario ja viu reprovar.
     """
     if total is None or unitario is None:
         return None
-    if int(unitario) <= 0 or int(total) <= 0:
+    total = int(total)
+    unitario = int(unitario)
+    if total <= 0 or unitario <= 0:
         return None
-    quantidade = int(round(int(total) / int(unitario)))
-    if quantidade <= 0:
+    primeiro = total // (unitario + 1) + 1
+    ultimo = (2 * total) // (2 * unitario - 1)
+    if primeiro < 1:
+        primeiro = 1
+    if ultimo != primeiro:
+        # Zero candidatos (`ultimo < primeiro`) ou mais de um: nos dois casos a
+        # aritmetica nao aponta UMA quantidade, e um rotulo que nao aponta nao e
+        # um rotulo.
         return None
-    residuo = residuo_do_cruzamento(total, unitario, quantidade)
-    if residuo is None:
-        return None
-    if residuo > limite_derivado_do_cruzamento(quantidade) + 1e-9:
-        return None
-    return quantidade
+    return primeiro
 
 
 # ---------------------------------------------------------------------------
@@ -428,13 +384,21 @@ def varrer_uma_janela(
             continue
 
         total = _inteiro_de_moeda(
-            ler_celula_no_brilho(
-                recortes["total"], moldes, piso, margem, PISO_COMPARTILHADO
+            ler_celula(
+                recortes["total"],
+                moldes,
+                piso,
+                margem,
+                valor_minimo=PISO_COMPARTILHADO,
             )
         )
         unitario = _inteiro_de_moeda(
-            ler_celula_no_brilho(
-                recortes["unitario"], moldes, piso, margem, PISO_COMPARTILHADO
+            ler_celula(
+                recortes["unitario"],
+                moldes,
+                piso,
+                margem,
+                valor_minimo=PISO_COMPARTILHADO,
             )
         )
         rotulo = quantidade_derivada(total, unitario)
@@ -443,15 +407,27 @@ def varrer_uma_janela(
         moeda = {}
         for valor_minimo in candidatos:
             valor_minimo = int(valor_minimo)
-            lido[valor_minimo] = ler_celula_no_brilho(
-                recortes["quantidade"], moldes, piso, margem, valor_minimo
+            lido[valor_minimo] = ler_celula(
+                recortes["quantidade"],
+                moldes,
+                piso,
+                margem,
+                valor_minimo=valor_minimo,
             )
             moeda[valor_minimo] = (
-                ler_celula_no_brilho(
-                    recortes["total"], moldes, piso, margem, valor_minimo
+                ler_celula(
+                    recortes["total"],
+                    moldes,
+                    piso,
+                    margem,
+                    valor_minimo=valor_minimo,
                 ),
-                ler_celula_no_brilho(
-                    recortes["unitario"], moldes, piso, margem, valor_minimo
+                ler_celula(
+                    recortes["unitario"],
+                    moldes,
+                    piso,
+                    margem,
+                    valor_minimo=valor_minimo,
                 ),
             )
 
@@ -1059,6 +1035,37 @@ def main(argv=None) -> int:
             "  ATENCAO: nenhum tronco de `1` medido — nao ha celula rotulada "
             "com quantidade 1 e um glifo so. A folga (b) fica INDISPONIVEL, e "
             "ela e a que informa."
+        )
+
+    # O RESIDUO DOS ROTULOS ACEITOS, contra o limite DERIVADO do arredondamento.
+    # Ele nao decide nada aqui — o criterio do rotulo e de INTERVALO —, mas e a
+    # evidencia direta de que o cliente TRUNCA em vez de arredondar: sob
+    # arredondamento puro o residuo caberia em `quantidade/2` em quase toda
+    # linha, e o que se ve e outra coisa. O 02-02 suspeitou disso sobre UMA
+    # fixtura; aqui a suspeita tem censo.
+    residuos = []
+    for celula in rotuladas:
+        residuo = residuo_do_cruzamento(
+            celula["total"], celula["unitario"], celula["rotulo"]
+        )
+        if residuo is None:
+            continue
+        limite = limite_derivado_do_cruzamento(celula["rotulo"])
+        residuos.append((residuo, limite))
+    if residuos:
+        dentro = sum(1 for r, limite in residuos if r <= limite + 1e-9)
+        print("")
+        print(
+            f"  O RESIDUO DOS {len(residuos)} ROTULOS ACEITOS contra o limite "
+            f"DERIVADO do arredondamento (quantidade/2 centesimos):"
+        )
+        print(
+            f"    cabem no limite derivado: {dentro} de {len(residuos)} "
+            f"({100.0 * dentro / len(residuos):.1f}%)"
+        )
+        print(
+            "    -> o que NAO cabe e a assinatura do TRUNCAMENTO, e e por isso "
+            "que o rotulo desta ferramenta e por INTERVALO e nao por residuo."
         )
 
     print("")

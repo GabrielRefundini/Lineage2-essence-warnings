@@ -358,6 +358,7 @@ class TestALeituraDeCelula:
                 moldes,
                 float(cal.mercado_limiar_de_leitura_de_glifo),
                 float(cal.mercado_margem_de_leitura_de_glifo),
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
             )
             == 1890
         )
@@ -374,6 +375,7 @@ class TestALeituraDeCelula:
                 moldes,
                 float(cal.mercado_limiar_de_leitura_de_glifo),
                 float(cal.mercado_margem_de_leitura_de_glifo),
+                valor_minimo=int(cal.mercado_limiar_de_brilho_da_quantidade),
             )
             == 2
         )
@@ -382,13 +384,23 @@ class TestALeituraDeCelula:
         self, cal, moldes, janela_f010
     ) -> None:
         recorte = recorte_de_coluna(cal, janela_f010, 6, "mercado_coluna_do_total")
-        assert ler_celula_de_numero(recorte, moldes, 1.01, 0.0) is None
+        assert (
+            ler_celula_de_numero(
+                recorte, moldes, 1.01, 0.0, valor_minimo=VALOR_MINIMO_DO_TEXTO
+            )
+            is None
+        )
 
     def test_uma_margem_impossivel_derruba_a_celula_inteira(
         self, cal, moldes, janela_f010
     ) -> None:
         recorte = recorte_de_coluna(cal, janela_f010, 6, "mercado_coluna_do_total")
-        assert ler_celula_de_numero(recorte, moldes, 0.0, 1.01) is None
+        assert (
+            ler_celula_de_numero(
+                recorte, moldes, 0.0, 1.01, valor_minimo=VALOR_MINIMO_DO_TEXTO
+            )
+            is None
+        )
 
     def test_a_coluna_coberta_pela_tooltip_devolve_None_e_nunca_numero_parcial(
         self, cal, moldes, janela_f010
@@ -401,6 +413,7 @@ class TestALeituraDeCelula:
                 moldes,
                 float(cal.mercado_limiar_de_leitura_de_glifo),
                 float(cal.mercado_margem_de_leitura_de_glifo),
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
             )
             is None
         )
@@ -822,6 +835,14 @@ def chamar_ler_linha(
         tolerancia_do_cruzamento=tolerancia,
         piso=float(cal.mercado_limiar_de_leitura_de_glifo),
         margem=float(cal.mercado_margem_de_leitura_de_glifo),
+        # OS DOIS PISOS DE BRILHO, cada um da sua fonte: as colunas de MOEDA no
+        # COMPARTILHADO, nomeado a partir de `identidade`; a Quantity no PROPRIO
+        # dela, vindo da calibracao de fixtura, que por sua vez o copia verbatim
+        # da calibracao de producao. O teste nunca escolhe este numero.
+        valor_minimo_do_numero=VALOR_MINIMO_DO_TEXTO,
+        valor_minimo_da_quantidade=int(
+            cal.mercado_limiar_de_brilho_da_quantidade
+        ),
         sonda=cal.mercado_sonda_do_fundo,
         limiar_de_dispersao=float(cal.mercado_limiar_de_dispersao_do_fundo),
         catalogo={} if catalogo is None else catalogo,
@@ -1204,6 +1225,7 @@ class TestATerceiraLeituraACONTECE:
                 moldes,
                 float(cal.mercado_limiar_de_leitura_de_glifo),
                 float(cal.mercado_margem_de_leitura_de_glifo),
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
             )
             == 600
         )
@@ -1319,6 +1341,7 @@ class TestARotaREPROVADA:
                 moldes,
                 float(cal.mercado_limiar_de_leitura_de_glifo),
                 float(cal.mercado_margem_de_leitura_de_glifo),
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
             )
             == 1880
         )

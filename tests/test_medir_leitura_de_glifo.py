@@ -49,7 +49,7 @@ import numpy as np
 import pytest
 
 from l2scanner.mercado_leitura import segmentar_glifos
-from l2scanner.identidade import mascara_de_texto
+from l2scanner.identidade import VALOR_MINIMO_DO_TEXTO, mascara_de_texto
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -150,14 +150,26 @@ class TestALeituraDosSeisPrecos:
 
     def test_le_os_seis_precos(self, moldes) -> None:
         lidos = [
-            classificar_celula(banda, moldes, PISO_DA_FIXTURA, MARGEM_DA_FIXTURA)
+            classificar_celula(
+                banda,
+                moldes,
+                PISO_DA_FIXTURA,
+                MARGEM_DA_FIXTURA,
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
+            )
             for banda in _bandas("glifos_precos_f010.png", 6)
         ]
         assert lidos == list(ROTULOS_DOS_PRECOS)
 
     def test_le_as_tres_quantidades(self, moldes) -> None:
         lidos = [
-            classificar_celula(banda, moldes, PISO_DA_FIXTURA, MARGEM_DA_FIXTURA)
+            classificar_celula(
+                banda,
+                moldes,
+                PISO_DA_FIXTURA,
+                MARGEM_DA_FIXTURA,
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
+            )
             for banda in _bandas("glifos_quantidade_f012.png", 3)
         ]
         assert lidos == list(ROTULOS_DAS_QUANTIDADES)
@@ -171,11 +183,23 @@ class TestOLimiarDeCOLISAONaoServeDePiso:
     ) -> None:
         bandas = _bandas("glifos_precos_f010.png", 6)
         com_piso_medido = [
-            classificar_celula(b, moldes, PISO_DA_FIXTURA, MARGEM_DA_FIXTURA)
+            classificar_celula(
+                b,
+                moldes,
+                PISO_DA_FIXTURA,
+                MARGEM_DA_FIXTURA,
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
+            )
             for b in bandas
         ]
         com_piso_de_colisao = [
-            classificar_celula(b, moldes, LIMIAR_DE_COLISAO, MARGEM_DA_FIXTURA)
+            classificar_celula(
+                b,
+                moldes,
+                LIMIAR_DE_COLISAO,
+                MARGEM_DA_FIXTURA,
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
+            )
             for b in bandas
         ]
 
@@ -197,15 +221,30 @@ class TestTudoOuNada:
 
     def test_piso_impossivel_devolve_None_inteiro(self, moldes) -> None:
         banda = _bandas("glifos_precos_f010.png", 6)[0]
-        assert classificar_celula(banda, moldes, 1.01, 0.0) is None
+        assert (
+            classificar_celula(
+                banda, moldes, 1.01, 0.0, valor_minimo=VALOR_MINIMO_DO_TEXTO
+            )
+            is None
+        )
 
     def test_margem_impossivel_devolve_None_inteiro(self, moldes) -> None:
         banda = _bandas("glifos_precos_f010.png", 6)[0]
-        assert classificar_celula(banda, moldes, 0.0, 1.01) is None
+        assert (
+            classificar_celula(
+                banda, moldes, 0.0, 1.01, valor_minimo=VALOR_MINIMO_DO_TEXTO
+            )
+            is None
+        )
 
     def test_celula_sem_texto_devolve_None(self, moldes) -> None:
         vazia = np.zeros((45, 60, 3), dtype=np.uint8)
-        assert classificar_celula(vazia, moldes, 0.0, 0.0) is None
+        assert (
+            classificar_celula(
+                vazia, moldes, 0.0, 0.0, valor_minimo=VALOR_MINIMO_DO_TEXTO
+            )
+            is None
+        )
 
 
 class TestAGramaticaDoNumero:

@@ -437,6 +437,36 @@ class Calibracao:
     # que a pagina desligaria a leitura CALADO.
     mercado_minimo_de_linhas_comparadas: int | None = None
 
+    # O PISO DE BRILHO PROPRIO DA COLUNA QUANTITY, em niveis de V (0-255).
+    #
+    # POR QUE ELE EXISTE, MEDIDO E NAO SUPOSTO: o texto da coluna Quantity e
+    # desenhado mais APAGADO que o das colunas de moeda. Em
+    # `pagina-cheia/frame_000010` o tronco do `1` da quantidade tem V = 177,
+    # ABAIXO do piso 180 de `identidade.mascara_de_texto`, enquanto o tronco do
+    # `1` do `100,00` da coluna Total tem V = 205. A mascara fica so com a
+    # serifa e a base, o casamento devolve 0,2988 e o piso de leitura 0,4698
+    # reprova. Falha FECHADA, comportamento certo, custo alto: `1` e o caso
+    # COMUM do mercado, e sem este piso as gravacoes de tooltip e de alvo
+    # sobreposto nao entregam uma linha.
+    #
+    # ELE E PROPRIO DA COLUNA E NUNCA GLOBAL, e a razao tambem esta medida: as
+    # colunas de moeda carregam a palavra de sufixo (`XM Coin`, `Adena`) DENTRO
+    # do proprio recorte, e a palavra vive entre V = 120 e V = 173 — o piso 180
+    # e o que a mantem FORA da celula. Baixar o piso delas arrasta a palavra
+    # para dentro: sondado, `18,90` vira `18,907` ja no piso 170. As duas
+    # colunas pedem faixas DISJUNTAS.
+    #
+    # FAIXA VALIDA `[1, 254]`. Um piso 0 faz a mascara CHEIA e toda celula vira
+    # ruido; um piso 255 faz a mascara VAZIA e toda celula cai — os dois
+    # desligariam a leitura CALADOS, que e o modo de falha caro.
+    #
+    # QUEM O MEDE E `tools/medir_brilho_da_quantidade.py`, por varredura sobre
+    # as 8 gravacoes do censo com passo 1, rotulo derivado de `Total` e
+    # `Unit price`, e recusa quando existe UMA leitura divergente. AUSENTE ou
+    # `None` e feature OFF, o default seguro: sem ele a leitura de mercado
+    # simplesmente nao acontece, com aviso alto.
+    mercado_limiar_de_brilho_da_quantidade: int | None = None
+
     versao: int = VERSAO_DO_ESQUEMA
 
     def regiao_do_nome(self, indice: int) -> Regiao:
@@ -577,6 +607,9 @@ class Calibracao:
             "mercado_minimo_de_linhas_comparadas": (
                 self.mercado_minimo_de_linhas_comparadas
             ),
+            "mercado_limiar_de_brilho_da_quantidade": (
+                self.mercado_limiar_de_brilho_da_quantidade
+            ),
         }
         # ESCRITA ATOMICA, NO LUGAR ONDE TODOS OS ESCRITORES HERDAM.
         #
@@ -710,6 +743,13 @@ class Calibracao:
             ),
             mercado_minimo_de_linhas_comparadas=dados.get(
                 "mercado_minimo_de_linhas_comparadas"
+            ),
+            # `.get` e nao indexacao: um `calibration.json` de ANTES do 02-07
+            # carrega inteiro, com o campo em `None`, e `VERSAO_DO_ESQUEMA`
+            # segue em 2. O arquivo do usuario tem 13 moldes e 3 ancoras que so
+            # a mao dele produz, e um bump custaria uma tarde dele.
+            mercado_limiar_de_brilho_da_quantidade=dados.get(
+                "mercado_limiar_de_brilho_da_quantidade"
             ),
             versao=versao,
         )
@@ -1147,6 +1187,51 @@ def _conferir_o_piso_de_linhas_comparadas(dados: dict) -> None:
         )
 
 
+def _conferir_o_piso_de_brilho_da_quantidade(dados: dict) -> None:
+    """O piso de brilho da coluna Quantity: inteiro em `[1, 254]`.
+
+    ELE E O UNICO LIMIAR DE MERCADO QUE E UM NIVEL DE V E NAO UMA FRACAO, entao
+    ele tem conferencia propria em vez de entrar em `_numero_de_mercado`: ali
+    `float` passa, e aqui um `165.5` nao significa nada — a mascara compara
+    `hsv[:, :, 2] > piso` sobre um `uint8`.
+
+    OS DOIS EXTREMOS DESLIGAM A LEITURA CALADOS, que e a razao de a faixa ser
+    fechada dos dois lados:
+
+    - piso `0` faz a mascara CHEIA. Toda coluna do recorte "tem texto", a
+      segmentacao devolve UM run gigante, e toda celula vira ruido classificado
+      com confianca.
+    - piso `255` faz a mascara VAZIA. Nao ha faixa, nao ha run, e toda celula
+      cai — a leitura de quantidade some sem uma linha de log dizendo por que.
+
+    `bool` e recusado EXPLICITAMENTE porque e subclasse de `int`: `True` passaria
+    por `isinstance(valor, int)` e viraria piso 1 calado, que e o caso `0`
+    disfarcado.
+
+    `None` sempre passa: e feature OFF, o estado legitimo de "ainda nao medi".
+    """
+    piso = dados.get("mercado_limiar_de_brilho_da_quantidade")
+    if piso is None:
+        return
+    conserto = (
+        "Rode `python tools/medir_brilho_da_quantidade.py --gravar` para MEDIR "
+        "este piso; ele nunca se escreve a mao."
+    )
+    if isinstance(piso, bool) or not isinstance(piso, int):
+        raise CalibracaoInvalida(
+            f"mercado_limiar_de_brilho_da_quantidade precisa ser um inteiro "
+            f"(um nivel de V, 0-255), veio {type(piso).__name__} ({piso!r}). "
+            f"{conserto}"
+        )
+    if not 1 <= piso <= 254:
+        raise CalibracaoInvalida(
+            f"mercado_limiar_de_brilho_da_quantidade={piso} esta fora de "
+            f"[1, 254]. Um piso 0 faz a mascara CHEIA e toda celula vira ruido; "
+            f"um piso 255 faz a mascara VAZIA e toda celula cai. Os dois "
+            f"desligariam a leitura de quantidade CALADOS. {conserto}"
+        )
+
+
 def _conferir_as_chaves_da_leitura_de_pagina(dados: dict) -> None:
     """As quatorze chaves da Fase 02, na mesma disciplina das irmas.
 
@@ -1258,6 +1343,7 @@ def _conferir_as_chaves_da_leitura_de_pagina(dados: dict) -> None:
         ),
     )
     _conferir_o_piso_de_linhas_comparadas(dados)
+    _conferir_o_piso_de_brilho_da_quantidade(dados)
 
 
 def descrever_geometria_da_tela() -> str:

@@ -72,6 +72,18 @@ def _carregar_a_ferramenta(nome: str):
 
 ferramenta = _carregar_a_ferramenta("medir_brilho_da_quantidade")
 
+# O MODULO DO CENSO, CAPTURADO NO INSTANTE EM QUE A FERRAMENTA O REGISTROU.
+#
+# A identidade so vale contra o objeto que o proprio `_carregar_o_censo` da
+# ferramenta pos em `sys.modules` — e `sys.modules["medir_oclusao"]` NAO serve
+# como referencia mais tarde: `tests/test_medir_leitura_de_glifo.py` carrega a
+# ferramenta IRMA na mesma sessao, ela roda o proprio `_carregar_o_censo`, e a
+# entrada em `sys.modules` passa a apontar para um SEGUNDO objeto com o mesmo
+# conteudo. Lendo la na hora do teste, a identidade falharia sobre codigo
+# CORRETO, e so quando os dois arquivos rodassem juntos — o pior tipo de teste
+# amarelo, porque ele passa isolado.
+CENSO_DA_FERRAMENTA = sys.modules["medir_oclusao"]
+
 Baldes = ferramenta.Baldes
 PASSO_DA_VARREDURA = ferramenta.PASSO_DA_VARREDURA
 PISO_COMPARTILHADO = ferramenta.PISO_COMPARTILHADO
@@ -126,15 +138,40 @@ class TestORotuloDerivadoNaoTocaAColunaQuantity:
         """Dividir por zero nao e um rotulo; e uma linha que ninguem afirmou."""
         assert quantidade_derivada(4000, 0) is None
 
-    def test_um_residuo_que_estoura_o_limite_derivado_nao_produz_rotulo(
+    def test_um_par_AMBIGUO_nao_produz_rotulo(self) -> None:
+        """MEDIDO, e o numero que derrubou o criterio anterior desta funcao.
+
+        `053105-mercado-aberto/frame_000066` L1: Total `12,00`, Unit price
+        `0,23`, e a tela mostra Quantity `51`. O criterio de RESIDUO — que era o
+        primeiro desenho — fazia `round(1200/23) = 52` com residuo 4 contra
+        limite 26, e rotulava a linha como 52: a leitura CERTA seria contada
+        como erro, e a populacao inteira da medicao ficaria contaminada.
+
+        Sob o criterio de INTERVALO, `{51, 52, 53}` cabem todos e a resposta e
+        `None`. Custa uma amostra e nao custa a verdade.
+        """
+        assert quantidade_derivada(1200, 23) is None
+
+    def test_o_truncamento_do_unitario_NAO_derruba_o_rotulo(self) -> None:
+        """`11,39` por 6 unidades exibindo `1,89` — e `1139/6` da `1,8983`.
+
+        Arredondando, a tela mostraria `1,90`; ela mostra `1,89`, entao o
+        cliente TRUNCA. O criterio de residuo recusava esta linha (residuo 5
+        contra limite 3); o de intervalo aceita, e o rotulo `6` bate com o que o
+        tracer do 02-04 le nesta mesma linha por um caminho INDEPENDENTE — a
+        coluna Quantity, que este rotulo nao toca.
+        """
+        assert quantidade_derivada(1139, 189) == 6
+
+    def test_um_unitario_de_um_centesimo_nao_aponta_quantidade_nenhuma(
         self,
     ) -> None:
-        """`11,39` por 6 a `1,89`: residuo 5 contra limite 3. Precisao alta.
+        """Recall baixo e o preco da precisao alta, e ele e pago aqui.
 
-        Um rotulo pode ter recall baixo; ele nao pode estar errado. E a linha
-        que nao fecha simplesmente nao entra na medicao.
+        Com o unitario em 1 centesimo o intervalo vai de `total/2` a `2*total`:
+        nenhuma quantidade e apontada, e a linha nao entra na medicao.
         """
-        assert quantidade_derivada(1139, 189) is None
+        assert quantidade_derivada(4000, 1) is None
 
 
 class TestOPassoDaVarreduraEUm:
@@ -285,13 +322,25 @@ class TestOCensoEIMPORTADOENaoCOPIADO:
     """IDENTIDADE, e nao igualdade: uma copia envelheceria em separado."""
 
     def test_o_censo_e_o_MESMO_OBJETO_de_medir_oclusao(self) -> None:
-        """O modulo de referencia vem de `sys.modules`, que o proprio
-        `_carregar_o_censo` registrou. Um segundo `importlib` produziria outro
-        objeto e a identidade falharia sobre codigo CORRETO.
+        """A referencia e `CENSO_DA_FERRAMENTA`, capturada no import.
+
+        IDENTIDADE e mais forte que igualdade, e a diferenca e o que este teste
+        existe para pegar: uma COPIA da tabela das 8 gravacoes passaria por
+        igualdade no dia em que fosse escrita e envelheceria em separado — as
+        duas varreduras passariam a medir conjuntos diferentes sem ninguem
+        notar, e um limiar medido sobre um conjunto nao se compara com um medido
+        sobre outro. O precedente da casa
+        (`tests/test_medir_agrupamento_de_nome.py:184`) usa igualdade; aqui a
+        afirmacao e mais forte, e por isso ela depende da condicao acima.
         """
-        oclusao = sys.modules["medir_oclusao"]
-        assert ferramenta.GRAVACOES_DO_CENSO is oclusao.GRAVACOES_DO_CENSO
-        assert ferramenta.MOTIVO_PARA_IGNORAR is oclusao.MOTIVO_PARA_IGNORAR
+        assert (
+            ferramenta.GRAVACOES_DO_CENSO
+            is CENSO_DA_FERRAMENTA.GRAVACOES_DO_CENSO
+        )
+        assert (
+            ferramenta.MOTIVO_PARA_IGNORAR
+            is CENSO_DA_FERRAMENTA.MOTIVO_PARA_IGNORAR
+        )
 
     def test_sao_as_oito_gravacoes(self) -> None:
         assert len(ferramenta.GRAVACOES_DO_CENSO) == 8
@@ -417,9 +466,21 @@ class TestAGravacaoNaoApagaOsMoldes:
             "mercado_templates_de_digito"
         ]
         assert depois["mercado_ancoras"] == antes["mercado_ancoras"]
-        assert set(depois) - set(antes) == {
+        # A INVARIANTE DIRETA DO LOAD-MUTATE-SAVE: nenhuma chave sumiu, no
+        # maximo UMA nasceu, e NENHUMA OUTRA mudou de valor. Afirmar so o
+        # conjunto de chaves deixaria passar uma escrita que preservasse os
+        # nomes e trocasse os valores — e sao os VALORES que custam a tarde do
+        # usuario.
+        assert set(antes) - set(depois) == set()
+        assert set(depois) - set(antes) <= {
             "mercado_limiar_de_brilho_da_quantidade"
         }
+        mudadas = {
+            chave
+            for chave in antes
+            if antes[chave] != depois.get(chave)
+        }
+        assert mudadas <= {"mercado_limiar_de_brilho_da_quantidade"}
 
     def test_gravar_usa_os_replace_e_nao_escrita_direta(self) -> None:
         """Uma escrita interrompida no meio deixaria o arquivo do usuario em

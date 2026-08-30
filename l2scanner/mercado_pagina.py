@@ -44,6 +44,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .identidade import VALOR_MINIMO_DO_TEXTO
 from .mercado_catalogo import EntradaDoCatalogo
 from .mercado_leitura import (
     Descarte,
@@ -130,6 +131,17 @@ class LeitorDePagina:
         )
         self._piso = cal.mercado_limiar_de_leitura_de_glifo
         self._margem = cal.mercado_margem_de_leitura_de_glifo
+        # OS DOIS PISOS DE BRILHO, e eles nao sao o mesmo numero. As colunas de
+        # MOEDA usam o COMPARTILHADO, nomeado a partir de `identidade` — e o
+        # unico lugar da leitura de pagina que o nomeia. A coluna Quantity usa o
+        # PROPRIO dela, medido no censo pelo 02-07, porque o tronco do `1` fica
+        # a V=177 e o compartilhado (180) o corta fora. Um piso global nao
+        # existe: a coluna de moeda carrega a palavra de sufixo dentro do
+        # recorte, e ela vive entre V=120 e V=173.
+        self._valor_minimo_do_numero = VALOR_MINIMO_DO_TEXTO
+        self._valor_minimo_da_quantidade = (
+            cal.mercado_limiar_de_brilho_da_quantidade
+        )
         self._corte = cal.mercado_corte_de_similaridade
         self._piso_de_similaridade = cal.mercado_piso_de_similaridade
         # `None` mantem a guarda de cruzamento DESLIGADA, que e o estado que a
@@ -326,6 +338,10 @@ class LeitorDePagina:
                 moldes=self._moldes,
                 piso=float(self._piso),
                 margem=float(self._margem),
+                valor_minimo_do_numero=int(self._valor_minimo_do_numero),
+                valor_minimo_da_quantidade=int(
+                    self._valor_minimo_da_quantidade
+                ),
                 sonda=self._sonda,
                 limiar_de_dispersao=self._limiar_de_dispersao,
                 tolerancia_do_cruzamento=self._tolerancia_do_cruzamento,
@@ -430,6 +446,16 @@ class LeitorDePagina:
                 (
                     "mercado_coluna_do_unitario",
                     self._cal.mercado_coluna_do_unitario,
+                ),
+                # A DECIMA, do 02-07. Sem ela nao ha piso para passar a
+                # `ler_celula_de_quantidade`, que o exige SEM valor de fabrica —
+                # e o portao por AUSENCIA e o que transforma isso em feature OFF
+                # com aviso alto, em vez de um `TypeError` dentro do tick. NAO
+                # ha ramo de fallback: um piso implicito aqui seria a constante
+                # magica que o parametro obrigatorio existe para impedir.
+                (
+                    "mercado_limiar_de_brilho_da_quantidade",
+                    self._valor_minimo_da_quantidade,
                 ),
             )
             if valor is None or (hasattr(valor, "__len__") and len(valor) == 0)
