@@ -307,3 +307,310 @@ class TestAEscritaAtomicaDoCalibrationJson:
                 ).read_text(encoding="utf-8")
             )["versao"]
         )
+
+
+# ---------------------------------------------------------------------------
+# As QUATORZE chaves da leitura de pagina (Fase 02, plano 02-01)
+# ---------------------------------------------------------------------------
+#
+# Elas entram pelo MESMO trilho das irmas de cima — campo `| None = None`,
+# serializacao no `salvar`, `.get` no `carregar`, conferencia no portao — e este
+# bloco e o que prende isso. O teste que mais importa continua sendo o do
+# arquivo ANTIGO: `calibracao_de_referencia.json` nao tem nenhuma delas e
+# precisa carregar sem uma linha de migracao.
+
+COLUNA_DE_BRINQUEDO = {"dx": 12, "largura": 270}
+GRADE_DE_BRINQUEDO = {
+    "layout": "negociacao",
+    "dx": 0,
+    "dy": 258,
+    "largura": 942,
+    "altura": 450,
+    "altura_da_linha": 45,
+    "linhas_por_pagina": 10,
+}
+CABECALHO_DE_BRINQUEDO = {
+    "layout": "negociacao",
+    "dy": -32,
+    "altura": 2,
+    "largura": 3,
+    "bytes": "0102030405f0",
+    "corte_de_brilho": 210,
+}
+SONDA_DE_BRINQUEDO = {"dx0": 300, "dx1": 340, "folga": 4}
+
+AS_QUATORZE = (
+    "mercado_coluna_do_nome",
+    "mercado_coluna_da_quantidade",
+    "mercado_coluna_do_total",
+    "mercado_coluna_do_unitario",
+    "mercado_cabecalho_de_coluna",
+    "mercado_limiar_do_cabecalho",
+    "mercado_sonda_do_fundo",
+    "mercado_limiar_de_dispersao_do_fundo",
+    "mercado_limiar_de_leitura_de_glifo",
+    "mercado_margem_de_leitura_de_glifo",
+    "mercado_corte_de_similaridade",
+    "mercado_piso_de_similaridade",
+    "mercado_tolerancia_do_cruzamento",
+    "mercado_minimo_de_linhas_comparadas",
+)
+
+AS_QUATRO_COLUNAS = (
+    "mercado_coluna_do_nome",
+    "mercado_coluna_da_quantidade",
+    "mercado_coluna_do_total",
+    "mercado_coluna_do_unitario",
+)
+
+
+def _mexido(tmp_path: Path, nome: str = "mexido.json", **chaves) -> Path:
+    dados = json.loads(REFERENCIA.read_text(encoding="utf-8"))
+    dados.update(chaves)
+    destino = tmp_path / nome
+    destino.write_text(json.dumps(dados), encoding="utf-8")
+    return destino
+
+
+class TestAsQuatorzeChavesNovasSaoOPCIONAIS:
+    """Um calibration.json de ANTES desta fase carrega inteiro, sem migracao.
+
+    O arquivo da maquina do usuario carrega 13 moldes de glifo e 3 ancoras que
+    so a mao dele produz. Um bump de `VERSAO_DO_ESQUEMA` — ou uma chave nova
+    lida por indexacao em vez de `.get` — apagaria tudo isso, e o custo seria
+    uma tarde dele.
+    """
+
+    def test_a_versao_do_esquema_continua_2_depois_das_quatorze(self):
+        assert VERSAO_DO_ESQUEMA == 2
+
+    @pytest.mark.parametrize("campo", AS_QUATORZE)
+    def test_sem_a_chave_o_campo_sai_None(self, cal_sem_mercado, campo):
+        assert getattr(cal_sem_mercado, campo) is None
+
+    def test_os_moldes_de_glifo_sobrevivem_a_um_arquivo_sem_as_novas(
+        self, tmp_path
+    ):
+        """As chaves novas nao podem custar as antigas."""
+        caminho = _mexido(
+            tmp_path,
+            mercado_templates_de_digito=[
+                {
+                    "glifo": str(n),
+                    "altura": 2,
+                    "largura": 3,
+                    "molde": dict(MOLDE_DE_BRINQUEDO),
+                }
+                for n in range(3)
+            ],
+            mercado_ancoras=[],
+        )
+        cal = Calibracao.carregar(caminho)
+        assert len(cal.mercado_templates_de_digito) == 3
+        for campo in AS_QUATORZE:
+            assert getattr(cal, campo) is None
+
+    def test_ida_e_volta_devolve_os_mesmos_valores(self, cal_sem_mercado, tmp_path):
+        valores = {
+            "mercado_coluna_do_nome": {"dx": 12, "largura": 270},
+            "mercado_coluna_da_quantidade": {"dx": 300, "largura": 60},
+            "mercado_coluna_do_total": {"dx": 400, "largura": 80},
+            "mercado_coluna_do_unitario": {"dx": 500, "largura": 80},
+            "mercado_cabecalho_de_coluna": dict(CABECALHO_DE_BRINQUEDO),
+            "mercado_limiar_do_cabecalho": 0.73,
+            "mercado_sonda_do_fundo": dict(SONDA_DE_BRINQUEDO),
+            "mercado_limiar_de_dispersao_do_fundo": 0.05,
+            "mercado_limiar_de_leitura_de_glifo": 0.80,
+            "mercado_margem_de_leitura_de_glifo": 0.12,
+            "mercado_corte_de_similaridade": 0.88,
+            "mercado_piso_de_similaridade": 0.70,
+            "mercado_tolerancia_do_cruzamento": 0.02,
+            "mercado_minimo_de_linhas_comparadas": 4,
+        }
+        cal_sem_mercado.mercado_grade = dict(GRADE_DE_BRINQUEDO)
+        for campo, valor in valores.items():
+            setattr(cal_sem_mercado, campo, valor)
+
+        destino = tmp_path / "calibration.json"
+        cal_sem_mercado.salvar(destino)
+        devolvida = Calibracao.carregar(destino)
+
+        for campo, valor in valores.items():
+            assert getattr(devolvida, campo) == valor, campo
+        assert json.loads(destino.read_text(encoding="utf-8"))["versao"] == 2
+
+
+class TestAsQuatorzeSaoENTRADA_NAO_CONFIAVEL:
+    """Cada chave nova e conferida no portao de carga, com o conserto na mensagem.
+
+    A mensagem termina no conserto porque o arranque e o unico momento em que
+    ela chega a alguem: o consumidor roda as duas da manha, no meio do farm.
+    """
+
+    @pytest.mark.parametrize("campo", AS_QUATRO_COLUNAS)
+    def test_coluna_com_largura_nao_positiva_e_recusada(self, tmp_path, campo):
+        caminho = _mexido(tmp_path, **{campo: {"dx": 12, "largura": 0}})
+        with pytest.raises(CalibracaoInvalida, match="Recalibre"):
+            Calibracao.carregar(caminho)
+
+    @pytest.mark.parametrize("campo", AS_QUATRO_COLUNAS)
+    def test_coluna_com_dx_booleano_e_recusada(self, tmp_path, campo):
+        """`bool` e subclasse de `int` e passaria por um isinstance ingenuo."""
+        caminho = _mexido(tmp_path, **{campo: {"dx": True, "largura": 270}})
+        with pytest.raises(CalibracaoInvalida, match="Recalibre"):
+            Calibracao.carregar(caminho)
+
+    def test_coluna_que_nao_e_objeto_e_recusada(self, tmp_path):
+        caminho = _mexido(tmp_path, mercado_coluna_do_nome=[12, 270])
+        with pytest.raises(CalibracaoInvalida, match="Recalibre"):
+            Calibracao.carregar(caminho)
+
+    def test_coluna_fora_dos_limites_da_grade_e_recusada(self, tmp_path):
+        """Um dx mentido recorta OUTRA coluna e devolve numero plausivel (T-02-02)."""
+        caminho = _mexido(
+            tmp_path,
+            mercado_grade=dict(GRADE_DE_BRINQUEDO),
+            mercado_coluna_do_nome={"dx": 900, "largura": 270},
+        )
+        with pytest.raises(CalibracaoInvalida, match="Recalibre"):
+            Calibracao.carregar(caminho)
+
+    def test_cabecalho_com_bytes_em_contagem_errada_e_recusado(self, tmp_path):
+        """ANTES do reshape, e dizendo quantos bytes ha e quantos faltam (T-02-01)."""
+        quebrado = dict(CABECALHO_DE_BRINQUEDO, bytes="0102")
+        caminho = _mexido(tmp_path, mercado_cabecalho_de_coluna=quebrado)
+        with pytest.raises(CalibracaoInvalida, match="Recalibre") as erro:
+            Calibracao.carregar(caminho)
+        texto = str(erro.value)
+        assert "6" in texto and "2" in texto, texto
+
+    def test_cabecalho_com_dimensao_nao_positiva_e_recusado(self, tmp_path):
+        quebrado = dict(CABECALHO_DE_BRINQUEDO, altura=0)
+        caminho = _mexido(tmp_path, mercado_cabecalho_de_coluna=quebrado)
+        with pytest.raises(CalibracaoInvalida, match="Recalibre"):
+            Calibracao.carregar(caminho)
+
+    def test_cabecalho_ausente_carrega_como_None(self, cal_sem_mercado):
+        """Feature OFF e o default seguro; ausencia nunca e erro."""
+        assert cal_sem_mercado.mercado_cabecalho_de_coluna is None
+
+    @pytest.mark.parametrize("valor", [-0.1, 1.1, 2, -1])
+    def test_limiar_de_dispersao_fora_de_0_a_1_e_recusado(self, tmp_path, valor):
+        caminho = _mexido(tmp_path, mercado_limiar_de_dispersao_do_fundo=valor)
+        with pytest.raises(CalibracaoInvalida, match="Recalibre"):
+            Calibracao.carregar(caminho)
+
+    @pytest.mark.parametrize("valor", [0.0, 0.05, 1.0])
+    def test_limiar_de_dispersao_dentro_da_faixa_passa(self, tmp_path, valor):
+        cal = Calibracao.carregar(
+            _mexido(tmp_path, mercado_limiar_de_dispersao_do_fundo=valor)
+        )
+        assert cal.mercado_limiar_de_dispersao_do_fundo == valor
+
+    def test_tolerancia_do_cruzamento_ausente_carrega_sem_recusa(
+        self, cal_sem_mercado
+    ):
+        """`None` NAO e erro: e a guarda de cruzamento DESLIGADA.
+
+        Quem decide se ela liga e a medicao do plano 02-02, nunca o autor do
+        codigo. Uma guarda desligada e honesta; uma guarda cega nao e.
+        """
+        assert cal_sem_mercado.mercado_tolerancia_do_cruzamento is None
+
+    def test_tolerancia_do_cruzamento_nula_explicita_tambem_passa(self, tmp_path):
+        cal = Calibracao.carregar(
+            _mexido(tmp_path, mercado_tolerancia_do_cruzamento=None)
+        )
+        assert cal.mercado_tolerancia_do_cruzamento is None
+
+    @pytest.mark.parametrize("valor", [-0.01, -1])
+    def test_tolerancia_do_cruzamento_negativa_e_recusada(self, tmp_path, valor):
+        caminho = _mexido(tmp_path, mercado_tolerancia_do_cruzamento=valor)
+        with pytest.raises(CalibracaoInvalida, match="Recalibre"):
+            Calibracao.carregar(caminho)
+
+    @pytest.mark.parametrize("valor", [0.0, 0.02, 5])
+    def test_tolerancia_do_cruzamento_nao_negativa_passa(self, tmp_path, valor):
+        cal = Calibracao.carregar(
+            _mexido(tmp_path, mercado_tolerancia_do_cruzamento=valor)
+        )
+        assert cal.mercado_tolerancia_do_cruzamento == valor
+
+    @pytest.mark.parametrize("valor", [0, -1, 11, 999])
+    def test_minimo_de_linhas_comparadas_fora_da_faixa_e_recusado(
+        self, tmp_path, valor
+    ):
+        """Um piso maior que a pagina desligaria a leitura CALADO."""
+        caminho = _mexido(
+            tmp_path,
+            mercado_grade=dict(GRADE_DE_BRINQUEDO),
+            mercado_minimo_de_linhas_comparadas=valor,
+        )
+        with pytest.raises(CalibracaoInvalida, match="Recalibre"):
+            Calibracao.carregar(caminho)
+
+    @pytest.mark.parametrize("valor", [1, 4, 10])
+    def test_minimo_de_linhas_comparadas_dentro_da_faixa_passa(
+        self, tmp_path, valor
+    ):
+        cal = Calibracao.carregar(
+            _mexido(
+                tmp_path,
+                mercado_grade=dict(GRADE_DE_BRINQUEDO),
+                mercado_minimo_de_linhas_comparadas=valor,
+            )
+        )
+        assert cal.mercado_minimo_de_linhas_comparadas == valor
+
+    def test_minimo_de_linhas_comparadas_booleano_e_recusado(self, tmp_path):
+        caminho = _mexido(
+            tmp_path,
+            mercado_grade=dict(GRADE_DE_BRINQUEDO),
+            mercado_minimo_de_linhas_comparadas=True,
+        )
+        with pytest.raises(CalibracaoInvalida, match="Recalibre"):
+            Calibracao.carregar(caminho)
+
+    def test_sonda_do_fundo_invertida_e_recusada(self, tmp_path):
+        caminho = _mexido(
+            tmp_path, mercado_sonda_do_fundo={"dx0": 340, "dx1": 300, "folga": 4}
+        )
+        with pytest.raises(CalibracaoInvalida, match="Recalibre"):
+            Calibracao.carregar(caminho)
+
+    @pytest.mark.parametrize(
+        "campo",
+        [
+            "mercado_limiar_do_cabecalho",
+            "mercado_limiar_de_leitura_de_glifo",
+            "mercado_corte_de_similaridade",
+            "mercado_piso_de_similaridade",
+            "mercado_margem_de_leitura_de_glifo",
+        ],
+    )
+    @pytest.mark.parametrize("valor", ["0.8", True, [], {}])
+    def test_limiar_que_nao_e_numero_e_recusado(self, tmp_path, campo, valor):
+        caminho = _mexido(tmp_path, **{campo: valor})
+        with pytest.raises(CalibracaoInvalida, match="Recalibre"):
+            Calibracao.carregar(caminho)
+
+
+class TestACalibracaoREALDoUsuarioContinuaCarregando:
+    """O ultimo criterio da Task 1 do plano 02-01, preso em teste.
+
+    `calibration.json` e GITIGNORED — estado da maquina do usuario. Ele nao se
+    materializa num worktree nem num clone limpo, entao este teste PULA onde ele
+    nao existe, no precedente de `test_mercado_27x.py`.
+    """
+
+    def test_os_13_moldes_e_as_3_ancoras_sobrevivem(self):
+        real = Path(__file__).resolve().parents[1] / "calibration.json"
+        if not real.is_file():
+            pytest.skip(
+                "calibration.json e gitignored e so existe no checkout "
+                "principal. As assercoes acima rodam sobre a fixture "
+                "VERSIONADA de referencia."
+            )
+        cal = Calibracao.carregar(real)
+        assert len(cal.mercado_templates_de_digito) == 13
+        assert len(cal.mercado_ancoras) == 3
