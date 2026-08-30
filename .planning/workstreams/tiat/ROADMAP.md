@@ -127,14 +127,36 @@ Consequências que o texto tem que respeitar:
 - **Não estender `TipoDeAviso` sem medir o preço.** Acrescentar `ABRE`/`FECHA` ao enum do `agenda.py` faz `avisos_devidos` ganhar ramos para um conceito que não é uma ocorrência recorrente de calendário. Um tipo próprio no módulo novo, dividindo apenas a **convenção de chave**, é a leitura padrão — mas a decisão é do plano, com a justificativa escrita.
 - **A tolerância de 5 minutos vale aqui também.** Um aviso de janela que venceu há três horas não pode sair quando o usuário sobe o scanner às 22h.
 
-**Plans**: TBD
+**Plans**: 2 plans (2 waves)
+
+- [ ] 02-01-PLAN.md — Tracer: do nascimento na tela a ancora em disco e ao aviso de abertura no WhatsApp; as quatro mensagens honestas; os tres portoes (relogio, ancora imortal, apelido colidindo) — wave 1
+- [ ] 02-02-PLAN.md — O segundo sitio de fiacao (`--so-agenda`, jogo fechado), OPER-02 nos dois lacos, e o portao AST contra a divergencia — wave 2
+
+**Nota de planejamento — as decisoes de discricao, resolvidas:** o modulo novo e
+`l2scanner/respawn.py` (`janela.py` foi recusado porque `--janela`, `JanelaDeSilencio` e
+`janela_de_selecao.py` ja usam a palavra para a janela do Windows). `TipoDeAviso` **nao**
+ganha `ABRE`/`FECHA`: o tipo e proprio do modulo novo, dividindo com `agenda.py` apenas a
+convencao de chave — a justificativa de quatro razoes que o ROADMAP exigiu esta escrita em
+`02-01-PLAN.md`. A funcao compartilhada pelos dois lacos e `respawn.anunciar_janelas`, no
+molde literal de `presenca.fechar_e_narrar`. O ponto cego do guarda de prefixos e fechado
+pelas DUAS opcoes que o ROADMAP admitia, e nao por uma: o prefixo e declarado dentro de
+`agenda.py` **e** o guarda passa a varrer o modulo novo.
+
+**Nota de planejamento — o desvio declarado de D-18:** o CONTEXT trava a forma da ancora
+como `nascimento_<YYYY-MM-DD>_<boss-slug>-<HHMM>`, sem a origem. O plano acrescenta
+`_<origem>` ao fim, porque a outra decisao travada (a mensagem cita QUAL sinal ancorou)
+exige que a origem sobreviva ao reinicio que separa a ancora do aviso em 6 a 8 horas — e o
+unico outro lugar para guarda-la seria o conteudo do arquivo, que quebraria a propriedade
+de marcador vazio que faz `O_CREAT|O_EXCL` ser sozinho a decisao de despacho. O desvio nao
+e resolvido em silencio: `02-01-PLAN.md` abre com um `checkpoint:decision` bloqueante que
+apresenta as tres opcoes ao usuario antes de o primeiro arquivo ser gravado.
 
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Reconhecimento preciso e lista de bosses no config | 0/4 | Planned | - |
-| 2. Janela de respawn | 0/? | Not started | - |
+| 2. Janela de respawn | 0/2 | Planned | - |
 
 ## Coverage
 
