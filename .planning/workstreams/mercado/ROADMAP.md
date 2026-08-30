@@ -78,7 +78,7 @@ Plans:
   2. Os preços e quantidades lidos batem dígito a dígito com o que o usuário vê no frame — separador de milhar tratado como glifo de primeira classe; quando o frame está ilegível, a linha aparece como descartada, nunca como um número plausível. O número NUNCA vem do motor de OCR que lê o nome: medido contra as gravações da Fase 1, ele perde a vírgula decimal e devolve `1650` onde a tela diz `16,50` — erro de 100x com aparência plausível, exatamente o que LEIT-02 existe para impedir
   3. Uma página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS; frames bit a bit idênticos são reportados como captura congelada, não aceitos como acordo
 
-**Plans**: 4/7 plans executed (7 waves - a fase e SERIAL por construcao: um portao humano, tres ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
+**Plans**: 5/7 plans executed (7 waves - a fase e SERIAL por construcao: um portao humano, tres ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
 
 Plans:
 **Wave 1**
@@ -99,7 +99,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4)*
 
-- [ ] 02-06-PLAN.md - (wave 5) A guarda de cruzamento `Total` contra `Unit price x Quantity` - ligada com a tolerancia que o 02-02 mediu, ou desligada com a refutacao escrita no fonte
+- [x] 02-06-PLAN.md - (wave 5) A guarda de cruzamento `Total` contra `Unit price x Quantity` - ligada com a tolerancia que o 02-02 mediu, ou desligada com a refutacao escrita no fonte
 
 **Wave 6** *(blocked on Wave 5 - compartilha `mercado_leitura.py` com o 02-06)*
 
@@ -159,7 +159,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fundação — firewall, gravador e spike de campo | 5/5 | ✓ Complete | 2026-08-29 |
-| 2. Leitura de página | 4/6 | In Progress|  |
+| 2. Leitura de página | 5/7 | In Progress|  |
 | 3. Persistência de observações | 0/TBD | Not started | - |
 | 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
 

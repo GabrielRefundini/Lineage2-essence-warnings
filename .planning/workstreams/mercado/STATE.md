@@ -5,16 +5,16 @@ milestone_name: )
 current_phase: 2
 current_phase_name: Leitura de pagina
 status: executing
-stopped_at: Completed 02-04-PLAN.md (o TRACER)
-last_updated: "2026-08-30T16:34:57.082Z"
+stopped_at: Completed 02-06-PLAN.md (a guarda de cruzamento)
+last_updated: "2026-08-30T17:24:14.014Z"
 last_activity: 2026-08-30
-last_activity_desc: "Fase 2 plano 02: a sonda de oclusao, o limiar de dispersao, o piso de linhas comparadas e o piso/margem de leitura de glifo — seis chaves MEDIDAS por varredura sobre 478 frames e 55.342 glifos; a guarda de cruzamento REPROVOU e ficou desligada"
-state_head: f97e3288fa0ccb101a0d02ae92e09a282b769b6a
+last_activity_desc: "Fase 2 plano 06: a TERCEIRA leitura de numero (a coluna do unitario) entrou em ler_linha e esta provada por contagem (2/2 em f010, 4/4 em f005); a guarda de cruzamento foi construida e ficou DESLIGADA pela rota REPROVADA do 02-02, degradada para observacao com a refutacao escrita no fonte"
+state_head: 9deb2da23ea3192963825bf3e5cc10390b979a85
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 11
-  completed_plans: 9
+  total_plans: 12
+  completed_plans: 10
   percent: 25
 ---
 
@@ -29,9 +29,9 @@ progress:
 ## Current Position
 
 Phase: 2 — Leitura de pagina
-Plan: 5 of 6
+Plan: 6 of 7 — o 02-05 e o 02-07 seguem pendentes
 Status: Ready to execute
-Last activity: 2026-08-30 — Completed 02-03: corte 0,894737 e piso 0,883732 medidos, A8 REFUTADA, e a fonte da assinatura decidida pelo usuario: `ocr-estrito`
+Last activity: 2026-08-30 — Completed 02-06: a terceira leitura ACONTECE (contagem estrita 2/2 e 4/4 sobre fixtura), e a guarda de cruzamento ficou DESLIGADA pela rota REPROVADA, com o veredito `GUARDA REPROVADA por tolerancia, 1273.0000 centesimos por unidade (maximo 1.0)` transcrito no fonte
 
 Progress: [███░░░░░░░] 25%
 
@@ -76,6 +76,10 @@ Progress: [███░░░░░░░] 25%
 - [Phase 2]: [Phase 02]: As duas populacoes de uma medicao tem de se apoiar na MESMA nocao de confianca. Aqui e o VOCABULARIO DE CONSENSO (50 nomes que as duas escalas leram identicos). Sem ele, '-ano' x '\ufffdano' (duas leituras FALHADAS) puxava o corte de 0,8947 para 0,7500, e leituras corrompidas por oclusao entravam como 'itens diferentes'.
 - [Phase 2]: [Phase 02]: A rota 'ocr-igualdade' NAO cria as series duplicadas que a hipotese previa: ZERO nas 8 gravacoes. Ela recusa a linha antes de duplicar, e em troca perde 5 linhas a mais que 'ocr-estrito'. O argumento contra ela virou 'estritamente dominada', e nao 'suja o catalogo'.
 - [Phase 2]: [Phase 02]: A FONTE da assinatura de digitos da chave da serie e o OCR (rota `ocr-estrito`), escolhida pelo usuario no portao do 02-03 em 2026-08-30. A `molde` caiu apesar dos 95,32% (A8 refutada: 0 de 10 sob a regra de producao; chave `7655` inutil num CSV que se le a olho); a `ocr-igualdade` caiu por dominancia estrita. Custo aceito: 8,86% das linhas caem, as vezes pagina inteira. Caminho de volta medido (vao +0,1563 entre 0,8510 e 0,6947) na docstring de assinatura_por_molde.
+- [Phase 02]: [Phase 02]: A guarda de cruzamento foi CONSTRUIDA e ficou DESLIGADA, pela rota REPROVADA do 02-02 (`GUARDA REPROVADA por tolerancia, 1273.0000 centesimos por unidade (maximo 1.0)`, fechamento 0,6525, deteccao 0,0164). Ela degradou para OBSERVACAO: o residuo e calculado, guardado em `LinhaLida.residuo_do_cruzamento` e logado, e a refutacao esta escrita no fonte no padrao de `ocr.py:34-52`. Descartar dado bom com sinal nao provado faria da guarda o defeito.
+- [Phase 02]: [Phase 02]: A TERCEIRA leitura de numero (a coluna do unitario) esta provada por CONTAGEM, e nao por existencia: linhas com `residuo_do_cruzamento` nao nulo == linhas lidas, 2/2 em f010 e 4/4 em f005. Sem esse criterio a guarda inteira seria codigo morto que todos os outros testes aprovariam, porque "nao opino" e resultado legitimo (T-02-39).
+- [Phase 02]: [Phase 02]: MEDIDO nas fixturas e novo: o cliente parece TRUNCAR o unitario, e nao arredondar. Em f005 linha 5 a tela mostra `11,39` por 6 com unitario `1,89`, mas `1139/6 = 1,8983` arredondaria para `1,90`. O limite derivado dobraria (um centesimo por unidade em vez de meio), e o residuo de 5 daquela linha caberia. E mais uma explicacao para o fechamento de 0,6525 que reprovou a guarda; esta na docstring de `limite_derivado_do_cruzamento`.
+- [Phase 02]: [Phase 02]: A guarda de cruzamento entra DEPOIS das tres celulas e da gramatica e ANTES do OCR — uma linha que ela derruba nunca vira dado, entao pagar ~7 ms de OCR por ela seria pagar por nada. Preso por teste: o descarte do cruzamento faz ZERO chamadas das duas escalas.
 
 ### Blockers
 
@@ -137,9 +141,9 @@ Progress: [███░░░░░░░] 25%
 
 ## Session Continuity
 
-**Last session:** 2026-08-30T16:34:56.952Z
+**Last session:** 2026-08-30T17:23:36.535Z
 
-**Stopped At:** Completed 02-04-PLAN.md (o TRACER)
+**Stopped At:** Completed 02-06-PLAN.md (a guarda de cruzamento)
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -152,3 +156,4 @@ Progress: [███░░░░░░░] 25%
 | Phase 02 P02 | 1h 25m | 2 tasks | 12 files |
 | Phase 02 P03 | 1h 45m | 1 tasks | 8 files |
 | Phase 02 P04 | 3h 25m | 3 tasks | 18 files |
+| Phase 02 P06 | 25 min | 1 tasks | 5 files |
