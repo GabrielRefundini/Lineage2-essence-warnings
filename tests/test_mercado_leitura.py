@@ -69,6 +69,9 @@ from l2scanner.mercado_leitura import (
     ler_celula_de_numero,
     ler_celula_de_quantidade,
     ler_glifos,
+    ler_linha,
+    linha_ocluida,
+    linha_vazia,
     numero_valido,
 )
 from l2scanner.mercado_pagina import LeitorDePagina, PaginaAceita
@@ -624,3 +627,334 @@ class TestODescarteNaoEDado:
         )
         leitor.observar(ler_fixtura(JANELA_F005))
         assert leitor.observar(ler_fixtura(JANELA_F010)) is None
+
+
+# ---------------------------------------------------------------------------
+# Task 2 — a sonda de oclusao no lugar certo do pipeline, e a linha vazia
+# ---------------------------------------------------------------------------
+
+JANELA_TOOLTIP = FIXTURES / "janela_tooltip_f012.png"
+JANELA_COM_LINHAS_VAZIAS = FIXTURES / "janela_com_linhas_vazias.png"
+LINHA_SOB_TOOLTIP = FIXTURES / "linha_sob_tooltip_f015.png"
+LINHA_LIMPA_NO_TOOLTIP = FIXTURES / "linha_limpa_no_frame_do_tooltip_f015.png"
+LINHA_SOB_ALVO = FIXTURES / "linha_sob_alvo_f024.png"
+LINHA_LIMPA_NO_ALVO = FIXTURES / "linha_limpa_no_frame_do_alvo_f024.png"
+LINHA_VAZIA_PAR = FIXTURES / "linha_vazia_par.png"
+LINHA_VAZIA_IMPAR = FIXTURES / "linha_vazia_impar.png"
+LINHA_CHEIA_PAR = FIXTURES / "linha_limpa_par_f010.png"
+LINHA_CHEIA_IMPAR = FIXTURES / "linha_limpa_impar_f010.png"
+
+# As oito primeiras linhas de `tooltip/frame_000012` estao COBERTAS e as duas
+# ultimas nao. Medido com a sonda calibrada; e o mesmo frame que D-15 descreve.
+COBERTAS_NO_TOOLTIP = (0, 1, 2, 3, 4, 5, 6, 7)
+DESCOBERTAS_NO_TOOLTIP = (8, 9)
+
+
+def em_cinza(caminho: Path) -> np.ndarray:
+    return cv2.cvtColor(ler_fixtura(caminho), cv2.COLOR_BGR2GRAY)
+
+
+def fatiar_a_linha(cal, janela, indice: int) -> dict:
+    """A linha inteira e as tres colunas, como `LeitorDePagina` as fatia."""
+    rastreio = RastreioDoPainel(
+        ancoras_de_calibracao(cal.mercado_ancoras),
+        float(cal.mercado_limiar_da_ancora),
+    )
+    voto = rastreio.observar(janela)
+    assert voto.aberto and rastreio.origem is not None
+    ox, oy = rastreio.origem
+    grade = cal.mercado_grade
+    altura = int(grade["altura_da_linha"])
+    gx = ox + int(grade["dx"])
+    topo = oy + int(grade["dy"]) + indice * altura
+    saida = {
+        "linha": janela[topo : topo + altura, gx : gx + int(grade["largura"])]
+    }
+    for nome, chave in (
+        ("nome", "mercado_coluna_do_nome"),
+        ("total", "mercado_coluna_do_total"),
+        ("quantidade", "mercado_coluna_da_quantidade"),
+    ):
+        coluna = getattr(cal, chave)
+        x = ox + int(coluna["dx"])
+        saida[nome] = janela[topo : topo + altura, x : x + int(coluna["largura"])]
+    return saida
+
+
+def chamar_ler_linha(cal, moldes, recortes: dict, indice: int, catalogo=None):
+    """`ler_linha` direto, com as duas leitoras CONTADORAS."""
+    contagem = {"2x": 0, "3x": 0}
+
+    def barata(_pixels):
+        contagem["2x"] += 1
+        return "Common Fafurion Doll"
+
+    def conferencia(_pixels):
+        contagem["3x"] += 1
+        return "Common Fafurion Doll"
+
+    resultado = ler_linha(
+        indice,
+        recortes["linha"],
+        recortes["nome"],
+        recortes["total"],
+        recortes["quantidade"],
+        moldes=moldes,
+        piso=float(cal.mercado_limiar_de_leitura_de_glifo),
+        margem=float(cal.mercado_margem_de_leitura_de_glifo),
+        sonda=cal.mercado_sonda_do_fundo,
+        limiar_de_dispersao=float(cal.mercado_limiar_de_dispersao_do_fundo),
+        catalogo={} if catalogo is None else catalogo,
+        corte_de_similaridade=float(cal.mercado_corte_de_similaridade),
+        piso_de_similaridade=float(cal.mercado_piso_de_similaridade),
+        ler_texto=barata,
+        ler_texto_conferencia=conferencia,
+    )
+    return resultado, contagem
+
+
+class TestASondaDeOclusao:
+    """D-14: o sinal e a UNIFORMIDADE DO FUNDO, nunca a confianca do casamento."""
+
+    def test_a_linha_sob_a_tooltip_e_recusada(self, cal) -> None:
+        assert (
+            linha_ocluida(
+                em_cinza(LINHA_SOB_TOOLTIP),
+                cal.mercado_sonda_do_fundo,
+                float(cal.mercado_limiar_de_dispersao_do_fundo),
+            )
+            is True
+        )
+
+    def test_a_linha_limpa_do_MESMO_frame_passa(self, cal) -> None:
+        assert (
+            linha_ocluida(
+                em_cinza(LINHA_LIMPA_NO_TOOLTIP),
+                cal.mercado_sonda_do_fundo,
+                float(cal.mercado_limiar_de_dispersao_do_fundo),
+            )
+            is False
+        )
+
+    def test_a_marcacao_de_alvo_cai_pelo_MESMO_mecanismo(self, cal) -> None:
+        """D-16: sem caso especial. O mesmo detector pega tooltip e alvo."""
+        assert (
+            linha_ocluida(
+                em_cinza(LINHA_SOB_ALVO),
+                cal.mercado_sonda_do_fundo,
+                float(cal.mercado_limiar_de_dispersao_do_fundo),
+            )
+            is True
+        )
+        assert (
+            linha_ocluida(
+                em_cinza(LINHA_LIMPA_NO_ALVO),
+                cal.mercado_sonda_do_fundo,
+                float(cal.mercado_limiar_de_dispersao_do_fundo),
+            )
+            is False
+        )
+
+    def test_ler_linha_NAO_tem_ramo_dedicado_a_marcacao_de_alvo(self) -> None:
+        fonte = inspect.getsource(ler_linha).lower()
+        assert "alvo" not in fonte.split('"""')[2], (
+            "o CODIGO de ler_linha nao pode mencionar a marcacao de alvo"
+        )
+
+    def test_sem_sonda_calibrada_a_resposta_e_RECUSA(self, cal) -> None:
+        """Feature OFF e o unico default seguro; `None` nao vira 'esta limpa'."""
+        assert linha_ocluida(em_cinza(LINHA_LIMPA_NO_TOOLTIP), None, 0.5) is True
+        assert linha_ocluida(em_cinza(LINHA_LIMPA_NO_TOOLTIP), {}, 0.5) is True
+
+    def test_sonda_impossivel_de_medir_e_RECUSA(self, cal) -> None:
+        """'Nao da para medir' NAO e 'esta limpa' — sao respostas diferentes."""
+        sonda_maior_que_a_linha = {"dx0": 0, "dx1": 100_000, "folga": 2}
+        assert (
+            linha_ocluida(
+                em_cinza(LINHA_LIMPA_NO_TOOLTIP), sonda_maior_que_a_linha, 0.5
+            )
+            is True
+        )
+
+
+class TestAOrdemDoPipeline:
+    """A sonda roda ANTES do OCR, e o teste prova a ORDEM contando chamadas."""
+
+    def test_ZERO_chamadas_de_OCR_para_a_linha_recusada_pela_sonda(
+        self, cal, moldes
+    ) -> None:
+        janela = ler_fixtura(JANELA_TOOLTIP)
+        recortes = fatiar_a_linha(cal, janela, COBERTAS_NO_TOOLTIP[0])
+        resultado, contagem = chamar_ler_linha(
+            cal, moldes, recortes, COBERTAS_NO_TOOLTIP[0]
+        )
+        assert isinstance(resultado, Descarte)
+        assert resultado.motivo == MOTIVO_DA_OCLUSAO
+        assert contagem == {"2x": 0, "3x": 0}, (
+            "a linha coberta pagou OCR — a sonda esta depois dele no pipeline"
+        )
+
+    def test_a_linha_que_ATRAVESSA_paga_as_DUAS_chamadas(self, cal, moldes) -> None:
+        """O controle do teste acima: sem ele, zero chamadas seria vacuo."""
+        janela = ler_fixtura(JANELA_F010)
+        indice = sorted(LINHAS_QUE_ATRAVESSAM_F010)[0]
+        recortes = fatiar_a_linha(cal, janela, indice)
+        resultado, contagem = chamar_ler_linha(cal, moldes, recortes, indice)
+        assert isinstance(resultado, LinhaLida)
+        assert contagem == {"2x": 1, "3x": 1}
+
+    def test_ZERO_chamadas_de_OCR_quando_o_numero_nao_se_le(
+        self, cal, moldes
+    ) -> None:
+        """A coluna de numero custa 13 casamentos; o OCR custa ~7 ms."""
+        janela = ler_fixtura(JANELA_F010)
+        recortes = fatiar_a_linha(cal, janela, 0)
+        resultado, contagem = chamar_ler_linha(cal, moldes, recortes, 0)
+        assert isinstance(resultado, Descarte)
+        assert resultado.motivo == MOTIVO_DA_GRAMATICA
+        assert contagem == {"2x": 0, "3x": 0}
+
+
+class TestARecusaEPorLinhaNuncaPorPagina:
+    """D-15: a tooltip cobriu 8 linhas seguidas e as outras 2 seguem sendo lidas."""
+
+    def test_as_oito_cobertas_caem_por_OCLUSAO(self, cal) -> None:
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Common Fafurion Doll", "Common Fafurion Doll"
+        )
+        leitor.observar(ler_fixtura(JANELA_TOOLTIP))
+        leitura = leitor.ultima_leitura
+        por_indice = dict(zip(leitura.descartadas, leitura.motivos))
+        for indice in COBERTAS_NO_TOOLTIP:
+            assert por_indice[indice] == MOTIVO_DA_OCLUSAO
+
+    def test_as_duas_descobertas_do_MESMO_frame_seguem_sendo_JULGADAS(
+        self, cal
+    ) -> None:
+        """A pagina NAO parou no bloco coberto.
+
+        MEDIDO, e o plano previa outra coisa: as duas linhas descobertas deste
+        frame nao viram `LinhaLida`, mas NAO caem por oclusao — elas caem pela
+        peneira SEGUINTE, cada uma julgada pelos proprios pixels. E isso que
+        distingue "recusa por linha" de "recusa por pagina": uma recusa por
+        pagina daria a TODAS as dez linhas o mesmo motivo.
+
+        A razao de elas nao atravessarem esta medida e registrada na docstring de
+        `ler_celula_de_quantidade`: a quantidade destas duas linhas e `1`, e o
+        tronco do `1` da coluna Quantity e desenhado a V = 177, abaixo do piso
+        180 de `mascara_de_texto`. A falha e FECHADA, que e o comportamento
+        certo, e o conserto e um piso de brilho proprio da coluna, MEDIDO.
+        """
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Common Fafurion Doll", "Common Fafurion Doll"
+        )
+        leitor.observar(ler_fixtura(JANELA_TOOLTIP))
+        leitura = leitor.ultima_leitura
+        por_indice = dict(zip(leitura.descartadas, leitura.motivos))
+        for indice in DESCOBERTAS_NO_TOOLTIP:
+            assert por_indice[indice] != MOTIVO_DA_OCLUSAO
+        assert set(leitura.motivos) == {MOTIVO_DA_OCLUSAO, MOTIVO_DA_GRAMATICA}
+
+    def test_a_pagina_com_tooltip_nao_para_no_primeiro_descarte(self, cal) -> None:
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Common Fafurion Doll", "Common Fafurion Doll"
+        )
+        leitor.observar(ler_fixtura(JANELA_TOOLTIP))
+        assert len(leitor.ultima_leitura.descartadas) == int(
+            cal.mercado_grade["linhas_por_pagina"]
+        )
+
+    def test_a_linha_descartada_NAO_entra_no_estabilizador(self, cal) -> None:
+        """Duas paginas so de descarte nunca viram `PaginaAceita`."""
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Common Fafurion Doll", "Common Fafurion Doll"
+        )
+        assert leitor.observar(ler_fixtura(JANELA_TOOLTIP)) is None
+        assert leitor.observar(ler_fixtura(JANELA_TOOLTIP)) is None
+
+
+class TestALinhaVazia:
+    """D-12: por AUSENCIA DE CONTEUDO, nunca por cor de fundo."""
+
+    def test_as_duas_paridades_de_banda_dao_o_MESMO_veredito(self) -> None:
+        par = ler_fixtura(LINHA_VAZIA_PAR)
+        impar = ler_fixtura(LINHA_VAZIA_IMPAR)
+        assert linha_vazia(par) is True
+        assert linha_vazia(impar) is True
+
+    def test_os_dois_fundos_das_linhas_vazias_sao_DIFERENTES(self) -> None:
+        """Se fossem iguais, o teste acima nao provaria nada sobre a listra."""
+        par = cv2.cvtColor(ler_fixtura(LINHA_VAZIA_PAR), cv2.COLOR_BGR2HSV)[:, :, 2]
+        impar = cv2.cvtColor(
+            ler_fixtura(LINHA_VAZIA_IMPAR), cv2.COLOR_BGR2HSV
+        )[:, :, 2]
+        assert int(par.max()) != int(impar.max())
+
+    def test_as_duas_paridades_de_linha_CHEIA_tambem_concordam(self) -> None:
+        assert linha_vazia(ler_fixtura(LINHA_CHEIA_PAR)) is False
+        assert linha_vazia(ler_fixtura(LINHA_CHEIA_IMPAR)) is False
+
+    def test_a_linha_vazia_devolve_None_e_nao_Descarte(self, cal, moldes) -> None:
+        janela = ler_fixtura(JANELA_COM_LINHAS_VAZIAS)
+        recortes = fatiar_a_linha(cal, janela, 5)
+        resultado, contagem = chamar_ler_linha(cal, moldes, recortes, 5)
+        assert resultado is None
+        assert contagem == {"2x": 0, "3x": 0}
+
+    def test_a_linha_vazia_marca_o_FIM_da_pagina(self, cal) -> None:
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Common Fafurion Doll", "Common Fafurion Doll"
+        )
+        leitor.observar(ler_fixtura(JANELA_COM_LINHAS_VAZIAS))
+        leitura = leitor.ultima_leitura
+        assert leitura.vazias == (1, 2, 3, 4, 5, 6, 7, 8, 9)
+        assert leitura.descartadas == (0,)
+
+    def test_linha_vazia_NAO_conta_como_perda(self, cal) -> None:
+        """Tres estados distintos: lida, descartada, vazia."""
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Common Fafurion Doll", "Common Fafurion Doll"
+        )
+        leitor.observar(ler_fixtura(JANELA_COM_LINHAS_VAZIAS))
+        leitura = leitor.ultima_leitura
+        assert set(leitura.vazias) & set(leitura.descartadas) == set()
+        assert set(leitura.vazias) & {
+            linha.indice for linha in leitura.linhas
+        } == set()
+
+
+class TestOLogDaRecusa:
+    """A forma de `manutencao._registrar_desacordo`, e pelas mesmas razoes."""
+
+    def test_a_recusa_e_ALTA(self, cal, caplog) -> None:
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Common Fafurion Doll", "Common Fafurion Doll"
+        )
+        with caplog.at_level("WARNING", logger="l2scanner.mercado_leitura"):
+            leitor.observar(ler_fixtura(JANELA_TOOLTIP))
+        assert [r for r in caplog.records if r.levelname == "WARNING"]
+
+    def test_a_discordancia_registra_os_DOIS_textos_entre_delimitadores(
+        self, cal, caplog
+    ) -> None:
+        """Espaco em branco importa: `Lv. 1` e `Lv.1` sao leituras diferentes."""
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Earth Spirit Evolution Stone", "Common Fafurion Doll"
+        )
+        with caplog.at_level("WARNING", logger="l2scanner.mercado_leitura"):
+            leitor.observar(ler_fixtura(JANELA_F010))
+        texto = caplog.text
+        assert ">>>Earth Spirit Evolution Stone<<<" in texto
+        assert ">>>Common Fafurion Doll<<<" in texto
+
+    def test_NAO_ha_limitacao_de_repeticao(self, cal, caplog) -> None:
+        """O log rotativo e a unica forense pos-farm: as linhas repetidas SAO
+        o que responde 'por que nao gravou'."""
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Common Fafurion Doll", "Common Fafurion Doll"
+        )
+        with caplog.at_level("WARNING", logger="l2scanner.mercado_leitura"):
+            leitor.observar(ler_fixtura(JANELA_TOOLTIP))
+            leitor.observar(ler_fixtura(JANELA_TOOLTIP))
+        recusas = [r for r in caplog.records if "RECUSADA" in r.getMessage()]
+        assert len(recusas) == 20
