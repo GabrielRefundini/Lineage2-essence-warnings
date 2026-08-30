@@ -1171,7 +1171,7 @@ class TestDirecaoDeImportacao:
 
 
 class TestSemRelogioProprio:
-    """O tempo entra por parametro nos TRES modulos, nao so no arquivo novo.
+    """O tempo entra por parametro nos QUATRO modulos, nao so no arquivo novo.
 
     A disciplina esta travada no CONTEXT desde a Fase 6 ("o tempo entra por
     parametro em tudo") e os tres ganharam codigo nesta fase. Cobrir so o
@@ -1187,9 +1187,23 @@ class TestSemRelogioProprio:
     `date.today()` NAO esta na proibicao, e a excecao e deliberada: o unico uso
     e o default de `podar(hoje=None)`, um parametro que os testes sempre
     passam. A regra protegida aqui e "o instante da DECISAO vem de fora".
+
+    `bosses.py` entrou na Fase 1 do workstream `tiat`, ANTES de ter uma linha
+    de logica de tempo, e a antecipacao e a decisao. O instante que
+    `VigiaDeBosses.avaliar` recebe por parametro e exatamente o instante que a
+    Fase 2 vai gravar em disco como ANCORA do ciclo de respawn: um
+    `datetime.now()` enfiado ali faria a ancora registrar o momento em que o
+    codigo rodou, e nao o momento do frame — e num `--replay`, ou nos dois
+    lacos que a Fase 2 precisa costurar, os testes continuariam verdes
+    passando um `agora` que o codigo ja nao usaria. E a mesma familia de
+    defeito descrita acima para `agenda.py`, com a diferenca de que aqui o
+    defeito ESCREVE EM DISCO e a previsao errada sai horas depois, com a mesma
+    cara de uma certa. Adotar agora custa uma linha, porque o modulo ja cumpre
+    a regra; adotar na Fase 2 seria adotar um modulo que ja pode ter violado
+    a regra, e o portao nasceria vermelho ou nasceria afrouxado.
     """
 
-    MODULOS = ("agenda.py", "loot.py", "presenca.py")
+    MODULOS = ("agenda.py", "loot.py", "presenca.py", "bosses.py")
 
     @pytest.mark.parametrize("modulo", MODULOS)
     def test_nenhum_now_de_datetime_na_arvore(self, modulo):

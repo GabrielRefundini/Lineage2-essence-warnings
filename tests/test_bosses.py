@@ -246,6 +246,68 @@ class TestOAnuncioDoServidorContraOChatDigitado:
 
         assert len(v.avaliar(PIXELS, PIXELS, AGORA)) == 1
 
+    def test_o_nome_e_o_nivel_sem_has_spawned_nao_disparam(self):
+        """Metade da frase nao e a frase.
+
+        `Tiat North [Lv. 60]` e o que um jogador colaria no chat ao perguntar
+        de qual boss se trata. Sem `has spawned` nao houve anuncio nenhum.
+        """
+        v = vigia(["Tiat North [Lv. 60]"], [""])
+
+        assert v.avaliar(PIXELS, PIXELS, AGORA) == []
+
+    def test_a_frase_sem_nome_de_boss_nao_dispara(self):
+        """O nome do boss e obrigatorio, e vem do config.
+
+        Sem ele nao ha o que anunciar — e nao haveria o que escrever na
+        mensagem, porque o nome despachado sai sempre do `[[boss]]` (T-01-04).
+        """
+        v = vigia(["[Lv. 60] has spawned!"], [""])
+
+        assert v.avaliar(PIXELS, PIXELS, AGORA) == []
+
+    def test_o_anuncio_de_um_boss_fora_do_config_nao_dispara(self):
+        """VIGI-01 pelo avesso: quem nao esta na lista nao e vigiado.
+
+        O servidor anuncia dezenas de mobs por noite. Vigiar todos
+        transformaria o grupo de WhatsApp em log do jogo, e a mensagem que
+        importa se perderia no meio.
+        """
+        v = vigia(["Orfen [Lv. 70] has spawned!"], [""], bosses=(NORTH, SOUTH))
+
+        assert v.avaliar(PIXELS, PIXELS, AGORA) == []
+
+    def test_a_notificacao_de_mercado_nao_e_confundida_com_o_anuncio(self):
+        """O falso positivo REAL, medido nos prints do usuario.
+
+        Esta linha e a mais perigosa do arquivo inteiro, e nao a pergunta
+        digitada. Ela e uma linha de SISTEMA do mesmo chat: mesmo icone de
+        sino, colchetes, e um numero DENTRO dos colchetes. Ela compartilha a
+        estrutura visual do anuncio verdadeiro, entao um humano lendo a regex
+        nao percebe que ela quase casa.
+
+        Hoje o padrao a rejeita porque falta `has spawned`. Isso e
+        COINCIDENCIA ate estar escrito aqui: qualquer afrouxamento futuro da
+        parte fixa passaria a aceita-la, e o grupo receberia um aviso de boss
+        toda vez que alguem vendesse um item.
+        """
+        mercado = "-> Dragon Belt - 1 pcs: added on the market [15,54 XM Coin]"
+        v = vigia([mercado], [""], bosses=(NORTH, SOUTH))
+
+        assert v.avaliar(PIXELS, PIXELS, AGORA) == []
+
+    def test_um_nivel_digitado_por_jogador_sem_colchetes_nao_dispara(self):
+        """Do mesmo print: `LVL 62` num anuncio de procura de party.
+
+        Os colchetes sao opcionais no padrao (o OCR os perde), entao esta
+        linha exercita exatamente a folga que essa decisao abriu. Ela nao
+        dispara porque nao tem `has spawned` nem nome de boss configurado.
+        """
+        procura = "Christine : PROCURO PT EM PLAINS ARCHER LVL 62 127GS"
+        v = vigia([procura], [""], bosses=(NORTH, SOUTH))
+
+        assert v.avaliar(PIXELS, PIXELS, AGORA) == []
+
     def test_a_frase_e_casada_linha_A_linha_e_nunca_no_blob(self):
         """T-01-02: dois jogadores nao podem costurar um anuncio entre si.
 
@@ -257,6 +319,59 @@ class TestOAnuncioDoServidorContraOChatDigitado:
         v = vigia([costura], [""])
 
         assert v.avaliar(PIXELS, PIXELS, AGORA) == []
+
+
+# ---------------------------------------------------------------------------
+# RECO-04 (criterio 3): a precisao nao custou o reconhecimento do anuncio real.
+# ---------------------------------------------------------------------------
+
+
+class TestAFraseTortaEAFraseLimpaProduzemOMesmoAviso:
+    """Criterio 3 afirmado como EQUIVALENCIA, e nao como "a torta dispara".
+
+    Um teste que so afirma "a frase torta dispara" continuaria verde se ela
+    disparasse nomeando o boss ERRADO — e nomear o boss errado manda a party
+    para o outro lado do mapa, que e pior do que nao avisar. A asseracao aqui e
+    que os dois caminhos chegam ao MESMO aviso, texto e origem inclusive.
+    """
+
+    def _aviso(self, texto, bosses=(NORTH, SOUTH)):
+        v = vigia([texto], [""], bosses=bosses)
+        avisos = v.avaliar(PIXELS, PIXELS, AGORA)
+        assert len(avisos) == 1, texto
+        return avisos[0]
+
+    def test_a_letra_O_no_lugar_do_zero_nao_muda_nada(self):
+        """`[Lv. 8O]` — o segundo caractere do nivel e a LETRA O.
+
+        E o exemplo literal do criterio 3 do ROADMAP. Um `\\d+` reprovaria
+        aqui, e reprovaria em SILENCIO: o alerta simplesmente nao sairia e
+        ninguem perceberia que ele nao saiu (R-02).
+        """
+        limpo = self._aviso(ANUNCIO)
+        torto = self._aviso(ANUNCIO_TORTO)
+
+        assert torto.boss == limpo.boss == "Tiat North"
+        assert torto.texto == limpo.texto
+        assert torto.origem is limpo.origem
+
+    def test_o_south_torto_continua_sendo_o_south(self):
+        """A parte fixa degradada junto com o nome (D-09)."""
+        torto = self._aviso("T1a7 Sou7h [Lv. 6O] ha5 5pawn3d!")
+
+        assert torto.boss == "Tiat South"
+        assert torto.texto.startswith("Tiat South")
+
+    @pytest.mark.parametrize("nivel", ["60", "80", "1", "8O", "l00"])
+    def test_o_nivel_nao_entra_na_identidade(self, nivel):
+        """D-11: o nivel prova que a linha veio do servidor, e so isso.
+
+        Se o servidor mudar o nivel do Tiat numa atualizacao, nada quebra e
+        ninguem precisa editar o config.
+        """
+        aviso = self._aviso(f"Tiat North [Lv. {nivel}] has spawned!")
+
+        assert aviso.boss == "Tiat North"
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +414,26 @@ class TestAIdentidadeVemDoConfig:
         assert "T1a7" not in aviso.texto
         assert aviso.texto == "Tiat North nasceu! (visto no chat do jogo)"
 
+    def test_nem_um_comando_nem_um_endereco_atravessam_para_a_mensagem(self):
+        """T-01-04 no formato mais hostil que o chat do jogo permite.
+
+        Um jogador escreve o que quiser no chat geral, inclusive algo que
+        pareca comando ou endereco. O recorte inteiro e PREDICADO BOOLEANO: ou
+        ha anuncio naquela linha, ou nao ha. Nada do que foi LIDO viaja para o
+        grupo de WhatsApp, porque o nome interpolado sai do `[[boss]]`.
+        """
+        hostil = (
+            "!kick @all http://nao-clique.example/x "
+            "Tiat North [Lv. 60] has spawned!"
+        )
+        v = vigia([hostil], [""])
+
+        aviso = v.avaliar(PIXELS, PIXELS, AGORA)[0]
+
+        assert aviso.texto == "Tiat North nasceu! (visto no chat do jogo)"
+        for vazamento in ("!kick", "@all", "http", "example"):
+            assert vazamento not in aviso.texto
+
     def test_o_alvo_sozinho_nomeia_o_boss(self):
         """RECO-03: o alvo e caminho proprio e nao depende do chat."""
         v = vigia([""], ["Tiat South"], bosses=(NORTH, SOUTH))
@@ -308,6 +443,81 @@ class TestAIdentidadeVemDoConfig:
         assert len(avisos) == 1
         assert avisos[0].boss == "Tiat South"
         assert avisos[0].origem is OrigemDoAviso.ALVO
+
+
+# ---------------------------------------------------------------------------
+# RECO-03 (criterio 2): o alvo e um caminho proprio.
+# ---------------------------------------------------------------------------
+
+
+class TestOCaminhoDoAlvo:
+    """O recorte do alvo nao tem frase nenhuma — so o nome.
+
+    Por isso ele NAO passa por `padrao_do_anuncio`, e por isso a identificacao
+    ali e estruturalmente mais fragil: nao existe `[Lv. NN] has spawned`
+    provando que aquele texto veio do servidor. A defesa e exigir o nome
+    COMPLETO do boss e recusar o empate.
+    """
+
+    def test_o_alvo_dispara_com_o_chat_mudo(self):
+        """Criterio 2: nao depende de o chat ter anunciado nada."""
+        v = vigia([""], ["Tiat South"], bosses=(NORTH, SOUTH))
+
+        avisos = v.avaliar(PIXELS, PIXELS, AGORA)
+
+        assert [(a.boss, a.origem) for a in avisos] == [
+            ("Tiat South", OrigemDoAviso.ALVO)
+        ]
+
+    def test_o_alvo_degradado_pelo_ocr_nomeia_o_mesmo_boss(self):
+        """A mesma folga do chat vale no alvo — e a mesma funcao a monta."""
+        v = vigia([""], ["T1a7 Sou7h"], bosses=(NORTH, SOUTH))
+
+        avisos = v.avaliar(PIXELS, PIXELS, AGORA)
+
+        assert [a.boss for a in avisos] == ["Tiat South"]
+
+    def test_um_alvo_truncado_nao_escolhe_entre_dois_bosses(self):
+        """`Tiat` sozinho, com `Tiat North` e `Tiat South` na lista.
+
+        Escolher um dos dois seria chutar, e o chute manda a party para o outro
+        lado do mapa. O nome do alvo tem que estar COMPLETO — e nao estando,
+        o silencio e a resposta correta, nao uma degradacao.
+        """
+        v = vigia([""], ["Tiat"], bosses=(NORTH, SOUTH))
+
+        assert v.avaliar(PIXELS, PIXELS, AGORA) == []
+
+    def test_dois_bosses_casando_o_mesmo_trecho_do_alvo_nao_produzem_aviso(self):
+        """A REGRA DE DESEMPATE: empate no mesmo trecho e silencio.
+
+        Um alvo e UM mob. Se dois `[[boss]]` casam trechos que se sobrepoem no
+        mesmo texto de alvo, no maximo um deles e o alvo de verdade e nao ha
+        como saber qual. Dois avisos seriam um deles comprovadamente falso; um
+        aviso escolhido pela ordem do config seria um chute com cara de
+        certeza — e na Fase 2 esse chute vira ancora em disco.
+        """
+        generico = Boss(nome="Tiat", respawn_horas_min=6, respawn_horas_max=8)
+        v = vigia([""], ["Tiat North"], bosses=(generico, NORTH))
+
+        assert v.avaliar(PIXELS, PIXELS, AGORA) == []
+
+    def test_o_empate_no_alvo_nao_apaga_o_anuncio_do_chat(self):
+        """O desempate e SO do caminho do alvo, e essa fronteira e a decisao.
+
+        O chat traz `[Lv. NN] has spawned` provando a origem da linha: nao ha
+        ambiguidade a resolver ali. Apagar o anuncio por causa de um empate
+        NOUTRO recorte trocaria um falso positivo barato por um falso negativo
+        silencioso, que e o erro caro (R-02).
+        """
+        generico = Boss(nome="Tiat", respawn_horas_min=6, respawn_horas_max=8)
+        v = vigia([ANUNCIO], ["Tiat North"], bosses=(generico, NORTH))
+
+        avisos = v.avaliar(PIXELS, PIXELS, AGORA)
+
+        assert [(a.boss, a.origem) for a in avisos] == [
+            ("Tiat North", OrigemDoAviso.CHAT)
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +567,32 @@ class TestORearmeEPorBoss:
             ["Tiat North"],
         ]
 
+    def test_o_south_alvejado_no_terceiro_tick_nao_e_engolido(self):
+        """O caso de campo inteiro, e nao so dois ticks.
+
+        A linha do anuncio de `Tiat North` fica MINUTOS no recorte do chat. Com
+        um flag unico de rearme, qualquer boss alvejado durante esses minutos
+        seria engolido — e um alerta que nunca saiu nao deixa rastro nenhum
+        para alguem notar.
+        """
+        v = vigia(
+            [ANUNCIO, ANUNCIO, ANUNCIO, ANUNCIO],
+            ["", "", "Tiat South", "Tiat South"],
+            bosses=(NORTH, SOUTH),
+        )
+
+        avisos = [
+            v.avaliar(PIXELS, PIXELS, AGORA + timedelta(seconds=segundo))
+            for segundo in range(4)
+        ]
+
+        assert [[a.boss for a in tick] for tick in avisos] == [
+            ["Tiat North"],
+            [],
+            ["Tiat South"],
+            [],
+        ]
+
     def test_mesmo_boss_nos_dois_sinais_gera_um_despacho_so(self):
         v = vigia([ANUNCIO], ["Tiat North"], bosses=(NORTH, SOUTH))
 
@@ -393,6 +629,36 @@ class TestONomeDoConfigNaoViraCuringa:
         estranho = Boss(nome="Tiat (N)", respawn_horas_min=6, respawn_horas_max=8)
         v = vigia(["Tiat (N) [Lv. 60] has spawned!"], [""], bosses=(estranho,))
 
+        assert len(v.avaliar(PIXELS, PIXELS, AGORA)) == 1
+
+
+    def test_um_parentese_sem_par_no_nome_nao_quebra_a_compilacao(self):
+        """`Tiat(` cru levantaria `re.error` no ARRANQUE.
+
+        Nao e hipotese academica: os padroes sao pre-compilados no construtor
+        justamente para um nome torto explodir com o usuario olhando para o
+        console. Se a explosao for `re.error` em vez de `BossInvalido`, o
+        usuario recebe traceback em vez de instrucao.
+        """
+        torto = Boss(nome="Tiat(", respawn_horas_min=6, respawn_horas_max=8)
+        v = vigia(["Tiat( [Lv. 60] has spawned!"], [""], bosses=(torto,))
+
+        assert len(v.avaliar(PIXELS, PIXELS, AGORA)) == 1
+
+    def test_uma_classe_de_regex_no_nome_casa_literalmente(self):
+        """`Tiat[a-z]` e um nome, nao uma classe de caracteres.
+
+        Este e o caso mais insidioso do vetor: `Tiat[a-z]` COMPILA sem erro
+        nenhum se concatenado cru, entao nao ha explosao no arranque — o vigia
+        sobe e passa a disparar com `Tiata`, `Tiatb`, `Tiatz`, e ninguem
+        descobre por que os avisos comecaram a sair errados.
+        """
+        classe = Boss(nome="Tiat[a-z]", respawn_horas_min=6, respawn_horas_max=8)
+
+        v = vigia(["Tiatx [Lv. 60] has spawned!"], [""], bosses=(classe,))
+        assert v.avaliar(PIXELS, PIXELS, AGORA) == []
+
+        v = vigia(["Tiat[a-z] [Lv. 60] has spawned!"], [""], bosses=(classe,))
         assert len(v.avaliar(PIXELS, PIXELS, AGORA)) == 1
 
 
@@ -499,6 +765,36 @@ class TestARecusaCitaOBossEOCampo:
             ler_bosses(caminho)
         assert "nome" in str(erro.value)
         assert "[[boss]] #1" in str(erro.value)
+
+    def test_nome_vazio(self, tmp_path):
+        """Um `nome` vazio nao e "sem nome": e um bloco que PARECE completo.
+
+        `nome = ""` produziria um padrao que casa a string vazia — isto e,
+        casaria QUALQUER linha do chat que tivesse `[Lv. NN] has spawned`,
+        vindo de qualquer mob do servidor.
+        """
+        caminho = escrever_config(
+            tmp_path,
+            '[[boss]]\nnome = ""\n'
+            "respawn_horas_min = 6\nrespawn_horas_max = 8\n",
+        )
+
+        with pytest.raises(BossInvalido) as erro:
+            ler_bosses(caminho)
+        assert "nome" in str(erro.value)
+        assert "[[boss]] #1" in str(erro.value)
+
+    def test_nome_so_com_espacos(self, tmp_path):
+        """O mesmo buraco, com a aparencia de estar preenchido."""
+        caminho = escrever_config(
+            tmp_path,
+            '[[boss]]\nnome = "   "\n'
+            "respawn_horas_min = 6\nrespawn_horas_max = 8\n",
+        )
+
+        with pytest.raises(BossInvalido) as erro:
+            ler_bosses(caminho)
+        assert "nome" in str(erro.value)
 
     def test_sem_respawn_horas_min(self, tmp_path):
         caminho = self.escrever(tmp_path, "respawn_horas_max = 8\n")
@@ -623,6 +919,113 @@ class TestOConfigDoRepositorioProduzOAviso:
         avisos = v.avaliar(PIXELS, PIXELS, AGORA)
 
         assert {a.boss for a in avisos} == {"Tiat North", "Tiat South"}
+
+
+# ---------------------------------------------------------------------------
+# VIGI-01 / VIGI-02 (criterio 5): a lista sai do codigo e vira dado.
+# ---------------------------------------------------------------------------
+
+
+INVENTADO = "Gargulha Chorona do Pantano"
+
+
+class TestUmBossInventadoPassaAVigiadoSemTocarEmPy:
+    """O criterio 5 do ROADMAP, fechado do arquivo ate a mensagem.
+
+    Um teste com roster escrito a mao provaria so que `VigiaDeBosses` funciona.
+    Este monta o vigia com o que `ler_bosses` devolveu de um `config.toml` que
+    o teste ESCREVEU, com um mob que nao existe no jogo — e por isso nao pode
+    ter sobrado em constante nenhuma do codigo.
+    """
+
+    def escrever(self, tmp_path, nome):
+        return escrever_config(
+            tmp_path,
+            f'[[boss]]\nnome = "{nome}"\n'
+            "respawn_horas_min = 3\nrespawn_horas_max = 5\n",
+        )
+
+    def test_o_anuncio_do_mob_inventado_dispara(self, tmp_path):
+        roster = ler_bosses(self.escrever(tmp_path, INVENTADO))
+
+        assert [b.nome for b in roster] == [INVENTADO]
+
+        v = vigia([f"{INVENTADO} [Lv. 42] has spawned!"], [""], bosses=roster)
+        avisos = v.avaliar(PIXELS, PIXELS, AGORA)
+
+        assert len(avisos) == 1
+        assert avisos[0].boss == INVENTADO
+        assert avisos[0].texto.startswith(INVENTADO)
+
+    def test_o_mob_inventado_tambem_e_reconhecido_no_alvo(self, tmp_path):
+        roster = ler_bosses(self.escrever(tmp_path, INVENTADO))
+
+        v = vigia([""], [INVENTADO], bosses=roster)
+
+        assert [a.boss for a in v.avaliar(PIXELS, PIXELS, AGORA)] == [INVENTADO]
+
+    def test_nenhum_arquivo_py_conhece_o_mob_inventado(self):
+        """A metade "sem nenhuma alteracao em arquivo .py" do criterio 5.
+
+        O teste acima passaria mesmo que o codigo tivesse uma lista de mobs
+        conhecidos, desde que ela contivesse este nome. Esta asseracao fecha o
+        outro lado: o scanner nao conhece mob nenhum por nome.
+        """
+        for arquivo in sorted((RAIZ / "l2scanner").glob("*.py")):
+            texto = arquivo.read_text(encoding="utf-8")
+            assert INVENTADO not in texto, arquivo.name
+
+    def test_o_mob_inventado_nao_dispara_com_a_frase_de_outro_mob(self, tmp_path):
+        """Vigiar um nao pode significar vigiar todos."""
+        roster = ler_bosses(self.escrever(tmp_path, INVENTADO))
+
+        v = vigia([ANUNCIO], [""], bosses=roster)
+
+        assert v.avaliar(PIXELS, PIXELS, AGORA) == []
+
+
+class TestOEsquemaDoBlocoBossEstaCompletoParaAFase2:
+    """VIGI-02: os campos moram no arquivo antes de serem usados.
+
+    Espelha `tests/test_agenda.py::test_as_duracoes_de_silencio_estao_no_esquema_para_a_fase_7`,
+    e o precedente esta citado de proposito: e o MESMO movimento — um campo
+    lido, validado e ignorado, presente desde ja para o usuario nao ter que
+    editar duas vezes um config que ja editou. Citar o precedente e o que faz a
+    proxima fase encontrar o padrao em vez de reinventa-lo.
+    """
+
+    @pytest.fixture
+    def roster(self):
+        return ler_bosses(RAIZ / "config.toml")
+
+    def test_os_dois_tiat_do_repositorio_tem_6_e_8(self, roster):
+        """As horas sao LIDAS e IGNORADAS nesta fase; a Fase 2 as consome.
+
+        A regra do servidor: 6 horas fixas mais 0 a 2 aleatorias, contadas a
+        partir da MORTE.
+        """
+        por_nome = {b.nome: b for b in roster}
+
+        assert set(por_nome) == {"Tiat North", "Tiat South"}
+        for boss in por_nome.values():
+            assert boss.respawn_horas_min == 6
+            assert boss.respawn_horas_max == 8
+
+    def test_o_cabecalho_documenta_os_tres_campos(self):
+        """Um campo que existe e nao esta documentado e mentira por omissao.
+
+        Quem le o `config.toml` e nao encontra `respawn_horas_min` na lista de
+        campos conclui que a regra de respawn nao e editavel — e nao edita.
+        Mesmo molde de `test_o_cabecalho_do_arquivo_documenta_o_campo`.
+        """
+        texto = (RAIZ / "config.toml").read_text(encoding="utf-8")
+        # Corta no PRIMEIRO bloco de verdade, que comeca em coluna zero: o
+        # proprio cabecalho escreve `[[boss]]` em prosa.
+        cabecalho = texto.split(chr(10) + "[[boss]]")[0]
+        cabecalho = cabecalho.split("Os bosses raros vigiados")[-1]
+
+        for campo in ("nome", "respawn_horas_min", "respawn_horas_max"):
+            assert campo in cabecalho, campo
 
 
 # ---------------------------------------------------------------------------

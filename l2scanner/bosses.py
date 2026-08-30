@@ -33,6 +33,13 @@ e descartado. Nao e conferido contra o config e nao vai para a mensagem — se o
 servidor mudar o nivel do Tiat, nada quebra e ninguem edita config. (O ROADMAP
 supunha `[Lv. 80]`; o print real mostra 60. E exatamente por isso.)
 
+O ALVO E MAIS FRAGIL QUE O CHAT, E TEM REGRA PROPRIA. No quadro de alvo nao
+ha frase nenhuma: o print de 2026-08-30 mostra so `Tiat North`, sem nivel e sem
+colchetes. Sem `[Lv. NN] has spawned` provando a origem, a identificacao ali
+repousa inteira no nome — entao dois `[[boss]]` casando trechos que se
+sobrepoem no mesmo texto de alvo produzem SILENCIO, e nao um chute. Ver
+`VigiaDeBosses._bosses_identificados_no_alvo`.
+
 AS CHAVES DE CALIBRACAO CONTINUAM `tiat_chat` E `tiat_alvo`, e isso e
 deliberado. `Calibracao.de_dict` as le com `dados.get(...)` e devolve `None`
 quando faltam: renomea-las desligaria a vigilancia de boss, EM SILENCIO, em
@@ -275,6 +282,54 @@ class VigiaDeBosses:
             # OCR e complementar ao rastreador: jamais pode derrubar o tick.
             return None
 
+    def _bosses_identificados_no_alvo(self, texto: str | None) -> set[str]:
+        """Quais bosses o quadro de alvo identifica SEM ambiguidade.
+
+        O recorte do alvo nao tem frase nenhuma: e so um nome, sem
+        `[Lv. NN] has spawned` provando que aquele texto veio do servidor. Toda
+        a identificacao ali repousa no nome, entao o empate precisa de regra
+        explicita — e a regra e o SILENCIO.
+
+        UM ALVO E UM MOB. Se dois `[[boss]]` casam trechos que se SOBREPOEM no
+        mesmo texto (o caso concreto: alguem configura `Tiat` e `Tiat North`, e
+        o alvo le `Tiat North`), no maximo um deles e o alvo de verdade e nao
+        ha informacao nenhuma no recorte para decidir qual. As tres saidas
+        possiveis, e por que so uma se sustenta:
+
+        - Avisar os dois: um dos avisos e comprovadamente falso, e a party se
+          desloca para o lugar errado na metade das vezes.
+        - Escolher pela ordem do config: um chute com cara de certeza, e o
+          usuario nao tem como saber que houve chute.
+        - Nao avisar: perde-se um alerta que o chat, se o boss realmente
+          nasceu, entrega de qualquer forma pelo caminho proprio dele.
+
+        Na Fase 2 a conta fica pior, e e ela que trava a decisao: este mesmo
+        sinal vira ANCORA de uma contagem de 6 a 8 horas gravada em disco.
+        Uma ancora chutada produz, horas depois, uma previsao errada que a
+        party nao tem como distinguir de uma certa.
+
+        A sobreposicao e medida por SPAN, e nao por presenca: dois bosses de
+        nomes diferentes que aparecem em pontos diferentes do mesmo texto nao
+        estao em empate — apenas estao ambos ali.
+        """
+        if not texto:
+            return set()
+
+        achados = []
+        for nome, _anuncio, so_o_nome in self._bosses:
+            casado = so_o_nome.search(texto)
+            if casado is not None:
+                achados.append((nome, casado.span()))
+
+        return {
+            nome
+            for nome, (inicio, fim) in achados
+            if not any(
+                outro != nome and outro_inicio < fim and inicio < outro_fim
+                for outro, (outro_inicio, outro_fim) in achados
+            )
+        }
+
     def avaliar(
         self, pixels_do_chat, pixels_do_alvo, agora: datetime
     ) -> list[AvisoDeBoss]:
@@ -306,10 +361,17 @@ class VigiaDeBosses:
         # que nenhuma linha real contem.
         linhas_do_chat = (texto_do_chat or "").splitlines()
 
+        # O DESEMPATE E SO DO CAMINHO DO ALVO, e a fronteira e deliberada: a
+        # linha do chat traz `[Lv. NN] has spawned` provando a origem, entao
+        # nao ha ambiguidade a resolver ali. Apagar um anuncio do chat por
+        # causa de um empate NOUTRO recorte trocaria um falso positivo barato
+        # por um falso negativo silencioso, que e o erro caro (R-02).
+        no_alvo_por_boss = self._bosses_identificados_no_alvo(texto_do_alvo)
+
         avisos: list[AvisoDeBoss] = []
-        for nome, anuncio, so_o_nome in self._bosses:
+        for nome, anuncio, _so_o_nome in self._bosses:
             no_chat = any(anuncio.search(linha) for linha in linhas_do_chat)
-            no_alvo = bool(texto_do_alvo and so_o_nome.search(texto_do_alvo))
+            no_alvo = nome in no_alvo_por_boss
 
             if no_chat or no_alvo:
                 self._limpas[nome] = 0
