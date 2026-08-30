@@ -115,6 +115,24 @@ class EventoAgendado:
     silenciar_minutos: int = 0
 
 
+def apelido_do_evento(nome: str) -> str:
+    """O nome do evento reduzido ao que pode virar nome de arquivo.
+
+    UM SO APELIDO PARA TODOS OS USOS, e isto nao e arrumacao. A mesma linha
+    estava escrita duas vezes — em `Aviso.chave` e em `chave_da_ocorrencia` — e
+    agora tem um terceiro consumidor, o marcador de evento calado. Tres copias
+    da mesma expressao divergem no primeiro ajuste, e a divergencia aqui e
+    invisivel: o gate procuraria `soloboss` enquanto a agenda escreve
+    `solo-boss`, ninguem levantaria excecao nenhuma, e o boss simplesmente
+    continuaria falando depois de o usuario o ter desligado.
+
+    O VALOR E DURAVEL. Ele ja e nome de arquivo em `.agenda/` desde a Fase 6 —
+    muda-lo faria todo marcador gravado deixar de casar, e a party receberia
+    de novo tudo que ja tinha recebido.
+    """
+    return re.sub(r"[^a-z0-9]+", "-", nome.lower()).strip("-")
+
+
 @dataclass(frozen=True)
 class Aviso:
     """Um aviso que venceu e ainda nao foi enviado."""
@@ -132,7 +150,7 @@ class Aviso:
         alguem melhora a redacao, e a chave nao pode mudar junto — senao um
         aviso ja enviado volta a parecer novo e a party recebe em dobro.
         """
-        apelido = re.sub(r"[^a-z0-9]+", "-", self.evento.lower()).strip("-")
+        apelido = apelido_do_evento(self.evento)
         return (
             f"{self.alvo.date().isoformat()}"
             f"_{apelido}-{self.alvo.hour:02d}{self.alvo.minute:02d}"
@@ -164,11 +182,33 @@ def avisos_devidos(
     eventos: list[EventoAgendado],
     ja_enviados: set[str],
     tolerancia_minutos: int = TOLERANCIA_MINUTOS,
+    eventos_calados: frozenset[str] | set[str] = frozenset(),
 ) -> list[Aviso]:
     """Quais avisos venceram agora e ainda nao sairam.
 
     Funcao pura: mesmo instante, mesma agenda, mesmo conjunto de enviados ->
     mesma resposta, sempre. Sem relogio, sem disco, sem rede.
+
+    `eventos_calados` sao APELIDOS de evento (ver `apelido_do_evento`) que o
+    usuario desligou por comando, e o filtro deles mora AQUI por duas razoes:
+
+    1. **AQUI E O FUNIL DOS TRES TIPOS.** `ANTES`, `AGORA` e `CHAMADA` nascem
+       na mesma lista de candidatos tres linhas abaixo, entao um evento calado
+       perde os tres de uma vez e NAO EXISTE SINTAXE PARA CALAR METADE. A
+       decisao e do usuario e ela e de produto: a chamada de 1h50 sem o
+       lembrete de 10 minutos convida a party para um boss que ninguem lembra
+       de ir, e o lembrete sem a chamada avisa uma party que nunca foi
+       consultada. Meia-mudez e pior que os dois extremos. Um `TipoDeAviso`
+       futuro nasce calado junto, sem ninguem precisar lembrar disto.
+
+    2. **NAO E A AGENDA QUE ENCOLHE.** Tirar o evento da lista de eventos
+       calaria os avisos e junto com eles `proxima_ocorrencia` (o console
+       deixaria de saber que o boss existe), `ocorrencias_do_dia` (o encaixe do
+       `.pegou`) e a lista de presenca. O usuario pediu para calar avisos, nao
+       para o boss deixar de existir.
+
+    Default VAZIO: toda chamada que nao conhece este parametro se comporta byte
+    a byte como antes.
     """
     devidos: list[Aviso] = []
     tolerancia = timedelta(minutes=tolerancia_minutos)
@@ -179,6 +219,8 @@ def avisos_devidos(
     for deslocamento in (-1, 0, 1):
         dia = hoje + timedelta(days=deslocamento)
         for evento in eventos:
+            if apelido_do_evento(evento.nome) in eventos_calados:
+                continue
             for alvo in ocorrencias_do_dia(evento, dia):
                 candidatos = [
                     (
@@ -291,6 +333,22 @@ PREFIXO_PRESENCA = "presenca_"
 # Prefixo do marcador de FECHAMENTO da lista: `fechado_<chave-da-ocorrencia>`.
 # Um por ocorrencia, escrito quando o boss nasce e a lista vira historico.
 PREFIXO_FECHADO = "fechado_"
+
+# Prefixo do marcador de EVENTO CALADO: `evento_calado_<apelido-do-evento>`.
+# Um por evento, e o unico namespace desta pasta SEM DATA no nome.
+#
+# A AUSENCIA DA DATA E A FUNCIONALIDADE, e por isso este prefixo NAO entra em
+# `_PREFIXOS_CONHECIDOS` logo abaixo. Todos os outros marcadores sao fatos
+# datados que devem morrer ("avisei o boss das 20:00 de hoje"); este e uma
+# DECISAO do usuario, e ele decidiu explicitamente que ela nao expira — nem por
+# reinicio, nem por tempo. Um marcador datado aqui religaria o Solo Boss
+# sozinho depois de `DIAS_DE_MARCADOR`, sem ninguem mandar e sem nada dizer.
+#
+# A poda ja ignora o que nao sabe datar: sem prefixo conhecido para retirar,
+# `date.fromisoformat("evento")` levanta `ValueError` e o arquivo e pulado. A
+# imortalidade sai de graca, mas ela e DELIBERADA — ver o teste
+# `test_a_poda_nao_expira_o_desligamento`.
+PREFIXO_EVENTO_CALADO = "evento_calado_"
 
 # Todo namespace que a poda sabe desmontar.
 #
@@ -436,6 +494,92 @@ class RegistroEmDisco:
             for nome in self.enviados()
             if nome.startswith(PREFIXO_CANCELADO)
         }
+
+    # -- eventos calados por comando ----------------------------------------
+
+    def calar_evento(self, nome: str) -> str:
+        """Desliga TODOS os avisos de um evento. Tri-estado, igual ao `entrar`.
+
+        POR QUE O MARCADOR E NAO UM JSON. O outro idioma de persistencia deste
+        projeto e o `os.replace` do `loot.py`, e ele existe porque loot carrega
+        DADO ESTRUTURADO (nick, alvo, carimbo). Aqui nao ha dado nenhum — ha um
+        estado de dois valores por evento, e o nome do arquivo ja o expressa
+        inteiro. Tres coisas caem de graca ao ficar no marcador:
+
+        - **Nao existe read-check-write para dar errado.** O usuario roda duas
+          instancias (Yazalaque e Faerlina) sobre a MESMA pasta. Desligar e uma
+          criacao atomica e religar e um `unlink` atomico: em qualquer
+          intercalacao o disco termina num dos dois estados validos. Um mapa
+          JSON de eventos calados teria que ser lido, alterado e reescrito, e a
+          instancia que escrevesse por ultimo apagaria a decisao da outra.
+        - **A direcao da falha de leitura ja esta certa.** `enviados()` devolve
+          vazio em `OSError`, logo disco ilegivel = nenhum evento calado = o
+          aviso SAI. E a lei escrita no `marcar`: preferir o duplicado ao
+          perdido, porque a party ignora uma repeticao e nao adivinha um boss
+          que ninguem anunciou.
+        - **A lista de presenca ja prova o padrao.** `entrar`/`sair` sao
+          criar/apagar arquivo neste mesmo diretorio desde a Fase 10.
+
+        E POR QUE TRI-ESTADO, e nao o `bool` do `marcar`. `marcar` colapsa
+        `OSError` em True porque, para um ANUNCIO, o duplicado e melhor que o
+        perdido. Aqui a regra e a inversa, pelo mesmo raciocinio aplicado a
+        outro fato — e o argumento e literalmente o do `entrar`: responder
+        "desativei" sobre uma escrita que o disco nao guardou faria o usuario
+        parar de esperar os avisos que vao continuar chegando, e no dia em que
+        ele quisesse religar nao haveria nada para religar. Melhor pedir para
+        repetir o comando.
+        """
+        alvo = self._pasta / (PREFIXO_EVENTO_CALADO + apelido_do_evento(nome))
+        try:
+            descritor = os.open(alvo, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return "ja_estava"
+        except OSError:
+            return "falhou"
+        os.close(descritor)
+        return "calado"
+
+    def voltar_a_avisar(self, nome: str) -> str:
+        """Religa os avisos de um evento. O mesmo tri-estado, e ele e simetrico.
+
+        `sair` (a saida da lista de presenca) devolve `bool` e trata `OSError`
+        como "nao estava la". AQUI ISSO SERIA O PIOR DESFECHO POSSIVEL: o
+        marcador continuaria em disco, o boss continuaria calado, e a unica
+        pessoa capaz de notar teria acabado de ler "voltei a avisar". Um boss
+        perdido em silencio e exatamente o que esta funcionalidade nao pode
+        produzir, entao a falha de escrita e DITA.
+        """
+        alvo = self._pasta / (PREFIXO_EVENTO_CALADO + apelido_do_evento(nome))
+        try:
+            alvo.unlink()
+        except FileNotFoundError:
+            return "ja_estava"
+        except OSError:
+            return "falhou"
+        return "religado"
+
+    def eventos_calados(self) -> frozenset[str]:
+        """Os apelidos dos eventos desligados por comando.
+
+        Leitura defensiva pela mesma porta de sempre: `enviados()` ja engole
+        `OSError` devolvendo vazio, e vazio aqui quer dizer "nada calado", que
+        e a direcao segura — o aviso sai.
+
+        O `if apelido` descarta um `evento_calado_` truncado: a pasta e
+        compartilhada e duravel, entao um nome malformado que caia nela e
+        PULADO, nunca levantado. Sem ele, a string vazia entraria no conjunto e
+        um evento de nome vazio (que nao existe) seria "calado" — inofensivo
+        hoje, e o tipo de lixo que confunde quem for depurar isto as duas da
+        manha.
+        """
+        achados = set()
+        for nome in self.enviados():
+            if not nome.startswith(PREFIXO_EVENTO_CALADO):
+                continue
+            apelido = nome[len(PREFIXO_EVENTO_CALADO) :]
+            if apelido:
+                achados.add(apelido)
+        return frozenset(achados)
 
     # -- a lista de presenca ------------------------------------------------
 
@@ -613,7 +757,7 @@ def chave_da_ocorrencia(nome: str, alvo: datetime) -> str:
     Mesma forma da chave de aviso, sem o tipo: `{data}_{evento}-{HHMM}`. E o
     que permite cancelar "o Prime de hoje as 20h" sem tocar no de amanha.
     """
-    apelido = re.sub(r"[^a-z0-9]+", "-", nome.lower()).strip("-")
+    apelido = apelido_do_evento(nome)
     return f"{alvo.date().isoformat()}_{apelido}-{alvo.hour:02d}{alvo.minute:02d}"
 
 
@@ -747,3 +891,126 @@ def texto_de_cancelamento(nome: str, inicio: datetime, rolando: bool) -> str:
         f"O {nome} das {hora} nao vai silenciar hoje. "
         f"Vou continuar avisando normalmente durante ele."
     )
+
+
+# ---------------------------------------------------------------------------
+# Desligar e religar TODOS os avisos de um evento, por comando
+# ---------------------------------------------------------------------------
+
+# O evento que os comandos `/desativarsoloboss` e `/ativarsoloboss` alcancam.
+#
+# TEXTO, e igual ao `nome` do bloco `[[evento]]` do config.toml. O acordo entre
+# os dois arquivos e por NOME, e e por isso que `responder_silenciamento`
+# RECUSA quando o nome nao esta na agenda em vez de gravar um marcador que nao
+# cala coisa nenhuma.
+NOME_DO_SOLO_BOSS = "Solo Boss"
+
+
+def nomes_calados(
+    eventos: list[EventoAgendado], calados: frozenset[str] | set[str]
+) -> list[str]:
+    """Os eventos desligados, com o nome COMO O USUARIO ESCREVEU.
+
+    O disco guarda `solo-boss` e o config.toml diz `Solo Boss`. Mesma
+    disciplina do D-10 na lista de presenca: o apelido e detalhe de
+    armazenamento e nunca pode vazar para a tela de ninguem.
+
+    Derivado da agenda, e nao do disco: um marcador orfao — de um evento que o
+    usuario renomeou no config.toml depois de te-lo desligado — nao aparece
+    aqui porque tambem nao cala nada. Ele e inerte nas duas pontas, e nao ha
+    estado escondido nisso.
+
+    Na ordem da agenda, que e a ordem do config.toml: mesma fonte, mesma
+    sequencia, sem uma segunda opiniao sobre o que vem antes.
+    """
+    return [e.nome for e in eventos if apelido_do_evento(e.nome) in calados]
+
+
+def _o_que_o_evento_anuncia(evento: EventoAgendado) -> str:
+    """Os avisos que este evento faz, por extenso e com os minutos do config.
+
+    OS NUMEROS SAEM DO `EventoAgendado`, NUNCA DE UM LITERAL. A resposta que
+    dissesse "110" a mao passaria a mentir no dia em que o usuario editasse
+    `chamar_minutos_antes` — e mentir sobre o que acabou de ser desligado e
+    pior do que nao explicar, porque quem leu para de conferir.
+    """
+    partes = []
+    if evento.chamar_minutos_antes > 0:
+        partes.append(f"a chamada de {evento.chamar_minutos_antes} minutos antes")
+    if evento.avisar_minutos_antes > 0:
+        partes.append(f"o lembrete de {evento.avisar_minutos_antes} minutos antes")
+    if evento.avisar_no_horario:
+        partes.append("o aviso na hora")
+    return ", ".join(partes) if partes else "os avisos"
+
+
+def responder_silenciamento(
+    registro: RegistroEmDisco,
+    eventos: list[EventoAgendado],
+    nome: str,
+    calar: bool,
+    quem: str,
+) -> str:
+    """Desliga (ou religa) todos os avisos de um evento, e diz o que fez.
+
+    TUDO OU NADA, e nao ha sintaxe para outra coisa. O gate mora em
+    `avisos_devidos`, no funil por onde os tres tipos passam — ver a docstring
+    de la para a razao de produto de nao existir meia-mudez.
+
+    RECUSA EVENTO QUE NAO ESTA NA AGENDA, e esse ramo fecha um modo de falha
+    silencioso de duas caras: um marcador gravado para um nome que o
+    `config.toml` nao tem nao cala nada (o gate compara com os eventos
+    configurados) e nao aparece no `/status` (que tambem so conhece a agenda).
+    Sem esta recusa, o bot responderia "desativei" e as duas superficies
+    concordariam em nao mostrar nada — enquanto os avisos continuavam
+    chegando.
+
+    NAO E ESTA FUNCAO QUE DECIDE QUEM PODE MANDAR. A fronteira mora em
+    `comandos.COMANDOS_DE_MEMBRO`, e estes dois comandos estao FORA dela: um
+    `/entrar` de party-mate mexe numa linha da lista de uma ocorrencia, e isto
+    apaga doze chamadas por dia da party inteira por tempo indeterminado.
+    """
+    evento = next((e for e in eventos if e.nome == nome), None)
+    if evento is None:
+        return (
+            f"Nao achei {nome} na agenda do config.toml — nao ha aviso nenhum "
+            f"desse evento para desligar nem para religar."
+        )
+
+    avisos = _o_que_o_evento_anuncia(evento)
+
+    if calar:
+        desfecho = registro.calar_evento(nome)
+        if desfecho == "ja_estava":
+            return (
+                f"Os avisos do {nome} ja estavam desativados. "
+                f"Mande /ativarsoloboss quando quiser os dois de volta."
+            )
+        if desfecho == "falhou":
+            # A escrita nao aconteceu, entao a unica resposta honesta e que
+            # NADA mudou. Mesmo racional do "falhou" do `entrar`: anunciar um
+            # estado que o disco nao guardou faz o usuario parar de esperar
+            # avisos que vao continuar chegando.
+            return (
+                f"Nao consegui gravar o desligamento do {nome} — o disco "
+                f"recusou. Os avisos CONTINUAM saindo; mande "
+                f"/desativarsoloboss de novo."
+            )
+        return (
+            f"{quem} desativou os avisos do {nome}: nem {avisos}. "
+            f"Nada disso volta sozinho — nem reiniciando o scanner. "
+            f"Mande /ativarsoloboss para religar os dois de uma vez."
+        )
+
+    desfecho = registro.voltar_a_avisar(nome)
+    if desfecho == "ja_estava":
+        return f"Os avisos do {nome} ja estavam ligados. Nao mudei nada."
+    if desfecho == "falhou":
+        # A direcao perigosa, e por isso ela e dita em voz alta: o marcador
+        # continua em disco e o boss continua calado. Quem leu isto e a unica
+        # pessoa capaz de perceber, entao a frase nao pode soar como sucesso.
+        return (
+            f"Nao consegui apagar o desligamento do {nome} — o disco recusou. "
+            f"Os avisos CONTINUAM desativados; mande /ativarsoloboss de novo."
+        )
+    return f"{quem} reativou os avisos do {nome}: volto a mandar {avisos}."

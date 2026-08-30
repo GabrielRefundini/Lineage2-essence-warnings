@@ -171,7 +171,7 @@ class TestOEstadoEmDisco:
 
     def test_desativar_e_ler_de_volta(self, tmp_path):
         registro = RegistroEmDisco(tmp_path)
-        assert registro.calar_evento("Solo Boss") is True
+        assert registro.calar_evento("Solo Boss") == "calado"
         assert registro.eventos_calados() == frozenset({SLUG})
 
     def test_reiniciar_o_scanner_NAO_religa(self, tmp_path):
@@ -202,15 +202,32 @@ class TestOEstadoEmDisco:
 
     def test_desativar_duas_vezes_diz_que_ja_estava(self, tmp_path):
         registro = RegistroEmDisco(tmp_path)
-        assert registro.calar_evento("Solo Boss") is True
-        assert registro.calar_evento("Solo Boss") is False
+        assert registro.calar_evento("Solo Boss") == "calado"
+        assert registro.calar_evento("Solo Boss") == "ja_estava"
 
     def test_ativar_diz_se_havia_o_que_religar(self, tmp_path):
         registro = RegistroEmDisco(tmp_path)
-        assert registro.voltar_a_avisar("Solo Boss") is False
+        assert registro.voltar_a_avisar("Solo Boss") == "ja_estava"
         registro.calar_evento("Solo Boss")
-        assert registro.voltar_a_avisar("Solo Boss") is True
+        assert registro.voltar_a_avisar("Solo Boss") == "religado"
         assert registro.eventos_calados() == frozenset()
+
+    def test_a_escrita_que_falha_NAO_vira_sucesso(self, tmp_path):
+        """O tri-estado do `entrar`, e nao o `bool` do `marcar`.
+
+        `marcar` colapsa `OSError` em True porque, para um ANUNCIO, o
+        duplicado e melhor que o perdido. Aqui a regra e a inversa: dizer
+        "desativei" sobre uma escrita que o disco recusou faria o usuario parar
+        de esperar avisos que vao continuar chegando — e no dia em que ele
+        quisesse religar, nao haveria nada para religar.
+
+        A pasta e apagada de verdade, sem monkeypatch: e o que acontece quando
+        alguem limpa `.agenda/` com o scanner aberto.
+        """
+        registro = RegistroEmDisco(tmp_path / "agenda")
+        (tmp_path / "agenda").rmdir()
+
+        assert registro.calar_evento("Solo Boss") == "falhou"
 
     def test_duas_instancias_competindo_so_uma_desativa(self, tmp_path):
         """O usuario roda Yazalaque e Faerlina lado a lado, na MESMA pasta.
@@ -227,7 +244,8 @@ class TestOEstadoEmDisco:
             faerlina.calar_evento("Solo Boss"),
         ]
 
-        assert resultados.count(True) == 1
+        assert resultados.count("calado") == 1
+        assert resultados.count("ja_estava") == 1
         assert faerlina.eventos_calados() == frozenset({SLUG})
 
     def test_cada_evento_cala_sozinho(self, tmp_path):
@@ -358,6 +376,28 @@ class TestARespostaDoComando:
             self._registro(tmp_path), [SOLO_BOSS], "Solo Boss", False, "quem"
         )
         assert "ja estava" in resposta.lower()
+
+    def test_religar_que_falha_diz_que_o_boss_CONTINUA_calado(self, tmp_path):
+        """A direcao PERIGOSA da falha, e por isso ela e dita em voz alta.
+
+        `sair` (a saida da lista de presenca) trata `OSError` como "voce nao
+        estava la". Aqui isso seria o pior desfecho possivel: o marcador
+        continuaria em disco, o boss continuaria calado, e a unica pessoa capaz
+        de perceber teria acabado de ler "voltei a avisar". Um boss perdido em
+        silencio e exatamente o que esta funcionalidade nao pode produzir.
+
+        O marcador e substituido por um DIRETORIO de mesmo nome — `unlink`
+        recusa apagar diretorio nos dois sistemas. Sem monkeypatch.
+        """
+        registro = self._registro(tmp_path)
+        os.mkdir(tmp_path / (PREFIXO_EVENTO_CALADO + SLUG))
+
+        resposta = responder_silenciamento(
+            registro, [SOLO_BOSS], "Solo Boss", False, "Yazalaque"
+        )
+
+        assert "CONTINUAM" in resposta
+        assert registro.eventos_calados() == frozenset({SLUG})
 
     def test_evento_fora_da_agenda_NAO_cria_marcador_nenhum(self, tmp_path):
         """O modo de falha silencioso que este ramo fecha.
