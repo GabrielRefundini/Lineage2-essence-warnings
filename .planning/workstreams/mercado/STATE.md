@@ -5,16 +5,16 @@ milestone_name: )
 current_phase: 2
 current_phase_name: Leitura de pagina
 status: executing
-stopped_at: "Completed 02-01-PLAN.md (portao humano cumprido: calibration.json em negociacao)"
-last_updated: "2026-08-30T10:43:15.211Z"
+stopped_at: Completed 02-02-PLAN.md (6 chaves medidas; guarda de cruzamento REPROVADA e desligada)
+last_updated: "2026-08-30T12:45:48.265Z"
 last_activity: 2026-08-30
-last_activity_desc: "Fase 2 plano 01: as 14 chaves da leitura de pagina, as quatro colunas e o molde do cabecalho — e o calibration.json recalibrado para a grade de negociacao pela mao do usuario"
-state_head: ba58b26f615f6d5d0a9f5c65f7c2f9cb8cf5d510
+last_activity_desc: "Fase 2 plano 02: a sonda de oclusao, o limiar de dispersao, o piso de linhas comparadas e o piso/margem de leitura de glifo — seis chaves MEDIDAS por varredura sobre 478 frames e 55.342 glifos; a guarda de cruzamento REPROVOU e ficou desligada"
+state_head: 45e0156ebecb017036b8df64ed9c7b699e0cd06c
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 6
+  completed_plans: 7
   percent: 25
 ---
 
@@ -29,9 +29,9 @@ progress:
 ## Current Position
 
 Phase: 2 — Leitura de pagina
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
-Last activity: 2026-08-30 — Completed 02-01: superficie de calibracao da leitura de pagina
+Last activity: 2026-08-30 — Completed 02-02: a sonda de oclusao e o piso de leitura, medidos por varredura
 
 Progress: [███░░░░░░░] 25%
 
@@ -67,6 +67,10 @@ Progress: [███░░░░░░░] 25%
 - [Phase 02]: O fim do icone do item sai da SATURACAO, com referencia medida nas colunas de numero da mesma linha. Maior-vao e Otsu foram TENTADOS e pousam no miolo escuro do icone (84-107 entre bordas de 193-255), devolvendo 22 onde a resposta e 42 — as duas refutacoes ficaram escritas na docstring de `_fim_do_icone`.
 - [Phase 02]: As colunas de numero sao contadas A PARTIR DA DIREITA, com `Buy` de ancora: da esquerda a contagem quebra quando o icone e o nome se fundem (vao de 5 px em 063752/frame_000000 contra 13 px em pagina-cheia/frame_000010).
 - [Phase 02]: As 3 ancoras gravadas no calibration.json sao NOVAS, recortadas de 063752/frame_000000, porque as originais do usuario foram apagadas pelo incidente da janela quebrada 13. Ele conferiu na imagem de conferencia e aprovou.
+- [Phase 02]: Rotular linha limpa/coberta pela PASTA de origem foi REFUTADO por medicao — as 6 gravacoes "sem oclusao deliberada" contem tooltip (a pesquisa nomeia `scroll/frame_000084`), e com esse rotulo as populacoes se sobrepoem nos 214 trechos candidatos varridos. O rotulo passou a ser o GABARITO DE CAMPO nomeado frame a frame e linha a linha, em `tools/medir_oclusao.py`.
+- [Phase 02]: Escolher o trecho da sonda por "menor dispersao mediana" tambem foi REFUTADO: o trecho de mediana zero rejeita 22,4% de TODAS as linhas de campo. A escolha e a MAIOR FOLGA RELATIVA contra o gabarito, e um candidato cuja pior limpa e exatamente 0 e descartado — a razao contra zero nao e medicao. Escolhido `x em [207, 417)` com folga 7,67x.
+- [Phase 02]: O piso de LEITURA de glifo e 0,4698 e a margem 0,0370, MEDIDOS sobre 55.342 runs de 4.374 linhas. O limiar de COLISAO 0,8555 rejeitaria 39,4% dos glifos reais e a margem 0,12 herdada de identidade.py rejeitaria 26,7% — por isso os dois vivem em chaves proprias. A margem medida confirma de forma independente os 0,0370 do par `0`x`8` da pesquisa.
+- [Phase 02]: A guarda de cruzamento `Total / Quantity` REPROVOU e ficou DESLIGADA (`mercado_tolerancia_do_cruzamento = None`): tolerancia 1273 centesimos por unidade contra o maximo 1,0, fechamento no limite derivado 0,6525, deteccao 0,0164 sobre 1.893 substituicoes `0`<->`8` injetadas. O 02-04 Task 4 le a linha `GUARDA REPROVADA por tolerancia, 1273.0000 centesimos por unidade (maximo 1.0)` e registra a refutacao em vez de ligar o mecanismo.
 
 ### Blockers
 
@@ -99,16 +103,22 @@ Progress: [███░░░░░░░] 25%
 - **FLAKE CONHECIDO, PRÉ-EXISTENTE:** `tests/test_agenda.py` vaza um `KeyboardInterrupt` que
   aborta a sessão inteira do pytest perto de ~88 testes. Medido: 5 abortos em 60 rodadas,
   reproduzido em commit anterior a todo o trabalho do mercado. **Abortar não é falhar** —
-  rode de novo. Baseline verde: **1704 passed, 2 skipped**.
+  rode de novo. Baseline verde nesta árvore em 2026-08-30, depois do 02-02:
+  **1934 passed, 2 skipped** (1881 antes dos 53 testes novos do 02-02).
 
 - **pytest roda no Python GLOBAL, não no `.venv`** (o venv não tem pytest). Isso é
   load-bearing para o firewall FIRE-01, que por isso varre três lugares.
 
 - **`calibration.json` é gitignored** — estado de máquina, nunca commitado. Hoje carrega:
-  3 âncoras, grade de 10 linhas de 45 px (layout `adena`, guardada como deslocamento
-  `dx=-428 dy=258`), geometria 1720x1392, e **13 moldes de glifo completos**
-  (`0-9`, `,`, `XM Coin`, `Adena`). `mercado_templates_de_nome` está VAZIO à espera da
-  watchlist, e `mercado_limiar_de_template` está `null` — sem número inventado.
+  3 âncoras, grade de 10 linhas de 45 px em layout **`negociacao`** (deslocamento
+  `dx=-427 dy=256`), geometria 1720x1392, **13 moldes de glifo completos**
+  (`0-9`, `,`, `XM Coin`, `Adena`), as quatro colunas e o molde do cabeçalho (02-01), e
+  os **seis números medidos pelo 02-02**: `mercado_sonda_do_fundo`
+  `{dx0: 207, dx1: 417, folga: 2}`, `mercado_limiar_de_dispersao_do_fundo` 0.026377,
+  `mercado_minimo_de_linhas_comparadas` 7, `mercado_limiar_de_leitura_de_glifo` 0.469831,
+  `mercado_margem_de_leitura_de_glifo` 0.036984, e `mercado_tolerancia_do_cruzamento`
+  **`None`** (guarda REPROVADA e desligada de propósito). `mercado_templates_de_nome` e
+  `mercado_limiar_de_template` continuam `null` — sem número inventado.
 
 - **Recordings ficam só no checkout principal** (gitignored). Um executor em worktree tem de
   lê-los por caminho absoluto, somente leitura.
@@ -118,9 +128,9 @@ Progress: [███░░░░░░░] 25%
 
 ## Session Continuity
 
-**Last session:** 2026-08-30T10:42:06.426Z
+**Last session:** 2026-08-30T12:45:48.119Z
 
-**Stopped At:** Completed 02-01-PLAN.md (portao humano cumprido: calibration.json em negociacao)
+**Stopped At:** Completed 02-02-PLAN.md (6 chaves medidas; guarda de cruzamento REPROVADA e desligada)
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -130,3 +140,4 @@ Progress: [███░░░░░░░] 25%
 |------|----------|-------|-------|
 | Phase 1 P1 | 8 min | 3 tasks | 4 files |
 | Phase 02 P01 | 8h 14m | 3 tasks | 9 files |
+| Phase 02 P02 | 1h 25m | 2 tasks | 12 files |
