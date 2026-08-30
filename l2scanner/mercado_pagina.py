@@ -132,6 +132,11 @@ class LeitorDePagina:
         self._margem = cal.mercado_margem_de_leitura_de_glifo
         self._corte = cal.mercado_corte_de_similaridade
         self._piso_de_similaridade = cal.mercado_piso_de_similaridade
+        # `None` mantem a guarda de cruzamento DESLIGADA, que e o estado que a
+        # medicao do 02-02 deixou (GUARDA REPROVADA por tolerancia). Ela nao
+        # entra na conferencia de `_calibrado`: uma guarda que nao se provou nao
+        # pode impedir a leitura de acontecer.
+        self._tolerancia_do_cruzamento = cal.mercado_tolerancia_do_cruzamento
 
         from .mercado_visao import glifos_de_calibracao
 
@@ -317,11 +322,13 @@ class LeitorDePagina:
                 recortes["nome"],
                 recortes["total"],
                 recortes["quantidade"],
+                recortes["unitario"],
                 moldes=self._moldes,
                 piso=float(self._piso),
                 margem=float(self._margem),
                 sonda=self._sonda,
                 limiar_de_dispersao=self._limiar_de_dispersao,
+                tolerancia_do_cruzamento=self._tolerancia_do_cruzamento,
                 catalogo=self._catalogo,
                 corte_de_similaridade=float(self._corte),
                 piso_de_similaridade=float(self._piso_de_similaridade),
@@ -360,13 +367,17 @@ class LeitorDePagina:
         inteiro, e `janela[-500:]` e um recorte VALIDO em numpy que devolve o
         canto oposto da imagem, calado.
 
-        A coluna do UNITARIO nao esta aqui de proposito: ela e do 02-06.
+        A coluna do UNITARIO entrou no 02-06, junto do seu unico consumidor —
+        a guarda de cruzamento. Ela e a TERCEIRA celula de numero da linha, e
+        sem este recorte a guarda responderia "nao opino" em toda linha e viraria
+        codigo morto que os testes aprovam (T-02-39).
         """
         saida: dict[str, np.ndarray] = {}
         for nome, chave in (
             ("nome", "mercado_coluna_do_nome"),
             ("quantidade", "mercado_coluna_da_quantidade"),
             ("total", "mercado_coluna_do_total"),
+            ("unitario", "mercado_coluna_do_unitario"),
         ):
             coluna = getattr(self._cal, chave)
             x = ox + int(coluna["dx"])
@@ -416,6 +427,10 @@ class LeitorDePagina:
                 ("mercado_margem_de_leitura_de_glifo", self._margem),
                 ("mercado_corte_de_similaridade", self._corte),
                 ("mercado_piso_de_similaridade", self._piso_de_similaridade),
+                (
+                    "mercado_coluna_do_unitario",
+                    self._cal.mercado_coluna_do_unitario,
+                ),
             )
             if valor is None or (hasattr(valor, "__len__") and len(valor) == 0)
         ]

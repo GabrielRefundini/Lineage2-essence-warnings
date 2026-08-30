@@ -85,9 +85,12 @@ from l2scanner.identidade import mascara_de_texto  # noqa: E402
 # para `ferramenta.centesimos_de_moeda` e viraram o detector de regressao da
 # mudanca de casa.
 from l2scanner.mercado_leitura import (  # noqa: E402
+    LIMITE_DERIVADO_POR_UNIDADE,
     centesimos_de_moeda,
     inteiro_de_quantidade,
+    limite_derivado_do_cruzamento,
     pontuar_glifos,
+    residuo_do_cruzamento,
     segmentar_glifos,
 )
 from l2scanner.mercado_leitura import ler_celula as classificar_celula  # noqa: E402,F401
@@ -127,7 +130,14 @@ MOTIVO_PARA_IGNORAR = _oclusao.MOTIVO_PARA_IGNORAR
 # arredondamento a duas casas. `unitario = round(total/quantidade, 2)` erra no
 # maximo meio centesimo por unidade, entao o residuo total erra no maximo
 # `quantidade/2` centesimos.
-LIMITE_POR_UNIDADE = 0.5
+#
+# O NUMERO E A ARITMETICA MUDARAM DE CASA NO 02-06, e este nome e so um apelido
+# local. `limite_derivado_do_cruzamento` e `residuo_do_cruzamento` nasceram aqui,
+# para MEDIR a guarda, e viraram producao quando a guarda foi instalada. A seta
+# aponta ferramenta -> puro, como nos outros nove precedentes desta fase: manter
+# duas copias da mesma aritmetica deixaria a ferramenta e o scanner medindo
+# coisas ligeiramente diferentes no dia em que uma delas fosse corrigida.
+LIMITE_POR_UNIDADE = LIMITE_DERIVADO_POR_UNIDADE
 
 # A tolerancia proposta tem de caber em 2x o limite derivado. Mais larga que
 # isso e peneira: ela passaria a aceitar tambem a substituicao que a guarda
@@ -210,21 +220,6 @@ class LinhaMedida:
             and self.unitario is not None
             and self.quantidade > 0
         )
-
-
-def limite_derivado_do_cruzamento(quantidade: int) -> float:
-    """O maximo que o residuo pode valer se o unitario e um arredondamento.
-
-    NAO e uma tolerancia escolhida: e a consequencia aritmetica de o jogo exibir
-    `round(total/quantidade, 2)`. Cada unidade carrega no maximo meio centesimo
-    de erro de arredondamento; `quantidade` unidades carregam `quantidade/2`.
-    """
-    return float(quantidade) * LIMITE_POR_UNIDADE
-
-
-def residuo_do_cruzamento(total: int, unitario: int, quantidade: int) -> int:
-    """`|total - unitario x quantidade|`, em centesimos."""
-    return abs(int(total) - int(unitario) * int(quantidade))
 
 
 def _tolerancia_que_cobre(por_unidade: list, cobertura: float) -> float:

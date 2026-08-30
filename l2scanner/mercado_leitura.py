@@ -566,20 +566,158 @@ def ler_celula_de_quantidade(
 
 
 # ---------------------------------------------------------------------------
-# Os quatro motivos de recusa desta fase (D-17)
+# A guarda de cruzamento: o `Total` confrontado com `Unit price x Quantity`
+# ---------------------------------------------------------------------------
+#
+# POR QUE ELA EXISTE, e por que nenhuma outra peneira faz o servico dela.
+#
+# O par `0`x`8` e o mais estreito do sistema inteiro: margem minima MEDIDA de
+# 0,0370 sobre recortes reais, com o pior `0` casando 0,8249 contra o molde do
+# `8`. Uma substituicao `0` -> `8` no `Total` MANTEM a gramatica do numero
+# intacta, entao `numero_valido` nao a pega; e o estabilizador de pagina compara
+# duas leituras do MESMO motor sobre a MESMA pagina, entao ele tambem nao — dois
+# frames concordam no mesmo erro. O cruzamento e a unica conferencia disponivel
+# que vem de OUTRO lugar da tela.
+#
+# ESTA MEDICAO FOI FEITA, E ELA REPROVOU. O registro da refutacao fica aqui de
+# proposito, no padrao de `ocr.py:34-52`: este projeto documenta numero medido, e
+# UM NUMERO QUE CAIU PRECISA DIZER QUE CAIU, senao ele volta na proxima leitura.
+#
+# `tools/medir_leitura_de_glifo.py` varreu 478 frames e 55.342 glifos das 8
+# gravacoes de campo (02-02) e emitiu, na linha de formato fixo que o 02-06 le:
+#
+#     GUARDA REPROVADA por tolerancia, 1273.0000 centesimos por unidade
+#     (maximo 1.0)
+#
+#     criterio      exigido                          medido
+#     fechamento    >= 0,99                          0,9992 — so com tol. 1273
+#     tolerancia    <= 1,0 centesimo por unidade     1273,0    CAIU
+#     deteccao      >= 0,90                          0,0164    tambem cairia
+#
+# O fechamento no LIMITE DERIVADO (0,5 por unidade, o que a aritmetica do
+# arredondamento permite) fica em apenas 0,6525. Para chegar a 0,99 a tolerancia
+# precisaria de 1273 centesimos por unidade — 2.546 vezes o limite derivado. Com
+# uma peneira dessas a guarda aprovaria tambem a substituicao que ela existe para
+# pegar, e a deteccao de 0,0164 sobre 1.893 substituicoes `0`<->`8` injetadas
+# confirma isso diretamente.
+#
+# ENTAO `mercado_tolerancia_do_cruzamento` ESTA GRAVADA COMO `None`, E A GUARDA
+# NAO DESCARTA NADA. Falha fechada vale para a guarda tambem: descartar dado bom
+# com um sinal que nao se provou faz da guarda o defeito. O mecanismo degrada
+# para OBSERVACAO — o residuo continua sendo calculado, guardado em
+# `LinhaLida.residuo_do_cruzamento` e registrado no log —, porque a evidencia
+# nao pode se perder so porque a guarda nao ligou.
+#
+# O QUE FALTA PARA REMEDIR: o portao de LAYOUT so nasceu no 02-04, depois desta
+# varredura, entao ela mediu sobre frames de TODOS os layouts. Na aba Adena a
+# terceira coluna e `5 mln increment`, normalizada por cinco milhoes de adena e
+# NAO por unidade — ali a relacao nao vale por construcao, e nao por erro de
+# leitura. Isso explica parte da queda, mas nao toda: mesmo `pagina-cheia`, que e
+# negociacao pura, para em 84,2%. O veredito e robusto.
+
+# Meio centesimo por unidade — a DERIVACAO, e nunca a tolerancia de producao.
+LIMITE_DERIVADO_POR_UNIDADE = 0.5
+
+
+def limite_derivado_do_cruzamento(quantidade: int) -> float:
+    """O maximo que o residuo pode valer se o unitario e um arredondamento.
+
+    NAO e uma tolerancia escolhida: e a consequencia aritmetica de a tela exibir
+    `round(total / quantidade, 2)`. Cada unidade carrega no maximo meio centesimo
+    de erro de arredondamento; `quantidade` unidades carregam `quantidade / 2`.
+
+    O caso conhecido do spike fecha: `40,00` por 48 unidades aparece como `0,83`,
+    o residuo e `|4000 - 83 x 48| = 16`, e o limite derivado e 24.
+
+    ELE E REFERENCIA, E NAO PENEIRA, e a diferenca importa: o numero que liga a
+    guarda em producao e o MEDIDO pelo 02-02 e gravado no `calibration.json`. A
+    derivacao existe para dizer se o medido faz sentido — e foi ela que mostrou
+    que 1273 nao fazia.
+
+    E O PROPRIO ARREDONDAMENTO E SUSPEITO, MEDIDO NAS FIXTURAS: em
+    `janela_negociacao_f005.png`, linha 5, a tela mostra `11,39` por 6 unidades
+    com unitario `1,89` — mas `1139 / 6 = 1,8983`, que ARREDONDA para `1,90`. O
+    cliente parece TRUNCAR, e nao arredondar, o que dobraria o limite (um
+    centesimo por unidade em vez de meio). O residuo ali e 5 contra limite
+    derivado 3. Uma observacao sobre uma fixtura nao vira lei — mas ela e mais
+    uma explicacao para o fechamento de 0,6525 que reprovou a guarda, e o dia em
+    que alguem remedir tem de comecar por aqui.
+    """
+    return float(quantidade) * LIMITE_DERIVADO_POR_UNIDADE
+
+
+def residuo_do_cruzamento(
+    total: int | None,
+    unitario: int | None,
+    quantidade: int | None,
+) -> int | None:
+    """`|total - unitario x quantidade|` em CENTESIMOS. `None` = nao da para dizer.
+
+    ARITMETICA INTEIRA, SEM UMA UNICA DIVISAO (T-02-38). Ponto flutuante entraria
+    pela porta dos fundos exatamente onde a leitura o evitou, e um residuo de
+    `1e-13` viraria divergencia num numero que fecha.
+
+    `None` quando qualquer um dos tres nao leu, e `None` quando a quantidade e
+    zero: multiplicar por zero devolveria o proprio total como "residuo", que e
+    uma afirmacao que ninguem fez.
+    """
+    if total is None or unitario is None or quantidade is None:
+        return None
+    if int(quantidade) == 0:
+        return None
+    return abs(int(total) - int(unitario) * int(quantidade))
+
+
+def cruzamento_confere(
+    total: int | None,
+    unitario: int | None,
+    quantidade: int | None,
+    tolerancia: float | None,
+) -> bool | None:
+    """O `Total` bate com `Unit price x Quantity`? `None` e "NAO OPINO".
+
+    `tolerancia` e em CENTESIMOS POR UNIDADE e NAO TEM VALOR DE FABRICA. Um
+    default aqui seria a constante magica que este projeto recusa: o unico numero
+    que pode ligar esta guarda e um que alguem mediu, e quem o mediu tem de
+    aparecer na chamada. Ele vem de `mercado_tolerancia_do_cruzamento`, no
+    `calibration.json`.
+
+    `None` — "nao opino" — sempre que o residuo for `None` (unitario ilegivel,
+    linha coberta, coluna vazia, quantidade zero) OU a tolerancia for `None` (a
+    guarda esta desligada). E "NAO OPINO" NUNCA VIRA DESCARTE (T-02-36): falha
+    fechada e sobre o DADO ilegivel, jamais sobre a ausencia de uma segunda
+    opiniao. Quem transforma abstencao em recusa mata linha boa com o silencio de
+    uma conferencia que nao existia.
+
+    Hoje ela responde `None` em producao, porque a medicao do 02-02 reprovou e a
+    tolerancia esta gravada como `None`. Os numeros da reprovacao estao no bloco
+    acima.
+    """
+    residuo = residuo_do_cruzamento(total, unitario, quantidade)
+    if residuo is None or tolerancia is None:
+        return None
+    return residuo <= float(tolerancia) * int(quantidade)
+
+
+# ---------------------------------------------------------------------------
+# Os cinco motivos de recusa desta fase (D-17)
 # ---------------------------------------------------------------------------
 
-# Sao QUATRO peneiras com causas diferentes e consertos diferentes, e o usuario
+# Sao CINCO peneiras com causas diferentes e consertos diferentes, e o usuario
 # precisa ler no log qual delas pegou o que:
 #
 #   oclusao        -> mova a tooltip, ou espere ela sair
 #   numero         -> glifo faltando ou a mais na celula; recalibre os moldes
+#   cruzamento     -> o Total nao bate com `Unit price x Quantity`; um digito foi
+#                     lido por outro sem quebrar a gramatica (tipicamente `0`x`8`)
 #   faixa-cinzenta -> nome novo ambiguo demais para agrupar com seguranca
 #   discordancia   -> o OCR esta instavel naquela linha
 #
-# Um motivo unico ("linha ruim") faria os quatro consertos parecerem o mesmo.
+# Um motivo unico ("linha ruim") faria os cinco consertos parecerem o mesmo. O do
+# cruzamento so aparece com a guarda LIGADA — e ela esta desligada por medicao.
 MOTIVO_DA_OCLUSAO = "oclusao"
 MOTIVO_DA_GRAMATICA = "numero"
+MOTIVO_DO_CRUZAMENTO = "cruzamento"
 MOTIVO_DA_FAIXA_CINZENTA = "faixa-cinzenta"
 MOTIVO_DA_DISCORDANCIA = "discordancia-entre-escalas"
 
@@ -598,6 +736,16 @@ class LinhaLida:
     `0,83 x 48 = 39,84`. A Fase 3 guarda `Total` e `Quantity`, que sao o que a
     tela afirma. O unitario e LIDO no 02-06, para a guarda de cruzamento
     conferir a aritmetica, e mesmo la ele nao e gravado como preco.
+
+    `residuo_do_cruzamento` E O QUE SOBROU DESSA CONFERENCIA, e nao um preco:
+    `|total - unitario x quantidade|` em centesimos, ou `None` quando alguma das
+    tres celulas nao leu. Ele e informacao da FASE 2 sobre a propria leitura —
+    "estas duas colunas discordam em 80 centesimos" — e existe porque a guarda
+    esta DESLIGADA por medicao e a evidencia nao pode se perder por isso.
+
+    SE ELE VAI PARA O CSV E DECISAO DA FASE 3, E ELA NAO SE TOMA AQUI. A Fase 2
+    nao persiste nada; o CSV de observacoes e da fase seguinte, e a fronteira nao
+    se mexe neste plano.
     """
 
     indice: int
@@ -606,6 +754,7 @@ class LinhaLida:
     total_em_centesimos: int
     quantidade: int
     serie_nova: bool
+    residuo_do_cruzamento: int | None
 
 
 @dataclass(frozen=True)
@@ -726,12 +875,14 @@ def ler_linha(
     recorte_do_nome: np.ndarray,
     recorte_do_total: np.ndarray,
     recorte_da_quantidade: np.ndarray,
+    recorte_do_unitario: np.ndarray,
     *,
     moldes: dict[str, np.ndarray],
     piso: float,
     margem: float,
     sonda: dict | None,
     limiar_de_dispersao: float,
+    tolerancia_do_cruzamento: float | None,
     catalogo: dict[str, EntradaDoCatalogo],
     corte_de_similaridade: float,
     piso_de_similaridade: float,
@@ -752,15 +903,25 @@ def ler_linha(
        buraco: medido, com a tooltip por cima da propria coluna do nome, o OCR
        devolveu frases inteiras da tooltip como se fossem nome de item. LEIT-05
        reduz a superficie; a sonda e que a fecha.
-    3. AS DUAS COLUNAS DE NUMERO, que custam 13 casamentos por run — ordens de
+    3. AS TRES COLUNAS DE NUMERO, que custam 13 casamentos por run — ordens de
        grandeza menos que os ~7 ms do OCR. Uma linha cujo preco nao se le nao vai
        virar dado de jeito nenhum, entao pagar OCR por ela seria pagar por nada.
-    4. O NOME, lido pelas DUAS escalas, e o acordo entre elas.
+    4. A GUARDA DE CRUZAMENTO, depois das tres celulas e depois da gramatica, e
+       ainda ANTES do nome. A ordem tem razao: a gramatica pega glifo perdido ou
+       a mais e custa tres linhas, enquanto a guarda pega SUBSTITUICAO e custa
+       uma leitura de coluna a mais — gastar a cara antes da barata seria
+       desperdicio, e mascararia qual das duas recusou. E ela vem antes do OCR
+       pela mesma razao do passo 3: uma linha que a guarda derruba nunca vira
+       dado.
+    5. O NOME, lido pelas DUAS escalas, e o acordo entre elas.
 
-    NESTE PLANO SAO DUAS COLUNAS DE NUMERO, NAO TRES. A terceira — o unitario —
-    entra no 02-06, junto da guarda de cruzamento, que e a unica consumidora
-    dela. Ler aqui uma coluna que ninguem usa por uma onda inteira seria leitura
-    morta, e leitura morta envelhece sem que nada denuncie.
+    A TERCEIRA COLUNA DE NUMERO E O UNITARIO, E ELA ENTROU NO 02-06 — com o seu
+    unico consumidor, a guarda de cruzamento. Ate a onda anterior ler essa coluna
+    teria sido leitura morta, e leitura morta envelhece sem que nada denuncie.
+    Ela e lida para CONFERIR e nunca guardada como preco: reconstruir o total a
+    partir dela devolveria `0,83 x 48 = 39,84` onde a tela diz `40,00`.
+
+    O unitario ILEGIVEL nao derruba a linha — ele so cala a guarda.
 
     NAO HA RAMO DEDICADO A MARCACAO DE ALVO (D-16). Ela e opaca e previsivel, e
     o mesmo detector de fundo que pega a tooltip pega ela. Um `if` proprio seria
@@ -792,12 +953,37 @@ def ler_linha(
                 MOTIVO_DA_GRAMATICA,
                 "a coluna Quantity nao se leu inteira",
             )
+        # A TERCEIRA leitura. Ela usa a MESMA `ler_celula_de_numero` das outras
+        # duas, com o mesmo piso e a mesma margem: o unitario tambem e moeda, e
+        # uma segunda opiniao lida por regra diferente seria outra opiniao sobre
+        # outra coisa.
+        unitario = ler_celula_de_numero(
+            recorte_do_unitario, moldes, piso, margem
+        )
+
+        residuo = residuo_do_cruzamento(total, unitario, quantidade)
+        confere = cruzamento_confere(
+            total, unitario, quantidade, tolerancia_do_cruzamento
+        )
+        if confere is False:
+            return _recusar(
+                indice,
+                MOTIVO_DO_CRUZAMENTO,
+                f"total={total} unitario={unitario} quantidade={quantidade} "
+                f"residuo={residuo} estourou a tolerancia medida de "
+                f"{tolerancia_do_cruzamento} centesimos por unidade "
+                f"(limite {float(tolerancia_do_cruzamento) * quantidade})",
+            )
+        _observar_o_cruzamento(
+            indice, total, unitario, quantidade, residuo, tolerancia_do_cruzamento
+        )
 
         return _ler_o_nome(
             indice,
             recorte_do_nome,
             total,
             quantidade,
+            residuo,
             catalogo,
             corte_de_similaridade,
             piso_de_similaridade,
@@ -809,11 +995,47 @@ def ler_linha(
         return _recusar(indice, MOTIVO_DA_GRAMATICA, f"excecao contida: {erro}")
 
 
+def _observar_o_cruzamento(
+    indice: int,
+    total: int,
+    unitario: int | None,
+    quantidade: int,
+    residuo: int | None,
+    tolerancia: float | None,
+) -> None:
+    """A rota da guarda REPROVADA: registrar em vez de descartar.
+
+    So fala quando ha o que dizer — quando o residuo estoura o LIMITE DERIVADO,
+    que e a unica referencia disponivel enquanto nao ha tolerancia medida que
+    preste. Logar toda linha encheria o arquivo rotativo de zeros e afogaria as
+    linhas que importam.
+
+    Cala inteiramente com a guarda LIGADA: ali quem fala e o descarte, e dois
+    registros para o mesmo evento fariam a contagem do console mentir.
+    """
+    if tolerancia is not None or residuo is None:
+        return
+    if residuo <= limite_derivado_do_cruzamento(quantidade):
+        return
+    log.info(
+        "linha %d OBSERVACAO do cruzamento: total=%d unitario=%s quantidade=%d "
+        "residuo=%d acima do limite derivado %.1f. A guarda esta DESLIGADA "
+        "(medicao do 02-02 REPROVADA) — nada foi descartado.",
+        indice,
+        total,
+        unitario,
+        quantidade,
+        residuo,
+        limite_derivado_do_cruzamento(quantidade),
+    )
+
+
 def _ler_o_nome(
     indice: int,
     recorte_do_nome: np.ndarray,
     total: int,
     quantidade: int,
+    residuo_do_cruzamento_da_linha: int | None,
     catalogo: dict[str, EntradaDoCatalogo],
     corte_de_similaridade: float,
     piso_de_similaridade: float,
@@ -926,6 +1148,7 @@ def _ler_o_nome(
         total_em_centesimos=total,
         quantidade=quantidade,
         serie_nova=bool(veredito_caro.nova),
+        residuo_do_cruzamento=residuo_do_cruzamento_da_linha,
     )
 
 
