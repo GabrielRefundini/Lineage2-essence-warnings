@@ -40,10 +40,16 @@ from l2scanner.calibrar_mercado import (
     derivar_grade,
     desenhar_conferencia,
     escolher_frame,
+    conferir_a_coluna_na_grade,
+    grupos_do_cabecalho,
     ler_watchlist,
     matriz_de_confusao,
+    medir_o_corte_de_brilho_do_cabecalho,
     montar_ancoras,
+    sugerir_a_coluna_do_nome,
+    sugerir_as_colunas,
 )
+from l2scanner.mercado_geometria import GradeMedida
 
 REFERENCIA = Path(__file__).parent / "fixtures" / "calibracao_de_referencia.json"
 
@@ -1643,3 +1649,294 @@ class TestAContagemDeLinhasArredonda:
             (744, 618, 943, 405), (744, 618, 943, 45), "adena", (1171, 362)
         )
         assert grade["linhas_por_pagina"] == 9
+
+
+# ---------------------------------------------------------------------------
+# As QUATRO COLUNAS e o MOLDE DO CABECALHO (Fase 02, plano 02-01)
+# ---------------------------------------------------------------------------
+#
+# Tudo aqui roda sobre fixtures VERSIONADAS resgatadas de gravacoes reais, e
+# nunca sobre `recordings/` — a pasta e gitignored e nao vem de clone limpo,
+# entao um teste que dependesse dela ficaria verde nesta maquina e amarelo em
+# toda outra. O precedente e `test_mercado_glifos.py:1-16`.
+#
+#     tests/fixtures/mercado/janela_negociacao_f010.png
+#         a JANELA inteira (1720x1392) de
+#         `recordings/20260828-060622-mercado-pagina-cheia/frame_000010.png`.
+#         Grade de negociacao com dez linhas e uma tooltip cobrindo as quatro
+#         primeiras — de proposito: e a linha coberta que prova que a proposta
+#         sobrevive a oclusao parcial.
+#     tests/fixtures/mercado/cabecalho_negociacao_goods.png
+#         a banda do cabecalho (30x944) de
+#         `recordings/20260828-063752-mercado-aberto/frame_000000.png`,
+#         ordenada por `Goods`.
+#     tests/fixtures/mercado/cabecalho_negociacao_unitprice.png
+#         a banda do MESMO painel em `frame_000020` da mesma gravacao,
+#         ordenada por `Unit price`. O par existe para provar que o molde casa
+#         a mesma coluna com e sem a seta, que anda de celula conforme a
+#         ordenacao (D-11).
+
+FIXTURES_MERCADO = Path(__file__).parent / "fixtures" / "mercado"
+JANELA_F010 = FIXTURES_MERCADO / "janela_negociacao_f010.png"
+CABECALHO_GOODS = FIXTURES_MERCADO / "cabecalho_negociacao_goods.png"
+CABECALHO_UNITPRICE = FIXTURES_MERCADO / "cabecalho_negociacao_unitprice.png"
+
+# A GRADE DE `janela_negociacao_f010.png`, EM COORDENADAS DO FRAME.
+#
+# NAO sai de `medir_a_grade` sobre esta fixture, e a razao e o proprio material:
+# a tooltip cobre as quatro primeiras linhas e quebra a alternancia de fundo de
+# que aquela medicao vive — ela devolve 11 linhas de 45 px comecando na segunda.
+# Estes numeros saem do caminho que a ferramenta usa de verdade: a faixa de
+# titulo localizada por ancora em (1010, 212) mais o deslocamento gravado no
+# `calibration.json` do usuario (dx=-428, dy=258, 942x445, 10 linhas de 45).
+#
+# Sao constantes de fixture, como `ALTURA_DA_LINHA = 45` em
+# `test_mercado_glifos.py`: elas descrevem UM material conhecido, e o teste que
+# as usa afirma relacoes, nao os numeros em si.
+GRADE_F010 = GradeMedida(esquerda=582, topo=470, largura=942, passo=45, linhas=10)
+
+
+def _fixture(caminho: Path) -> np.ndarray:
+    pixels = cv2.imread(str(caminho))
+    assert pixels is not None, f"nao decodifiquei {caminho}"
+    return pixels
+
+
+def _maximos_por_grupo(
+    banda: np.ndarray, grupos: list[tuple[int, int]]
+) -> dict[tuple[int, int], int]:
+    valor = cv2.cvtColor(banda, cv2.COLOR_BGR2HSV)[:, :, 2]
+    return {(a, b): int(valor[:, a:b].max()) for a, b in grupos}
+
+
+class TestAsTresFixturesDeNegociacaoExistem:
+    """Sem elas os testes abaixo nao sao afirmaveis num clone limpo."""
+
+    @pytest.mark.parametrize(
+        "caminho,forma",
+        [
+            (JANELA_F010, (1392, 1720)),
+            (CABECALHO_GOODS, (30, 944)),
+            (CABECALHO_UNITPRICE, (30, 944)),
+        ],
+    )
+    def test_a_fixture_existe_e_tem_a_forma_medida(self, caminho, forma):
+        assert caminho.is_file(), f"{caminho.name} nao foi versionada"
+        assert _fixture(caminho).shape[:2] == forma
+
+
+class TestOCorteDeBrilhoDoCabecalho:
+    """O corte e MEDIDO neste frame, nunca herdado de constante.
+
+    A pesquisa mediu rotulos em 229, a seta de ordenacao em 181 e a borda da
+    banda em 201, numa unica resolucao e numa unica pele — e por isso o numero
+    mora no `calibration.json`, nao no fonte. O que o codigo carrega e o METODO:
+    o maior vao entre os picos de brilho dos grupos da propria banda.
+    """
+
+    def test_o_corte_cai_ESTRITAMENTE_entre_a_seta_e_os_rotulos(self):
+        banda = _fixture(CABECALHO_GOODS)
+        corte = medir_o_corte_de_brilho_do_cabecalho(banda)
+        assert corte is not None
+
+        antes = _maximos_por_grupo(banda, grupos_do_cabecalho(banda, None))
+        depois = set(grupos_do_cabecalho(banda, corte))
+        sumiram = [pico for g, pico in antes.items() if g not in depois]
+        ficaram = [pico for g, pico in antes.items() if g in depois]
+
+        assert sumiram, "o corte nao removeu grupo nenhum — nao separou nada"
+        assert ficaram, "o corte removeu TUDO — a banda ficaria vazia"
+        assert max(sumiram) < corte < min(ficaram), (
+            f"corte={corte} nao separa: sumiram ate {max(sumiram)}, ficaram a "
+            f"partir de {min(ficaram)}"
+        )
+
+    def test_a_seta_de_ordenacao_e_um_dos_grupos_que_somem(self):
+        """Ela tem 3 px de largura e e o que o molde NAO pode carregar."""
+        banda = _fixture(CABECALHO_GOODS)
+        corte = medir_o_corte_de_brilho_do_cabecalho(banda)
+        antes = grupos_do_cabecalho(banda, None)
+        depois = set(grupos_do_cabecalho(banda, corte))
+        sumiram = [(a, b) for a, b in antes if (a, b) not in depois]
+        assert any(b - a <= 3 for a, b in sumiram), (
+            f"nenhum grupo estreito sumiu; sumiram {sumiram}"
+        )
+
+    def test_uma_banda_chapada_nao_devolve_corte(self):
+        """Sem dois picos nao ha vao para medir, e propor seria inventar."""
+        chapada = np.full((30, 200, 3), 200, dtype=np.uint8)
+        assert medir_o_corte_de_brilho_do_cabecalho(chapada) is None
+
+
+class TestOMoldeDoCabecalhoCasaAsDuasORDENACOES:
+    """A seta anda de celula; o molde tem de ignorar isso (D-11).
+
+    `frame_000000` esta ordenado por `Goods` e a seta cai no grupo (198,201);
+    `frame_000020` esta ordenado por `Unit price` e ela cai em (796,799). Se o
+    molde carregasse a seta, ele casaria uma ordenacao e recusaria a outra — e o
+    portao de layout recusaria a pagina inteira, calado.
+    """
+
+    def test_o_conjunto_de_grupos_e_IGUAL_nas_duas_ordenacoes(self):
+        goods = _fixture(CABECALHO_GOODS)
+        unitprice = _fixture(CABECALHO_UNITPRICE)
+
+        crus_goods = grupos_do_cabecalho(goods, None)
+        crus_unit = grupos_do_cabecalho(unitprice, None)
+        assert crus_goods != crus_unit, (
+            "as duas bandas ja eram iguais SEM o corte — a fixture nao prova "
+            "nada sobre a seta"
+        )
+
+        corte = medir_o_corte_de_brilho_do_cabecalho(goods)
+        assert grupos_do_cabecalho(goods, corte) == grupos_do_cabecalho(
+            unitprice, corte
+        )
+
+    def test_o_corte_medido_nas_duas_bandas_e_o_mesmo(self):
+        assert medir_o_corte_de_brilho_do_cabecalho(
+            _fixture(CABECALHO_GOODS)
+        ) == medir_o_corte_de_brilho_do_cabecalho(_fixture(CABECALHO_UNITPRICE))
+
+
+class TestASugestaoDaColunaDoNome:
+    """LEIT-05: o recorte e a COLUNA, nunca a linha inteira.
+
+    E ele precisa ser LARGO. Medido em campo: um nome num recorte de 143 px saiu
+    truncado (`Common Mafia Leader Lucia`); com 270 px saiu inteiro. Medir a
+    coluna pelo TEXTO desta pagina daria 263 px — todos os dez nomes aqui sao o
+    mesmo `Earth Spirit Evolution Stone`, e nomes sao alinhados a ESQUERDA e de
+    comprimento variavel. Por isso o limite direito vem do rotulo `Quantity` no
+    cabecalho, que e o pixel mais a esquerda que aquela coluna chega a desenhar.
+    """
+
+    def test_comeca_depois_do_icone_e_cobre_pelo_menos_270_px(self):
+        pixels = _fixture(JANELA_F010)
+        caixa = sugerir_a_coluna_do_nome(pixels, GRADE_F010)
+        assert caixa is not None
+        x, y, largura, altura = caixa
+
+        # O icone da linha vai de +11 a +35 a partir da esquerda da grade,
+        # medido nas dez linhas desta fixture.
+        assert x >= GRADE_F010.esquerda + 35, "o retangulo comecou dentro do icone"
+        assert largura >= 270, (
+            f"a coluna do nome saiu com {largura} px; 270 e o piso medido em "
+            f"campo para um nome longo nao truncar"
+        )
+        assert y == GRADE_F010.topo
+        assert altura == GRADE_F010.altura
+
+    def test_nao_invade_a_coluna_da_quantidade(self):
+        """A quantidade desta pagina comeca em +428 a partir da grade."""
+        caixa = sugerir_a_coluna_do_nome(_fixture(JANELA_F010), GRADE_F010)
+        x, _y, largura, _altura = caixa
+        assert x + largura <= GRADE_F010.esquerda + 428
+
+    def test_sem_cabecalho_legivel_devolve_None(self):
+        """`None` abre a janela VAZIA. Sugerir errado e pior que nao sugerir."""
+        ruido = np.random.default_rng(3).integers(
+            0, 255, (1000, 900, 3), dtype=np.uint8
+        )
+        grade = GradeMedida(esquerda=10, topo=100, largura=800, passo=45, linhas=10)
+        assert sugerir_a_coluna_do_nome(ruido, grade) is None
+
+
+class TestAsColunasDeNumero:
+    """Quantity, Total e Unit price viram RETANGULO CALIBRADO, nao busca.
+
+    Em producao a coluna de numero nunca e localizada por `numeros_com_sufixo`:
+    aquela funcao propoe aqui, com um humano olhando, e o que vale depois e o
+    retangulo confirmado.
+    """
+
+    @pytest.fixture
+    def colunas(self):
+        return sugerir_as_colunas(_fixture(JANELA_F010), GRADE_F010)
+
+    def test_propoe_as_quatro(self, colunas):
+        assert set(colunas) == {"nome", "quantidade", "total", "unitario"}
+
+    def test_nenhum_par_se_sobrepoe_em_UM_pixel(self, colunas):
+        faixas = sorted((x, x + largura) for x, _y, largura, _alt in colunas.values())
+        for (_a0, a1), (b0, _b1) in zip(faixas, faixas[1:]):
+            assert a1 <= b0, f"as colunas se sobrepoem: {faixas}"
+
+    def test_o_unitario_cai_a_direita_do_total(self, colunas):
+        assert colunas["unitario"][0] >= colunas["total"][0] + colunas["total"][2]
+
+    def test_cada_coluna_cabe_dentro_da_grade(self, colunas):
+        for nome, (x, _y, largura, _alt) in colunas.items():
+            assert x >= GRADE_F010.esquerda, nome
+            assert x + largura <= GRADE_F010.esquerda + GRADE_F010.largura, nome
+
+    def test_a_coluna_do_total_cobre_o_numero_da_pagina(self, colunas):
+        """Os totais desta pagina vivem entre +548 e +579 a partir da grade."""
+        x, _y, largura, _alt = colunas["total"]
+        assert x <= GRADE_F010.esquerda + 548
+        assert x + largura >= GRADE_F010.esquerda + 579
+
+    def test_a_coluna_do_unitario_cobre_o_numero_da_pagina(self, colunas):
+        """Os unitarios desta pagina vivem entre +820 e +851."""
+        x, _y, largura, _alt = colunas["unitario"]
+        assert x <= GRADE_F010.esquerda + 820
+        assert x + largura >= GRADE_F010.esquerda + 851
+
+    def test_um_frame_sem_grade_legivel_nao_propoe_nada(self):
+        ruido = np.random.default_rng(11).integers(
+            0, 255, (1000, 900, 3), dtype=np.uint8
+        )
+        grade = GradeMedida(esquerda=10, topo=100, largura=800, passo=45, linhas=10)
+        assert sugerir_as_colunas(ruido, grade) == {}
+
+
+class TestARecusaDeColunaForaDaGrade:
+    """Um dx mentido nao quebra nada visivel: ele le OUTRA coluna (T-02-02)."""
+
+    GRADE = (100, 200, 400, 450)
+
+    def test_a_coluna_que_passa_da_direita_e_recusada(self):
+        with pytest.raises(MercadoNaoCalibravel, match="Remarque|remarque"):
+            conferir_a_coluna_na_grade("total", (450, 200, 100, 450), self.GRADE)
+
+    def test_a_coluna_que_comeca_antes_da_grade_e_recusada(self):
+        with pytest.raises(MercadoNaoCalibravel, match="Remarque|remarque"):
+            conferir_a_coluna_na_grade("nome", (50, 200, 100, 450), self.GRADE)
+
+    def test_a_coluna_dentro_da_grade_passa(self):
+        conferir_a_coluna_na_grade("nome", (110, 200, 100, 450), self.GRADE)
+
+
+class TestOPassoDaWatchlistFoiAPOSENTADO:
+    """LEIT-01 passou a ler o nome por OCR em 2026-08-29 (quick `260829-rd9`).
+
+    A ferramenta nao pede mais recorte por item nem manda o usuario escrever
+    `[mercado] watchlist` no `config.toml`. `ler_watchlist` e
+    `matriz_de_confusao` FICAM no arquivo — elas sao o precedente medido citado
+    por outros textos, e apagar a funcao apagaria a medicao junto.
+    """
+
+    def test_as_duas_funcoes_continuam_existindo(self):
+        assert callable(l2scanner.calibrar_mercado.ler_watchlist)
+        assert callable(l2scanner.calibrar_mercado.matriz_de_confusao)
+
+    def test_o_fluxo_principal_nao_chama_mais_ler_watchlist(self):
+        fonte = inspect.getsource(l2scanner.calibrar_mercado.calibrar)
+        assert "ler_watchlist" not in _codigo_sem_prosa(fonte), (
+            "o passo da watchlist voltou ao fluxo principal"
+        )
+
+    def test_o_layout_negociacao_e_o_padrao_do_cli(self):
+        parser_help = _rodar_help()
+        assert "--layout" in parser_help
+        assert "negociacao" in parser_help
+
+
+def _rodar_help() -> str:
+    import contextlib
+    import io
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        with pytest.raises(SystemExit):
+            l2scanner.calibrar_mercado.main(["--help"])
+    return buffer.getvalue()
