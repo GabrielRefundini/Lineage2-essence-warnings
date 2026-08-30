@@ -325,41 +325,48 @@ class TestAParadaQuandoFaltaMaterial:
         assert ferramenta.GRAVACOES_DO_CENSO[0] not in saida.split("AUSENTE")[1]
 
 
+@pytest.fixture(scope="module")
+def cal() -> Calibracao:
+    return Calibracao.carregar(CALIBRACAO)
+
+
+@pytest.fixture(scope="module")
+def celulas_do_tooltip(cal):
+    return _celulas_da_fixtura(cal, "janela_tooltip_f012.png")
+
+
+@pytest.fixture(scope="module")
+def celulas_de_f010(cal):
+    return _celulas_da_fixtura(cal, "janela_negociacao_f010.png")
+
+
 class TestAFixturaDoDEFEITO:
     """`janela_tooltip_f012.png`: rotulo `1` e ZERO leituras. E o caso base."""
 
-    @pytest.fixture(scope="class")
-    def cal(self) -> Calibracao:
-        return Calibracao.carregar(CALIBRACAO)
-
-    @pytest.fixture(scope="class")
-    def celulas(self, cal):
-        return _celulas_da_fixtura(cal, "janela_tooltip_f012.png")
-
-    def test_nove_das_dez_linhas_tem_rotulo_derivado_1(self, celulas) -> None:
+    def test_nove_das_dez_linhas_tem_rotulo_derivado_1(self, celulas_do_tooltip) -> None:
         """MEDIDO, e nao suposto: a linha 5 nao le Total nem Unit price.
 
         A sondagem do planejamento dizia "as dez linhas"; a medicao diz NOVE, e
         a medicao manda. A decima nao tem rotulo porque as duas colunas de moeda
         dela nao leram - ela nao entra na medicao nem para bem nem para mal.
         """
-        rotulos = [c["rotulo"] for c in celulas]
+        rotulos = [c["rotulo"] for c in celulas_do_tooltip]
         assert rotulos.count(1) == 9
         assert rotulos.count(None) == 1
 
     def test_no_piso_COMPARTILHADO_nenhuma_quantidade_atravessa(
-        self, celulas
+        self, celulas_do_tooltip
     ) -> None:
         """O defeito, preso por valor: 9 linhas rotuladas, 0 lidas."""
         lidas = [
             c["lido"][PISO_COMPARTILHADO]
-            for c in celulas
+            for c in celulas_do_tooltip
             if c["rotulo"] is not None
         ]
         assert lidas == [None] * 9
 
     def test_abaixo_do_TRONCO_as_mesmas_linhas_passam_a_ler_1(
-        self, celulas
+        self, celulas_do_tooltip
     ) -> None:
         """O piso 170 e so uma sonda deste teste, e nunca o piso de producao.
 
@@ -367,33 +374,25 @@ class TestAFixturaDoDEFEITO:
         os tres baldes e as duas folgas. Aqui ele serve para provar que o
         MECANISMO e o brilho, e nao o molde nem a margem.
         """
-        lidas = [c["lido"][170] for c in celulas if c["rotulo"] is not None]
+        lidas = [c["lido"][170] for c in celulas_do_tooltip if c["rotulo"] is not None]
         assert lidas == ["1"] * 9
 
 
 class TestOCustoNaColunaDeMOEDA:
     """Um piso GLOBAL arrasta a palavra de sufixo para dentro da celula."""
 
-    @pytest.fixture(scope="class")
-    def cal(self) -> Calibracao:
-        return Calibracao.carregar(CALIBRACAO)
-
-    @pytest.fixture(scope="class")
-    def celulas(self, cal):
-        return _celulas_da_fixtura(cal, "janela_negociacao_f010.png")
-
     def test_no_piso_compartilhado_o_custo_e_zero_por_construcao(
-        self, celulas
+        self, celulas_de_f010
     ) -> None:
-        custo = ferramenta.custo_na_coluna_de_moeda(celulas, PISO_COMPARTILHADO)
+        custo = ferramenta.custo_na_coluna_de_moeda(celulas_de_f010, PISO_COMPARTILHADO)
         assert custo["deixaram_de_ler"] == 0
         assert custo["passaram_a_ler_outra_coisa"] == 0
 
-    def test_um_piso_mais_baixo_cobra_um_preco_POSITIVO(self, celulas) -> None:
+    def test_um_piso_mais_baixo_cobra_um_preco_POSITIVO(self, celulas_de_f010) -> None:
         """MEDIDO: `18,90` vira `18,907` ja no piso 170, porque a palavra
         `XM Coin` vive entre V=120 e V=173 e entra no recorte.
         """
-        custo = ferramenta.custo_na_coluna_de_moeda(celulas, 170)
+        custo = ferramenta.custo_na_coluna_de_moeda(celulas_de_f010, 170)
         assert custo["deixaram_de_ler"] + custo["passaram_a_ler_outra_coisa"] > 0
 
 
