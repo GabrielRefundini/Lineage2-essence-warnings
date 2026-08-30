@@ -62,17 +62,22 @@ from l2scanner.mercado_leitura import (
     MOTIVO_DA_FAIXA_CINZENTA,
     MOTIVO_DA_GRAMATICA,
     MOTIVO_DA_OCLUSAO,
+    MOTIVO_DO_CRUZAMENTO,
     Descarte,
     LinhaLida,
     centesimos_de_moeda,
+    cruzamento_confere,
     inteiro_de_quantidade,
     ler_celula_de_numero,
     ler_celula_de_quantidade,
     ler_glifos,
     ler_linha,
+    limite_derivado_do_cruzamento,
     linha_ocluida,
     linha_vazia,
     numero_valido,
+    residuo_do_cruzamento,
+    segmentar_glifos,
 )
 from l2scanner.mercado_pagina import LeitorDePagina, PaginaAceita
 from l2scanner.mercado_visao import (
@@ -589,8 +594,15 @@ class TestOTracerPontaAPonta:
             assert isinstance(linha.quantidade, int)
 
 
-class TestOUnitarioNaoEntraNestePlano:
-    """`ler_linha` sai desta onda lendo DUAS colunas de numero, nao tres."""
+class TestOUnitarioELIDOMasNuncaGuardadoComoPreco:
+    """O 02-06 acrescentou a TERCEIRA leitura — e so para CONFERIR.
+
+    A classe que vivia aqui no 02-04 afirmava o contrario (`a coluna do unitario
+    NAO e recortada nesta onda`), e afirmava certo: ler uma coluna que ninguem
+    consumia por uma onda inteira seria leitura morta. A onda em que ela passa a
+    ter consumidor e esta, entao a afirmacao INVERTE. O que NAO inverte e a
+    proibicao de guardar o unitario como preco.
+    """
 
     def test_LinhaLida_nao_guarda_o_unitario_como_preco(self) -> None:
         campos = set(LinhaLida.__dataclass_fields__)
@@ -602,11 +614,12 @@ class TestOUnitarioNaoEntraNestePlano:
         assert "arredond" in texto
         assert "02-06" in texto
 
-    def test_a_coluna_do_unitario_NAO_e_recortada_nesta_onda(self) -> None:
+    def test_a_coluna_do_unitario_E_recortada_a_partir_desta_onda(self) -> None:
+        """O consumidor chegou: `mercado_pagina` tem de fatiar a quarta coluna."""
         import l2scanner.mercado_pagina as pagina
 
         fonte = inspect.getsource(pagina)
-        assert "mercado_coluna_do_unitario" not in fonte
+        assert "mercado_coluna_do_unitario" in fonte
 
 
 class TestODescarteNaoEDado:
@@ -674,6 +687,7 @@ def fatiar_a_linha(cal, janela, indice: int) -> dict:
         ("nome", "mercado_coluna_do_nome"),
         ("total", "mercado_coluna_do_total"),
         ("quantidade", "mercado_coluna_da_quantidade"),
+        ("unitario", "mercado_coluna_do_unitario"),
     ):
         coluna = getattr(cal, chave)
         x = ox + int(coluna["dx"])
@@ -681,8 +695,21 @@ def fatiar_a_linha(cal, janela, indice: int) -> dict:
     return saida
 
 
-def chamar_ler_linha(cal, moldes, recortes: dict, indice: int, catalogo=None):
-    """`ler_linha` direto, com as duas leitoras CONTADORAS."""
+def chamar_ler_linha(
+    cal,
+    moldes,
+    recortes: dict,
+    indice: int,
+    catalogo=None,
+    *,
+    tolerancia=None,
+):
+    """`ler_linha` direto, com as duas leitoras CONTADORAS.
+
+    `tolerancia` chega EXPLICITA em toda chamada porque em `ler_linha` ela nao
+    tem valor de fabrica: a guarda de cruzamento so descarta com um numero que
+    alguem mediu, e um default aqui esconderia justamente quem o forneceu.
+    """
     contagem = {"2x": 0, "3x": 0}
 
     def barata(_pixels):
@@ -699,7 +726,9 @@ def chamar_ler_linha(cal, moldes, recortes: dict, indice: int, catalogo=None):
         recortes["nome"],
         recortes["total"],
         recortes["quantidade"],
+        recortes["unitario"],
         moldes=moldes,
+        tolerancia_do_cruzamento=tolerancia,
         piso=float(cal.mercado_limiar_de_leitura_de_glifo),
         margem=float(cal.mercado_margem_de_leitura_de_glifo),
         sonda=cal.mercado_sonda_do_fundo,
@@ -958,3 +987,378 @@ class TestOLogDaRecusa:
             leitor.observar(ler_fixtura(JANELA_TOOLTIP))
         recusas = [r for r in caplog.records if "RECUSADA" in r.getMessage()]
         assert len(recusas) == 20
+
+
+# ---------------------------------------------------------------------------
+# Task 1 (02-06) — a guarda de cruzamento, e a TERCEIRA leitura que a alimenta
+# ---------------------------------------------------------------------------
+#
+# O VEREDITO QUE MANDA NESTES TESTES JA EXISTE, E ELE REPROVOU. O 02-02 varreu
+# 478 frames e 55.342 glifos e emitiu, na linha que este plano le literalmente:
+#
+#     GUARDA REPROVADA por tolerancia, 1273.0000 centesimos por unidade
+#     (maximo 1.0)
+#
+# Por isso a bateria e DUPLA, e a assimetria e deliberada:
+#
+#   rota REPROVADA (producao)  `mercado_tolerancia_do_cruzamento` e `None`, a
+#                              guarda nao descarta NADA, e o residuo vira
+#                              OBSERVACAO — calculado, guardado e logado
+#   rota APROVADA  (ensaio)    exercitada com a tolerancia DERIVADA (meio
+#                              centesimo por unidade), porque o mecanismo tem de
+#                              estar provado no dia em que uma medicao futura o
+#                              aprovar. Este numero NAO e o de producao
+#
+# E o criterio central desta task nao e nenhuma das duas: e a TERCEIRA LEITURA
+# ter acontecido. Sem o recorte de `mercado_coluna_do_unitario` o unitario chega
+# nulo em toda linha, a guarda responde "nao opino" sempre, e todos os outros
+# criterios ficam VERDES sobre codigo morto (T-02-39).
+
+GLIFOS_DO_UNITARIO = FIXTURES / "glifos_unitario_f010.png"
+
+# O caso conhecido do spike (SPIKE-RESPOSTAS secao 4): `40,00` por 48 unidades
+# aparece na tela como `0,83`, e `0,83 x 48 = 39,84` — um numero que nunca
+# existiu. O residuo e 16 contra o limite derivado 24.
+SPIKE_TOTAL, SPIKE_UNITARIO, SPIKE_QUANTIDADE = 4000, 83, 48
+SPIKE_RESIDUO = 16
+
+
+def tolerancia_de_ensaio() -> float:
+    """A tolerancia DERIVADA, por unidade — e nunca a de producao.
+
+    Ela sai da propria aritmetica do arredondamento (meio centesimo por
+    unidade), e nao de um numero escolhido: e por isso que ela pode viver num
+    teste sem ser constante magica. A de producao e o que o 02-02 mediu, e o que
+    ele mediu foi uma reprovacao.
+    """
+    return limite_derivado_do_cruzamento(1)
+
+
+def adulterar_um_zero_em_oito(recorte_do_total: np.ndarray) -> np.ndarray:
+    """Troca o `0` de `18,00` pelos PIXELS DO `8` DA MESMA LINHA -> `18,80`.
+
+    A substituicao e injetada com pixel de verdade, do mesmo frame, da mesma
+    linha e do mesmo rendering — e nao com um numero digitado no teste. E essa a
+    ameaca que T-02-32 descreve: o par `0`x`8` tem a margem mais estreita do
+    sistema (0,0370 medidos), a substituicao MANTEM a gramatica do numero
+    intacta, e duas leituras do mesmo motor sobre o mesmo frame concordam no
+    mesmo erro. So uma conferencia vinda de OUTRO lugar da tela a pega.
+
+    Ela e especifica de `18,00`, que tem cinco runs — `1`, `8`, `,`, `0`, `0` —
+    e os dois digitos envolvidos tem exatamente 4 px, medidos.
+    """
+    faixa, runs = segmentar_glifos(recorte_do_total)
+    assert faixa is not None, "a fixtura do total nao tem pixel de texto"
+    assert len(runs) == 5, f"esperava os 5 runs de `18,00`, vi {len(runs)}"
+    oito, zero = runs[1], runs[3]
+    assert (oito[1] - oito[0]) == (zero[1] - zero[0]) == 4
+    copia = recorte_do_total.copy()
+    copia[:, zero[0] : zero[1]] = recorte_do_total[:, oito[0] : oito[1]]
+    return copia
+
+
+def linha_com_o_total_adulterado(cal, janela, indice: int) -> dict:
+    recortes = dict(fatiar_a_linha(cal, janela, indice))
+    recortes["total"] = adulterar_um_zero_em_oito(recortes["total"])
+    return recortes
+
+
+class TestATerceiraLeituraACONTECE:
+    """T-02-39: a guarda so vale se a coluna do unitario for mesmo LIDA."""
+
+    def test_toda_LinhaLida_de_f010_carrega_residuo_do_cruzamento(
+        self, cal, janela_f010
+    ) -> None:
+        """O criterio que pega a guarda instalada como codigo morto.
+
+        Um `ler_linha` que nunca recorta a coluna do unitario faz este teste
+        FALHAR — e nenhum outro criterio desta task o pegaria, porque "nao
+        opino" e resultado legitimo e esperado em toda linha sem unitario.
+        """
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Earth Spirit Evolution Stone", "Earth Spirit Evolution Stone"
+        )
+        leitor.observar(janela_f010)
+        leitura = leitor.ultima_leitura
+        com_residuo = [
+            linha
+            for linha in leitura.linhas
+            if linha.residuo_do_cruzamento is not None
+        ]
+        assert len(leitura.linhas) > 0
+        assert len(com_residuo) == len(leitura.linhas)
+
+    def test_toda_LinhaLida_de_f005_carrega_residuo_do_cruzamento(
+        self, cal
+    ) -> None:
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Common Fafurion Doll", "Common Fafurion Doll"
+        )
+        leitor.observar(ler_fixtura(JANELA_F005))
+        leitura = leitor.ultima_leitura
+        com_residuo = [
+            linha
+            for linha in leitura.linhas
+            if linha.residuo_do_cruzamento is not None
+        ]
+        assert len(leitura.linhas) == len(LINHAS_QUE_ATRAVESSAM_F005)
+        assert len(com_residuo) == len(leitura.linhas)
+
+    def test_o_unitario_da_fixtura_de_glifos_le_600(self, cal, moldes) -> None:
+        """`glifos_unitario_f010.png` e `6,00`, e o cabecalho de
+        `tests/test_mercado_glifos.py` ja o declarava antes deste plano."""
+        assert (
+            ler_celula_de_numero(
+                ler_fixtura(GLIFOS_DO_UNITARIO),
+                moldes,
+                float(cal.mercado_limiar_de_leitura_de_glifo),
+                float(cal.mercado_margem_de_leitura_de_glifo),
+            )
+            == 600
+        )
+
+    def test_o_unitario_ILEGIVEL_nao_derruba_a_linha(
+        self, cal, moldes, janela_f010
+    ) -> None:
+        """Falha fechada e sobre o DADO, nunca sobre a falta de conferencia."""
+        recortes = dict(fatiar_a_linha(cal, janela_f010, 6))
+        recortes["unitario"] = np.zeros_like(recortes["unitario"])
+        for tolerancia in (None, tolerancia_de_ensaio()):
+            resultado, _contagem = chamar_ler_linha(
+                cal, moldes, recortes, 6, tolerancia=tolerancia
+            )
+            assert isinstance(resultado, LinhaLida)
+            assert resultado.residuo_do_cruzamento is None
+            assert resultado.total_em_centesimos == 1890
+
+
+class TestOResiduoDoCruzamento:
+    """Aritmetica INTEIRA de centesimos, e `None` sempre que faltar um fato."""
+
+    def test_o_caso_conhecido_do_spike_fecha(self) -> None:
+        assert (
+            residuo_do_cruzamento(SPIKE_TOTAL, SPIKE_UNITARIO, SPIKE_QUANTIDADE)
+            == SPIKE_RESIDUO
+        )
+        assert limite_derivado_do_cruzamento(SPIKE_QUANTIDADE) == 24
+        assert SPIKE_RESIDUO <= limite_derivado_do_cruzamento(SPIKE_QUANTIDADE)
+
+    def test_o_resultado_e_INTEIRO_e_nunca_float(self) -> None:
+        residuo = residuo_do_cruzamento(1880, 600, 3)
+        assert type(residuo) is int
+        assert residuo == 80
+
+    @pytest.mark.parametrize(
+        "total,unitario,quantidade",
+        [
+            (None, 600, 3),
+            (1800, None, 3),
+            (1800, 600, None),
+            (None, None, None),
+        ],
+    )
+    def test_um_fato_que_faltou_devolve_None(
+        self, total, unitario, quantidade
+    ) -> None:
+        assert residuo_do_cruzamento(total, unitario, quantidade) is None
+
+    def test_quantidade_zero_nao_multiplica_nada(self) -> None:
+        assert residuo_do_cruzamento(1800, 600, 0) is None
+
+
+class TestCruzamentoConfere:
+    """`None` e "nao opino", e "nao opino" NUNCA vira descarte (T-02-36)."""
+
+    def test_a_tolerancia_NAO_tem_valor_de_fabrica(self) -> None:
+        parametro = inspect.signature(cruzamento_confere).parameters[
+            "tolerancia"
+        ]
+        assert parametro.default is inspect.Parameter.empty
+
+    def test_ler_linha_tambem_exige_a_tolerancia_explicita(self) -> None:
+        parametro = inspect.signature(ler_linha).parameters[
+            "tolerancia_do_cruzamento"
+        ]
+        assert parametro.default is inspect.Parameter.empty
+
+    def test_o_caso_do_spike_CONFERE_contra_a_tolerancia_derivada(self) -> None:
+        assert (
+            cruzamento_confere(
+                SPIKE_TOTAL,
+                SPIKE_UNITARIO,
+                SPIKE_QUANTIDADE,
+                tolerancia_de_ensaio(),
+            )
+            is True
+        )
+
+    def test_a_substituicao_0_por_8_NAO_confere(self) -> None:
+        assert cruzamento_confere(1880, 600, 3, tolerancia_de_ensaio()) is False
+
+    @pytest.mark.parametrize(
+        "total,unitario,quantidade,tolerancia",
+        [
+            (1800, 600, 3, None),
+            (1800, None, 3, 0.5),
+            (None, 600, 3, 0.5),
+            (1800, 600, 0, 0.5),
+            (1800, 600, None, 0.5),
+        ],
+    )
+    def test_nao_opino(self, total, unitario, quantidade, tolerancia) -> None:
+        assert (
+            cruzamento_confere(total, unitario, quantidade, tolerancia) is None
+        )
+
+
+class TestARotaREPROVADA:
+    """A rota que a MEDICAO escolheu: observacao, nunca descarte."""
+
+    def test_a_calibracao_traz_a_tolerancia_NULA(self, cal) -> None:
+        assert cal.mercado_tolerancia_do_cruzamento is None
+
+    def test_a_injecao_do_8_realmente_LANDOU_nos_pixels(
+        self, cal, moldes, janela_f010
+    ) -> None:
+        """Sem esta afirmacao, um adulterador que nao adultera passaria calado."""
+        recortes = linha_com_o_total_adulterado(cal, janela_f010, 8)
+        assert (
+            ler_celula_de_numero(
+                recortes["total"],
+                moldes,
+                float(cal.mercado_limiar_de_leitura_de_glifo),
+                float(cal.mercado_margem_de_leitura_de_glifo),
+            )
+            == 1880
+        )
+
+    def test_a_linha_adulterada_NAO_e_descartada_e_guarda_o_residuo(
+        self, cal, moldes, janela_f010
+    ) -> None:
+        """O preco do veredito, por escrito: 1880 ENTRA, com o residuo ao lado.
+
+        E exatamente o dado errado que a guarda existiria para pegar. Ele passa
+        porque a guarda nao se provou, e descartar com um sinal nao provado
+        faria dela o defeito (T-02-36).
+        """
+        recortes = linha_com_o_total_adulterado(cal, janela_f010, 8)
+        resultado, _contagem = chamar_ler_linha(
+            cal, moldes, recortes, 8, tolerancia=None
+        )
+        assert isinstance(resultado, LinhaLida)
+        assert resultado.total_em_centesimos == 1880
+        assert resultado.residuo_do_cruzamento == 80
+
+    def test_nenhuma_linha_da_pagina_e_descartada_pelo_cruzamento(
+        self, cal, janela_f010
+    ) -> None:
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Earth Spirit Evolution Stone", "Earth Spirit Evolution Stone"
+        )
+        leitor.observar(janela_f010)
+        assert MOTIVO_DO_CRUZAMENTO not in leitor.ultima_leitura.motivos
+
+    def test_a_divergencia_vai_para_o_LOG_mesmo_sem_a_guarda(
+        self, cal, moldes, janela_f010, caplog
+    ) -> None:
+        """A evidencia nao se perde so porque a guarda nao ligou."""
+        recortes = linha_com_o_total_adulterado(cal, janela_f010, 8)
+        with caplog.at_level("INFO", logger="l2scanner.mercado_leitura"):
+            chamar_ler_linha(cal, moldes, recortes, 8, tolerancia=None)
+        texto = caplog.text
+        assert "cruzamento" in texto.lower()
+        for numero in ("1880", "600", "80"):
+            assert numero in texto
+
+    def test_o_fonte_registra_a_medicao_REFUTADA_com_os_numeros(self) -> None:
+        """`ocr.py:34-52`: um numero que caiu precisa dizer que caiu."""
+        import l2scanner.mercado_leitura as modulo
+
+        fonte = inspect.getsource(modulo)
+        assert "REPROVADA" in fonte
+        assert "1273" in fonte
+        assert "0,6525" in fonte
+        assert "0,0164" in fonte
+
+    def test_o_veredito_do_02_02_esta_transcrito_no_fonte(self) -> None:
+        import l2scanner.mercado_leitura as modulo
+
+        fonte = inspect.getsource(modulo)
+        assert "1273.0000 centesimos por unidade" in fonte
+
+
+class TestARotaAPROVADA:
+    """O mecanismo, exercitado com a tolerancia DERIVADA — nao a de producao."""
+
+    def test_a_linha_intacta_passa_com_residuo_zero(
+        self, cal, moldes, janela_f010
+    ) -> None:
+        recortes = fatiar_a_linha(cal, janela_f010, 8)
+        resultado, _contagem = chamar_ler_linha(
+            cal, moldes, recortes, 8, tolerancia=tolerancia_de_ensaio()
+        )
+        assert isinstance(resultado, LinhaLida)
+        assert resultado.total_em_centesimos == 1800
+        assert resultado.residuo_do_cruzamento == 0
+
+    def test_a_linha_com_o_0_lido_como_8_vira_Descarte(
+        self, cal, moldes, janela_f010
+    ) -> None:
+        recortes = linha_com_o_total_adulterado(cal, janela_f010, 8)
+        resultado, _contagem = chamar_ler_linha(
+            cal, moldes, recortes, 8, tolerancia=tolerancia_de_ensaio()
+        )
+        assert isinstance(resultado, Descarte)
+        assert resultado.motivo == MOTIVO_DO_CRUZAMENTO
+
+    def test_o_descarte_do_cruzamento_NAO_paga_OCR(
+        self, cal, moldes, janela_f010
+    ) -> None:
+        """A guarda entra DEPOIS das tres celulas e ANTES do nome.
+
+        Uma linha que a guarda derruba nunca vira dado — pagar ~7 ms de OCR por
+        ela seria pagar por nada, pela mesma razao ja escrita para as colunas de
+        numero.
+        """
+        recortes = linha_com_o_total_adulterado(cal, janela_f010, 8)
+        _resultado, contagem = chamar_ler_linha(
+            cal, moldes, recortes, 8, tolerancia=tolerancia_de_ensaio()
+        )
+        assert contagem == {"2x": 0, "3x": 0}
+
+    def test_o_motivo_do_cruzamento_e_DISTINGUIVEL_dos_outros(self) -> None:
+        """D-17: o usuario tem de ler no log QUAL peneira pegou o que."""
+        motivos = {
+            MOTIVO_DA_OCLUSAO,
+            MOTIVO_DA_GRAMATICA,
+            MOTIVO_DA_FAIXA_CINZENTA,
+            MOTIVO_DA_DISCORDANCIA,
+            MOTIVO_DO_CRUZAMENTO,
+        }
+        assert len(motivos) == 5
+        assert MOTIVO_DO_CRUZAMENTO != MOTIVO_DA_OCLUSAO
+        assert MOTIVO_DO_CRUZAMENTO != MOTIVO_DA_GRAMATICA
+
+    def test_o_descarte_nomeia_os_TRES_numeros_lidos(
+        self, cal, moldes, janela_f010, caplog
+    ) -> None:
+        recortes = linha_com_o_total_adulterado(cal, janela_f010, 8)
+        with caplog.at_level("WARNING", logger="l2scanner.mercado_leitura"):
+            chamar_ler_linha(
+                cal, moldes, recortes, 8, tolerancia=tolerancia_de_ensaio()
+            )
+        texto = caplog.text
+        for numero in ("1880", "600", "3"):
+            assert numero in texto
+
+
+class TestAFronteiraDaFase3:
+    """O residuo e informacao da Fase 2 sobre a propria leitura."""
+
+    def test_o_campo_existe_em_LinhaLida(self) -> None:
+        assert "residuo_do_cruzamento" in LinhaLida.__dataclass_fields__
+
+    def test_a_docstring_do_campo_diz_que_o_CSV_e_da_FASE_3(self) -> None:
+        texto = LinhaLida.__doc__
+        assert "Fase 3" in texto
+        assert "CSV" in texto

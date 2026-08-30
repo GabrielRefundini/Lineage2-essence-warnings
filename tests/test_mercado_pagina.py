@@ -335,6 +335,10 @@ class TestFeatureOFFQuandoFaltaCalibracao:
             "mercado_corte_de_similaridade",
             "mercado_piso_de_similaridade",
             "mercado_templates_de_digito",
+            # A quarta coluna entrou no 02-06: sem ela a TERCEIRA leitura de
+            # numero nao acontece, e sem aviso a fatia da linha levantaria
+            # dentro do tick em vez de virar feature OFF.
+            "mercado_coluna_do_unitario",
         ],
     )
     def test_a_leitura_nao_acontece_e_nada_levanta(self, cal, campo) -> None:
