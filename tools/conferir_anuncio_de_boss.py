@@ -369,12 +369,18 @@ def pista_do_boss(texto: "str | None", nome: str) -> "Pista | None":
 # De onde vem a imagem e de onde vem o retangulo
 # ---------------------------------------------------------------------------
 
-# A ordem de busca dentro de uma pasta. `frame_*.png` primeiro porque e a
-# convencao do `gravador`; `*.png` depois para uma pasta de prints avulsos
-# servir. E o nivel de baixo existe porque `recordings/` e uma pasta DE
-# gravacoes: parar no nivel zero devolveria "nenhuma imagem" com dois mil
-# frames em disco, que e a forma mais cara de nao medir nada.
-PADROES_DE_BUSCA = ("frame_*.png", "*.png", "*/frame_*.png", "*/*.png")
+# A ordem de busca dentro de uma pasta. `frame_*.png` ganha de `*.png` EM
+# QUALQUER NIVEL, e essa precedencia foi MEDIDA e nao escolhida: o
+# `recordings/` real tem 12 PNGs avulsos soltos na raiz (`agora_janela.png`,
+# `base_party.png`, recortes de party de outro recurso) e 2.110 frames de
+# gravacao nas subpastas. Com `*.png` antes de `*/frame_*.png`, apontar a
+# ferramenta para `recordings` mediria os 12 avulsos e nunca desceria — uma
+# varredura que parece completa e cobre 0,5% do material.
+#
+# O nivel de baixo existe porque `recordings/` e uma pasta DE gravacoes: parar
+# no nivel zero devolveria "nenhuma imagem" com dois mil frames em disco, que e
+# a forma mais cara de nao medir nada.
+PADROES_DE_BUSCA = ("frame_*.png", "*/frame_*.png", "*.png", "*/*.png")
 
 
 def imagens_de(caminho: Path) -> "list[Path]":
@@ -536,29 +542,39 @@ def imprimir_resumo(varredura: Varredura) -> None:
 
 
 def varrer(arquivos, regiao: Regiao, bosses, motor: MotorDeOcr, silencioso=False):
-    """Le, julga e imprime cada imagem. `None` quando o recorte nao coube."""
+    """Le, julga e imprime cada imagem.
+
+    UMA imagem que nao cabe no recorte e PULADA COM O MOTIVO NOMEADO, e nao
+    derruba a varredura. A distincao foi medida contra o `recordings/` real:
+    ele mistura frames de janela inteira (1720x1392) com recortes de party
+    window (172x522) de outro recurso, e abortar no primeiro recorte que nao
+    coubesse jogaria fora dois mil frames bons por causa de um arquivo que nem
+    era chat.
+
+    O que continua FECHADO e o que importa: nenhuma imagem e recortada
+    truncada (`recortar` devolve `None` em vez de meia linha de chat), e uma
+    varredura em que NENHUMA imagem coube devolve `None` para virar codigo 1.
+    Zero casamentos por zero leituras nao pode ser confundido com zero
+    casamentos por ausencia de boss (T-04-02).
+    """
     leituras = []
+    fora_do_recorte = []
     for arquivo in arquivos:
         imagem = cv2.imread(str(arquivo), cv2.IMREAD_COLOR)
         if imagem is None:
-            print(f"  {arquivo.name}: nao consegui abrir a imagem")
+            print(f"  {_nome_curto(arquivo)}: nao consegui abrir a imagem")
             continue
         recorte = recortar(imagem, regiao)
         if recorte is None:
             altura, largura = imagem.shape[:2]
-            print("")
+            fora_do_recorte.append(arquivo)
             print(
-                f"O recorte esta fora da imagem: {arquivo.name} tem "
-                f"{largura}x{altura} e o retangulo pedido e "
-                f"esquerda={regiao.esquerda} topo={regiao.topo} "
-                f"largura={regiao.largura} altura={regiao.altura}."
+                f"  {_nome_curto(arquivo)}: PULADA — tem {largura}x{altura} e "
+                f"o recorte pedido (esquerda={regiao.esquerda} "
+                f"topo={regiao.topo} largura={regiao.largura} "
+                f"altura={regiao.altura}) nao cabe"
             )
-            print(
-                "Recortar truncado produziria meia linha de chat e um 'nao "
-                "casou' que nao mede nada. Passe --recorte com quatro inteiros "
-                "que caibam."
-            )
-            return None
+            continue
 
         escalas = []
         for nome_da_escala, ler in motor.escalas:
@@ -588,6 +604,24 @@ def varrer(arquivos, regiao: Regiao, bosses, motor: MotorDeOcr, silencioso=False
         leituras.append(leitura)
         if not silencioso:
             imprimir_leitura(leitura, _nome_curto(arquivo))
+
+    if fora_do_recorte and not leituras:
+        print("")
+        print(
+            f"Nenhuma das {len(fora_do_recorte)} imagens cabe no recorte "
+            "pedido, entao nao medi nada."
+        )
+        print(
+            "  Passe --recorte ESQUERDA TOPO LARGURA ALTURA em pixels da "
+            "propria imagem."
+        )
+        return None
+    if fora_do_recorte:
+        print("")
+        print(
+            f"  ({len(fora_do_recorte)} imagem(ns) pulada(s) por nao caberem "
+            "no recorte — os nomes estao acima.)"
+        )
     return Varredura(imagens=tuple(leituras))
 
 

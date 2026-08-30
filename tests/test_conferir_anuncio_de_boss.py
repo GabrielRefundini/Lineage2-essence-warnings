@@ -352,9 +352,10 @@ class TestQuandoNaoDaParaMedir:
         saida = capsys.readouterr().out.lower()
         assert "--recorte" in saida
 
-    def test_recorte_fora_da_imagem_e_relatado_e_nao_vira_zero_casamentos(
+    def test_recorte_que_nao_cabe_em_imagem_NENHUMA_devolve_1(
         self, cenario, capsys
     ):
+        """Zero leituras nao pode virar zero casamentos (T-04-02)."""
         imagem, config = cenario
         codigo = ferramenta.main(
             [
@@ -371,7 +372,35 @@ class TestQuandoNaoDaParaMedir:
         )
         saida = capsys.readouterr().out
         assert codigo == 1
-        assert "fora da imagem" in saida.lower()
+        assert "nao medi nada" in saida.lower()
+
+    def test_uma_imagem_que_nao_cabe_e_PULADA_e_nao_derruba_a_varredura(
+        self, tmp_path, capsys
+    ):
+        """MEDIDO contra o `recordings/` real: ele mistura frame de janela
+        inteira (1720x1392) com recorte de party window (172x522) de outro
+        recurso. Abortar no primeiro recorte que nao coubesse jogaria fora dois
+        mil frames bons por causa de um arquivo que nem era chat.
+        """
+        config = tmp_path / "config.toml"
+        config.write_text(CONFIG_COM_DOIS_BOSSES, encoding="utf-8")
+        pasta = tmp_path / "misturada"
+        png(pasta / "frame_000000.png")  # 120x40, cabe
+        cv2.imwrite(
+            str(pasta / "frame_000001.png"),
+            np.zeros((10, 10, 3), dtype=np.uint8),  # nao cabe
+        )
+        png(pasta / "frame_000002.png")
+
+        codigo = ferramenta.main(
+            argv(pasta, config), motor=motor_falso(ANUNCIO)
+        )
+        saida = capsys.readouterr().out
+        assert codigo == 0
+        assert "frame_000001.png" in saida
+        assert "PULADA" in saida
+        # As duas que cabem foram medidas; a que nao cabe nao virou leitura.
+        assert len(ferramenta.ULTIMA_VARREDURA.imagens) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +443,29 @@ class TestAPastaDeGravacao:
         codigo = ferramenta.main(argv(raiz, config), motor=motor_falso("nada"))
         assert codigo == 0
         assert len(ferramenta.ULTIMA_VARREDURA.imagens) == 2
+
+    def test_os_frames_das_subpastas_ganham_dos_PNGs_avulsos_da_raiz(
+        self, tmp_path
+    ):
+        """MEDIDO contra o `recordings/` real: 12 PNGs avulsos na raiz e 2.110
+        frames nas subpastas. Com `*.png` da raiz ganhando, apontar a
+        ferramenta para `recordings` mediria os 12 avulsos e nunca desceria —
+        uma varredura que parece completa e cobre 0,5% do material.
+        """
+        config = tmp_path / "config.toml"
+        config.write_text(CONFIG_COM_DOIS_BOSSES, encoding="utf-8")
+        raiz = tmp_path / "recordings"
+        png(raiz / "agora_janela.png")
+        png(raiz / "base_party.png")
+        png(raiz / "sessao-a" / "frame_000000.png")
+        png(raiz / "sessao-a" / "frame_000001.png")
+        png(raiz / "sessao-b" / "frame_000000.png")
+
+        codigo = ferramenta.main(argv(raiz, config), motor=motor_falso("nada"))
+        assert codigo == 0
+        lidos = [i.arquivo.name for i in ferramenta.ULTIMA_VARREDURA.imagens]
+        assert len(lidos) == 3
+        assert "agora_janela.png" not in lidos
 
 
 # ---------------------------------------------------------------------------
