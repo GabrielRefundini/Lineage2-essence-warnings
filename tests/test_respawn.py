@@ -470,3 +470,282 @@ class TestOTextoDoTracer:
 
     def test_o_limite_cita_as_horas_do_boss(self):
         assert "8h" in self.texto(TipoDeJanela.LIMITE)
+
+
+# ---------------------------------------------------------------------------
+# AS QUATRO MENSAGENS: a matriz {ABRE, LIMITE} x {ancorado no anuncio,
+# ancorado no alvo}, e o portao que recusa a afirmacao que a conta nao
+# autoriza.
+# ---------------------------------------------------------------------------
+
+# Toda forma de afirmar que a janela acabou ou que a party perdeu o boss.
+#
+# RADICAIS, e nao palavras inteiras: `fech` pega "fechou", "fechada",
+# "fechamento" e "fecha"; `perd` pega "perdemos", "perdeu", "perdido" e
+# "perda". Uma lista de palavras inteiras seria contornada pela primeira
+# conjugacao que ninguem pensou em escrever.
+TOKENS_PROIBIDOS = (
+    "fech",
+    "perd",
+    "tarde demais",
+    "ultima chance",
+    "nao nasce mais",
+    "passou da hora",
+)
+
+
+def acusacoes(texto: str) -> list[str]:
+    """Os tokens proibidos que este texto contem, sem considerar caixa.
+
+    RODA SOBRE A SAIDA DAS FUNCOES, E NUNCA SOBRE O ARQUIVO-FONTE. E a mesma
+    razao pela qual os portoes de importacao deste projeto usam AST em vez de
+    busca textual: as docstrings de `respawn.py` CITAM as palavras proibidas de
+    proposito, para explicar por escrito qual afirmacao e proibida e por que.
+    Uma varredura do fonte acusaria justamente a documentacao que protege a
+    regra, e o portao morreria de falso alarme na primeira leitura.
+    """
+    minusculo = texto.lower()
+    return [token for token in TOKENS_PROIBIDOS if token in minusculo]
+
+
+def todos_os_textos() -> list[str]:
+    """As quatro frases da matriz, e o ponto de extensao do plano 02-02.
+
+    Parametrizado sobre uma LISTA para que acrescentar a quinta origem de texto
+    (as linhas de previsao do console, que o plano 02-02 cria) seja acrescentar
+    um item, e nao escrever um segundo portao que pode divergir deste.
+    """
+    textos = []
+    for origem in (OrigemDoAviso.CHAT, OrigemDoAviso.ALVO):
+        for tipo, horas, alvo in (
+            (TipoDeJanela.ABRE, 6, ABRE_EM),
+            (TipoDeJanela.LIMITE, 8, LIMITE_EM),
+        ):
+            textos.append(
+                texto_da_janela(
+                    AvisoDeJanela(
+                        boss="Tiat North",
+                        tipo=tipo,
+                        ancora=Ancora(
+                            boss="tiat-north",
+                            instante=NASCIMENTO,
+                            origem=origem,
+                        ),
+                        alvo=alvo,
+                        horas=horas,
+                    )
+                )
+            )
+    return textos
+
+
+def aviso_de(tipo, origem, horas=None, boss="Tiat North"):
+    alvo = ABRE_EM if tipo is TipoDeJanela.ABRE else LIMITE_EM
+    if horas is None:
+        horas = 6 if tipo is TipoDeJanela.ABRE else 8
+    return AvisoDeJanela(
+        boss=boss,
+        tipo=tipo,
+        ancora=Ancora(boss="tiat-north", instante=NASCIMENTO, origem=origem),
+        alvo=alvo,
+        horas=horas,
+    )
+
+
+class TestNenhumaAfirmacaoDeEncerramento:
+    """D-19: a mensagem de `max` NAO pode dizer que a janela fechou.
+
+    A RAZAO E ARITMETICA, e nao de tom. A conta parte do NASCIMENTO e nao da
+    MORTE, e entre os dois ha `k` — o tempo que o boss ficou vivo, que o
+    scanner nao tem como medir. Os dois avisos saem `k` CEDO, nunca tarde:
+    no instante do limite otimista a janela real pode nem ter aberto. Afirmar
+    encerramento ali seria falso na direcao que custa caro, mandando a party
+    desistir de um boss que ainda vai nascer.
+    """
+
+    @pytest.mark.parametrize("texto", todos_os_textos())
+    def test_nenhuma_das_quatro_frases_afirma_encerramento(self, texto):
+        assert acusacoes(texto) == [], f"a frase afirma o que a conta nao autoriza: {texto}"
+
+    def test_a_prova_nao_e_vazia_o_detector_acusa_o_texto_de_controle(self):
+        """Guarda contra prova vazia, no molde de
+        `test_a_prova_pega_de_verdade_um_relogio_proprio`.
+
+        Um detector com a lista vazia — ou com tokens que nenhuma frase
+        plausivel conteria — passaria nos quatro testes acima sem provar coisa
+        alguma. Este afirma que ele ACUSA um texto escrito a mao que diz
+        exatamente o que D-19 proibe.
+        """
+        controle = "Tiat North: a janela fechou, perdemos o boss."
+        assert acusacoes(controle) == ["fech", "perd"]
+
+    @pytest.mark.parametrize(
+        "controle",
+        [
+            "Tiat North: a janela fechou.",
+            "Tiat North: perdemos o boss.",
+            "Tiat North: tarde demais para ir.",
+            "Tiat North: ultima chance de pegar.",
+            "Tiat North: nao nasce mais hoje.",
+            "Tiat North: passou da hora dele.",
+        ],
+    )
+    def test_cada_token_da_lista_pega_alguma_coisa(self, controle):
+        """Um token que nunca acusa nada e um item morto na lista.
+
+        Sem isto, alguem poderia acrescentar um token com erro de digitacao e
+        a lista continuaria parecendo mais forte do que e.
+        """
+        assert acusacoes(controle) != []
+
+
+class TestAsQuatroFrases:
+    """A matriz inteira, com a citacao da origem funcionando como ressalva."""
+
+    def test_a_abertura_do_anuncio_atribui_ao_servidor(self):
+        texto = texto_da_janela(aviso_de(TipoDeJanela.ABRE, OrigemDoAviso.CHAT))
+        assert texto.startswith("Tiat North")
+        assert "servidor" in texto
+        assert "14:30 de 30/08" in texto
+        assert "seu alvo" not in texto
+
+    def test_a_abertura_do_alvo_atribui_ao_alvo_e_carrega_a_ressalva(self):
+        """D-16: a citacao E a ressalva, e nao ha uma quinta frase generica.
+
+        Sem esta linha, D-15 vira armadilha: o usuario escolheu COBERTURA
+        sabendo que ter o boss no alvo nao prova nascimento, com a condicao de
+        o erro ser LEGIVEL. Esta e a linha onde ele fica legivel.
+        """
+        texto = texto_da_janela(aviso_de(TipoDeJanela.ABRE, OrigemDoAviso.ALVO))
+        assert "seu alvo virou Tiat North" in texto
+        assert "nao prova que ele tinha acabado de nascer" in texto
+        assert "servidor" not in texto
+
+    def test_a_origem_dupla_cai_no_caminho_do_anuncio(self):
+        """Quando os dois sinais estao presentes, o anuncio ja e a prova.
+
+        O alvo nao acrescenta nada a honestidade do numero — uma quinta frase
+        citando os dois daria a impressao de mais certeza sem haver mais
+        certeza.
+        """
+        dupla = texto_da_janela(
+            aviso_de(TipoDeJanela.ABRE, OrigemDoAviso.CHAT_E_ALVO)
+        )
+        so_chat = texto_da_janela(aviso_de(TipoDeJanela.ABRE, OrigemDoAviso.CHAT))
+        assert dupla == so_chat
+
+    @pytest.mark.parametrize(
+        "origem", [OrigemDoAviso.CHAT, OrigemDoAviso.ALVO]
+    )
+    def test_as_duas_frases_de_limite_afirmam_o_piso(self, origem):
+        """AFIRMA o que E verdade, em vez de negar o que nao e.
+
+        A tentacao seria escrever a negacao de uma afirmacao de encerramento;
+        ela seria honesta, mas poria dentro do texto de PRODUCAO as palavras
+        que o portao acima existe para proibir, e o portao passaria a acusar a
+        frase que deveria aprovar.
+        """
+        texto = texto_da_janela(aviso_de(TipoDeJanela.LIMITE, origem))
+        assert "pode nascer a qualquer momento" in texto
+        assert "limite otimista" in texto
+
+    def test_o_limite_do_anuncio_explica_por_que_o_aviso_sai_cedo(self):
+        texto = texto_da_janela(aviso_de(TipoDeJanela.LIMITE, OrigemDoAviso.CHAT))
+        assert "o tempo em que o boss ficou vivo ainda nao entrou nela" in texto
+
+    @pytest.mark.parametrize("texto", todos_os_textos())
+    def test_toda_frase_comeca_pelo_boss_e_cita_o_nascimento(self, texto):
+        assert texto.startswith("Tiat North:")
+        assert "14:30 de 30/08" in texto
+
+
+class TestOsNumerosVemDoConfigENaoDoCodigo:
+    """Um boss novo no `config.toml` tem que produzir a frase com as horas
+    dele."""
+
+    @pytest.mark.parametrize(
+        "tipo,horas,esperado",
+        [
+            (TipoDeJanela.ABRE, 3, "3h"),
+            (TipoDeJanela.LIMITE, 4.5, "4.5h"),
+        ],
+    )
+    def test_as_horas_saem_do_bloco_boss(self, tipo, horas, esperado):
+        texto = texto_da_janela(aviso_de(tipo, OrigemDoAviso.CHAT, horas=horas))
+        assert esperado in texto
+        assert "6h" not in texto
+        assert "8h" not in texto
+
+    def test_o_nome_do_boss_sai_do_config_e_nunca_do_ocr(self):
+        """T-02-09: nenhum byte lido pelo OCR entra no texto.
+
+        O texto lido do chat serve so como predicado booleano e e descartado —
+        e o que garante que nada escrito por um jogador no chat do jogo
+        atravesse para o grupo de WhatsApp.
+        """
+        texto = texto_da_janela(
+            aviso_de(TipoDeJanela.ABRE, OrigemDoAviso.ALVO, boss="Orfen")
+        )
+        assert texto.startswith("Orfen:")
+        assert "seu alvo virou Orfen" in texto
+
+
+class TestAVozDaCasa:
+    """Portugues SEM ACENTO e SEM TRAVESSAO no texto que o usuario le.
+
+    A regra vale para todo texto de WhatsApp e console deste projeto, e ja
+    custou dois consertos numa fase anterior. Ela nao e estetica: a ponte
+    Baileys e o console do Windows ja entregaram acento como lixo, e um
+    travessao numa mensagem de alerta e indistinguivel de um caractere
+    corrompido.
+    """
+
+    @pytest.mark.parametrize("texto", todos_os_textos())
+    def test_nenhum_caractere_fora_do_ascii(self, texto):
+        fora = sorted({c for c in texto if ord(c) > 127})
+        assert fora == [], f"caractere nao-ascii no texto: {fora}"
+
+    @pytest.mark.parametrize("texto", todos_os_textos())
+    def test_nenhum_travessao(self, texto):
+        assert "—" not in texto
+        assert "–" not in texto
+
+
+class TestAsArestasDeTempoRestantes:
+    """As bordas que faltavam para fechar as nove do plano, sobre
+    `janelas_devidas` pura — sem disco e sem `Sessao`."""
+
+    def test_um_segundo_antes_do_alvo_nao_sai_nada(self):
+        assert (
+            janelas_devidas(
+                ABRE_EM - timedelta(seconds=1), [NORTH], so_north(), set()
+            )
+            == []
+        )
+
+    def test_com_min_igual_a_max_os_dois_avisos_saem_juntos(self):
+        """Um boss de regra FIXA, sem faixa aleatoria.
+
+        Os dois alvos vencem no MESMO instante e os dois tem que sair, com
+        chaves distintas: colapsa-los em um esconderia metade da informacao, e
+        reusar a chave faria o segundo nunca ser gravado.
+        """
+        fixo = Boss(nome="Tiat North", respawn_horas_min=6, respawn_horas_max=6)
+
+        devidos = janelas_devidas(ABRE_EM, [fixo], so_north(), set())
+
+        assert [a.tipo for a in devidos] == [
+            TipoDeJanela.ABRE,
+            TipoDeJanela.LIMITE,
+        ]
+        assert len({a.chave for a in devidos}) == 2
+
+    def test_dois_bosses_com_ancora_produzem_dois_avisos(self):
+        ancoras = ancoras_mais_recentes(
+            [
+                chave_do_nascimento("Tiat North", NASCIMENTO, OrigemDoAviso.CHAT),
+                chave_do_nascimento("Tiat South", NASCIMENTO, OrigemDoAviso.ALVO),
+            ]
+        )
+        devidos = janelas_devidas(ABRE_EM, [NORTH, SOUTH], ancoras, set())
+        assert sorted(a.boss for a in devidos) == ["Tiat North", "Tiat South"]
