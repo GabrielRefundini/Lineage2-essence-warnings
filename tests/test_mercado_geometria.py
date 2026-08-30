@@ -60,6 +60,16 @@ FIXTURES = Path(__file__).parent / "fixtures" / "mercado"
 # (dx0, dx1, folga) — o trecho sem texto e as linhas de folga nas pontas.
 SONDA_MEDIDA = (180, 510, 2)
 
+# O trecho que a VARREDURA de `tools/medir_oclusao.py` escolheu sobre as 8
+# gravacoes (2026-08-30), e que ela gravou em `mercado_sonda_do_fundo`. Ele NAO
+# e o de cima: a pesquisa mediu [180, 510) em tres frames; a varredura, sobre
+# 478 frames de campo e contra o gabarito, achou [207, 417) com folga 7,7x
+# contra os 4,7x do trecho da pesquisa. O numero mora no `calibration.json` —
+# gitignored, e nenhum teste o le —, mas a RELACAO que ele produz fica prendida
+# aqui, para que uma mudanca na primitiva nao invalide calado o numero que os
+# planos 02-04 e 02-05 vao consumir.
+SONDA_ESCOLHIDA_PELA_VARREDURA = (207, 417, 2)
+
 
 def _linha(nome: str) -> np.ndarray:
     caminho = FIXTURES / nome
@@ -68,8 +78,10 @@ def _linha(nome: str) -> np.ndarray:
     return cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
 
 
-def _sonda(cinza: np.ndarray) -> tuple[int, float]:
-    dx0, dx1, folga = SONDA_MEDIDA
+def _sonda(
+    cinza: np.ndarray, trecho: tuple[int, int, int] = SONDA_MEDIDA
+) -> tuple[int, float]:
+    dx0, dx1, folga = trecho
     medido = nivel_de_fundo_da_linha(
         cinza, (dx0, 0, dx1 - dx0, cinza.shape[0]), folga
     )
@@ -133,6 +145,49 @@ class TestALinhaCOBERTA:
         _, limpa = _sonda(_linha("linha_limpa_no_frame_do_alvo_f024.png"))
         assert coberta > limpa
         assert coberta > 2.0 * limpa
+
+
+class TestNoTrechoQueAVarreduraESCOLHEU:
+    """A mesma relacao, no trecho que foi para o `calibration.json`.
+
+    Este e o trecho de PRODUCAO: e ele que o 02-04 vai usar para recusar linha
+    coberta. Sem estas asserções, alterar a primitiva quebraria o numero gravado
+    sem quebrar teste nenhum — e o numero so seria reconferido na proxima vez
+    que alguem rodasse a varredura, que precisa de `recordings/`.
+    """
+
+    def test_sob_tooltip_contra_a_limpa_do_MESMO_frame(self) -> None:
+        _, coberta = _sonda(
+            _linha("linha_sob_tooltip_f015.png"), SONDA_ESCOLHIDA_PELA_VARREDURA
+        )
+        _, limpa = _sonda(
+            _linha("linha_limpa_no_frame_do_tooltip_f015.png"),
+            SONDA_ESCOLHIDA_PELA_VARREDURA,
+        )
+        assert coberta > 0.30
+        assert coberta > limpa
+
+    def test_sob_a_marcacao_de_alvo_contra_a_limpa_do_MESMO_frame(self) -> None:
+        """O CASO APERTADO no trecho de producao: 8x medidos, contra 2x exigidos."""
+        _, coberta = _sonda(
+            _linha("linha_sob_alvo_f024.png"), SONDA_ESCOLHIDA_PELA_VARREDURA
+        )
+        _, limpa = _sonda(
+            _linha("linha_limpa_no_frame_do_alvo_f024.png"),
+            SONDA_ESCOLHIDA_PELA_VARREDURA,
+        )
+        assert coberta > limpa
+        assert coberta > 2.0 * limpa
+
+    def test_as_linhas_limpas_ficam_no_chao(self) -> None:
+        for nome in (
+            "linha_limpa_par_f010.png",
+            "linha_limpa_impar_f010.png",
+            "linha_limpa_no_frame_do_tooltip_f015.png",
+            "linha_limpa_no_frame_do_alvo_f024.png",
+        ):
+            _, dispersao = _sonda(_linha(nome), SONDA_ESCOLHIDA_PELA_VARREDURA)
+            assert dispersao < 0.05, f"{nome} deu {dispersao:.4f}"
 
 
 class TestOQueNaoDaPARA_MEDIR:
