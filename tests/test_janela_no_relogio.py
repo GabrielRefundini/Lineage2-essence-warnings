@@ -25,14 +25,18 @@ agenda e injetada, o despachante grava em memoria e `time.sleep` levanta
 from __future__ import annotations
 
 import argparse
+import ast
 import logging
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
 from l2scanner.agenda import EventoAgendado
 from l2scanner.bosses import Boss
 from l2scanner.notificador import Categoria
+
+RAIZ = Path(__file__).resolve().parent.parent
 
 # Os bosses sao CONSTRUIDOS AQUI e nunca lidos do `config.toml` do repositorio:
 # aquele arquivo e do usuario e ele o edita, e um teste ancorado nas horas de la
@@ -53,6 +57,50 @@ NASCIMENTO = datetime(2026, 8, 30, 14, 30)
 ANCORA_EM_DISCO = "nascimento_2026-08-30_tiat-north-1430_chat"
 AVISO_DE_ABERTURA = "2026-08-30_tiat-north-1430_abre"
 AVISO_DE_LIMITE = "2026-08-30_tiat-north-1430_limite"
+
+
+def _fonte(arquivo: str) -> str:
+    return (RAIZ / "l2scanner" / arquivo).read_text(encoding="utf-8")
+
+
+def _funcao(arquivo: str, nome: str) -> ast.FunctionDef:
+    """A definicao de uma funcao, por AST e nunca por busca textual.
+
+    A razao ja foi escrita tres vezes neste projeto e vale de novo aqui: as
+    docstrings desta fase CITAM os nomes proibidos de proposito, para explicar
+    por escrito o que a regra proibe. Um `grep` acusaria justamente a
+    documentacao que protege a regra.
+
+    Aceita tambem metodos (`Classe.metodo`), pela mesma varredura.
+    """
+    arvore = ast.parse(_fonte(arquivo))
+    curto = nome.rsplit(".", 1)[-1]
+    return next(
+        no
+        for no in ast.walk(arvore)
+        if isinstance(no, ast.FunctionDef) and no.name == curto
+    )
+
+
+def _funcao_do_main(nome: str) -> ast.FunctionDef:
+    return _funcao("__main__.py", nome)
+
+
+def _chamadas(no: ast.AST, alvo: str) -> list[ast.Call]:
+    """Toda chamada a `alvo` na subarvore, seja `alvo(...)` ou `x.alvo(...)`."""
+    return [
+        filho
+        for filho in ast.walk(no)
+        if isinstance(filho, ast.Call)
+        and (
+            getattr(filho.func, "id", None) == alvo
+            or getattr(filho.func, "attr", None) == alvo
+        )
+    ]
+
+
+def _chama(no: ast.AST, alvo: str) -> bool:
+    return bool(_chamadas(no, alvo))
 
 
 class RelogioParado:
@@ -446,3 +494,137 @@ class TestOShellDoSoAgenda:
         assert avisos == []
         assert despachante.despachos == []
         assert not [r for r in caplog.records if "Tiat North" in r.getMessage()]
+
+
+class TestAPrevisaoNoArranque:
+    """OPER-02 chegando ao console dos DOIS lacos.
+
+    Quem sobe o scanner ve, na primeira tela, quais bosses estao sendo vigiados
+    e quando a janela de cada um abre — e ve escrito, sem previsao inventada, de
+    quais deles o scanner ainda nao viu nascimento nenhum.
+    """
+
+    def _registro(self, tmp_path, com_ancora=True):
+        from l2scanner.agenda import RegistroEmDisco
+
+        pasta = tmp_path / ".agenda"
+        if com_ancora:
+            semear_ancora(pasta)
+        return RegistroEmDisco(pasta)
+
+    def test_o_shell_loga_uma_linha_por_boss(self, tmp_path, caplog):
+        from l2scanner.__main__ import _anunciar_previsao_de_janelas
+
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            _anunciar_previsao_de_janelas(
+                self._registro(tmp_path), [NORTH, SOUTH], NASCIMENTO
+            )
+
+        mensagens = [r.getMessage() for r in caplog.records]
+        assert any("Tiat North" in m for m in mensagens)
+        assert any("Tiat South" in m for m in mensagens)
+
+    def test_o_shell_nao_diz_nada_sem_boss_configurado(self, tmp_path, caplog):
+        """`montar_vigia_de_bosses` ja diz que a vigilancia esta desligada, e
+        com o texto que ensina a ligar. Repetir treinaria o usuario a
+        ignorar."""
+        from l2scanner.__main__ import _anunciar_previsao_de_janelas
+
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            _anunciar_previsao_de_janelas(
+                self._registro(tmp_path, com_ancora=False), [], NASCIMENTO
+            )
+
+        assert caplog.records == []
+
+    def test_o_laco_da_agenda_emite_as_duas_linhas_no_arranque(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        """As duas linhas, e ANTES de qualquer despacho.
+
+        A previsao e a primeira tela: ela existe para o usuario saber o que
+        esperar antes de o scanner comecar a falar.
+        """
+        semear_ancora(tmp_path / ".agenda")
+
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            _, _, despachante = uma_volta_do_laco_da_agenda(
+                monkeypatch, tmp_path, NASCIMENTO.replace(hour=20, minute=30),
+                bosses=[NORTH, SOUTH],
+            )
+
+        mensagens = [r.getMessage() for r in caplog.records]
+        com_ancora = next(
+            i for i, m in enumerate(mensagens)
+            if "Tiat North" in m and "30/08 20:30" in m
+        )
+        sem_ancora = next(
+            i for i, m in enumerate(mensagens)
+            if "Tiat South" in m and "nascimento" in m
+        )
+        assert not any(c.isdigit() for c in mensagens[sem_ancora]), (
+            "a linha de quem nao tem ancora inventou uma previsao"
+        )
+
+        assert len(despachante.despachos) == 1
+        despachada = next(
+            i for i, m in enumerate(mensagens)
+            if "a janela abriu" in m
+        )
+        assert com_ancora < despachada and sem_ancora < despachada, (
+            "a previsao do arranque saiu depois do primeiro aviso"
+        )
+
+    def test_o_laco_da_agenda_repete_a_previsao_de_hora_em_hora(self):
+        """Lido por AST, no molde do proprio `_anunciar_proximo` ao lado.
+
+        O `--so-agenda` roda por DIAS, e um scanner que nao diz quando vai
+        falar de novo e indistinguivel de um travado. Repetir so o proximo
+        evento deixaria de fora justamente a informacao deste workstream.
+        """
+        laco = _funcao_do_main("laco_da_agenda")
+        blocos_horarios = [
+            no
+            for no in ast.walk(laco)
+            if isinstance(no, ast.If)
+            and _chama(no, "_anunciar_proximo")
+        ]
+        assert blocos_horarios, "o bloco horario sumiu do laco_da_agenda"
+        assert any(
+            _chama(bloco, "_anunciar_previsao_de_janelas")
+            for bloco in blocos_horarios
+        ), (
+            "a previsao de janela nao e repetida de hora em hora: depois de um "
+            "dia rodando, o console nao diz mais nada sobre os bosses"
+        )
+
+    def test_o_laco_principal_anuncia_a_previsao_FORA_de_qualquer_condicao(self):
+        """Deliberadamente fora de `montar_vigia_de_bosses`, e por que.
+
+        A previsao depende SO da ancora em disco e do relogio, entao ela tem que
+        sair mesmo com o vigia desligado por falta de calibracao ou de OCR.
+        Amarra-la ao vigia faria uma calibracao quebrada APAGAR, em silencio, a
+        previsao de uma ancora que continua correta em disco — que e a mesma
+        razao pela qual `Sessao` recebe `regras_de_respawn` separado de
+        `bosses`.
+
+        Afirmado por AST sobre a POSICAO da chamada: ela e uma instrucao do
+        corpo do `laco_principal`, e nao um ramo de `if`. Rodar uma volta do
+        laco principal exigiria calibracao, captura e um frame — e um teste que
+        precisa do jogo aberto nao prova OPER-03.
+        """
+        laco = _funcao_do_main("laco_principal")
+
+        assert _chama(laco, "_anunciar_previsao_de_janelas"), (
+            "laco_principal nunca anuncia a previsao de janela"
+        )
+        condicionais = [
+            no for no in ast.walk(laco)
+            if isinstance(no, (ast.If, ast.Try))
+            and _chama(no, "_anunciar_previsao_de_janelas")
+        ]
+        assert condicionais == [], (
+            "a previsao de janela do laco principal esta dentro de uma "
+            "condicao: uma calibracao quebrada apagaria a previsao de uma "
+            "ancora que continua correta em disco"
+        )
