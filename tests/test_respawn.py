@@ -29,6 +29,7 @@ from l2scanner.respawn import (
     anunciar_janelas,
     chave_do_nascimento,
     janelas_devidas,
+    linhas_de_previsao,
     texto_da_janela,
 )
 
@@ -508,12 +509,22 @@ def acusacoes(texto: str) -> list[str]:
     return [token for token in TOKENS_PROIBIDOS if token in minusculo]
 
 
-def todos_os_textos() -> list[str]:
-    """As quatro frases da matriz, e o ponto de extensao do plano 02-02.
+def as_quatro_frases() -> list[str]:
+    """So a matriz `{ABRE, LIMITE} x {anuncio, alvo}` do WhatsApp.
 
-    Parametrizado sobre uma LISTA para que acrescentar a quinta origem de texto
-    (as linhas de previsao do console, que o plano 02-02 cria) seja acrescentar
-    um item, e nao escrever um segundo portao que pode divergir deste.
+    SEPARADA DE `todos_os_textos()` de proposito. Ha duas familias de
+    afirmacao neste arquivo e elas nao tem o mesmo dominio:
+
+    - as que valem para TODO texto que esta fase produz — nenhuma afirmacao de
+      encerramento (D-19), nada fora do ASCII, nenhum travessao — e essas
+      recebem `todos_os_textos()`;
+    - as que sao das QUATRO FRASES — comecar pelo nome do boss e CITAR o
+      nascimento — e essas recebem esta lista.
+
+    A separacao nao afrouxa nada: as quatro frases continuam sendo afirmadas
+    exatamente como antes. Ela existe porque a linha de previsao de um boss SEM
+    ancora nao pode citar nascimento nenhum — nao ha um para citar, e inventar
+    um e literalmente o defeito que T-02-13 existe para impedir.
     """
     textos = []
     for origem in (OrigemDoAviso.CHAT, OrigemDoAviso.ALVO):
@@ -536,6 +547,26 @@ def todos_os_textos() -> list[str]:
                     )
                 )
             )
+
+    return textos
+
+
+def todos_os_textos() -> list[str]:
+    """TODO texto que esta fase entrega a um ser humano — o portao de D-19.
+
+    Parametrizado sobre uma LISTA para que acrescentar a quinta origem de texto
+    (as linhas de previsao do console, que o plano 02-02 criou) seja acrescentar
+    um item, e nao escrever um segundo portao que pode divergir deste no dia em
+    que alguem acrescentar um token a um so dos dois.
+
+    As duas origens e os DOIS casos entram: `NORTH` tem ancora e `SOUTH` nao,
+    entao a linha do "ainda nao vi nascimento" tambem passa pelo portao.
+    """
+    textos = as_quatro_frases()
+    for origem in (OrigemDoAviso.CHAT, OrigemDoAviso.ALVO):
+        textos.extend(
+            linhas_de_previsao(ABRE_EM, [NORTH, SOUTH], so_north(origem=origem))
+        )
     return textos
 
 
@@ -564,7 +595,13 @@ class TestNenhumaAfirmacaoDeEncerramento:
     """
 
     @pytest.mark.parametrize("texto", todos_os_textos())
-    def test_nenhuma_das_quatro_frases_afirma_encerramento(self, texto):
+    def test_nenhum_texto_desta_fase_afirma_encerramento(self, texto):
+        """Vale para as quatro frases do WhatsApp E para as linhas do console.
+
+        A proibicao e sobre a AFIRMACAO e nao sobre o canal: uma linha de
+        console dizendo que a janela fechou mandaria a party desistir do mesmo
+        jeito.
+        """
         assert acusacoes(texto) == [], f"a frase afirma o que a conta nao autoriza: {texto}"
 
     def test_a_prova_nao_e_vazia_o_detector_acusa_o_texto_de_controle(self):
@@ -653,7 +690,7 @@ class TestAsQuatroFrases:
         texto = texto_da_janela(aviso_de(TipoDeJanela.LIMITE, OrigemDoAviso.CHAT))
         assert "o tempo em que o boss ficou vivo ainda nao entrou nela" in texto
 
-    @pytest.mark.parametrize("texto", todos_os_textos())
+    @pytest.mark.parametrize("texto", as_quatro_frases())
     def test_toda_frase_comeca_pelo_boss_e_cita_o_nascimento(self, texto):
         assert texto.startswith("Tiat North:")
         assert "14:30 de 30/08" in texto
@@ -749,3 +786,128 @@ class TestAsArestasDeTempoRestantes:
         )
         devidos = janelas_devidas(ABRE_EM, [NORTH, SOUTH], ancoras, set())
         assert sorted(a.boss for a in devidos) == ["Tiat North", "Tiat South"]
+
+
+class TestAsLinhasDePrevisaoDoConsole:
+    """OPER-02: o console diz quando a janela abre, e CALA quando nao sabe.
+
+    A metade "quais bosses estao sendo vigiados" ja saiu na Fase 1, na linha de
+    `montar_vigia_de_bosses` que NOMEIA os bosses em vez de conta-los — ela foi
+    escrita assim de proposito, para o nome poder virar a ancora deste texto.
+    Estas linhas sao a outra metade.
+
+    FUNCAO PURA, no molde de `texto_da_janela`: devolve texto e quem imprime e o
+    chamador. O `agora` entra por parametro e nao e lido la dentro, pela razao
+    ja escrita em `_anunciar_proximo` — e o que impede esta funcao de ser a
+    ultima do arquivo a perguntar as horas ao Windows.
+    """
+
+    def test_dois_bosses_com_uma_ancora_produzem_duas_linhas(self):
+        linhas = linhas_de_previsao(ABRE_EM, [NORTH, SOUTH], so_north())
+
+        assert len(linhas) == 2
+        assert linhas[0].startswith("Tiat North")
+        assert linhas[1].startswith("Tiat South")
+
+    def test_a_linha_com_ancora_traz_abertura_limite_e_a_citacao(self):
+        """Quem le o console julga o numero com a mesma informacao de quem le o
+        grupo (D-16)."""
+        linha = linhas_de_previsao(ABRE_EM, [NORTH], so_north())[0]
+
+        assert "Tiat North" in linha
+        assert "30/08 20:30" in linha, "a linha nao diz quando a janela abre"
+        assert "30/08 22:30" in linha, "a linha nao diz quando o limite passa"
+        assert "servidor" in linha, "a linha nao cita a origem do nascimento"
+        assert "14:30 de 30/08" in linha
+
+    def test_a_linha_sem_ancora_nao_contem_horario_nenhum(self):
+        """T-02-13: o console dizendo que nao sabe e a RESPOSTA CORRETA.
+
+        Um horario inventado ali seria a mesma familia de defeito que a poda de
+        3 dias existe para impedir, so que na tela em vez de no grupo.
+        """
+        linha = linhas_de_previsao(ABRE_EM, [SOUTH], {})[0]
+
+        assert "Tiat South" in linha
+        assert not any(c.isdigit() for c in linha), (
+            f"a linha de quem nao tem ancora inventou um numero: {linha}"
+        )
+        assert "nascimento" in linha
+
+    def test_trocar_a_origem_troca_a_citacao(self):
+        """A mesma distincao das quatro frases do WhatsApp."""
+        do_anuncio = linhas_de_previsao(ABRE_EM, [NORTH], so_north())[0]
+        do_alvo = linhas_de_previsao(
+            ABRE_EM, [NORTH], so_north(origem=OrigemDoAviso.ALVO)
+        )[0]
+
+        assert do_anuncio != do_alvo
+        assert "servidor" in do_anuncio and "seu alvo" not in do_anuncio
+        assert "seu alvo" in do_alvo and "servidor" not in do_alvo
+
+    def test_a_linha_do_alvo_carrega_a_ressalva(self):
+        """D-16 tambem no console: sem a ressalva, D-15 vira armadilha."""
+        linha = linhas_de_previsao(
+            ABRE_EM, [NORTH], so_north(origem=OrigemDoAviso.ALVO)
+        )[0]
+
+        assert "pode estar adiantado" in linha
+
+    def test_a_origem_dupla_cai_no_caminho_do_anuncio(self):
+        dupla = linhas_de_previsao(
+            ABRE_EM, [NORTH], so_north(origem=OrigemDoAviso.CHAT_E_ALVO)
+        )
+        so_chat = linhas_de_previsao(ABRE_EM, [NORTH], so_north())
+
+        assert dupla == so_chat
+
+    def test_sem_boss_nenhum_a_lista_e_VAZIA(self):
+        """E nao uma linha dizendo que nao ha bosses.
+
+        `montar_vigia_de_bosses` ja diz isso, e com o texto que ensina a ligar.
+        Repetir aqui treinaria o usuario a ignorar as duas.
+        """
+        assert linhas_de_previsao(ABRE_EM, [], {}) == []
+
+    def test_as_horas_saem_do_bloco_boss_e_nao_do_codigo(self):
+        outro = Boss(nome="Orfen", respawn_horas_min=3, respawn_horas_max=4)
+        ancoras = ancoras_mais_recentes(
+            [chave_do_nascimento("Orfen", NASCIMENTO, OrigemDoAviso.CHAT)]
+        )
+
+        linha = linhas_de_previsao(ABRE_EM, [outro], ancoras)[0]
+
+        assert "30/08 17:30" in linha, "a abertura nao usou respawn_horas_min=3"
+        assert "30/08 18:30" in linha, "o limite nao usou respawn_horas_max=4"
+
+    def test_duas_chamadas_com_o_mesmo_agora_devolvem_o_MESMO_texto(self):
+        """A funcao nao le relogio: nada aqui pode mudar entre duas chamadas.
+
+        Um `datetime.now()` enfiado la dentro passaria neste teste em quase
+        todas as execucoes — por isso o portao de verdade e o AST de
+        `TestSemRelogioProprio`, e este e so a rede de baixo.
+        """
+        um = linhas_de_previsao(ABRE_EM, [NORTH, SOUTH], so_north())
+        outro = linhas_de_previsao(ABRE_EM, [NORTH, SOUTH], so_north())
+
+        assert um == outro
+
+    def test_toda_linha_comeca_pelo_NOME_DO_BOSS(self):
+        """D-14 tambem no console: e a informacao que decide para onde a party
+        se desloca, e ela nao pode estar no meio da frase.
+
+        Afirmado sobre as DUAS linhas — a com ancora e a sem — porque e o unico
+        pedaco de `test_toda_frase_comeca_pelo_boss_e_cita_o_nascimento` que
+        vale tambem para quem nao tem nascimento para citar.
+        """
+        for linha in linhas_de_previsao(ABRE_EM, [NORTH, SOUTH], so_north()):
+            nome = linha.split(":")[0]
+            assert nome in ("Tiat North", "Tiat South"), linha
+
+    def test_a_ordem_e_a_do_config(self):
+        """Uma ordem que muda entre arranques faria o usuario reler a lista
+        inteira toda vez."""
+        assert [
+            linha.split(":")[0]
+            for linha in linhas_de_previsao(ABRE_EM, [SOUTH, NORTH], so_north())
+        ] == ["Tiat South", "Tiat North"]
