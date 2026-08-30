@@ -48,7 +48,7 @@ from .captura_janela import (  # noqa: E402
     achar_janela,
 )
 from .agenda import AgendaInvalida  # noqa: E402
-from .cliente import nome_do_personagem  # noqa: E402
+from .cliente import esta_na_tela_de_login, nome_do_personagem  # noqa: E402
 from .config import ler_personagem_do_jogo  # noqa: E402
 from .identidade import criar_assinatura  # noqa: E402
 from .frames import Regiao  # noqa: E402
@@ -964,10 +964,13 @@ def escolher_janela_do_jogo(
         return None
 
     alvo = pedido or personagem
+
+    # (a) NENHUMA JANELA DO JOGO. Listar o vazio nao diz nada; perguntar diz.
     if not janelas:
         raise MiraNaoResolvida(
-            f"Nao achei nenhuma janela do XM Essence para mirar '{alvo}'.\n"
-            "  O jogo esta aberto?"
+            f"Pedi para mirar '{alvo}', mas nao ha nenhuma janela do XM "
+            f"Essence aberta.\n"
+            f"  O jogo esta aberto?"
         )
 
     if pedido is not None:
@@ -983,15 +986,32 @@ def escolher_janela_do_jogo(
     if len(casadas) == 1:
         return casadas[0]
 
-    if not casadas:
+    # (c) O TITULO PEDIDO NAO EXISTE. Frase propria porque o `--janela` compara
+    # titulo INTEIRO: dizer "personagem" aqui mandaria o usuario conferir a
+    # grafia do nick quando o que falta e o sufixo " - XM Essence".
+    if not casadas and pedido is not None:
         raise MiraNaoResolvida(
-            f"Nao achei janela do jogo para '{alvo}'.\n"
-            + _linhas_de_janela(janelas)
+            f"Nao existe janela do jogo com o titulo exato '{pedido}'.\n"
+            f"  Janelas do jogo abertas agora:\n"
+            f"{_linhas_de_janela(janelas)}"
+            f"{_nota_de_login(janelas)}"
         )
 
+    # (b) HA JANELAS, NENHUMA E DESSE PERSONAGEM.
+    if not casadas:
+        raise MiraNaoResolvida(
+            f"Nenhuma janela do jogo e do personagem '{personagem}'.\n"
+            f"  Janelas do jogo abertas agora:\n"
+            f"{_linhas_de_janela(janelas)}"
+            f"{_nota_de_login(janelas)}"
+        )
+
+    # (d) DUAS OU MAIS CASANDO. Escolher uma seria a "primeira que funcionar".
     raise MiraNaoResolvida(
-        f"'{alvo}' casa mais de uma janela do jogo — nao da para escolher.\n"
-        + _linhas_de_janela(casadas)
+        f"'{alvo}' casa mais de uma janela do jogo, e eu nao tenho como "
+        f"escolher por voce:\n"
+        f"{_linhas_de_janela(casadas)}\n"
+        f"  Desambigue com --janela, ou feche o cliente que nao interessa."
     )
 
 
@@ -999,9 +1019,26 @@ def _linhas_de_janela(janelas: list[str]) -> str:
     """As janelas, uma por linha, com o argumento pronto para copiar.
 
     Mesmo formato de `calibrar_so_a_propria_barra`: o usuario nao tem de
-    digitar um titulo que ele leu numa mensagem de erro — ele copia a linha.
+    redigitar um titulo que leu numa mensagem de erro — ele copia a linha.
     """
     return "\n".join(f'    --janela "{j}"' for j in janelas)
+
+
+def _nota_de_login(janelas: list[str]) -> str:
+    """Diz que ha cliente na TELA DE LOGIN, quando ha. Vazio quando nao ha.
+
+    Sem esta nota a recusa mente por omissao: ela diz "nao achei essa janela"
+    quando a janela esta ali, e do jogo, e so nao tem personagem no titulo
+    ainda — jogando o titulo e `Personagem - XM Essence`, no login ele COLAPSA
+    para `XM Essence`. O usuario ficaria conferindo a grafia do nick contra um
+    cliente que nem entrou no mundo.
+    """
+    if not any(esta_na_tela_de_login(j) for j in janelas):
+        return ""
+    return (
+        "\n  Ha cliente na TELA DE LOGIN: nesse estado o titulo nao traz "
+        "personagem\n  nenhum. Entre no mundo com o personagem e rode de novo."
+    )
 
 
 def capturar_a_janela_mirada(titulo: str) -> tuple[np.ndarray, int, int]:
