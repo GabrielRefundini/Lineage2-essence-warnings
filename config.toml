@@ -55,6 +55,12 @@ silenciar_minutos = 120
 #
 # Se os avisos de madrugada incomodarem, e so apagar os horarios da lista —
 # nada mais precisa mudar.
+#
+# PARA CALAR ESTE EVENTO SEM EDITAR NADA AQUI: mande /desativarsoloboss no
+# WhatsApp. Ele desliga os DOIS avisos abaixo de uma vez (tudo ou nada, de
+# proposito) e continua desligado depois de reiniciar o scanner — nada religa
+# sozinho, so o /ativarsoloboss. Enquanto estiver assim, o /status diz. Estas
+# duas linhas continuam sendo a configuracao; o comando so as suspende.
 [[evento]]
 nome = "Solo Boss"
 horarios = [

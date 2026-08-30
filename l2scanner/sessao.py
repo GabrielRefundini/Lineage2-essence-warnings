@@ -397,7 +397,14 @@ class Sessao:
         designacao = self.loot.designacao() if self.loot else None
 
         for aviso in avisos_devidos(
-            agora, self.eventos_agendados, self.registro.enviados()
+            agora,
+            self.eventos_agendados,
+            self.registro.enviados(),
+            # O que o usuario desligou por `/desativarsoloboss`. Lido do DISCO
+            # a cada tick, e nao guardado na sessao: o comando pode chegar na
+            # OUTRA instancia, e um cache aqui faria este processo continuar
+            # anunciando o boss que o outro acabou de calar.
+            eventos_calados=self.registro.eventos_calados(),
         ):
             if not self.registro.marcar(aviso.chave):
                 continue

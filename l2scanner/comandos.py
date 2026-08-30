@@ -164,6 +164,31 @@ class Comando(Enum):
     # isso que os dois comandos coexistem em vez de um substituir o outro.
     LOOT_ATRIBUIR = "loot_atribuir"
 
+    # Desligar e religar TODOS os avisos do Solo Boss — a chamada de 1h50 e o
+    # lembrete de 10 minutos, juntos e nunca um sem o outro.
+    #
+    # TUDO OU NADA E DECISAO DE PRODUTO, NAO PREGUICA DE SINTAXE. A chamada sem
+    # o lembrete convida a party para um boss que ninguem lembra de ir; o
+    # lembrete sem a chamada avisa 10 minutos antes uma party que nunca foi
+    # consultada. Meia-mudez e pior que os dois extremos, entao nao existe
+    # comando que alcance metade — o gate mora em `agenda.avisos_devidos`, no
+    # funil por onde os tres tipos de aviso passam.
+    #
+    # SAO DOIS COMANDOS, E NAO UM COM ARGUMENTO. O armazenamento e o gate ja
+    # sao genericos por evento, porque isso nao custou uma linha a mais; a
+    # SUPERFICIE nao e. Um `/avisos <evento> off` alcancaria TvT e Prime, que
+    # ninguem pediu, e esta lista e curta de proposito — ver o cabecalho deste
+    # enum.
+    #
+    # E OS DOIS FICAM FORA DE `COMANDOS_DE_MEMBRO`, logo abaixo. Um `/entrar`
+    # de party-mate mexe numa linha da lista de UMA ocorrencia e quem digitou
+    # ve o efeito. Isto apaga doze chamadas por dia da party INTEIRA, por tempo
+    # indeterminado, e o efeito e a AUSENCIA de mensagem — do lado dos outros,
+    # indistinguivel do bot ter caido. Nao e um `/entrar` maior; e outra
+    # categoria de estrago.
+    DESATIVAR_SOLO_BOSS = "desativar_solo_boss"
+    ATIVAR_SOLO_BOSS = "ativar_solo_boss"
+
     # O UNICO comando que nao muda estado nenhum, e o unico cujo conteudo e
     # DERIVADO dos outros: ele le a tabela `_AJUDA` e devolve o que os demais
     # membros deste enum dizem sobre si mesmos. Por isso ele e o unico que
@@ -224,6 +249,25 @@ _VOCABULARIO: dict[str, Comando] = {
     "entrar": Comando.JOIN,
     "leave": Comando.LEAVE,
     "sair": Comando.LEAVE,
+    # Duas formas por comando, e o `interpretar` entrega mais quatro de graca:
+    # ele tira hifens e sublinhados do miolo, entao `/desativar-solo-boss` cai
+    # em `desativarsoloboss`, e junta as duas primeiras palavras, entao
+    # `/desativar boss` cai em `desativarboss`.
+    #
+    # A FORMA CURTA NAO E CAPRICHO: a longa tem 17 caracteres e quem digita no
+    # meio de um farm erra. O preco e o mesmo ja documentado no topo deste
+    # dicionario — um personagem chamado "DesativarBoss" deixa de ser
+    # consultavel por `/<nick>`. A forma longa nem cobra esse preco: 17
+    # caracteres nao casam `NICK_VALIDO`, que para em 16.
+    #
+    # `/desativar` SOZINHO NAO ESTA AQUI, e a ausencia e deliberada — mesma
+    # disciplina do D-02 no `.loot`. Comando sem argumento nao pode mexer em
+    # estado duravel: quem digita `/desativar` nao disse O QUE desativar, e
+    # adivinhar seria calar o boss por conta propria.
+    "desativarsoloboss": Comando.DESATIVAR_SOLO_BOSS,
+    "desativarboss": Comando.DESATIVAR_SOLO_BOSS,
+    "ativarsoloboss": Comando.ATIVAR_SOLO_BOSS,
+    "ativarboss": Comando.ATIVAR_SOLO_BOSS,
     "help": Comando.AJUDA,
     "ajuda": Comando.AJUDA,
     "comandos": Comando.AJUDA,
@@ -277,6 +321,27 @@ _AJUDA: dict[Comando, LinhaDeAjuda] = {
     ),
     Comando.CANCELAR_SILENCIO: LinhaDeAjuda(
         "Silencio", "/cancelar", "Tira o silencio de TvT/Prime que estiver rolando"
+    ),
+    # Na familia "Silencio" e logo depois do `/cancelar` porque a ordem de
+    # insercao E a ordem da resposta: os tres controles de "parar de falar"
+    # ficam no mesmo bloco da tela do celular, em vez de o desligamento do boss
+    # aparecer perdido entre presenca e loot.
+    #
+    # A descricao diz OS DOIS AVISOS por extenso. Quem le a ajuda precisa saber
+    # que e tudo ou nada antes de digitar — descobrir depois, pela ausencia de
+    # uma chamada que ele achava que tinha mantido, e descobrir tarde.
+    Comando.DESATIVAR_SOLO_BOSS: LinhaDeAjuda(
+        "Silencio",
+        "/desativarsoloboss",
+        "Paro com TUDO do Solo Boss: nem a chamada, nem o lembrete. Continua "
+        "desligado depois de reiniciar",
+        ("/desativarboss",),
+    ),
+    Comando.ATIVAR_SOLO_BOSS: LinhaDeAjuda(
+        "Silencio",
+        "/ativarsoloboss",
+        "Volto a chamar e a lembrar do Solo Boss",
+        ("/ativarboss",),
     ),
     # A familia Presenca vem ANTES de "Loot do Solo Boss" porque essa e a ordem
     # do ciclo do boss: primeiro a party diz quem vai, so depois se decide de
