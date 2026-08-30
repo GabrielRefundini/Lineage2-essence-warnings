@@ -382,6 +382,39 @@ class TestOModoDeSimulacaoNaJanela:
 
         assert not pasta.exists(), "a simulacao criou a .agenda/ compartilhada"
 
+    def test_em_simulacao_DUAS_voltas_repetem_a_mensagem_e_isso_e_ACEITO(
+        self, monkeypatch, tmp_path
+    ):
+        """A repeticao em `--dry-run` e HERDADA e ACEITA, e nao um defeito.
+
+        Ela vem de `marcar` devolver `True` sem encostar no disco quando esta
+        simulando (`agenda.py`): sem arquivo gravado, a volta seguinte dentro da
+        tolerancia de cinco minutos ve o mesmo aviso vencido de novo. E
+        exatamente o que `_processar_agenda` ja faz com os avisos de agenda.
+
+        UM CONTADOR EM MEMORIA "CONSERTARIA" ISTO E SERIA PIOR: ele trocaria
+        ruido de console por o risco de o `--dry-run` NAO mostrar justamente a
+        mensagem que ele existe para mostrar. Quem roda `--dry-run` esta
+        conferindo se a mensagem sai e como ela e escrita; ve-la duas vezes e
+        barulho, nao ve-la e o modo falhar em silencio.
+
+        AFIRMADO E NAO CONSERTADO, para uma mudanca futura aparecer no diff em
+        vez de acontecer sozinha.
+        """
+        semear_ancora(tmp_path / ".agenda")
+
+        um = DespachanteQueGrava()
+        for minuto in (30, 31):
+            uma_volta_do_laco_da_agenda(
+                monkeypatch, tmp_path,
+                NASCIMENTO.replace(hour=20, minute=minuto),
+                bosses=[NORTH], dry_run=True, despachante=um,
+            )
+
+        assert len(um.despachos) == 2, (
+            "o --dry-run deixou de mostrar a mensagem numa das voltas"
+        )
+
 
 class TestOArranqueComBossESemEvento:
     """T-02-14: quem so vigia boss e o publico INTEIRO de JANE-05.
