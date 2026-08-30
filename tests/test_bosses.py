@@ -623,3 +623,116 @@ class TestOConfigDoRepositorioProduzOAviso:
         avisos = v.avaliar(PIXELS, PIXELS, AGORA)
 
         assert {a.boss for a in avisos} == {"Tiat North", "Tiat South"}
+
+
+# ---------------------------------------------------------------------------
+# VIGI-04: o arranque monta o vigia, ou diz por que nao montou.
+# ---------------------------------------------------------------------------
+
+
+class TestOArranque:
+    """Tenta, degrada com log, devolve `None`, e o scanner sobe do mesmo jeito.
+
+    A ordem das recusas importa: lista vazia vem PRIMEIRO porque e a recusa
+    mais informativa — sem bloco nenhum nao ha o que vigiar, mesmo com tudo o
+    mais calibrado, e mandar o usuario recalibrar seria mandar consertar o que
+    nao esta quebrado.
+    """
+
+    @pytest.fixture
+    def cal_sem_recorte(self):
+        """Uma calibracao real do repositorio, sem os recortes de chat/alvo."""
+        from dataclasses import replace
+
+        from l2scanner.calibracao import Calibracao
+
+        crua = Calibracao.carregar(
+            RAIZ / "tests" / "fixtures" / "party_estavel_com_vazamento"
+            / "calibracao.json"
+        )
+        return replace(crua, tiat_chat=None, tiat_alvo=None)
+
+    @pytest.fixture
+    def cal(self, cal_sem_recorte):
+        from dataclasses import replace
+
+        from l2scanner.frames import Regiao
+
+        recorte = Regiao(esquerda=10, topo=20, largura=300, altura=80)
+        return replace(cal_sem_recorte, tiat_chat=recorte, tiat_alvo=recorte)
+
+    def montar(self, cal, bosses, caplog, disponivel=True):
+        import logging
+
+        from l2scanner import __main__ as principal
+
+        with caplog.at_level(logging.INFO, logger=principal.log.name):
+            if disponivel:
+                return principal.montar_vigia_de_bosses(
+                    cal, na_janela=True, bosses=bosses
+                )
+            original = principal.ocr.disponivel
+            principal.ocr.disponivel = lambda: False
+            try:
+                return principal.montar_vigia_de_bosses(
+                    cal, na_janela=True, bosses=bosses
+                )
+            finally:
+                principal.ocr.disponivel = original
+
+    def test_sem_bloco_nenhum_o_scanner_sobe_e_o_log_diz_como_ligar(
+        self, cal, caplog
+    ):
+        """Criterio 7: seccao ausente nao e erro, e o console explica."""
+        assert self.montar(cal, [], caplog) is None
+
+        texto = caplog.text
+        assert "[[boss]]" in texto
+        assert "nome" in texto
+        assert "respawn_horas_min" in texto
+        assert "respawn_horas_max" in texto
+        # `info`, e nao `warning`: nao ter bloco nenhum nao e erro.
+        assert all(
+            r.levelname == "INFO"
+            for r in caplog.records
+            if "[[boss]]" in r.getMessage()
+        )
+
+    def test_com_bosses_mas_sem_recorte_calibrado_devolve_none(
+        self, cal_sem_recorte, caplog
+    ):
+        assert self.montar(cal_sem_recorte, [NORTH], caplog) is None
+        assert "calibrar-tiat" in caplog.text
+
+    def test_com_bosses_e_sem_ocr_devolve_none(self, cal, caplog):
+        assert self.montar(cal, [NORTH], caplog, disponivel=False) is None
+
+    def test_a_linha_de_ativo_nomeia_os_bosses_vigiados(self, cal, caplog):
+        """A metade de OPER-02 que esta fase entrega.
+
+        A Fase 2 completa a outra metade acrescentando a proxima janela
+        prevista, e por isso a linha ja nasce com o NOME como ancora do texto —
+        nao a reescreva como uma contagem.
+        """
+        v = self.montar(cal, [NORTH, SOUTH], caplog)
+
+        assert v is not None
+        assert "Tiat North" in caplog.text
+        assert "Tiat South" in caplog.text
+
+    def test_o_vigia_montado_ja_reconhece_o_anuncio(self, cal, caplog):
+        """Guarda contra montar um vigia com roster vazio por engano."""
+        v = self.montar(cal, [NORTH], caplog)
+
+        v._ler_texto = lambda pixels: ANUNCIO if pixels is PIXELS else ""
+        avisos = v.avaliar(PIXELS, None, AGORA)
+
+        assert [a.boss for a in avisos] == ["Tiat North"]
+
+    def test_nenhum_simbolo_antigo_sobreviveu_no_main(self):
+        """`VigiaDoTiat` e `montar_vigia_do_tiat` nao existem mais."""
+        from l2scanner import __main__ as principal
+
+        fonte = Path(principal.__file__).read_text(encoding="utf-8")
+        assert "VigiaDoTiat" not in fonte
+        assert "montar_vigia_do_tiat" not in fonte
