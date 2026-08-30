@@ -22,6 +22,18 @@ from .identidade import Assinatura
 
 VERSAO_DO_ESQUEMA = 2
 
+# O TETO da `mercado_folga_de_cola_do_glifo`, e ele e UMA VERDADE SO: a
+# varredura `tools/medir_largura_de_run.py` varre de 0 ate ele com passo 1, e a
+# carga cobra a mesma faixa. Dois numeros aqui deixariam a ferramenta propor um
+# valor que o arranque recusa.
+#
+# POR QUE 4. Com os moldes de producao (larguras 1, 4 e 6) a folga 4 ja libera
+# TODA largura de 1 a 10, que passa do maior run largo observado no censo (12
+# px, que e `4`+`4`). Acima disso a tabela de candidatas so repetiria a mesma
+# linha, e o teto existe para que o relatorio mostre os DOIS lados do vao — sem
+# o lado ruim na tabela, "a folga tem teto" seria promessa e nao medicao.
+TETO_DA_FOLGA_DE_COLA = 4
+
 # Faixa padrao onde procurar o banner de manutencao, derivada da party window.
 #
 # O banner do jogo aparece POR CIMA da party window, na faixa superior
@@ -467,6 +479,29 @@ class Calibracao:
     # simplesmente nao acontece, com aviso alto.
     mercado_limiar_de_brilho_da_quantidade: int | None = None
 
+    # A FOLGA DE COLA DO GLIFO -- quantas colunas a barra anti-serrilhada de um
+    # glifo COMPARTILHA com o vizinho colado (02-08).
+    #
+    # Ela e o UNICO numero LIVRE do mecanismo de particao de run largo: as
+    # larguras permitidas vem dos moldes, o limite de glifo unico vem das
+    # larguras, e so ela nao se deriva de nada. Por isso ela e a unica que mora
+    # aqui -- gravar o LIMITE tambem criaria duas verdades sobre uma so
+    # geometria, e na recalibracao seguinte a copia envelheceria contra os
+    # moldes que ela descreve.
+    #
+    # FAIXA VALIDA `[0, TETO_DA_FOLGA_DE_COLA]`. O `0` e LEGITIMO e nao e
+    # desligar: ele e a particao com as larguras de MOLDE puras, o afrouxamento
+    # minimo possivel. Quem desliga e a AUSENCIA -- e a ausencia degrada para
+    # MAIS SEGURO, porque sem a chave a producao aplica a GUARDA e a celula com
+    # run largo cai FECHADA.
+    #
+    # QUEM A MEDE E `tools/medir_largura_de_run.py`, por varredura sobre as 8
+    # gravacoes do censo com passo 1, contra DOIS rotulos nao circulares (a
+    # quantidade derivada de `Total` x `Unit price`, e o intervalo aritmetico
+    # nas colunas de moeda), recusando propor quando UMA celula rotulada le fora
+    # do rotulo.
+    mercado_folga_de_cola_do_glifo: int | None = None
+
     versao: int = VERSAO_DO_ESQUEMA
 
     def regiao_do_nome(self, indice: int) -> Regiao:
@@ -610,6 +645,9 @@ class Calibracao:
             "mercado_limiar_de_brilho_da_quantidade": (
                 self.mercado_limiar_de_brilho_da_quantidade
             ),
+            "mercado_folga_de_cola_do_glifo": (
+                self.mercado_folga_de_cola_do_glifo
+            ),
         }
         # ESCRITA ATOMICA, NO LUGAR ONDE TODOS OS ESCRITORES HERDAM.
         #
@@ -750,6 +788,13 @@ class Calibracao:
             # a mao dele produz, e um bump custaria uma tarde dele.
             mercado_limiar_de_brilho_da_quantidade=dados.get(
                 "mercado_limiar_de_brilho_da_quantidade"
+            ),
+            # `.get` e nao indexacao, pela mesma razao da irma acima: um
+            # `calibration.json` de ANTES do 02-08 carrega inteiro, com o campo
+            # em `None` -- que e a GUARDA, o comportamento SEGURO -- e
+            # `VERSAO_DO_ESQUEMA` segue em 2.
+            mercado_folga_de_cola_do_glifo=dados.get(
+                "mercado_folga_de_cola_do_glifo"
             ),
             versao=versao,
         )
@@ -1232,6 +1277,52 @@ def _conferir_o_piso_de_brilho_da_quantidade(dados: dict) -> None:
         )
 
 
+def _conferir_a_folga_de_cola_do_glifo(dados: dict) -> None:
+    """A folga de cola: inteiro em `[0, TETO_DA_FOLGA_DE_COLA]`.
+
+    ELA TEM CONFERENCIA PROPRIA, e nao entra em `_numero_de_mercado`, pela mesma
+    razao da irma acima: ali `float` passa, e aqui um `1.5` nao significa nada --
+    a folga e um numero de COLUNAS, e nao existe meia coluna.
+
+    O `0` E LEGITIMO AQUI, E ISSO E A DIFERENCA PARA A IRMA. No piso de brilho o
+    `0` desligava a leitura calado (mascara CHEIA); aqui ele e a particao com as
+    larguras de MOLDE puras, que e o afrouxamento MINIMO possivel e um resultado
+    de medicao perfeitamente legitimo.
+
+    O TETO E O QUE DIMENSIONA O RISCO. Uma folga grande demais nao volta a
+    falhar FECHADO: ela libera cortes que a geometria nao sustenta e abre espaco
+    para INVENTAR numero -- medido, o run de 11 px de `frame_000105.png` L6
+    admite um corte `6+5` que produz `144,44` e passa nas duas peneiras, contra
+    o corte certo `7+4` que produz `149,44`.
+
+    `bool` e recusado EXPLICITAMENTE porque e subclasse de `int`: `True`
+    passaria por `isinstance(valor, int)` e viraria folga 1 calada.
+
+    `None` sempre passa: e a GUARDA, o estado legitimo de "ainda nao medi" -- e
+    aqui a ausencia degrada para MAIS SEGURO, e nao para o comportamento antigo.
+    """
+    folga = dados.get("mercado_folga_de_cola_do_glifo")
+    if folga is None:
+        return
+    conserto = (
+        "Rode `python tools/medir_largura_de_run.py --gravar` para MEDIR esta "
+        "folga; ela nunca se escreve a mao."
+    )
+    if isinstance(folga, bool) or not isinstance(folga, int):
+        raise CalibracaoInvalida(
+            f"mercado_folga_de_cola_do_glifo precisa ser um inteiro (um numero "
+            f"de COLUNAS), veio {type(folga).__name__} ({folga!r}). {conserto}"
+        )
+    if not 0 <= folga <= TETO_DA_FOLGA_DE_COLA:
+        raise CalibracaoInvalida(
+            f"mercado_folga_de_cola_do_glifo={folga} esta fora de "
+            f"[0, {TETO_DA_FOLGA_DE_COLA}]. Uma folga negativa nao significa "
+            f"nada, e uma folga acima do teto libera cortes que a geometria do "
+            f"glifo nao sustenta -- ela nao falha FECHADO, ela INVENTA numero. "
+            f"{conserto}"
+        )
+
+
 def _conferir_as_chaves_da_leitura_de_pagina(dados: dict) -> None:
     """As quatorze chaves da Fase 02, na mesma disciplina das irmas.
 
@@ -1344,6 +1435,7 @@ def _conferir_as_chaves_da_leitura_de_pagina(dados: dict) -> None:
     )
     _conferir_o_piso_de_linhas_comparadas(dados)
     _conferir_o_piso_de_brilho_da_quantidade(dados)
+    _conferir_a_folga_de_cola_do_glifo(dados)
 
 
 def descrever_geometria_da_tela() -> str:

@@ -373,12 +373,22 @@ class TestOsBaldes:
 
 class TestOCensoEIMPORTADO:
     def test_e_o_MESMO_OBJETO_de_medir_oclusao(self):
-        # Identidade, e nao igualdade: um segundo `importlib` produziria outro
-        # objeto e a afirmacao passaria sobre uma COPIA. O modulo de referencia
-        # vem de `sys.modules`, que o proprio `_carregar_o_censo` registrou.
+        """Identidade, e nao igualdade — uma COPIA passaria na igualdade.
+
+        A FERRAMENTA E RECARREGADA AQUI DENTRO, E ISSO NAO E CERIMONIA. Quatro
+        outras suites carregam `medir_oclusao` pelo proprio `importlib`, e cada
+        carga registra um objeto NOVO em `sys.modules`: quem registra por ULTIMO
+        e quem `sys.modules` devolve. Comparar contra o registro de outra suite
+        mediria a ORDEM DE COLETA do pytest e nao a proveniencia da lista —
+        vermelho aqui significaria "outro arquivo rodou antes", que nao e
+        defeito nenhum. Recarregando, a ultima carga e a NOSSA, e a afirmacao
+        volta a ser sobre o que ela existe para afirmar: a ferramenta IMPORTA a
+        lista das 8 gravacoes, e nao a copia.
+        """
+        recarregada = _carregar_a_ferramenta("medir_largura_de_run")
         oclusao = sys.modules["medir_oclusao"]
-        assert ferramenta.GRAVACOES_DO_CENSO is oclusao.GRAVACOES_DO_CENSO
-        assert ferramenta.MOTIVO_PARA_IGNORAR is oclusao.MOTIVO_PARA_IGNORAR
+        assert recarregada.GRAVACOES_DO_CENSO is oclusao.GRAVACOES_DO_CENSO
+        assert recarregada.MOTIVO_PARA_IGNORAR is oclusao.MOTIVO_PARA_IGNORAR
 
     def test_sao_as_OITO_gravacoes_nomeadas(self):
         assert len(ferramenta.GRAVACOES_DO_CENSO) == 8

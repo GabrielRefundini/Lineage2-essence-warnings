@@ -390,6 +390,7 @@ def varrer_uma_janela(
                 piso,
                 margem,
                 valor_minimo=PISO_COMPARTILHADO,
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
             )
         )
         unitario = _inteiro_de_moeda(
@@ -399,6 +400,7 @@ def varrer_uma_janela(
                 piso,
                 margem,
                 valor_minimo=PISO_COMPARTILHADO,
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
             )
         )
         rotulo = quantidade_derivada(total, unitario)
@@ -413,6 +415,7 @@ def varrer_uma_janela(
                 piso,
                 margem,
                 valor_minimo=valor_minimo,
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
             )
             moeda[valor_minimo] = (
                 ler_celula(
@@ -421,6 +424,7 @@ def varrer_uma_janela(
                     piso,
                     margem,
                     valor_minimo=valor_minimo,
+                    folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
                 ),
                 ler_celula(
                     recortes["unitario"],
@@ -428,6 +432,7 @@ def varrer_uma_janela(
                     piso,
                     margem,
                     valor_minimo=valor_minimo,
+                    folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
                 ),
             )
 

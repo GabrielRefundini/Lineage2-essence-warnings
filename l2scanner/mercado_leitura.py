@@ -492,6 +492,184 @@ def pontuar_glifos(
     return saida
 
 
+# ---------------------------------------------------------------------------
+# A GEOMETRIA DO GLIFO — DERIVADA dos moldes, e nunca de uma chave (02-08)
+# ---------------------------------------------------------------------------
+
+
+def larguras_de_molde(moldes: dict[str, np.ndarray]) -> tuple[int, ...]:
+    """As larguras ORDENADAS dos moldes de UM caractere. Sem repeticao.
+
+    Sobre os 13 moldes de producao ela devolve `(1, 4, 6)`: a virgula, os
+    digitos, e o `4`. Os moldes de PALAVRA (`Adena` 35 px, `XM Coin` 44 px)
+    ficam de fora pela MESMA regra que `pontuar_glifos` ja aplica
+    (`len(rotulo) == 1`) — eles nao sao geometria de glifo, e um deles no
+    conjunto faria o limite valer 44 e a guarda nunca disparar.
+
+    Ela nasceu em `tools/medir_largura_de_run.py`, que precisou dela primeiro
+    para MEDIR, e foi PROMOVIDA para ca quando a producao passou a precisar
+    dela — o mesmo caminho de `segmentar_glifos`, `pontuar_glifos`,
+    `centesimos_de_moeda` e `mascara_de_numero`. A ferramenta agora IMPORTA
+    daqui: duas copias envelheceriam separadas, e a que envelhecesse pior
+    mediria com uma convencao enquanto o scanner decide com outra.
+    """
+    larguras = {
+        int(molde.shape[1])
+        for rotulo, molde in moldes.items()
+        if len(rotulo) == 1 and getattr(molde, "ndim", 0) == 2
+    }
+    return tuple(sorted(larguras))
+
+
+def limite_de_glifo_unico(moldes: dict[str, np.ndarray]) -> int | None:
+    """A MAIOR largura de um glifo de UM caractere. `None` sem moldes.
+
+    O QUE ELE E. Sobre os moldes de producao ele vale 6, que e a largura do
+    molde `4`. Um run mais largo que isso NAO PODE ser um glifo so — e ate o
+    02-08 nada perguntava isso, entao ele era casado contra UM molde e virava
+    UM digito, com score e margem que atravessavam as duas peneiras.
+
+    POR QUE ELE NAO VIRA CHAVE DO `calibration.json`. Ele e uma FUNCAO dos
+    moldes que ja estao la. Gravar uma copia criaria DUAS VERDADES sobre uma so
+    geometria, e na recalibracao seguinte a copia envelheceria contra os moldes
+    que ela descreve. E o argumento literal que `layout_confere` ja escreve
+    sobre o `dx` do cabecalho nao ser gravado duas vezes.
+
+    POR QUE ELE CAI NUM VALE, E NAO NUMA ZONA CINZENTA. MEDIDO em 2026-08-30
+    por `tools/medir_largura_de_run.py` sobre as 8 gravacoes do censo — 347
+    paginas, 3.458 linhas, 10.374 celulas, portao de layout LIGADO: das 7.099
+    celulas que a producao ACEITA hoje nas tres colunas, ZERO tem run de 7, 8,
+    9 ou 10 px. As larguras aceitas sao {4, 5, 6} de um lado e {11, 12} do
+    outro. Duas populacoes e um vale de quatro niveis entre elas — e por isso o
+    custo da guarda e IDENTICO em qualquer limite dentro do vale, que e a
+    definicao de um limite bem posto.
+    """
+    larguras = larguras_de_molde(moldes)
+    if not larguras:
+        return None
+    return int(max(larguras))
+
+
+def larguras_com_folga(larguras: tuple, folga: int) -> tuple[int, ...]:
+    """As larguras permitidas na particao: cada molde, mais ate `folga` colunas.
+
+    A FOLGA DE COLA E O UNICO NUMERO LIVRE DESTE MECANISMO, e por isso ela e a
+    unica que mora no `calibration.json`. As larguras vem dos moldes, o limite
+    vem das larguras, e so ela nao se deriva de nada: ela conta quantas colunas
+    a barra anti-serrilhada de um glifo COMPARTILHA com o vizinho colado. Com
+    `folga = 0` a particao so aceita larguras de molde puras; com `folga = 1`
+    ela aceita `(1, 2, 4, 5, 6, 7)`.
+
+    AFROUXAR NAO DEGRADA DEVAGAR: ELE ABRE ESPACO PARA INVENTAR. Medido no run
+    de 11 px de `053105-mercado-aberto/frame_000105.png` L6, que admite DOIS
+    cortes em que TODOS os segmentos passam nas duas peneiras:
+
+        corte   esquerda        direita          texto da celula
+        6+5     `4` 0,915       `4` 0,470        `144,44`
+        7+4     `4` 0,884       `9` 0,791        `149,44`
+
+    O `0,470` do corte errado esta a 0,0002 ACIMA do piso de leitura 0,4698 — e
+    `144,44` passa na gramatica inteira. A aritmetica independente da linha
+    (unitario `2,99`, quantidade `50`) exige o total em [149,25; 150,00):
+    `149,44` cabe, `144,44` nao. O corte certo e `7+4` — SETE, um a mais que o
+    molde —, e e exatamente por isso que a folga existe: o glifo colado ocupa a
+    largura do molde MAIS a coluna partilhada.
+
+    `particionar_run` escolhe pelo PIOR segmento, e e isso que a faz preferir
+    `7+4` (pior 0,791) a `6+5` (pior 0,470) sem consultar rotulo nenhum. Mas a
+    folga so entra MEDIDA: `tools/medir_largura_de_run.py` a varre com passo 1 e
+    recusa propor quando UMA celula rotulada le fora do rotulo.
+    """
+    folga = int(folga)
+    permitidas = set()
+    for largura in larguras:
+        largura = int(largura)
+        for extra in range(0, folga + 1):
+            permitidas.add(largura + extra)
+    return tuple(sorted(w for w in permitidas if w > 0))
+
+
+def particionar_run(
+    mascara: np.ndarray,
+    faixa: tuple[int, int],
+    inicio: int,
+    fim: int,
+    moldes: dict[str, np.ndarray],
+    piso: float,
+    margem: float,
+    larguras: tuple,
+) -> list[tuple[str, float, float]] | None:
+    """O MELHOR corte de um run largo, no formato de `pontuar_glifos`.
+
+    Devolve `[(rotulo, score, margem), ...]` da esquerda para a direita — a
+    MESMA forma que `pontuar_glifos` devolve para runs normais, para que
+    `ler_glifos` trate os dois casos com um laco so —, ou `None` quando NENHUM
+    corte tem todos os segmentos acima do piso E da margem. `None` e falha
+    FECHADA, que e o comportamento certo (LEIT-02).
+
+    PROGRAMACAO DINAMICA, E NAO ENUMERACAO DE PARTICOES. `melhor[j]` e o melhor
+    par `(pior_score, pior_margem)` para as colunas `[inicio, inicio + j)`, e a
+    transicao percorre as larguras permitidas. Cada segmento e PODADO NA HORA
+    pelo piso e pela margem — o TUDO OU NADA da celula exigiria isso de qualquer
+    jeito, e a poda e o que mantem o custo linear em `W x |larguras|`.
+
+    A ALTERNATIVA FOI MEDIDA E DESCARTADA: a enumeracao de particoes passou de
+    10 MINUTOS no censo e foi abortada, porque runs de ate 42 px com larguras de
+    1 a 6 dao ate 6^8 composicoes. MEDIDO em 2026-08-30 pelo
+    `tools/medir_largura_de_run.py`: a DP custa 7,9 ms por linha larga em media
+    e 58,9 ms no PIOR caso do censo — 17x abaixo do tick de 1 Hz. Uma peneira
+    que estourasse o tick pararia o scanner de olhar a party, que e o unico
+    defeito inaceitavel deste projeto.
+
+    O CRITERIO E O PIOR SEGMENTO, E NAO A SOMA NEM A MEDIA. Um corte com um
+    segmento excelente e um pessimo e um corte ERRADO: a celula so entrega texto
+    quando TODOS os segmentos passam, entao o que decide entre dois cortes
+    validos e o elo mais fraco de cada um. E o que faz `7+4` vencer `6+5` em
+    `frame_000105.png` L6 sem consultar rotulo nenhum (ver `larguras_com_folga`).
+    """
+    largura_total = int(fim) - int(inicio)
+    if largura_total <= 0:
+        return None
+    permitidas = tuple(sorted({int(w) for w in larguras if int(w) > 0}))
+    if not permitidas:
+        return None
+
+    # `inf` no ponto de partida: `min(inf, score)` e o proprio score, entao o
+    # primeiro segmento define o pior sem nenhum caso especial.
+    melhor: list[tuple[float, float, tuple] | None] = [None] * (
+        largura_total + 1
+    )
+    melhor[0] = (float("inf"), float("inf"), ())
+
+    for j in range(1, largura_total + 1):
+        for largura in permitidas:
+            if largura > j:
+                break
+            anterior = melhor[j - largura]
+            if anterior is None:
+                continue
+            a = int(inicio) + j - largura
+            b = int(inicio) + j
+            pontuado = pontuar_glifos(mascara, faixa, [(a, b)], moldes)
+            if not pontuado:
+                continue
+            rotulo, score, distancia = pontuado[0]
+            if score < piso or distancia < margem:
+                continue
+            candidato = (
+                min(anterior[0], float(score)),
+                min(anterior[1], float(distancia)),
+                anterior[2] + ((rotulo, float(score), float(distancia)),),
+            )
+            if melhor[j] is None or candidato[:2] > melhor[j][:2]:
+                melhor[j] = candidato
+
+    final = melhor[largura_total]
+    if final is None:
+        return None
+    return list(final[2])
+
+
 def ler_glifos(
     mascara: np.ndarray,
     faixa: tuple[int, int],
@@ -499,6 +677,9 @@ def ler_glifos(
     moldes: dict[str, np.ndarray],
     piso: float,
     margem: float,
+    *,
+    largura_maxima_de_glifo: int,
+    folga_de_cola: int | None,
 ) -> str | None:
     """A leitura de producao dos glifos, ou `None`. TUDO OU NADA (LEIT-02).
 
@@ -515,16 +696,101 @@ def ler_glifos(
     Basta um run que nao passe no piso E na margem para a funcao devolver
     `None`. Uma leitura parcial (`6?,00`) e pior que nenhuma: ela convida quem
     le a completar mentalmente justamente a parte que a maquina NAO soube.
+
+    A GUARDA DO RUN LARGO MORA AQUI, E O LUGAR FOI ESCOLHIDO POR MEDICAO (02-08)
+    ----------------------------------------------------------------------------
+    Ate esta onda, um run mais largo que QUALQUER molde era casado contra UM
+    molde e virava UM digito. Medido no censo: `44` lia `4`, `149,44` lia
+    `14,44`, e nada disso reclamava — falha ABERTA (numero errado e PLAUSIVEL) e
+    nao a falha FECHADA que `LEIT-02` exige. Era o unico defeito conhecido da
+    Fase 2 que INVENTAVA em vez de descartar.
+
+    A CAUSA E DE GEOMETRIA, E NAO DE BRILHO, E ISSO ESTA VISTO NO PIXEL. A barra
+    horizontal do molde `4` ocupa as SEIS colunas da caixa dele. Colado o
+    vizinho, a coluna de fronteira fica com tinta, `mascara.any(axis=0)` nao ve
+    coluna vazia, e a regra de `segmentar_glifos` — QUALQUER COLUNA VAZIA
+    SEPARA, sem tolerancia de lacuna — nao tem o que separar:
+
+        ....#.....#.
+        ....#.....#.
+        ....#.....#.
+        ....#.....#.
+        ############   <- as duas barras viraram uma linha continua
+        ....#.....#.
+        ....#.....#.
+        ....#.....#.
+
+    BAIXAR O PISO DE BRILHO NAO RESOLVE: sondado nos pisos 180, 177, 170 e 160 o
+    run continua UNICO; subir para 220 separa os dois glifos mas APAGA a coluna
+    inteira em outros frames. Mexer no piso de brilho troca um defeito por
+    outro, e esta frase existe para poupar uma tarde a quem tentar.
+
+    POR QUE `ler_glifos` E O LUGAR, e nao outra funcao da cadeia. Ela e a UNICA
+    que possui as QUATRO coisas que a decisao precisa — a mascara, os moldes, o
+    piso e a margem — e ja e dona da regra de TUDO OU NADA, entao a guarda e a
+    particao sao a MESMA decisao, no mesmo lugar, sobre o mesmo laco. E ela tem
+    UM ponto de chamada de producao (`ler_celula`), contra os 35 de
+    `segmentar_glifos` — que alem disso nao tem molde nenhum e nao poderia
+    pontuar um corte nem se quisesse. `pontuar_glifos` tambem nao serve: ela nao
+    tem piso DE PROPOSITO, para que a medicao dos limiares nao seja circular, e
+    a razao ja esta escrita na docstring dela.
+
+    OS DOIS RAMOS, E OS DOIS FALHAM FECHADO. Um run DENTRO do limite segue
+    EXATAMENTE o caminho de antes desta onda — quando nenhum run e largo, o
+    codigo executado e byte a byte o antigo, e e por isso que as celulas
+    estreitas nao mudam um pixel. Um run ACIMA do limite: com `folga_de_cola`
+    valendo `None` a celula cai FECHADA (a GUARDA pura, o comportamento SEGURO
+    e o default por AUSENCIA da chave); com um inteiro ela e partida por
+    `particionar_run`, e cai FECHADA se nenhum corte passar. A diferenca entre
+    os dois ramos e so QUANTAS celulas chegam a ler — nunca o que acontece com
+    uma leitura duvidosa.
+
+    Os dois parametros novos sao SOMENTE-NOMEADOS e SEM valor de fabrica, pela
+    regra do charter deste modulo.
     """
-    pontuados = pontuar_glifos(mascara, faixa, runs, moldes)
-    if not pontuados:
+    if not runs:
         return None
-    lido: list[str] = []
-    for rotulo, score, distancia in pontuados:
-        if score < piso or distancia < margem:
+    limite = int(largura_maxima_de_glifo)
+    ha_run_largo = any(int(fim) - int(inicio) > limite for inicio, fim in runs)
+
+    if not ha_run_largo:
+        # O CAMINHO DE ANTES DESTA ONDA, intacto: uma so chamada a
+        # `pontuar_glifos` sobre TODOS os runs. Nao e uma reimplementacao
+        # equivalente — e o mesmo codigo, e e isso que torna a igualdade das
+        # celulas estreitas ESTRUTURAL em vez de estatistica.
+        pontuados = pontuar_glifos(mascara, faixa, runs, moldes)
+        if not pontuados:
             return None
-        lido.append(rotulo)
-    return "".join(lido)
+        lido: list[str] = []
+        for rotulo, score, distancia in pontuados:
+            if score < piso or distancia < margem:
+                return None
+            lido.append(rotulo)
+        return "".join(lido)
+
+    if folga_de_cola is None:
+        # A GUARDA. Sem a folga MEDIDA nao ha como partir o run com seguranca, e
+        # entregar o casamento contra UM molde seria a falha ABERTA de novo.
+        return None
+
+    permitidas = larguras_com_folga(
+        larguras_de_molde(moldes), int(folga_de_cola)
+    )
+    saida: list[str] = []
+    for inicio, fim in runs:
+        if int(fim) - int(inicio) <= limite:
+            pontuados = pontuar_glifos(mascara, faixa, [(inicio, fim)], moldes)
+        else:
+            pontuados = particionar_run(
+                mascara, faixa, inicio, fim, moldes, piso, margem, permitidas
+            )
+        if not pontuados:
+            return None
+        for rotulo, score, distancia in pontuados:
+            if score < piso or distancia < margem:
+                return None
+            saida.append(rotulo)
+    return "".join(saida)
 
 
 def ler_celula(
@@ -534,6 +800,7 @@ def ler_celula(
     margem: float,
     *,
     valor_minimo: int,
+    folga_de_cola: int | None,
 ) -> str | None:
     """O texto de UMA celula de numero, ou `None`. Nunca levanta.
 
@@ -552,6 +819,18 @@ def ler_celula(
     A MASCARA E A SEGMENTACAO RECEBEM O MESMO `valor_minimo`, e isso nao e
     detalhe: segmentar num piso e pontuar em outro produziria runs apontando
     para colunas que a mascara nao tem, e o casamento leria lixo com confianca.
+
+    O LIMITE DE GLIFO UNICO E DERIVADO AQUI, E SO AQUI (02-08). Ele NAO entra na
+    assinatura desta funcao: `ler_celula` ja recebe os `moldes`, e derivar o
+    limite no unico lugar que os tem e o que impede DUAS VERDADES sobre uma so
+    geometria. Passa-lo por parametro abriria a porta para o chamador informar
+    um limite que nao descreve os moldes que ele mesmo entregou.
+
+    `folga_de_cola` E SOMENTE-NOMEADO E NAO TEM VALOR DE FABRICA, pela mesma
+    regra de `valor_minimo`. Ela e apenas REPASSADA: quem decide com ela e
+    `ler_glifos`. `None` e legitimo e significa a GUARDA — a celula com run
+    largo cai FECHADA —, e e o que a AUSENCIA da chave no `calibration.json`
+    produz.
     """
     if bgr is None or getattr(bgr, "size", 0) == 0:
         return None
@@ -559,8 +838,22 @@ def ler_celula(
         faixa, runs = segmentar_glifos_no_brilho(bgr, valor_minimo)
         if faixa is None or not runs:
             return None
+        limite = limite_de_glifo_unico(moldes)
+        if limite is None:
+            # Sem molde de UM caractere nao ha geometria de glifo — e sem ela
+            # `pontuar_glifos` tambem nao teria contra o que casar.
+            return None
         mascara = (mascara_de_numero(bgr, valor_minimo) * 255).astype(np.uint8)
-        return ler_glifos(mascara, faixa, runs, moldes, piso, margem)
+        return ler_glifos(
+            mascara,
+            faixa,
+            runs,
+            moldes,
+            piso,
+            margem,
+            largura_maxima_de_glifo=limite,
+            folga_de_cola=folga_de_cola,
+        )
     except Exception as erro:  # noqa: BLE001 - roda dentro do tick
         log.debug("leitura de celula falhou neste recorte: %s", erro)
         return None
@@ -573,6 +866,7 @@ def ler_celula_de_numero(
     margem: float,
     *,
     valor_minimo: int,
+    folga_de_cola: int | None,
 ) -> int | None:
     """O valor da celula de MOEDA, em CENTESIMOS como inteiro. Nunca float.
 
@@ -599,7 +893,14 @@ def ler_celula_de_numero(
     cai de 1,000 para 0,293. Baixar o piso desta coluna nao melhora nada e
     quebra tudo.
     """
-    lido = ler_celula(bgr, moldes, piso, margem, valor_minimo=valor_minimo)
+    lido = ler_celula(
+        bgr,
+        moldes,
+        piso,
+        margem,
+        valor_minimo=valor_minimo,
+        folga_de_cola=folga_de_cola,
+    )
     if not numero_valido(lido):
         return None
     return centesimos_de_moeda(lido)
@@ -612,6 +913,7 @@ def ler_celula_de_quantidade(
     margem: float,
     *,
     valor_minimo: int,
+    folga_de_cola: int | None,
 ) -> int | None:
     """A quantidade da linha, inteira. `None` quando nao da para afirmar.
 
@@ -655,7 +957,14 @@ def ler_celula_de_quantidade(
     gravado e sempre um piso que foi MEDIDO — nunca um ponto entre dois que
     foram.
     """
-    lido = ler_celula(bgr, moldes, piso, margem, valor_minimo=valor_minimo)
+    lido = ler_celula(
+        bgr,
+        moldes,
+        piso,
+        margem,
+        valor_minimo=valor_minimo,
+        folga_de_cola=folga_de_cola,
+    )
     if not numero_valido(lido):
         return None
     return inteiro_de_quantidade(lido)
@@ -978,6 +1287,7 @@ def ler_linha(
     margem: float,
     valor_minimo_do_numero: int,
     valor_minimo_da_quantidade: int,
+    folga_de_cola: int | None,
     sonda: dict | None,
     limiar_de_dispersao: float,
     tolerancia_do_cruzamento: float | None,
@@ -1033,6 +1343,13 @@ def ler_linha(
 
     Os dois chegam SEM VALOR DE FABRICA, pela regra do charter deste modulo.
 
+    A FOLGA DE COLA ATRAVESSA A LINHA INTEIRA, E NAO SO UMA COLUNA (02-08). O
+    glifo colado nao e um defeito de uma coluna: ele foi medido nas TRES — 14
+    celulas de Quantity, 75 de Total e 19 de Unit price entre as que a producao
+    aceitava. Entao ela chega uma vez e vai para as tres leituras, como o piso e
+    a margem. `None` e legitimo e significa a GUARDA: a celula com run largo cai
+    FECHADA, que e o comportamento SEGURO e nao o de antes desta onda.
+
     NAO HA RAMO DEDICADO A MARCACAO DE ALVO (D-16). Ela e opaca e previsivel, e
     o mesmo detector de fundo que pega a tooltip pega ela. Um `if` proprio seria
     um caminho a mais para manter e uma promessa a mais para quebrar.
@@ -1055,6 +1372,7 @@ def ler_linha(
             piso,
             margem,
             valor_minimo=valor_minimo_do_numero,
+            folga_de_cola=folga_de_cola,
         )
         if total is None:
             return _recusar(
@@ -1066,6 +1384,7 @@ def ler_linha(
             piso,
             margem,
             valor_minimo=valor_minimo_da_quantidade,
+            folga_de_cola=folga_de_cola,
         )
         if quantidade is None:
             return _recusar(
@@ -1084,6 +1403,7 @@ def ler_linha(
             piso,
             margem,
             valor_minimo=valor_minimo_do_numero,
+            folga_de_cola=folga_de_cola,
         )
 
         residuo = residuo_do_cruzamento(total, unitario, quantidade)

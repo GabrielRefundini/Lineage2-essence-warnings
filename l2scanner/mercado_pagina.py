@@ -142,6 +142,30 @@ class LeitorDePagina:
         self._valor_minimo_da_quantidade = (
             cal.mercado_limiar_de_brilho_da_quantidade
         )
+        # A FOLGA DE COLA, E O PORTAO DELA E POR AUSENCIA (02-08).
+        #
+        # ELA E A UNICA CHAVE DESTA FASE CUJA AUSENCIA NAO DESLIGA A LEITURA, e
+        # a razao e que aqui a ausencia degrada para MAIS SEGURO e nao para o
+        # comportamento antigo: sem ela `ler_glifos` aplica a GUARDA, e a celula
+        # com run largo cai FECHADA em vez de virar numero errado e plausivel.
+        # Por isso ela NAO entra na conferencia de `_calibrado` — desligar a
+        # leitura inteira por falta de um recurso que so ACRESCENTA celulas
+        # seria trocar uma falha fechada por outra, maior.
+        #
+        # O aviso e ALTO mesmo assim: o custo medido da guarda pura sobre o
+        # censo e de 69 linhas em 1.135 (-6,08%), e quem farma tem direito de
+        # saber que esta pagando isso por uma chave que uma varredura de um
+        # minuto produz.
+        self._folga_de_cola = cal.mercado_folga_de_cola_do_glifo
+        if self._folga_de_cola is None:
+            log.warning(
+                "mercado_folga_de_cola_do_glifo esta AUSENTE no "
+                "calibration.json: a leitura de mercado vai rodar com a GUARDA "
+                "de glifo colado, e toda celula com dois digitos grudados cai "
+                "FECHADA (medido: -6,08%% das linhas). E o comportamento "
+                "SEGURO. Rode `python tools/medir_largura_de_run.py --gravar` "
+                "para MEDIR a folga e recuperar essas linhas."
+            )
         self._corte = cal.mercado_corte_de_similaridade
         self._piso_de_similaridade = cal.mercado_piso_de_similaridade
         # `None` mantem a guarda de cruzamento DESLIGADA, que e o estado que a
@@ -342,6 +366,7 @@ class LeitorDePagina:
                 valor_minimo_da_quantidade=int(
                     self._valor_minimo_da_quantidade
                 ),
+                folga_de_cola=self._folga_de_cola,
                 sonda=self._sonda,
                 limiar_de_dispersao=self._limiar_de_dispersao,
                 tolerancia_do_cruzamento=self._tolerancia_do_cruzamento,

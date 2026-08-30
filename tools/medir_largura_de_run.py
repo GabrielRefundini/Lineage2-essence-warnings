@@ -136,16 +136,23 @@ RAIZ = Path(__file__).resolve().parent.parent
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
-from l2scanner.calibracao import Calibracao  # noqa: E402
+from l2scanner.calibracao import (  # noqa: E402
+    TETO_DA_FOLGA_DE_COLA,
+    Calibracao,
+)
 from l2scanner.identidade import VALOR_MINIMO_DO_TEXTO  # noqa: E402
 
 # A ARITMETICA E A CLASSIFICACAO SAO IMPORTADAS, E NUNCA REESCRITAS.
 from l2scanner.mercado_leitura import (  # noqa: E402
     centesimos_de_moeda,
     inteiro_de_quantidade,
+    larguras_com_folga,
+    larguras_de_molde,
     layout_confere,
+    limite_de_glifo_unico,
     mascara_de_numero,
     numero_valido,
+    particionar_run,
     pontuar_glifos,
     segmentar_glifos_no_brilho,
 )
@@ -214,12 +221,10 @@ PISO_COMPARTILHADO = VALOR_MINIMO_DO_TEXTO
 # nem sentido em meia folga.
 PASSO_DA_VARREDURA = 1
 
-# O TETO DA VARREDURA. Com os moldes de producao (larguras 1, 4 e 6) a folga 4
-# ja libera TODA largura de 1 a 10, que e mais que o maior run largo observado:
-# alem disso a tabela so repetiria a mesma linha. O teto existe para que o
-# relatorio mostre os DOIS lados — sem o lado ruim na tabela, a afirmacao "a
-# folga tem teto" seria promessa e nao medicao.
-TETO_DA_FOLGA = 4
+# O TETO DA VARREDURA, IMPORTADO de onde a faixa e COBRADA. Declara-lo aqui
+# tambem deixaria a ferramenta propor um valor que o arranque recusa — e o
+# usuario descobriria isso no proximo farm, e nao aqui.
+TETO_DA_FOLGA = TETO_DA_FOLGA_DE_COLA
 
 # O TICK do scanner. Uma peneira que estoure isto para o scanner de olhar a
 # party, que e o unico defeito inaceitavel deste projeto.
@@ -239,84 +244,10 @@ AS_TRES_COLUNAS = ("total", "quantidade", "unitario")
 # ---------------------------------------------------------------------------
 
 
-def larguras_de_molde(moldes: dict) -> tuple[int, ...]:
-    """As larguras ORDENADAS dos moldes de UM caractere. Sem repeticao.
-
-    Sobre os 13 moldes de producao ela devolve `(1, 4, 6)`: a virgula, os
-    digitos, e o `4`. Os moldes de PALAVRA (`Adena` 35 px, `XM Coin` 44 px)
-    ficam de fora pela MESMA regra que `pontuar_glifos` ja aplica
-    (`len(rotulo) == 1`) — eles nao sao geometria de glifo, e um deles no
-    conjunto faria o limite valer 44 e a guarda nunca disparar.
-    """
-    larguras = {
-        int(molde.shape[1])
-        for rotulo, molde in moldes.items()
-        if len(rotulo) == 1 and getattr(molde, "ndim", 0) == 2
-    }
-    return tuple(sorted(larguras))
 
 
-def limite_de_glifo_unico(moldes: dict) -> int | None:
-    """A MAIOR largura de um glifo de um caractere. `None` sem moldes.
-
-    O QUE ELE E. Sobre os moldes de producao ele vale 6, que e a largura do
-    molde `4` — a barra horizontal dele ocupa as seis colunas da caixa. Um run
-    mais largo que isso NAO PODE ser um glifo so.
-
-    POR QUE ELE NAO VIRA CHAVE DO `calibration.json`. Ele e uma FUNCAO dos
-    moldes que ja estao la. Gravar uma copia criaria duas verdades sobre uma so
-    geometria, e na recalibracao seguinte a copia envelheceria contra os moldes
-    que ela descreve. E o mesmo argumento que `layout_confere` ja escreve sobre
-    o `dx` do cabecalho nao ser gravado duas vezes.
-
-    POR QUE ELE CAI NUM VALE, E NAO NUMA ZONA CINZENTA. Medido no censo pelo
-    RELATORIO 1 desta ferramenta: das celulas que a producao ACEITA hoje nas
-    tres colunas, NENHUMA tem run entre o limite e o menor run largo observado.
-    Duas populacoes e um vale entre elas — e por isso o custo da guarda e
-    IDENTICO em qualquer limite dentro do vale, que e a definicao de um limite
-    bem posto.
-    """
-    larguras = larguras_de_molde(moldes)
-    if not larguras:
-        return None
-    return int(max(larguras))
 
 
-def larguras_com_folga(larguras: tuple, folga: int) -> tuple[int, ...]:
-    """As larguras permitidas na particao: cada molde, mais ate `folga` colunas.
-
-    A FOLGA DE COLA E O UNICO NUMERO LIVRE DESTE MECANISMO. As larguras vem dos
-    moldes, o limite vem das larguras, e so ela nao se deriva de nada: ela conta
-    quantas colunas a barra anti-serrilhada de um glifo compartilha com o
-    vizinho colado. Com `folga = 0` a particao so aceita larguras de molde
-    puras; com `folga = 1` ela aceita `(1, 2, 4, 5, 6, 7)`.
-
-    AFROUXAR NAO DEGRADA DEVAGAR: INVENTA EM BLOCO. Medido no run de 11 px de
-    `053105-mercado-aberto/frame_000105.png` L6, que admite DOIS cortes que
-    passam nas duas peneiras:
-
-        corte   esquerda        direita          texto da celula
-        6+5     `4` 0,915       `4` 0,470        `144,44`
-        7+4     `4` 0,884       `9` 0,791        `149,44`
-
-    O `0,470` do corte errado esta a 0,0002 ACIMA do piso de leitura 0,4698. A
-    aritmetica independente da linha (unitario `2,99`, quantidade `50`) exige o
-    total em [149,25; 150,00): `149,44` cabe, `144,44` nao. O corte certo e
-    `7+4` — SETE, um a mais que o molde —, e e exatamente por isso que a folga
-    existe: o glifo colado ocupa a largura do molde MAIS a coluna partilhada.
-
-    A DP escolhe pelo PIOR score do corte inteiro, e e isso que a faz preferir
-    `7+4` (pior 0,791) a `6+5` (pior 0,470) sem consultar rotulo nenhum. Mas a
-    escolha so e SEGURA com a folga MEDIDA: a sondagem do planejamento mediu que
-    permitir toda largura de 1 a 6 escolhe o corte errado em 54 de 59 celulas.
-    """
-    folga = int(folga)
-    permitidas = set()
-    for largura in larguras:
-        largura = int(largura)
-        for extra in range(0, folga + 1):
-            permitidas.add(largura + extra)
-    return tuple(sorted(w for w in permitidas if w > 0))
 
 
 # ---------------------------------------------------------------------------
@@ -411,76 +342,29 @@ def particionar_por_dp(
     piso: float,
     margem: float,
     moldes: dict,
-    cache: dict | None = None,
 ) -> tuple[float, float, list[str]] | None:
-    """O MELHOR corte de um run largo, ou `None`. Programacao dinamica.
+    """O PIOR par do melhor corte, e os rotulos. Adaptador sobre a producao.
 
-    `melhor[j]` e o melhor par `(pior_score, pior_margem)` para as colunas
-    `[inicio, inicio + j)`, e a transicao percorre as larguras permitidas. Cada
-    segmento e PODADO NA HORA pelo piso e pela margem — o TUDO OU NADA da celula
-    exigiria isso de qualquer jeito, e a poda e o que mantem o custo linear.
+    A programacao dinamica MORA em `l2scanner.mercado_leitura.particionar_run`
+    desde a Task 2 do 02-08 — ela nasceu aqui, que e onde ela foi necessaria
+    primeiro para MEDIR, e foi PROMOVIDA quando a producao passou a precisar
+    dela. O que sobra aqui e a forma que os RELATORIOS querem: o pior score e a
+    pior margem do corte, que a producao nao precisa devolver porque ela so
+    decide passa/nao passa.
 
-    ELA NAO ENUMERA PARTICOES, E A ALTERNATIVA FOI MEDIDA E DESCARTADA: a
-    enumeracao passou de 10 MINUTOS no censo e foi abortada, porque runs de ate
-    42 px com larguras de 1 a 6 dao ate 6^8 composicoes. O custo aqui e
-    `O(W x |larguras|)` chamadas de pontuacao.
-
-    O CRITERIO E O PIOR SEGMENTO, E NAO A SOMA. Um corte com um segmento
-    excelente e um pessimo e um corte ERRADO: a celula so entrega texto quando
-    TODOS os segmentos passam, entao o que decide entre dois cortes validos e o
-    elo mais fraco de cada um. E o que faz `7+4` (pior 0,791) vencer `6+5`
-    (pior 0,470) em `frame_000105.png` L6 sem consultar rotulo nenhum.
-
-    Devolve `(pior_score, pior_margem, rotulos)` — os rotulos da esquerda para a
-    direita — ou `None` quando NENHUM corte tem todos os segmentos acima do piso
-    E da margem. `None` e falha FECHADA, que e o comportamento certo.
+    Reimplementar a DP aqui faria a ferramenta MEDIR um corte e o scanner
+    ESCOLHER outro no dia em que uma das duas fosse corrigida.
     """
-    largura_total = int(fim) - int(inicio)
-    if largura_total <= 0:
-        return None
-    permitidas = tuple(sorted({int(w) for w in larguras if int(w) > 0}))
-    if not permitidas:
-        return None
-
-    # `inf` no ponto de partida: `min(inf, score)` e o proprio score, entao o
-    # primeiro segmento define o pior sem nenhum caso especial.
-    melhor: list[tuple[float, float, tuple] | None] = [None] * (
-        largura_total + 1
+    achado = particionar_run(
+        mascara, faixa, inicio, fim, moldes, piso, margem, larguras
     )
-    melhor[0] = (float("inf"), float("inf"), ())
-
-    for j in range(1, largura_total + 1):
-        for largura in permitidas:
-            if largura > j:
-                break
-            anterior = melhor[j - largura]
-            if anterior is None:
-                continue
-            pontuado = pontuar_segmento(
-                mascara,
-                faixa,
-                int(inicio) + j - largura,
-                int(inicio) + j,
-                moldes,
-                cache,
-            )
-            if pontuado is None:
-                continue
-            rotulo, score, distancia = pontuado
-            if score < piso or distancia < margem:
-                continue
-            candidato = (
-                min(anterior[0], float(score)),
-                min(anterior[1], float(distancia)),
-                anterior[2] + (rotulo,),
-            )
-            if melhor[j] is None or candidato[:2] > melhor[j][:2]:
-                melhor[j] = candidato
-
-    final = melhor[largura_total]
-    if final is None:
+    if not achado:
         return None
-    return (float(final[0]), float(final[1]), list(final[2]))
+    return (
+        min(score for _r, score, _m in achado),
+        min(distancia for _r, _s, distancia in achado),
+        [rotulo for rotulo, _s, _m in achado],
+    )
 
 
 def ler_com_particao(
@@ -518,7 +402,7 @@ def ler_com_particao(
         if larguras is None:
             return None
         achado = particionar_por_dp(
-            mascara, faixa, inicio, fim, larguras, piso, margem, moldes, cache
+            mascara, faixa, inicio, fim, larguras, piso, margem, moldes
         )
         if achado is None:
             return None
@@ -1531,6 +1415,30 @@ def main(argv=None) -> int:
             print(f"           erra em: {_exemplos(baldes, 3)}")
 
     if proposta.folga is not None:
+        # OS TRES BALDES DA FOLGA ESCOLHIDA, SEPARADOS POR POPULACAO. O criterio
+        # e sobre as DUAS — a Quantity contra o rotulo DERIVADO e as colunas de
+        # moeda contra o rotulo de INTERVALO —, e um total agregado esconderia
+        # uma delas errando enquanto a outra compensa na contagem.
+        print("")
+        print(
+            f"  OS TRES BALDES DA FOLGA ESCOLHIDA ({proposta.folga}), SEPARADOS "
+            "POR POPULACAO ROTULADA:"
+        )
+        for coluna in AS_TRES_COLUNAS:
+            da_coluna = [c for c in populacao if c.coluna == coluna]
+            if not da_coluna:
+                print(f"    {coluna:<12} (populacao vazia)")
+                continue
+            baldes = classificar_folga(da_coluna, proposta.folga)
+            rotulo = "derivado" if coluna == "quantidade" else "intervalo"
+            print(
+                f"    {coluna:<12} rotulo {rotulo:<10} LE CERTO "
+                f"{baldes.certo:>4}  NAO LE {baldes.nao_le:>4}  LE ERRADO "
+                f"{len(baldes.errado):>4}"
+            )
+            if baldes.erra:
+                print(f"      erra em: {_exemplos(baldes, 3)}")
+
         seguinte = proposta.folga + PASSO_DA_VARREDURA
         if seguinte in proposta.tabela:
             b = proposta.tabela[seguinte]

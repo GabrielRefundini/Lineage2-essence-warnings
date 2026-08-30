@@ -156,6 +156,7 @@ class TestALeituraDosSeisPrecos:
                 PISO_DA_FIXTURA,
                 MARGEM_DA_FIXTURA,
                 valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=None,
             )
             for banda in _bandas("glifos_precos_f010.png", 6)
         ]
@@ -169,6 +170,7 @@ class TestALeituraDosSeisPrecos:
                 PISO_DA_FIXTURA,
                 MARGEM_DA_FIXTURA,
                 valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=None,
             )
             for banda in _bandas("glifos_quantidade_f012.png", 3)
         ]
@@ -189,6 +191,7 @@ class TestOLimiarDeCOLISAONaoServeDePiso:
                 PISO_DA_FIXTURA,
                 MARGEM_DA_FIXTURA,
                 valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=None,
             )
             for b in bandas
         ]
@@ -199,6 +202,7 @@ class TestOLimiarDeCOLISAONaoServeDePiso:
                 LIMIAR_DE_COLISAO,
                 MARGEM_DA_FIXTURA,
                 valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=None,
             )
             for b in bandas
         ]
@@ -223,7 +227,8 @@ class TestTudoOuNada:
         banda = _bandas("glifos_precos_f010.png", 6)[0]
         assert (
             classificar_celula(
-                banda, moldes, 1.01, 0.0, valor_minimo=VALOR_MINIMO_DO_TEXTO
+                banda, moldes, 1.01, 0.0, valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=None,
             )
             is None
         )
@@ -232,7 +237,8 @@ class TestTudoOuNada:
         banda = _bandas("glifos_precos_f010.png", 6)[0]
         assert (
             classificar_celula(
-                banda, moldes, 0.0, 1.01, valor_minimo=VALOR_MINIMO_DO_TEXTO
+                banda, moldes, 0.0, 1.01, valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=None,
             )
             is None
         )
@@ -241,7 +247,8 @@ class TestTudoOuNada:
         vazia = np.zeros((45, 60, 3), dtype=np.uint8)
         assert (
             classificar_celula(
-                vazia, moldes, 0.0, 0.0, valor_minimo=VALOR_MINIMO_DO_TEXTO
+                vazia, moldes, 0.0, 0.0, valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=None,
             )
             is None
         )

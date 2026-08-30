@@ -364,6 +364,7 @@ class TestALeituraDeCelula:
                 float(cal.mercado_limiar_de_leitura_de_glifo),
                 float(cal.mercado_margem_de_leitura_de_glifo),
                 valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
             )
             == 1890
         )
@@ -381,6 +382,7 @@ class TestALeituraDeCelula:
                 float(cal.mercado_limiar_de_leitura_de_glifo),
                 float(cal.mercado_margem_de_leitura_de_glifo),
                 valor_minimo=int(cal.mercado_limiar_de_brilho_da_quantidade),
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
             )
             == 2
         )
@@ -391,7 +393,12 @@ class TestALeituraDeCelula:
         recorte = recorte_de_coluna(cal, janela_f010, 6, "mercado_coluna_do_total")
         assert (
             ler_celula_de_numero(
-                recorte, moldes, 1.01, 0.0, valor_minimo=VALOR_MINIMO_DO_TEXTO
+                recorte,
+                moldes,
+                1.01,
+                0.0,
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
             )
             is None
         )
@@ -402,7 +409,12 @@ class TestALeituraDeCelula:
         recorte = recorte_de_coluna(cal, janela_f010, 6, "mercado_coluna_do_total")
         assert (
             ler_celula_de_numero(
-                recorte, moldes, 0.0, 1.01, valor_minimo=VALOR_MINIMO_DO_TEXTO
+                recorte,
+                moldes,
+                0.0,
+                1.01,
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
             )
             is None
         )
@@ -419,6 +431,7 @@ class TestALeituraDeCelula:
                 float(cal.mercado_limiar_de_leitura_de_glifo),
                 float(cal.mercado_margem_de_leitura_de_glifo),
                 valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
             )
             is None
         )
@@ -848,6 +861,10 @@ def chamar_ler_linha(
         valor_minimo_da_quantidade=int(
             cal.mercado_limiar_de_brilho_da_quantidade
         ),
+        # A FOLGA DE COLA, tambem da calibracao de fixtura, que a copia
+        # VERBATIM da producao. `None` seria a GUARDA — um estado legitimo, mas
+        # nao o que o tracer mede.
+        folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
         sonda=cal.mercado_sonda_do_fundo,
         limiar_de_dispersao=float(cal.mercado_limiar_de_dispersao_do_fundo),
         catalogo={} if catalogo is None else catalogo,
@@ -1231,6 +1248,7 @@ class TestATerceiraLeituraACONTECE:
                 float(cal.mercado_limiar_de_leitura_de_glifo),
                 float(cal.mercado_margem_de_leitura_de_glifo),
                 valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
             )
             == 600
         )
@@ -1347,6 +1365,7 @@ class TestARotaREPROVADA:
                 float(cal.mercado_limiar_de_leitura_de_glifo),
                 float(cal.mercado_margem_de_leitura_de_glifo),
                 valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
             )
             == 1880
         )
