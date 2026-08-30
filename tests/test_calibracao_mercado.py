@@ -19,7 +19,12 @@ from pathlib import Path
 
 import pytest
 
-from l2scanner.calibracao import VERSAO_DO_ESQUEMA, Calibracao, CalibracaoInvalida
+from l2scanner.calibracao import (
+    TETO_DA_FOLGA_DE_COLA,
+    VERSAO_DO_ESQUEMA,
+    Calibracao,
+    CalibracaoInvalida,
+)
 from l2scanner.frames import Regiao
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -358,6 +363,10 @@ AS_QUATORZE = (
     # Ela entra na MESMA parametrizacao das outras porque a regra e a mesma —
     # `.get` opcional, `None` legitimo, `VERSAO_DO_ESQUEMA` intacta em 2.
     "mercado_limiar_de_brilho_da_quantidade",
+    # A DECIMA SEXTA, do 02-08: a folga de cola do glifo. A AUSENCIA dela e o
+    # comportamento SEGURO e nao o de hoje — sem ela a producao aplica a GUARDA
+    # e a celula com run largo cai FECHADA.
+    "mercado_folga_de_cola_do_glifo",
 )
 
 AS_QUATRO_COLUNAS = (
@@ -671,3 +680,87 @@ class TestACalibracaoREALDoUsuarioContinuaCarregando:
         cal = Calibracao.carregar(real)
         assert len(cal.mercado_templates_de_digito) == 13
         assert len(cal.mercado_ancoras) == 3
+
+
+class TestAFolgaDeColaDoGlifoEConferidaNoARRANQUE:
+    """Faixa `[0, TETO_DA_FOLGA_DE_COLA]`, `bool` recusado, `None` = GUARDA.
+
+    Ela e o UNICO numero livre do mecanismo de particao: as larguras vem dos
+    moldes, o limite vem das larguras, e so ela nao se deriva de nada. Um valor
+    grande demais nao volta a falhar FECHADO — ele libera cortes que a geometria
+    nao sustenta e passa a INVENTAR numero.
+
+    `None` e AUSENTE sao o comportamento SEGURO e nao o de hoje: sem a chave a
+    producao aplica a GUARDA, e a celula com run largo cai FECHADA.
+    """
+
+    def test_None_passa_e_significa_a_GUARDA(self, tmp_path):
+        caminho = _mexido(tmp_path, mercado_folga_de_cola_do_glifo=None)
+        assert Calibracao.carregar(caminho).mercado_folga_de_cola_do_glifo is None
+
+    def test_ZERO_e_legitimo_e_NAO_e_desligar(self, tmp_path):
+        """Folga 0 e a particao com as larguras de MOLDE puras.
+
+        Ela nao pode cair na mesma faixa recusada do piso de brilho: la o `0`
+        desligava a leitura calado, e aqui ele e o afrouxamento MINIMO possivel.
+        """
+        caminho = _mexido(tmp_path, mercado_folga_de_cola_do_glifo=0)
+        assert Calibracao.carregar(caminho).mercado_folga_de_cola_do_glifo == 0
+
+    def test_um_inteiro_na_faixa_carrega(self, tmp_path):
+        caminho = _mexido(tmp_path, mercado_folga_de_cola_do_glifo=1)
+        assert Calibracao.carregar(caminho).mercado_folga_de_cola_do_glifo == 1
+
+    @pytest.mark.parametrize("valor", [-1, 99])
+    def test_fora_da_faixa_LEVANTA_no_arranque(self, tmp_path, valor):
+        caminho = _mexido(tmp_path, mercado_folga_de_cola_do_glifo=valor)
+        with pytest.raises(CalibracaoInvalida):
+            Calibracao.carregar(caminho)
+
+    def test_o_TETO_e_o_da_varredura(self, tmp_path):
+        """O teto e UMA verdade so: a varredura varre ate ele e a carga o cobra."""
+        caminho = _mexido(
+            tmp_path, mercado_folga_de_cola_do_glifo=TETO_DA_FOLGA_DE_COLA
+        )
+        assert (
+            Calibracao.carregar(caminho).mercado_folga_de_cola_do_glifo
+            == TETO_DA_FOLGA_DE_COLA
+        )
+        acima = _mexido(
+            tmp_path,
+            nome="acima.json",
+            mercado_folga_de_cola_do_glifo=TETO_DA_FOLGA_DE_COLA + 1,
+        )
+        with pytest.raises(CalibracaoInvalida):
+            Calibracao.carregar(acima)
+
+    def test_um_bool_e_recusado_explicitamente(self, tmp_path):
+        """`bool` e subclasse de `int`: `True` viraria folga 1 CALADO."""
+        caminho = _mexido(tmp_path, mercado_folga_de_cola_do_glifo=True)
+        with pytest.raises(CalibracaoInvalida):
+            Calibracao.carregar(caminho)
+
+    @pytest.mark.parametrize("valor", [1.5, "1"])
+    def test_o_que_nao_e_inteiro_e_recusado(self, tmp_path, valor):
+        caminho = _mexido(tmp_path, mercado_folga_de_cola_do_glifo=valor)
+        with pytest.raises(CalibracaoInvalida):
+            Calibracao.carregar(caminho)
+
+    def test_a_mensagem_diz_o_que_rodar(self, tmp_path):
+        caminho = _mexido(tmp_path, mercado_folga_de_cola_do_glifo=-1)
+        with pytest.raises(CalibracaoInvalida) as erro:
+            Calibracao.carregar(caminho)
+        assert "medir_largura_de_run" in str(erro.value)
+
+    def test_a_calibracao_de_FIXTURA_do_mercado_copia_a_chave(self):
+        """A fixtura nunca inventa valor proprio — ela copia a producao."""
+        de_fixtura = FIXTURES / "mercado" / "calibracao_de_fixture.json"
+        dados = json.loads(de_fixtura.read_text(encoding="utf-8"))
+        assert "mercado_folga_de_cola_do_glifo" in dados
+        assert isinstance(dados["mercado_folga_de_cola_do_glifo"], int)
+
+    def test_a_VERSAO_DO_ESQUEMA_segue_em_DOIS(self):
+        """Os 13 moldes e as 3 ancoras do usuario custariam uma tarde dele."""
+        from l2scanner.calibracao import VERSAO_DO_ESQUEMA
+
+        assert VERSAO_DO_ESQUEMA == 2

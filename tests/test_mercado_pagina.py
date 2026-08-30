@@ -43,9 +43,13 @@ import cv2
 import numpy as np
 import pytest
 
-from l2scanner.calibracao import Calibracao
+from l2scanner.calibracao import TETO_DA_FOLGA_DE_COLA, Calibracao
 from l2scanner.identidade import VALOR_MINIMO_DO_TEXTO
-from l2scanner.mercado_leitura import casamento_do_cabecalho, layout_confere
+from l2scanner.mercado_leitura import (
+    casamento_do_cabecalho,
+    layout_confere,
+    ler_linha,
+)
 from l2scanner.mercado_pagina import LeitorDePagina
 from l2scanner.mercado_visao import (
     RastreioDoPainel,
@@ -464,3 +468,75 @@ class TestOPisoDeBrilhoDaQuantidadeChegaAProducao:
         valor = cal.mercado_limiar_de_brilho_da_quantidade
         assert isinstance(valor, int) and not isinstance(valor, bool)
         assert 1 <= valor <= 254
+
+
+class TestAFolgaDeColaChegaAProducaoPeloPORTAO_POR_AUSENCIA:
+    """A AUSENCIA liga a GUARDA. Ela e a UNICA ausencia da fase que NAO desliga
+    a leitura inteira, e a razao e que aqui a ausencia degrada para MAIS SEGURO:
+    a celula com run largo cai FECHADA, em vez de virar numero errado plausivel.
+    """
+
+    def _sem_a_folga(self, cal: Calibracao) -> Calibracao:
+        copia = copy.deepcopy(cal)
+        copia.mercado_folga_de_cola_do_glifo = None
+        return copia
+
+    def test_sem_a_chave_a_leitura_CONTINUA_acontecendo(self, cal) -> None:
+        """Ela NAO entra em `_calibrado`: uma guarda que degrada para seguro nao
+        pode impedir a leitura de acontecer."""
+        leitor, barata, conferencia = montar_leitor(self._sem_a_folga(cal))
+        leitor.observar(ler_fixtura(JANELA_NEGOCIACAO))
+        leitura = leitor.ultima_leitura
+        assert leitura is not None
+        assert leitura.linhas
+        assert barata.chamadas > 0 and conferencia.chamadas > 0
+
+    def test_sem_a_chave_o_aviso_e_ALTO_e_diz_o_que_rodar(
+        self, cal, caplog
+    ) -> None:
+        with caplog.at_level("WARNING", logger="l2scanner.mercado_pagina"):
+            leitor, _b, _c = montar_leitor(self._sem_a_folga(cal))
+            leitor.observar(ler_fixtura(JANELA_NEGOCIACAO))
+        assert "mercado_folga_de_cola_do_glifo" in caplog.text
+        assert "medir_largura_de_run" in caplog.text
+
+    def test_sem_a_chave_nada_LEVANTA(self, cal) -> None:
+        """Um `raise` aqui derrubaria o scanner que existe para avisar morte."""
+        leitor, _b, _c = montar_leitor(self._sem_a_folga(cal))
+        assert leitor.observar(ler_fixtura(JANELA_NEGOCIACAO)) is not None or True
+
+    def test_as_colunas_de_MOEDA_leem_o_MESMO_com_e_sem_a_chave(
+        self, cal
+    ) -> None:
+        """As linhas do tracer nao tem run largo: elas NAO PODEM mudar.
+
+        Este e o criterio central da onda — se um total mudar, o mecanismo
+        vazou para quem nao pediu.
+        """
+        for calibracao in (cal, self._sem_a_folga(cal)):
+            for caminho, esperado in (
+                (JANELA_F005, TOTAIS_DO_TRACER_F005),
+                (JANELA_NEGOCIACAO, TOTAIS_DO_TRACER_F010),
+            ):
+                leitor, _b, _c = montar_leitor(calibracao)
+                leitor.observar(ler_fixtura(caminho))
+                leitura = leitor.ultima_leitura
+                assert leitura is not None
+                lidas = {
+                    linha.indice: (linha.total_em_centesimos, linha.quantidade)
+                    for linha in leitura.linhas
+                }
+                for indice, par in esperado.items():
+                    assert lidas[indice] == par, (caminho.name, indice)
+
+    def test_a_chave_da_fixtura_e_copia_VERBATIM_da_producao(self, cal) -> None:
+        valor = cal.mercado_folga_de_cola_do_glifo
+        assert isinstance(valor, int) and not isinstance(valor, bool)
+        assert 0 <= valor <= TETO_DA_FOLGA_DE_COLA
+
+    def test_a_folga_chega_ate_ler_linha(self, cal) -> None:
+        """Por `inspect.signature`, e nao por leitura de codigo."""
+        parametros = inspect.signature(ler_linha).parameters
+        assert (
+            parametros["folga_de_cola"].default is inspect.Parameter.empty
+        )

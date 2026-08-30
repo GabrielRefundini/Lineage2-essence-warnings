@@ -48,6 +48,7 @@ frame sao a 6 (`18,90` x 2) e a 8 (`18,00` x 3).
 from __future__ import annotations
 
 import inspect
+import json
 import sys
 from pathlib import Path
 
@@ -69,16 +70,20 @@ from l2scanner.mercado_leitura import (
     centesimos_de_moeda,
     cruzamento_confere,
     inteiro_de_quantidade,
+    larguras_com_folga,
+    larguras_de_molde,
     ler_celula,
     ler_celula_de_numero,
     ler_celula_de_quantidade,
     ler_glifos,
     ler_linha,
+    limite_de_glifo_unico,
     limite_derivado_do_cruzamento,
     linha_ocluida,
     linha_vazia,
     mascara_de_numero,
     numero_valido,
+    particionar_run,
     residuo_do_cruzamento,
     segmentar_glifos,
     segmentar_glifos_no_brilho,
@@ -1476,3 +1481,368 @@ class TestAFronteiraDaFase3:
         texto = LinhaLida.__doc__
         assert "Fase 3" in texto
         assert "CSV" in texto
+
+
+# ---------------------------------------------------------------------------
+# 02-08 — A GUARDA E A PARTICAO DO RUN LARGO
+# ---------------------------------------------------------------------------
+#
+# O defeito: um run mais largo que o MAIOR molde de um caractere era casado
+# contra UM molde e virava UM digito, com score e margem que atravessavam as
+# duas peneiras. Falha ABERTA — numero errado e PLAUSIVEL — e nao a falha
+# FECHADA que LEIT-02 exige.
+#
+# As tres fixturas COLADAS saem de `recordings/20260828-053105-mercado-aberto/`,
+# uma das 8 gravacoes NOMEADAS do censo, recortadas pelo `dx`/`largura` da
+# calibracao de producao:
+#
+#     glifos_colados_quantidade_f078.png  Quantity de frame_000078 LINHA 3
+#         `44` num run de 12 px; hoje lia `4`
+#     glifos_colados_total_f105.png       Total de frame_000105 LINHA 6
+#         `149,44` com um run de 11 px; o corte `6+5` produz `144,44` e passa
+#         nas duas peneiras, o corte certo `7+4` produz `149,44`
+#     glifos_colados_total_f054.png       Total de frame_000054 LINHA 8
+#         `44,00` num run de 12 px; hoje lia `4,00`
+
+GLIFOS_COLADOS_QUANTIDADE = FIXTURES / "glifos_colados_quantidade_f078.png"
+GLIFOS_COLADOS_TOTAL_F105 = FIXTURES / "glifos_colados_total_f105.png"
+GLIFOS_COLADOS_TOTAL_F054 = FIXTURES / "glifos_colados_total_f054.png"
+GLIFOS_DOS_PRECOS = FIXTURES / "glifos_precos_f010.png"
+
+
+class TestAGeometriaDoGlifoEDerivada:
+    """O limite vem dos MOLDES, e por isso ele nao vira chave do JSON."""
+
+    def test_larguras_de_molde_ignora_os_moldes_de_PALAVRA(self, moldes) -> None:
+        assert larguras_de_molde(moldes) == (1, 4, 6)
+
+    def test_limite_de_glifo_unico_e_o_MAIOR_deles(self, moldes) -> None:
+        assert limite_de_glifo_unico(moldes) == 6
+
+    def test_sem_molde_de_um_caractere_nao_ha_limite(self) -> None:
+        assert limite_de_glifo_unico({}) is None
+
+    def test_larguras_com_folga_zero_e_a_largura_de_molde_pura(self) -> None:
+        assert larguras_com_folga((1, 4, 6), 0) == (1, 4, 6)
+
+    def test_larguras_com_folga_um_acrescenta_UMA_coluna(self) -> None:
+        assert larguras_com_folga((1, 4, 6), 1) == (1, 2, 4, 5, 6, 7)
+
+    def test_o_limite_NAO_e_uma_chave_do_calibration(self) -> None:
+        """Uma copia gravada seria a SEGUNDA verdade sobre uma so geometria."""
+        dados = json.loads(CALIBRACAO.read_text(encoding="utf-8"))
+        assert not [chave for chave in dados if "largura_maxima" in chave]
+
+
+class TestOsDoisParametrosNovosNaoTemValorDeFabrica:
+    """Um default aqui e constante magica no caminho que decide PRECO."""
+
+    def test_ler_glifos_exige_os_DOIS(self) -> None:
+        parametros = inspect.signature(ler_glifos).parameters
+        for nome in ("largura_maxima_de_glifo", "folga_de_cola"):
+            assert parametros[nome].default is inspect.Parameter.empty, nome
+            assert parametros[nome].kind is inspect.Parameter.KEYWORD_ONLY, nome
+
+    def test_a_cadeia_inteira_exige_folga_de_cola(self) -> None:
+        for funcao in (
+            ler_celula,
+            ler_celula_de_numero,
+            ler_celula_de_quantidade,
+            ler_linha,
+        ):
+            parametros = inspect.signature(funcao).parameters
+            assert (
+                parametros["folga_de_cola"].default is inspect.Parameter.empty
+            ), funcao.__name__
+
+    def test_o_LIMITE_nao_entra_na_assinatura_de_ler_celula(self) -> None:
+        """Derivar onde os moldes estao e o que impede DUAS verdades."""
+        assert (
+            "largura_maxima_de_glifo"
+            not in inspect.signature(ler_celula).parameters
+        )
+
+    def test_chamar_ler_glifos_sem_eles_levanta_TypeError(
+        self, moldes, janela_f010, cal
+    ) -> None:
+        recorte = recorte_de_coluna(cal, janela_f010, 6, "mercado_coluna_do_total")
+        faixa, runs = segmentar_glifos(recorte)
+        mascara = (mascara_de_numero(recorte, VALOR_MINIMO_DO_TEXTO) * 255).astype(
+            "uint8"
+        )
+        with pytest.raises(TypeError):
+            ler_glifos(mascara, faixa, runs, moldes, 0.4, 0.03)
+
+
+class TestAsAssinaturasDeSegmentacaoEstaoINTACTAS:
+    """Os 35 pontos de chamada continuam recebendo os MESMOS runs."""
+
+    def test_segmentar_glifos(self) -> None:
+        assert list(inspect.signature(segmentar_glifos).parameters) == ["recorte"]
+
+    def test_segmentar_glifos_no_brilho(self) -> None:
+        assert list(
+            inspect.signature(segmentar_glifos_no_brilho).parameters
+        ) == ["recorte", "valor_minimo"]
+
+
+class TestAsCelulasESTREITASNaoMudamUmPixel:
+    """Quando todo run cabe no limite, o caminho novo E o caminho antigo.
+
+    Preso por VALOR e nao por "nao levantou": um teste de "leu" passaria sobre
+    um mecanismo que vazou para quem nao pediu.
+    """
+
+    def _bandas(self, caminho: Path, quantas: int):
+        pixels = ler_fixtura(caminho)
+        altura = pixels.shape[0] // quantas
+        return [
+            pixels[indice * altura : (indice + 1) * altura]
+            for indice in range(quantas)
+        ]
+
+    def test_os_seis_precos_de_controle(self, cal, moldes) -> None:
+        esperados = ["100,00", "3,00", "18,90", "7,50", "18,00", "2,45"]
+        lidos = [
+            ler_celula(
+                banda,
+                moldes,
+                float(cal.mercado_limiar_de_leitura_de_glifo),
+                float(cal.mercado_margem_de_leitura_de_glifo),
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
+            )
+            for banda in self._bandas(GLIFOS_DOS_PRECOS, 6)
+        ]
+        assert lidos == esperados
+
+    def test_o_unitario_de_controle(self, cal, moldes) -> None:
+        assert (
+            ler_celula(
+                ler_fixtura(GLIFOS_DO_UNITARIO),
+                moldes,
+                float(cal.mercado_limiar_de_leitura_de_glifo),
+                float(cal.mercado_margem_de_leitura_de_glifo),
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
+            )
+            == "6,00"
+        )
+
+    def test_o_controle_le_IGUAL_com_a_guarda_pura(self, cal, moldes) -> None:
+        """Sem run largo, a folga nao muda NADA — nem quando ela e `None`."""
+        assert (
+            ler_celula(
+                ler_fixtura(GLIFOS_DO_UNITARIO),
+                moldes,
+                float(cal.mercado_limiar_de_leitura_de_glifo),
+                float(cal.mercado_margem_de_leitura_de_glifo),
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=None,
+            )
+            == "6,00"
+        )
+
+    def test_os_runs_de_controle_seguem_os_MESMOS(self) -> None:
+        _faixa, runs = segmentar_glifos(ler_fixtura(GLIFOS_DO_UNITARIO))
+        assert [fim - inicio for inicio, fim in runs] == [4, 1, 4, 4]
+
+
+def _ler_colada(cal, moldes, caminho: Path, valor_minimo: int, folga):
+    return ler_celula(
+        ler_fixtura(caminho),
+        moldes,
+        float(cal.mercado_limiar_de_leitura_de_glifo),
+        float(cal.mercado_margem_de_leitura_de_glifo),
+        valor_minimo=valor_minimo,
+        folga_de_cola=folga,
+    )
+
+
+class TestOsGlifosCOLADOS:
+    """As tres fixturas presas por VALOR, e a guarda pura presa por `None`."""
+
+    def test_o_44_da_quantidade_deixa_de_ler_4(self, cal, moldes) -> None:
+        assert (
+            _ler_colada(
+                cal,
+                moldes,
+                GLIFOS_COLADOS_QUANTIDADE,
+                int(cal.mercado_limiar_de_brilho_da_quantidade),
+                cal.mercado_folga_de_cola_do_glifo,
+            )
+            == "44"
+        )
+
+    def test_o_run_de_ONZE_px_le_o_corte_de_SETE_mais_quatro(
+        self, cal, moldes
+    ) -> None:
+        """O VALOR, e nao apenas "leu": o corte errado tambem passa na gramatica.
+
+        `6+5` produziria `144,44`, que `numero_valido` aceita. Um teste de "leu"
+        passaria sobre o bug. O rotulo independente da linha (unitario `2,99`,
+        quantidade `50`) exige o total em [149,25; 150,00).
+        """
+        assert (
+            _ler_colada(
+                cal,
+                moldes,
+                GLIFOS_COLADOS_TOTAL_F105,
+                VALOR_MINIMO_DO_TEXTO,
+                cal.mercado_folga_de_cola_do_glifo,
+            )
+            == "149,44"
+        )
+
+    def test_o_44_virgula_00_do_total(self, cal, moldes) -> None:
+        assert (
+            _ler_colada(
+                cal,
+                moldes,
+                GLIFOS_COLADOS_TOTAL_F054,
+                VALOR_MINIMO_DO_TEXTO,
+                cal.mercado_folga_de_cola_do_glifo,
+            )
+            == "44,00"
+        )
+
+    @pytest.mark.parametrize(
+        "caminho,e_quantidade",
+        [
+            (GLIFOS_COLADOS_QUANTIDADE, True),
+            (GLIFOS_COLADOS_TOTAL_F105, False),
+            (GLIFOS_COLADOS_TOTAL_F054, False),
+        ],
+    )
+    def test_a_GUARDA_pura_derruba_as_tres(
+        self, cal, moldes, caminho, e_quantidade
+    ) -> None:
+        """Sem a chave medida, a celula cai FECHADA. Afirmado, nao suposto."""
+        valor_minimo = (
+            int(cal.mercado_limiar_de_brilho_da_quantidade)
+            if e_quantidade
+            else VALOR_MINIMO_DO_TEXTO
+        )
+        assert _ler_colada(cal, moldes, caminho, valor_minimo, None) is None
+
+    def test_a_quantidade_colada_chega_INTEIRA_a_leitura_de_quantidade(
+        self, cal, moldes
+    ) -> None:
+        assert (
+            ler_celula_de_quantidade(
+                ler_fixtura(GLIFOS_COLADOS_QUANTIDADE),
+                moldes,
+                float(cal.mercado_limiar_de_leitura_de_glifo),
+                float(cal.mercado_margem_de_leitura_de_glifo),
+                valor_minimo=int(cal.mercado_limiar_de_brilho_da_quantidade),
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
+            )
+            == 44
+        )
+
+    def test_o_total_colado_chega_INTEIRO_a_leitura_de_numero(
+        self, cal, moldes
+    ) -> None:
+        assert (
+            ler_celula_de_numero(
+                ler_fixtura(GLIFOS_COLADOS_TOTAL_F105),
+                moldes,
+                float(cal.mercado_limiar_de_leitura_de_glifo),
+                float(cal.mercado_margem_de_leitura_de_glifo),
+                valor_minimo=VALOR_MINIMO_DO_TEXTO,
+                folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
+            )
+            == 14944
+        )
+
+
+class TestAParticaoDeUmRun:
+    """`particionar_run` devolve o melhor corte, ou `None`. Falha FECHADA."""
+
+    def _material(self, caminho: Path, valor_minimo: int):
+        pixels = ler_fixtura(caminho)
+        faixa, runs = segmentar_glifos_no_brilho(pixels, valor_minimo)
+        mascara = (mascara_de_numero(pixels, valor_minimo) * 255).astype("uint8")
+        largos = [(a, b) for a, b in runs if b - a > 6]
+        return mascara, faixa, largos[0]
+
+    def test_devolve_a_lista_no_formato_de_pontuar_glifos(
+        self, cal, moldes
+    ) -> None:
+        mascara, faixa, (a, b) = self._material(
+            GLIFOS_COLADOS_TOTAL_F105, VALOR_MINIMO_DO_TEXTO
+        )
+        achado = particionar_run(
+            mascara,
+            faixa,
+            a,
+            b,
+            moldes,
+            float(cal.mercado_limiar_de_leitura_de_glifo),
+            float(cal.mercado_margem_de_leitura_de_glifo),
+            larguras_com_folga(larguras_de_molde(moldes), 1),
+        )
+        assert achado is not None
+        assert [rotulo for rotulo, _s, _m in achado] == ["4", "9"]
+        for _rotulo, score, distancia in achado:
+            assert score >= float(cal.mercado_limiar_de_leitura_de_glifo)
+            assert distancia >= float(cal.mercado_margem_de_leitura_de_glifo)
+
+    def test_sem_largura_que_some_devolve_None(self, cal, moldes) -> None:
+        mascara, faixa, (a, b) = self._material(
+            GLIFOS_COLADOS_TOTAL_F105, VALOR_MINIMO_DO_TEXTO
+        )
+        assert (
+            particionar_run(
+                mascara,
+                faixa,
+                a,
+                b,
+                moldes,
+                float(cal.mercado_limiar_de_leitura_de_glifo),
+                float(cal.mercado_margem_de_leitura_de_glifo),
+                (4,),
+            )
+            is None
+        )
+
+    def test_um_piso_impossivel_derruba_TODO_corte(self, cal, moldes) -> None:
+        mascara, faixa, (a, b) = self._material(
+            GLIFOS_COLADOS_TOTAL_F105, VALOR_MINIMO_DO_TEXTO
+        )
+        assert (
+            particionar_run(
+                mascara,
+                faixa,
+                a,
+                b,
+                moldes,
+                1.01,
+                0.0,
+                larguras_com_folga(larguras_de_molde(moldes), 1),
+            )
+            is None
+        )
+
+    def test_a_docstring_registra_a_CAUSA_geometrica(self) -> None:
+        texto = ler_glifos.__doc__ or ""
+        assert "GEOMETRIA" in texto.upper()
+        assert "piso de brilho" in texto
+
+
+class TestAFerramentaIMPORTAAsPrimitivas:
+    """Duas copias envelheceriam separadas — a seta aponta ferramenta -> puro."""
+
+    def test_a_varredura_nao_REDEFINE_as_primitivas(self) -> None:
+        fonte = (
+            Path(__file__).resolve().parent.parent
+            / "tools"
+            / "medir_largura_de_run.py"
+        ).read_text(encoding="utf-8")
+        for nome in (
+            "larguras_de_molde",
+            "limite_de_glifo_unico",
+            "larguras_com_folga",
+            "particionar_run",
+        ):
+            assert f"def {nome}(" not in fonte, f"{nome} foi COPIADA"
