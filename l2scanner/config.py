@@ -17,6 +17,7 @@ from .agenda import (
     TODOS_OS_DIAS,
     AgendaInvalida,
     EventoAgendado,
+    apelido_do_evento,
 )
 
 # `Boss` e `BossInvalido` nascem em `bosses.py` pela mesma razao de direcao das
@@ -404,16 +405,38 @@ def _horas_de_respawn(bruto: dict, campo: str, onde: str) -> float:
 
 
 def _recusar_bosses_repetidos(bosses: list[Boss]) -> None:
-    """Dois `[[boss]]` nao podem dividir o mesmo nome.
+    """Dois `[[boss]]` nao podem dividir o mesmo nome NEM o mesmo apelido.
 
     A comparacao IGNORA A CAIXA porque o padrao de reconhecimento e
     `IGNORECASE`: `Tiat North` e `tiat north` sao indistinguiveis para o vigia,
     entao os dois blocos disputariam os mesmos sinais e cada aparicao sairia em
-    dobro. Na Fase 2 e pior — os dois dividiriam a mesma ancora em disco.
+    dobro.
 
-    Mesmo molde de `_recusar_nicks_repetidos`, no eixo do nome do boss.
+    O SEGUNDO EIXO — O APELIDO — NASCEU NA FASE 2, e ele fecha um furo que o
+    primeiro nao alcanca. A partir da janela de respawn o `nome` do `[[boss]]`
+    vira NOME DE ARQUIVO DURAVEL em `.agenda/`, por `apelido_do_evento`. Dois
+    nomes que o `casefold` considera DIFERENTES podem reduzir ao MESMO apelido
+    — por espaco duplo, por pontuacao, por hifen — e ai eles passariam por esta
+    funcao e depois compartilhariam a MESMA ANCORA em disco. O nascimento de um
+    reancoraria a janela do outro, em silencio, e nenhuma mensagem estaria
+    errada o bastante para alguem desconfiar (T-02-05).
+
+    `Tiat  North` (dois espacos) e `Tiat North` sao o caso concreto: nomes
+    distintos para o `casefold`, e os dois viram `tiat-north`.
+
+    RECUSA TAMBEM O APELIDO VAZIO, pela mesma razao: um `nome` feito so de
+    pontuacao reduz a string vazia e produziria um marcador sem identidade,
+    colidindo com qualquer outro nome igualmente vazio.
+
+    ISTO E RECUSA DE ARRANQUE, como todo o resto da validacao de `[[boss]]`:
+    derruba o scanner enquanto o usuario esta olhando o console, e nunca
+    produz uma previsao trocada as duas da manha. O custo e alto e RUIDOSO; a
+    alternativa silenciosa e duas janelas dividindo uma ancora.
+
+    Mesmo molde de `_recusar_nicks_repetidos`, nos dois eixos do boss.
     """
     vistos: dict[str, str] = {}
+    apelidos: dict[str, str] = {}
     for boss in bosses:
         chave = boss.nome.casefold()
         anterior = vistos.get(chave)
@@ -425,6 +448,25 @@ def _recusar_bosses_repetidos(bosses: list[Boss]) -> None:
                 f"Apague o bloco repetido."
             )
         vistos[chave] = boss.nome
+
+        apelido = apelido_do_evento(boss.nome)
+        if not apelido:
+            raise BossInvalido(
+                f"boss '{boss.nome}': o nome nao tem nenhuma letra nem numero, "
+                f"entao ele nao produz identificador nenhum em disco — a "
+                f"janela de respawn nao teria como saber de quem e a contagem. "
+                f"Escreva o nome do boss como ele aparece no jogo."
+            )
+        gemeo = apelidos.get(apelido)
+        if gemeo is not None:
+            raise BossInvalido(
+                f"boss '{boss.nome}': o nome produz o mesmo identificador em "
+                f"disco que '{gemeo}' (os dois viram '{apelido}'), entao os "
+                f"dois dividiriam a MESMA ancora de respawn e o nascimento de "
+                f"um reiniciaria a contagem do outro em silencio. Diferencie "
+                f"os dois nomes."
+            )
+        apelidos[apelido] = boss.nome
 
 
 # ---------------------------------------------------------------------------

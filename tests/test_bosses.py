@@ -42,6 +42,7 @@ mesmo que o `except` do OCR tivesse sido apagado. O desvio deixa o teste mais
 forte, nunca mais fraco.
 """
 
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -745,6 +746,135 @@ class TestLerBosses:
         with pytest.raises(BossInvalido) as erro:
             ler_bosses(caminho)
         assert "Tiat North" in str(erro.value)
+
+
+class TestDoisBossesNaoPodemDividirAMesmaAncora:
+    """O `nome` do `[[boss]]` virou NOME DE ARQUIVO na Fase 2 (T-02-05).
+
+    Dois nomes que o `casefold` considera DIFERENTES podem reduzir ao MESMO
+    apelido, e ai passariam pela recusa por nome e depois compartilhariam a
+    mesma ancora em `.agenda/`. O nascimento de um reancoraria a janela do
+    outro, em silencio, e nenhuma mensagem estaria errada o bastante para
+    alguem desconfiar.
+    """
+
+    def dois(self, tmp_path, primeiro, segundo):
+        return escrever_config(
+            tmp_path,
+            f'[[boss]]\nnome = "{primeiro}"\n'
+            "respawn_horas_min = 6\nrespawn_horas_max = 8\n"
+            f'[[boss]]\nnome = "{segundo}"\n'
+            "respawn_horas_min = 6\nrespawn_horas_max = 8\n",
+        )
+
+    @pytest.mark.parametrize(
+        "primeiro,segundo",
+        [
+            ("Tiat North", "Tiat  North"),
+            ("Tiat North", "Tiat-North"),
+            ("Tiat North", "Tiat North!"),
+            ("Tiat North", "tiat.north"),
+        ],
+        ids=["espaco-duplo", "hifen", "pontuacao", "ponto-e-caixa"],
+    )
+    def test_apelidos_colidentes_recusam_o_arranque(
+        self, tmp_path, primeiro, segundo
+    ):
+        caminho = self.dois(tmp_path, primeiro, segundo)
+
+        with pytest.raises(BossInvalido) as erro:
+            ler_bosses(caminho)
+
+        mensagem = str(erro.value)
+        # A mensagem cita os DOIS nomes: o usuario tem que saber qual par
+        # apagar, e "um boss esta repetido" o faria contar blocos.
+        assert primeiro in mensagem
+        assert segundo in mensagem
+        assert "tiat-north" in mensagem
+
+    def test_a_prova_nao_e_vazia_dois_bosses_de_verdade_sobem(self, tmp_path):
+        """Sem isto, uma recusa que rejeitasse TUDO passaria nos testes acima.
+
+        `Tiat North` e `Tiat South` sao o par real do `config.toml` do usuario,
+        e eles tem que continuar subindo.
+        """
+        caminho = self.dois(tmp_path, "Tiat North", "Tiat South")
+
+        bosses = ler_bosses(caminho)
+
+        assert [b.nome for b in bosses] == ["Tiat North", "Tiat South"]
+
+    def test_nome_so_de_pontuacao_recusa_o_arranque(self, tmp_path):
+        """Um apelido VAZIO produziria um marcador sem identidade."""
+        caminho = escrever_config(
+            tmp_path,
+            '[[boss]]\nnome = "!!!"\n'
+            "respawn_horas_min = 6\nrespawn_horas_max = 8\n",
+        )
+
+        with pytest.raises(BossInvalido) as erro:
+            ler_bosses(caminho)
+        assert "!!!" in str(erro.value)
+
+
+class TestONomeHostilNaoEscapaDaPasta:
+    """T-02-04: texto escrito a mao virando caminho no sistema de arquivos.
+
+    `apelido_do_evento` reduz por LISTA DE PERMISSAO (`[^a-z0-9]+` vira hifen),
+    entao separador de diretorio, ponto e sequencia de subida de nivel nao
+    sobrevivem. Isso hoje e verdade por CONSEQUENCIA; estes testes afirmam por
+    contrato, porque a propriedade so passou a importar quando o valor virou
+    nome de arquivo.
+    """
+
+    @pytest.mark.parametrize(
+        "hostil",
+        [
+            "../../etc/passwd",
+            "..\\..\\windows\\system32",
+            "Tiat/../../North",
+            "C:\\Users\\refun\\config",
+            "nome com / barra",
+        ],
+    )
+    def test_o_apelido_so_tem_letras_numeros_e_hifen(self, hostil):
+        from l2scanner.agenda import apelido_do_evento
+
+        apelido = apelido_do_evento(hostil)
+
+        assert re.fullmatch(r"[a-z0-9-]*", apelido), (
+            f"o apelido de {hostil!r} escapou da lista de permissao: {apelido!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "hostil",
+        [
+            "../../etc/passwd",
+            "..\\..\\windows\\system32",
+            "Tiat/../../North",
+        ],
+    )
+    def test_o_caminho_resultante_continua_filho_direto_da_agenda(
+        self, tmp_path, hostil
+    ):
+        """A prova que importa: onde o arquivo REALMENTE cai.
+
+        Um apelido que contivesse `/` ou `..` faria o marcador nascer fora de
+        `.agenda/` — e a poda de 3 dias nunca mais o alcancaria.
+        """
+        from datetime import datetime
+
+        from l2scanner.respawn import chave_do_nascimento
+
+        pasta = tmp_path / ".agenda"
+        pasta.mkdir()
+        chave = chave_do_nascimento(
+            hostil, datetime(2026, 8, 30, 14, 30), OrigemDoAviso.CHAT
+        )
+
+        destino = (pasta / f"nascimento_{chave}").resolve()
+
+        assert destino.parent == pasta.resolve()
 
 
 class TestARecusaCitaOBossEOCampo:

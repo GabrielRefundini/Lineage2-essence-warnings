@@ -12,7 +12,7 @@ from datetime import datetime
 
 import pytest
 
-from l2scanner import agenda
+from l2scanner import agenda, respawn
 from l2scanner.agenda import (
     TODOS_OS_DIAS,
     AgendaInvalida,
@@ -1463,8 +1463,36 @@ class TestPodaAlcancaTodosOsPrefixos:
     dos prefixos tem que dizer QUAL.
     """
 
+    # OS MODULOS VARRIDOS ATRAS DE `PREFIXO_*`, e ser uma TUPLA e o conserto.
+    #
+    # A versao anterior deste guarda varria so `vars(agenda)`, e isso era um
+    # PONTO CEGO: um `PREFIXO_*` declarado em qualquer outro modulo passava por
+    # ele sem levantar nada — e um prefixo que escapa do guarda nasce IMORTAL,
+    # porque `podar` nao sabe retira-lo antes de ler a data e o arquivo cai no
+    # `except ValueError` para sempre.
+    #
+    # Para uma ancora de respawn essa e a familia de defeito mais cara da fase:
+    # uma ancora de duas semanas atras nao fica so ocupando disco, ela continua
+    # PRODUZINDO janelas erradas com cara de certas, entregues no grupo
+    # (T-02-03).
+    #
+    # A Fase 2 resolveu a metade barata declarando `PREFIXO_NASCIMENTO` dentro
+    # de `agenda.py`, onde o guarda ja o alcancava de graca. Esta tupla fecha a
+    # outra metade: o proximo modulo que declarar um prefixo entra aqui, e
+    # enquanto nao entrar o autor pelo menos LE esta lista.
+    MODULOS_COM_PREFIXO = (agenda, respawn)
+
+    @staticmethod
+    def _prefixos_declarados(*modulos):
+        return {
+            valor
+            for modulo in modulos
+            for nome, valor in vars(modulo).items()
+            if nome.startswith("PREFIXO_") and isinstance(valor, str)
+        }
+
     def test_a_lista_de_prefixos_conhecidos_nao_deixa_ninguem_de_fora(self):
-        """Todo `PREFIXO_*` do modulo tem que estar CLASSIFICADO.
+        """Todo `PREFIXO_*` dos modulos varridos tem que estar CLASSIFICADO.
 
         SAO DOIS BALDES DESDE O `/desativarsoloboss`, e a exigencia nao
         afrouxou: `_PREFIXOS_CONHECIDOS` (tem data, a poda alcanca) ou
@@ -1477,11 +1505,7 @@ class TestPodaAlcancaTodosOsPrefixos:
         dentro do primeiro balde, so para o teste passar, o faria religar o
         boss tres dias depois — sem ninguem mandar e sem nada dizer.
         """
-        declarados = {
-            valor
-            for nome, valor in vars(agenda).items()
-            if nome.startswith("PREFIXO_") and isinstance(valor, str)
-        }
+        declarados = self._prefixos_declarados(*self.MODULOS_COM_PREFIXO)
         classificados = set(agenda._PREFIXOS_CONHECIDOS) | set(
             agenda._PREFIXOS_SEM_DATA
         )
@@ -1490,6 +1514,37 @@ class TestPodaAlcancaTodosOsPrefixos:
             f"prefixo(s) sem balde — nem podavel nem imortal-por-decisao, "
             f"logo imortal por acidente: {esquecidos}"
         )
+
+    def test_o_guarda_acusa_um_prefixo_declarado_fora_da_agenda(self):
+        """GUARDA CONTRA PROVA VAZIA: um portao que nao pode falhar nao e
+        portao.
+
+        Um namespace de mentira, com um `PREFIXO_*` que ninguem classificou,
+        tem que ser ACUSADO. Sem este teste, a tupla acima poderia listar os
+        modulos errados — ou um modulo sem prefixo nenhum — e o guarda ficaria
+        verde para sempre, exatamente como ficava antes de a tupla existir.
+        """
+
+        class ModuloDeMentira:
+            PREFIXO_INVENTADO = "inventado_"
+
+        declarados = self._prefixos_declarados(ModuloDeMentira)
+        classificados = set(agenda._PREFIXOS_CONHECIDOS) | set(
+            agenda._PREFIXOS_SEM_DATA
+        )
+
+        assert declarados - classificados == {"inventado_"}
+
+    def test_o_prefixo_da_ancora_esta_no_balde_dos_podaveis(self):
+        """A ancora e um fato DATADO que deve morrer, e nao uma decisao.
+
+        Afirmado nos dois sentidos: esta no balde certo E nao esta no outro.
+        Se ela caisse em `_PREFIXOS_SEM_DATA`, uma ancora falsa — a de um
+        jogador que digitou a frase do anuncio no chat (T-02-01) — mentiria
+        para sempre em vez de morrer em tres dias.
+        """
+        assert agenda.PREFIXO_NASCIMENTO in agenda._PREFIXOS_CONHECIDOS
+        assert agenda.PREFIXO_NASCIMENTO not in agenda._PREFIXOS_SEM_DATA
 
     def test_os_dois_baldes_de_prefixo_nao_se_sobrepoem(self):
         """Um prefixo nos dois seria a poda contradizendo a decisao.
@@ -1510,8 +1565,30 @@ class TestPodaAlcancaTodosOsPrefixos:
             ("presenca_", "_j4guar"),
             ("fechado_", ""),
             ("", "_agora"),
+            # O SUFIXO DE ORIGEM E O FORMATO REAL DA ANCORA, e nao uma
+            # aproximacao dele: `nascimento_<data>_<boss>-<HHMM>_<origem>`.
+            # Sem `_chat` no nome, o teste exercitaria uma forma que o disco
+            # nunca vai ter — e a poda quebraria justamente no caractere que
+            # o teste omitiu.
+            ("nascimento_", "_chat"),
+            ("nascimento_", "_chat_e_alvo"),
+            # A chave do AVISO de janela, que nao tem prefixo nenhum e poda
+            # pela mesma linha de codigo que os avisos de agenda. E o que a
+            # docstring de `AvisoDeJanela.chave` promete ao derivar a chave da
+            # ANCORA em vez do alvo.
+            ("", "_abre"),
+            ("", "_limite"),
         ],
-        ids=["cancelado", "presenca", "fechado", "aviso-sem-prefixo"],
+        ids=[
+            "cancelado",
+            "presenca",
+            "fechado",
+            "aviso-sem-prefixo",
+            "ancora-de-nascimento",
+            "ancora-com-origem-dupla",
+            "janela-abre",
+            "janela-limite",
+        ],
     )
     def test_o_velho_morre_e_o_de_hoje_sobrevive(self, tmp_path, prefixo, sufixo):
         from datetime import date as _date
