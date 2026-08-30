@@ -19,6 +19,13 @@ from .agenda import (
     EventoAgendado,
 )
 
+# `Boss` e `BossInvalido` nascem em `bosses.py` pela mesma razao de direcao das
+# importacoes que trouxe `Membro` do `comandos.py`: `bosses` importa SO stdlib,
+# entao `config` importa dele sem risco de ciclo. O contrario — declarar `Boss`
+# aqui — obrigaria `bosses` a importar `config`, e o ciclo fecharia no primeiro
+# uso.
+from .bosses import Boss, BossInvalido
+
 # `Membro` nasce no `comandos.py` e nao aqui por causa da direcao das
 # importacoes, que ja e fixa no pacote: `config -> comandos -> loot -> agenda`.
 # Definir `Membro` neste arquivo obrigaria `comandos` a importar `config`, e o
@@ -268,6 +275,156 @@ def _evento_de_dict(bruto: dict, indice: int) -> EventoAgendado:
         chamar_minutos_antes=chamar,
         silenciar_minutos=silenciar,
     )
+
+
+# ---------------------------------------------------------------------------
+# Os bosses vigiados ([[boss]])
+#
+# QUEM E VIGIADO SAI DO CODIGO E VIRA UMA LINHA DO ARQUIVO. Ate a Fase 1 o
+# unico mob possivel era o Tiat, escrito numa constante de `tiat.py`; vigiar
+# outro exigia editar `.py`. Agora e um bloco a mais aqui, e o scanner nao
+# conhece mob nenhum por nome.
+#
+# A validacao e o espelho de `_evento_de_dict`, de proposito: mesma forma de
+# mensagem ("o boss 'X' tem ..."), mesma recusa de subir, mesma regra de
+# "arquivo ausente nao e erro". Duas formas diferentes de recusar config no
+# mesmo arquivo obrigariam o usuario a aprender duas.
+# ---------------------------------------------------------------------------
+
+
+def ler_bosses(caminho: Path | None = None) -> list[Boss]:
+    """Le os blocos [[boss]] do config.toml.
+
+    ARQUIVO AUSENTE NAO E ERRO, e SECAO AUSENTE TAMBEM NAO. O scanner roda sem
+    vigilancia de boss nenhuma desde a v1 e precisa continuar rodando: quem
+    nunca escreveu um `[[boss]]` nao pode ver o programa quebrar por causa de
+    uma funcionalidade que nao pediu (VIGI-04). Quem chama e que decide o que
+    fazer com a lista vazia — ver `montar_vigia_de_bosses`.
+
+    Arquivo PRESENTE E MAL FORMADO, sim, e erro, e e erro de ARRANQUE. Um
+    `respawn_horas_max` menor que o `min` tem que derrubar o scanner enquanto o
+    usuario olha para o console, nunca produzir uma janela impossivel na Fase 2
+    enquanto ele esta AFK.
+    """
+    caminho = caminho or ARQUIVO_CONFIG
+    if not caminho.exists():
+        return []
+
+    try:
+        with caminho.open("rb") as arquivo:
+            dados = tomllib.load(arquivo)
+    except tomllib.TOMLDecodeError as erro:
+        raise BossInvalido(
+            f"{caminho.name} nao e um TOML valido: {erro}"
+        ) from erro
+
+    bosses = [_boss_de_dict(bruto, i) for i, bruto in enumerate(dados.get("boss", []))]
+    _recusar_bosses_repetidos(bosses)
+    return bosses
+
+
+def _boss_de_dict(bruto: object, indice: int) -> Boss:
+    """Valida um bloco [[boss]] e diz exatamente o que esta errado.
+
+    Mesmo padrao de `onde` do `_evento_de_dict`: cita o NOME sempre que ele
+    existe, porque "o segundo [[boss]] esta errado" faz o usuario contar blocos
+    e "o boss 'Tiat North' tem respawn_horas_max menor que o min" ele conserta
+    em cinco segundos.
+
+    Os dois campos de respawn sao OBRIGATORIOS, e nao opcionais com default. Um
+    boss sem regra de respawn produziria, na Fase 2, silenciosamente nenhuma
+    janela — o usuario acrescentaria o bloco, veria o nascimento ser detectado,
+    e nunca receberia a previsao, sem uma linha de erro em lugar nenhum.
+    """
+    if not isinstance(bruto, dict):
+        raise BossInvalido(
+            f"[[boss]] #{indice + 1}: precisa ser um bloco [[boss]] com nome e "
+            f"horas de respawn, e nao {type(bruto).__name__}. Escreva assim:\n"
+            '  [[boss]]\n  nome = "Tiat North"\n'
+            "  respawn_horas_min = 6\n  respawn_horas_max = 8"
+        )
+
+    onde = f"boss '{bruto['nome']}'" if bruto.get("nome") else f"[[boss]] #{indice + 1}"
+
+    nome = str(bruto.get("nome", "")).strip()
+    if not nome:
+        raise BossInvalido(
+            f"{onde}: falta o campo 'nome'. Escreva o nome como ele aparece no "
+            'jogo. Exemplo: nome = "Tiat North"'
+        )
+
+    minimo = _horas_de_respawn(bruto, "respawn_horas_min", onde)
+    maximo = _horas_de_respawn(bruto, "respawn_horas_max", onde)
+    if maximo < minimo:
+        raise BossInvalido(
+            f"{onde}: 'respawn_horas_max' ({maximo:g}) e menor que "
+            f"'respawn_horas_min' ({minimo:g}). O maximo e o limite otimista da "
+            f"janela, entao ele nunca pode vir antes do minimo."
+        )
+
+    return Boss(
+        nome=nome,
+        respawn_horas_min=minimo,
+        respawn_horas_max=maximo,
+    )
+
+
+def _horas_de_respawn(bruto: dict, campo: str, onde: str) -> float:
+    """Uma duracao de respawn valida, ou a recusa que nomeia o campo."""
+    valor = bruto.get(campo)
+    if valor is None:
+        raise BossInvalido(
+            f"{onde}: falta o campo '{campo}'. Ele e a regra de respawn do "
+            f"servidor em horas — para o Tiat, 6 no minimo e 8 no maximo."
+        )
+
+    # Booleano rejeitado EXPLICITAMENTE, e ANTES do teste numerico, porque
+    # `isinstance(True, int)` e verdadeiro em Python. Sem esta linha,
+    # `respawn_horas_min = true` passaria como "1 hora": uma janela errada,
+    # entregue com a mesma cara de uma certa, sem um unico erro no console. E o
+    # mesmo buraco que o comentario de `chamar_minutos_antes` ja documenta.
+    if isinstance(valor, bool):
+        raise BossInvalido(
+            f"{onde}: '{campo}' precisa ser um numero de horas maior que zero, "
+            f"e nao true/false. Exemplo: {campo} = 6"
+        )
+    if not isinstance(valor, (int, float)):
+        raise BossInvalido(
+            f"{onde}: '{campo}' precisa ser um numero de horas maior que zero "
+            f"(recebi {valor!r}). Exemplo: {campo} = 6"
+        )
+    # Zero recusado junto com negativo, de proposito: uma regra de respawn de
+    # zero hora nao descreve nada, e recusar os dois de uma vez deixa a
+    # mensagem mais clara do que dois erros parecidos.
+    if valor <= 0:
+        raise BossInvalido(
+            f"{onde}: '{campo}' precisa ser MAIOR que zero (recebi {valor:g})."
+        )
+    return float(valor)
+
+
+def _recusar_bosses_repetidos(bosses: list[Boss]) -> None:
+    """Dois `[[boss]]` nao podem dividir o mesmo nome.
+
+    A comparacao IGNORA A CAIXA porque o padrao de reconhecimento e
+    `IGNORECASE`: `Tiat North` e `tiat north` sao indistinguiveis para o vigia,
+    entao os dois blocos disputariam os mesmos sinais e cada aparicao sairia em
+    dobro. Na Fase 2 e pior — os dois dividiriam a mesma ancora em disco.
+
+    Mesmo molde de `_recusar_nicks_repetidos`, no eixo do nome do boss.
+    """
+    vistos: dict[str, str] = {}
+    for boss in bosses:
+        chave = boss.nome.casefold()
+        anterior = vistos.get(chave)
+        if anterior is not None:
+            raise BossInvalido(
+                f"boss '{boss.nome}': o nome colide com '{anterior}' — o "
+                f"reconhecimento ignora maiusculas, entao os dois blocos "
+                f"vigiariam o mesmo mob e cada nascimento sairia em dobro. "
+                f"Apague o bloco repetido."
+            )
+        vistos[chave] = boss.nome
 
 
 # ---------------------------------------------------------------------------

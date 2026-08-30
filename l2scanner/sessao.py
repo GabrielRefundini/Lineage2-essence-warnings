@@ -84,9 +84,13 @@ class ResultadoDoTick:
     # estrutura, e a redacao muda toda vez que alguem a melhora.
     avisos_de_manutencao: list = field(default_factory=list)
 
-    # Avisos de Tiat emitidos neste tick. Estruturado para os testes afirmarem
-    # a origem (chat, alvo ou ambos), sem depender da redacao do WhatsApp.
-    avisos_de_tiat: list = field(default_factory=list)
+    # Avisos de nascimento de boss emitidos neste tick, como pares
+    # `(boss, origem)`. Estruturado para os testes afirmarem QUEM nasceu e por
+    # qual sinal (chat, alvo ou ambos), sem depender da redacao do WhatsApp.
+    #
+    # O BOSS ENTRA NO PAR porque um tick pode entregar mais de um aviso: com
+    # dois avisos, a origem sozinha nao diz mais de quem ela e.
+    avisos_de_boss: list = field(default_factory=list)
 
     # As listas de presenca que ESTE tick fechou (`presenca.Fechamento`).
     # Estruturado, e nao so texto, pelo mesmo motivo de `despachos` existir: o
@@ -125,7 +129,7 @@ class Sessao:
         manutencao=None,
         membros=(),
         mercado=None,
-        tiat=None,
+        bosses=None,
     ) -> None:
         self.cal = cal
         self.rastreador = rastreador
@@ -158,7 +162,11 @@ class Sessao:
         # `extrair` e uma funcao pura por contrato — mesmo frame, mesma saida —
         # e essa pureza e o que torna o resto da leitura testavel sem laco.
         self.mercado = mercado
-        self.tiat = tiat
+        # O `bosses.VigiaDeBosses`. Default None pela mesma razao do `loot`, do
+        # `manutencao` e do `mercado`: sem bloco `[[boss]]` no config, sem
+        # calibracao dos recortes ou sem OCR o recurso fica inteiro OFF, o tick
+        # simplesmente nao fala de boss, e nada mais muda.
+        self.bosses = bosses
         # Ja avisamos que o recorte da janela nao chega? Uma vez, e so uma.
         #
         # Um vigia ligado que nunca recebe pixels e degradacao SILENCIOSA — o
@@ -246,7 +254,7 @@ class Sessao:
         # manutencao junto — e manutencao e justamente o que costuma DERRUBAR a
         # leitura da party.
         self._processar_manutencao(agora, frame, resultado)
-        self._processar_tiat(frame, agora, resultado)
+        self._processar_bosses(frame, agora, resultado)
 
         try:
             observacao = extrair(frame, self.cal)
@@ -287,20 +295,33 @@ class Sessao:
 
         return resultado
 
-    def _processar_tiat(
+    def _processar_bosses(
         self, frame: Frame, agora: datetime, resultado: ResultadoDoTick
     ) -> None:
-        """Le chat/alvo fora do rastreador: e aviso, nunca automacao de jogo."""
-        if self.tiat is None:
+        """Le chat/alvo fora do rastreador: e aviso, nunca automacao de jogo.
+
+        ITERA UMA LISTA porque um tick pode entregar mais de um aviso: chat e
+        alvo mostrando bosses DIFERENTES produzem um alerta para cada
+        (RECO-05). Cada um passa pelo `_despachar`, que e o funil unico de
+        saida — e por isso os dois aparecem em `resultado.despachos`.
+
+        AS CHAVES DE `extras` CONTINUAM `tiat_chat` E `tiat_alvo`. Renomea-las
+        seria degradacao silenciosa: `Calibracao.de_dict` le as chaves de mesmo
+        nome com `dados.get(...)` e devolve `None` quando faltam, entao todo
+        `calibration.json` ja existente na maquina do usuario passaria a subir
+        com a vigilancia de boss desligada, sem uma linha de aviso.
+        """
+        if self.bosses is None:
             return
-        aviso = self.tiat.avaliar(
+        avisos = self.bosses.avaliar(
             frame.extras.get("tiat_chat"), frame.extras.get("tiat_alvo"), agora
         )
-        if aviso is None:
-            return
-        resultado.avisos_de_tiat.append(aviso.origem)
-        # Spawn e alvo novo sao urgentes e devem atravessar o silencio de TvT.
-        self._despachar(aviso.texto, Categoria.SEMPRE, resultado=resultado)
+        for aviso in avisos:
+            resultado.avisos_de_boss.append((aviso.boss, aviso.origem))
+            # Nascimento e alvo novo sao urgentes e devem atravessar o silencio
+            # de TvT: um boss nascendo durante o Prime e exatamente a
+            # informacao que ninguem quer perder.
+            self._despachar(aviso.texto, Categoria.SEMPRE, resultado=resultado)
 
     def _olhar_o_mercado(self, frame: Frame) -> bool | None:
         """O painel do World Exchange esta aberto? `None` = ninguem olhou.
