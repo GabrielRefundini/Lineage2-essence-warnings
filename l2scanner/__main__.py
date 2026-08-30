@@ -105,6 +105,7 @@ from .presenca import (  # noqa: E402
 )
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
+from .respawn import anunciar_janelas  # noqa: E402
 from .sessao import Sessao  # noqa: E402
 from .bosses import BossInvalido, VigiaDeBosses  # noqa: E402
 from .visao import EstadoDaLinha  # noqa: E402
@@ -1319,6 +1320,56 @@ def _fechar_listas_de_presenca(
     return fechados
 
 
+def _avisar_janelas_de_respawn(registro, bosses, agora, despachante) -> list:
+    """Anuncia as janelas de respawn que venceram, no modo do relogio (JANE-05).
+
+    Tres razoes para esta funcao existir, e as tres ja foram pagas neste
+    repositorio:
+
+    EXTRAIDA DO CORPO DO LACO, a mesma razao de `_fechar_listas_de_presenca`. O
+    `--so-agenda` esta em 19-20% de cobertura e foi onde o incidente de
+    2026-08-26 19:30 aconteceu. Codigo escrito dentro do `while` nasce sem teste
+    justamente no modo que faz o recurso valer — e este e o modo que entrega a
+    janela para quem esta com o jogo FECHADO, que e o publico inteiro de
+    JANE-05.
+
+    A DECISAO E O TEXTO NAO MORAM AQUI, a mesma razao de
+    `presenca.fechar_e_narrar` (WR-08). Eles moram em `respawn.anunciar_janelas`,
+    e os dois lacos chamam a MESMA funcao. As duas copias de `presenca`
+    escreviam na MESMA `.agenda/` e falavam no MESMO grupo, e o usuario roda os
+    dois modos — um conserto aplicado so de um lado fazia os dois anunciarem
+    coisas diferentes sobre o mesmo boss. Aqui fica so o log e o despacho.
+
+    NENHUMA CHECAGEM ANTERIOR AO `marcar` (D-21). Esta funcao NAO pergunta se o
+    aviso ja saiu. Quem decide e o `marcar` la dentro, e a docstring de
+    `RegistroEmDisco.marcar` proibe por escrito qualquer outra forma: uma
+    consulta previa reintroduziria a janela de corrida entre ler e escrever que
+    o `O_CREAT|O_EXCL` existe para fechar, e o sintoma seria um aviso PERDIDO e
+    nao duplicado — as duas instancias do usuario se veriam livres para calar
+    achando que a outra falou. O portao de AST em
+    `tests/test_janela_no_relogio.py` impede que a checagem volte.
+
+    LOGA SEMPRE, DESPACHA SE HOUVER PARA ONDE — a mesma separacao que o laco ja
+    faz com o encerramento de silencio e com a lista fechada, pela razao ja
+    escrita ali: quem roda sem `.env` e sem `--dry-run` perdia a mensagem ate no
+    console.
+
+    Devolve a lista de avisos, para o teste poder afirmar sobre estrutura em vez
+    de vasculhar log.
+    """
+    hora = agora.strftime("%H:%M")
+    avisados = []
+    for aviso, texto in anunciar_janelas(registro, bosses, agora):
+        avisados.append(aviso)
+        log.info(destacar(texto, hora=hora))
+        if despachante:
+            # A MESMA moldura do console vai para o celular, e `SEMPRE`
+            # (D-23): um boss nascendo durante o Prime e exatamente a
+            # informacao que ninguem quer perder.
+            despachante.despachar(moldurar(texto, hora), Categoria.SEMPRE)
+    return avisados
+
+
 def laco_da_agenda(args: argparse.Namespace) -> int:
     """So o relogio. Sem jogo, sem calibracao, sem captura, sem rastreador.
 
@@ -1332,10 +1383,25 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
     so sairia para quem ja esta jogando.
     """
     eventos = ler_agenda()
-    if not eventos:
+    # A lista de bosses vem do `config.toml`, lida AQUI e ao lado da agenda pelo
+    # mesmo motivo que no `laco_principal`: as duas sao a mesma coisa — dado que
+    # o usuario escreve a mao e que o arranque tem que conferir antes de subir.
+    #
+    # `ler_bosses` levanta `BossInvalido` para um bloco torto, e `main()` ja
+    # trata e devolve 2. NAO capturado aqui de proposito (T-02-15): derrubar o
+    # arranque enquanto o usuario olha o console e melhor que subir vigiando
+    # errado em silencio, e e o que o laco principal ja faz desde a Fase 1.
+    bosses = ler_bosses()
+    if not eventos and not bosses:
+        # A RECUSA PASSOU A EXIGIR AS DUAS AUSENCIAS (T-02-14). Ate a Fase 2 ela
+        # so olhava a agenda, e a partir daqui isso esta errado: quem so vigia
+        # boss e nao configurou nenhum `[[evento]]` ficaria sem o unico modo que
+        # entrega a janela com o jogo fechado — e ele e o publico inteiro de
+        # JANE-05.
         log.error(
-            "Nao ha agenda para rodar. Crie um config.toml com pelo menos um "
-            "[[evento]] — veja o exemplo comentado no repositorio."
+            "Nao ha nada para o relogio vigiar. Crie um config.toml com pelo "
+            "menos um [[evento]] (os lembretes de horario) ou um [[boss]] (a "
+            "janela de respawn) — veja o exemplo comentado no repositorio."
         )
         return 2
 
@@ -1354,8 +1420,19 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
     # 100% do produto. Um erro de 3h nao atrasa o aviso, ele o APAGA.
     relogio = montar_relogio(args)
 
-    nomes = ", ".join(e.nome for e in eventos)
-    log.info("Modo agenda: vigiando o relogio, nao a tela. Eventos: %s", nomes)
+    if eventos:
+        nomes = ", ".join(e.nome for e in eventos)
+        log.info("Modo agenda: vigiando o relogio, nao a tela. Eventos: %s", nomes)
+    else:
+        # SEM EVENTO, A LINHA TEM QUE DIZER O QUE ESTA ACONTECENDO. A frase
+        # antiga listava eventos e, com a lista vazia, sairia mentindo sobre
+        # uma agenda que nao existe — para um usuario que acabou de ganhar o
+        # direito de subir este modo so com `[[boss]]`.
+        log.info(
+            "Modo agenda: vigiando o relogio, nao a tela. Sem nenhum "
+            "[[evento]] no config.toml — o que esta sendo vigiado aqui e a "
+            "janela de respawn dos bosses."
+        )
     log.info("O jogo NAO precisa estar aberto. O PC, sim.")
     _anunciar_proximo(eventos, relogio)
 
@@ -1427,6 +1504,17 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
                 despachante,
                 loot=registro_de_loot,
             )
+
+            # E entao a janela de respawn, DEPOIS do fechamento e sempre nesta
+            # posicao. A ordem nao muda resultado — os dois namespaces em disco
+            # sao disjuntos e nao ha estado compartilhado entre eles — mas
+            # fixa-la torna o tick deterministico para o teste, que e a mesma
+            # razao ja escrita acima para a posicao do consumo de loot.
+            #
+            # ESTE e o laco que faz JANE-05 valer, pela mesma razao que AGEN-05
+            # existe: quem mais precisa saber que a janela do boss abriu e
+            # justamente quem NAO esta com o jogo aberto.
+            _avisar_janelas_de_respawn(registro, bosses, agora, despachante)
 
             # De hora em hora, repetir qual e o proximo. Um scanner que nao diz
             # quando vai falar de novo e indistinguivel de um scanner travado.
