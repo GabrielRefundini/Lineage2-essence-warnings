@@ -27,7 +27,7 @@ _MODO_DPI = tornar_consciente_de_dpi()
 import argparse  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
-from dataclasses import dataclass  # noqa: E402
+from dataclasses import dataclass, fields  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 import cv2  # noqa: E402
@@ -1046,6 +1046,87 @@ def calibrar_tiat(titulo: str | None = None) -> int:
     return 0
 
 
+# OS TREZE CAMPOS QUE A CALIBRACAO DE PARTY POSSUI.
+#
+# A LISTA E DE DONOS, E NAO DE PRESERVADOS, e a diferenca custou 13 moldes de
+# glifo em 2026-08-30. Uma lista de PRESERVADOS exigiria que quem criasse o
+# proximo campo opcional se lembrasse de inscreve-lo nela — e o esquecimento
+# reproduz o incidente exatamente. Com uma lista de DONOS, o campo novo nasce
+# PRESERVADO por omissao, porque o preservado sai por SUBTRACAO de
+# `dataclasses.fields(Calibracao)`. O default de um campo desconhecido tem de
+# ser SOBREVIVER, nunca ser apagado.
+#
+# OS OUTROS DOIS PONTOS DE GRAVACAO DESTE MODULO NAO PRECISAM DISTO, e nao
+# devem ser "consertados" na proxima leitura: `calibrar_tiat` e o ramo `--solo`
+# ja partem de `Calibracao.carregar(ARQUIVO_CALIBRACAO)` e ja preservam tudo o
+# que nao e deles. So o caminho `--auto` / `--selecionar` montava a `Calibracao`
+# do zero.
+CAMPOS_DA_PARTY = frozenset(
+    {
+        "party_window",
+        "ancora",
+        "layout",
+        "limiares_hp",
+        "limiares_mp",
+        "geometria_da_tela",
+        "hp_proprio",
+        "nome_proprio",
+        "nomes",
+        "assinaturas",
+        "janela",
+        "party_window_na_janela",
+        "versao",
+    }
+)
+
+
+def fundir_com_a_calibracao_em_disco(nova: Calibracao, caminho: Path) -> Calibracao:
+    """Devolve `nova` com os campos que a party NAO possui vindos do disco.
+
+    O INCIDENTE QUE ESTA FUNCAO EXISTE PARA IMPEDIR, medido em 2026-08-30: uma
+    rodada de `calibrar.bat` apagou do `calibration.json` os 13 moldes de glifo,
+    as 3 ancoras do painel, a grade de negociacao e o `mercado_limiar_de_glifo`
+    — mais `banner_manutencao`, `tiat_chat` e `tiat_alvo`, pelo mesmo mecanismo.
+    `calibrar_automatico` monta uma `Calibracao` DO ZERO, e o `salvar` grava o
+    objeto inteiro: este caminho era load-mutate-save SEM o load. O arquivo e
+    gitignored, entao nada disso volta por `git checkout`; o resgate foi manual.
+
+    O lado do MERCADO ja tinha recebido este mesmo conserto (CR-04) — ver
+    `calibrar_mercado.calibrar`, que carrega, muta so o que e seu, e grava. O
+    lado da party ficou aberto porque nada o prendia.
+
+    Arquivo inexistente e o estado legitimo da PRIMEIRA calibracao da vida:
+    devolve `nova` sem dizer nada.
+    """
+    if not caminho.exists():
+        return nova
+
+    try:
+        do_disco = Calibracao.carregar(caminho)
+    except Exception as erro:  # noqa: BLE001
+        # NAO PROPAGAR: esta e a rota de recuperacao do usuario. Se a party
+        # parasse de gravar por causa de um arquivo ruim — corrompido, de outra
+        # versao, travado por antivirus —, ele ficaria sem saida nenhuma.
+        # Mas tambem NAO CALAR: seguir em silencio seria repetir o defeito
+        # original com uma camada a mais por cima.
+        print()
+        print("AVISO: NAO CONSEGUI PRESERVAR o que ja estava no calibration.json.")
+        print(f"  motivo: {erro}")
+        print("  em risco: a calibracao de MERCADO (moldes de glifo, ancoras,")
+        print("            grade e limiares) e as REGIOES DO TIAT (chat e alvo).")
+        print("  a calibracao de party vai ser gravada mesmo assim — e o unico")
+        print("  jeito de voce sair de um arquivo ruim. Se o mercado era")
+        print("  importante, recalibre-o depois com calibrar-mercado.bat.")
+        print()
+        return nova
+
+    for campo in fields(Calibracao):
+        if campo.name in CAMPOS_DA_PARTY:
+            continue
+        setattr(nova, campo.name, getattr(do_disco, campo.name))
+    return nova
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="l2scanner.calibrar",
@@ -1241,6 +1322,11 @@ def main() -> int:
             assinaturas.append(assinatura)
         cal.assinaturas = assinaturas
 
+    # O SEAM: os tres caminhos de entrada (`--auto`, `--selecionar` e
+    # `_tentar_pelas_janelas_do_jogo`) passam por aqui, porque os tres montam o
+    # objeto pela mesma `calibrar_automatico`. Sem esta linha, gravar a party
+    # apaga a calibracao de mercado e as regioes do Tiat.
+    cal = fundir_com_a_calibracao_em_disco(cal, ARQUIVO_CALIBRACAO)
     cal.salvar(ARQUIVO_CALIBRACAO)
 
     pw = cal.party_window
