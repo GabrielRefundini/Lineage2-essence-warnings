@@ -210,6 +210,45 @@ def assinatura_por_molde(
     `pontuar_runs(recorte_bgr, moldes)` devolve `[(rotulo, score, margem), ...]`
     na ordem dos runs, ou `None`. Ele NAO aplica piso nem margem: quem decide e
     esta funcao, e aplicar o corte dentro do motor tornaria a medicao circular.
+
+    ESTA FUNCAO NAO E A FONTE DA ASSINATURA, E O REGISTRO DE POR QUE FICA AQUI
+    ==========================================================================
+    Em 2026-08-30 o usuario escolheu, no portao do 02-03, que a assinatura da
+    chave da serie vem do OCR (`assinatura_por_ocr`). Esta funcao FOI MEDIDA e
+    perdeu, e o numero que a derrubou e o seguinte: com a posicao do digito dada
+    DE FORA ela acerta 9 de 9 contra o gabarito de encanto
+    `+6/+4/+2/+7/(nenhum)/+5/+7/+5/+7/+6`; com a regra que a producao teria de
+    usar — cada run sozinho, digito quando passa no piso e na margem — ela acerta
+    **0 de 10** e devolve `7655` onde a resposta e `6`.
+
+    A CAUSA: os 13 moldes do `calibration.json` sao `0`-`9`, `,`, `XM Coin` e
+    `Adena`. NAO HA MOLDE DE LETRA, entao o conjunto nao tem classe de rejeicao e
+    toda letra e forcada sobre o digito mais parecido. O que sai nao e uma
+    sequencia de digitos: e uma impressao digital do nome, que muda conforme
+    quais letras calharam de passar no piso naquele frame (medido: `Adena`
+    duplicou em `adena#55` e `adena#555`).
+
+    O CAMINHO DE VOLTA, COM OS DOIS NUMEROS, PARA NAO PRECISAR REMEDIR
+    ------------------------------------------------------------------
+    A rota nao e impossivel — ela e so INCOMPLETA, e falta exatamente UM numero.
+    Medido na mesma varredura, sobre 60 paginas distintas e 427 linhas da COLUNA
+    DO NOME, com cada run reclassificado na propria faixa:
+
+        VERDADEIRO (o digito de um prefixo `+N `)   n=28   min 0,8510   max 0,9439
+        FALSO      (todo run aprovado num nome
+                    em que nenhuma escala viu digito)  n=451  min 0,4752  max 0,6947
+
+    **Ha vao: +0,1563 entre 0,6947 e 0,8510.** Um piso PROPRIO da coluna do nome,
+    medido nessa faixa, separaria digito de letra e devolveria a esta rota os
+    95,32% que ela mostrou (contra 82,44% da escolhida) — agora com chave
+    honesta. O piso que existe hoje, `mercado_limiar_de_leitura_de_glifo`
+    = 0,4698, NAO serve: ele foi medido sobre as colunas de NUMERO, onde nao ha
+    letra para rejeitar, e por isso deixa passar o `5` que o motor le dentro de
+    `Agathion Alpha Hunter Sealed`.
+
+    Quem for medir esse piso: a chave seria nova (algo como
+    `mercado_limiar_de_digito_no_nome`), e a decisao da FONTE volta a ser um
+    portao — trocar a fonte orfana toda serie ja gravada no CSV.
     """
     if recorte_bgr is None or getattr(recorte_bgr, "size", 0) == 0:
         return None

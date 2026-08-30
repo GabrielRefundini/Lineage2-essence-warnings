@@ -10,6 +10,12 @@
 > antigas ficam registradas abaixo, riscadas e com o número que as derrubou — apagar teria
 > escondido que o processo funcionou. As três são: o scorer de agrupamento (`WRatio` + 88),
 > o predicado de acordo entre escalas, e QUAL layout se calibra.
+>
+> **E EM 2026-08-30 A WAVE 3 (02-03) FECHOU O QUE ESTAVA EM ABERTO, TAMBÉM POR MEDIÇÃO.**
+> Três bullets abaixo ganharam anotação: o CORTE foi remedido e tem número; a FONTE da
+> assinatura de dígitos foi escolhida pelo usuário no portão de decisão (`ocr-estrito`); e o
+> exemplo que o predicado de acordo citava — `Lv. I` contra `Lv. 1` — **não é absorvido**
+> pelo desenho escolhido, e isso está escrito onde a promessa foi feita, não escondido.
 
 <domain>
 ## Phase Boundary
@@ -49,7 +55,16 @@ nome, nunca a linha inteira).
   caracteres (`Lv. I`/`Lv. 1`, `Kng`/`King`), que o agrupamento absorve. A diversidade de
   método fica preservada: um erro de método REAL — um nome lido como outro item — leva as
   duas escalas a séries diferentes e a linha cai.
+  **RESSALVA MEDIDA 2026-08-30 (02-03):** a decisão continua valendo, mas **o exemplo que ela
+  cita não é cumprido**. `Lv. I` × `Lv. 1` NÃO é absorvido pelo agrupamento, porque a trava de
+  dígitos do bullet seguinte intercepta ANTES da similaridade: as assinaturas são `''` e `'1'`,
+  não batem, e a linha cai. Medido na varredura das 8 gravações: **311 de 3.511 linhas limpas
+  (8,86%)** morrem exatamente assim, e há frames em `053105-mercado-aberto` onde são 10 de 10
+  — a mesma perda de página inteira que este bullet foi escrito para evitar. O usuário aceitou
+  esse custo de olhos abertos ao escolher `ocr-estrito` no portão do 02-03. O que o agrupamento
+  absorve é o ruído SEM dígito (`Kng`/`King`, `Chll`/`Doll`, a caixa da inicial).
   ~~Predicado original: igualdade exata de string entre as duas escalas.~~
+  ~~E `Lv. I`/`Lv. 1` como ruído que o agrupamento absorve — a trava de dígitos chega primeiro.~~
 - **Agrupamento por `difflib.SequenceMatcher` (stdlib), E uma trava de dígitos: a sequência
   ordenada de dígitos do nome tem de bater EXATAMENTE antes de qualquer similaridade.**
   **REVISADO 2026-08-29 por medição** — a proposta anterior era `rapidfuzz.WRatio` com corte
@@ -68,7 +83,21 @@ nome, nunca a linha inteira).
   e os três casos aparecem juntos num frame real. Por isso a trava de dígitos: `+6 X` ≠
   `+4 X` e `Lv. 1` ≠ `Lv. 3` **por construção**, não por limiar. A similaridade decide só o
   resto do nome.
+  **FONTE DECIDIDA 2026-08-30 (02-03, portão de decisão, porta de mão única):** a sequência de
+  dígitos vem do **OCR** — rota `ocr-estrito`. As duas alternativas caíram com número:
+  **`molde`** lia 95,32% contra 82,44%, mas a suposição A8 foi REFUTADA — sob a regra que a
+  produção teria de usar ela acerta **0 de 10** contra o gabarito de encanto e devolve `7655`
+  onde a resposta é `6`, porque os 13 moldes **não têm classe de rejeição** e toda letra é
+  forçada sobre o dígito mais parecido. O que ela produz é impressão digital do nome, não
+  sequência de dígitos, e ela varia com o frame (duplicou `Adena` em `adena#55` e `adena#555`).
+  E a chave vai para um CSV que o usuário quer ler a olho nu e entregar a outra IA — uma chave
+  `7655` não serve nenhum dos dois usos. **`ocr-igualdade`** caiu por DOMINÂNCIA ESTRITA: lê
+  351 contra 352, cria uma série a menos, produziu **zero** duplicatas (a hipótese contra ela
+  não se confirmou, e mesmo assim não a salvou) e **não resgata o `Lv. I`/`Lv. 1`**, que era a
+  razão de ela existir.
   ~~Scorer original: `rapidfuzz.WRatio` com corte 88 e faixa cinzenta 80–88.~~
+  ~~Assinatura por MOLDE de dígito (A8): refutada por medição, 0 de 10 sob a regra de produção.~~
+  ~~Assinatura por OCR com igualdade exata para nome com dígito: estritamente dominada.~~
 - **`difflib` da stdlib, e NÃO `rapidfuzz`.** `rapidfuzz` não está instalado nem no
   `requirements.txt`, e medido sobre estes nomes (curtos, sem tokens reordenados, diferenças
   de 1–2 caracteres) `difflib.SequenceMatcher` e `rapidfuzz.fuzz.ratio` dão praticamente o
@@ -79,6 +108,16 @@ nome, nunca a linha inteira).
   contexto. Remedir é o jeito da casa: uma ferramenta que passa todas as leituras das 8
   gravações pela métrica escolhida e mostra o histograma dos pares que agrupam e dos que
   separam. **Nenhum corte entra no código antes dessa medição.**
+  **REMEDIDO 2026-08-30 (02-03), com ferramenta:** `tools/medir_agrupamento_de_nome.py` sobre
+  as 8 gravações, 478 frames com painel aberto, **3.511 linhas limpas** (951 recusadas pela
+  sonda de oclusão do 02-02). `mercado_corte_de_similaridade = **0,894737**` (o mínimo dos
+  pares que PRECISAM agrupar) e `mercado_piso_de_similaridade = **0,883732**` (o MEIO do vão
+  até 0,872727, e não o extremo — no extremo o pior par de "precisa separar" cairia no piso e
+  `Wind Spirit Evolution Stone` ficaria permanentemente invisível). Vão de **+0,022010**, com
+  as populações inteiras conferidas dos dois lados. **E a trava de dígitos deixou de ser
+  argumento e virou número: sem ela não há corte proponível** — 182 pares sobrepostos, vão
+  −0,054416.
+  ~~O 88 herdado do `WRatio`.~~
 - **A faixa cinzenta continua existindo** — abaixo do corte e acima de um piso, a linha não
   agrupa NEM cria série: é descartada com aviso. Fusão no CSV é irreversível; descarte não é.
 - **O catálogo de nomes já vistos vive em ARQUIVO PRÓPRIO, ao lado do CSV de observações.**
@@ -269,5 +308,18 @@ nome, nunca a linha inteira).
 - **A watchlist como filtro de DESTAQUE no console** — ela deixou de ser a porta de entrada
   do que é registrado; se sobreviver, é território de ANAL-* na Fase 4.
 - **Alerta de oportunidade no WhatsApp** (WAPP-02) — já registrado como Out of Scope do v1.
+- **O PISO PRÓPRIO DA COLUNA DO NOME, que devolveria a rota `molde` à mesa** (02-03,
+  2026-08-30). A rota foi recusada porque os 13 moldes não têm classe de rejeição — mas a
+  medição achou vão: na coluna do nome, o dígito verdadeiro de um prefixo `+N ` casa em
+  **0,8510 no mínimo** (n=28) e o melhor falso positivo (run aprovado num nome sem dígito
+  nenhum) chega a **0,6947** (n=451). Vão de **+0,1563**. Um piso medido nessa faixa — chave
+  nova, algo como `mercado_limiar_de_digito_no_nome` — faria a rota ler dígito de verdade e
+  devolveria os **95,32%** contra os 82,44% da escolhida, agora com chave honesta. Os dois
+  números estão aqui e na docstring de `mercado_catalogo.assinatura_por_molde` para ninguém
+  ter de remedir. **Trocar a fonte depois é portão de novo:** órfã toda série já gravada.
+- **A fusão `B-grade Gemstone` × `C-grade Gemstone`** (0,9375, medida em 2026-08-30). É LETRA
+  de grade, não dígito, então a trava de D-03 não alcança. É a única fusão sobre os 50 nomes
+  confirmados, e ficou aberta de propósito: subir o corte para 0,94 a elimina e leva junto
+  pares que precisam agrupar. Registrada em `.planning/WINDOWS.md` e presa por teste.
 
 </deferred>

@@ -22,9 +22,9 @@ provides:
 affects: [02-04, 02-05, 02-06, agrupamento de nome, catalogo de series, chave da serie]
 
 actuals:
-  tokens: 61000
-  tasks: 1
-  commits: 3
+  tokens: 68000
+  tasks: 2
+  commits: 6
 
 tech-stack:
   added: []
@@ -55,6 +55,7 @@ key-decisions:
   - "A sonda de oclusao do 02-02 filtra a varredura: 951 linhas cobertas de 4.768. Sem esse filtro as populacoes se sobrepunham em 1.338 pares, porque o topo de 'precisa separar' era o MESMO item de uma linha vizinha com a leitura comida pela tooltip."
   - "As duas populacoes se apoiam na MESMA nocao de confianca — o VOCABULARIO DE CONSENSO, os 50 nomes que as duas escalas leram identicos. Sem isso, `'\\ufffdano'` x `'-ano'` (duas leituras falhadas) puxava o corte de 0,8947 para 0,7500."
   - "`assinatura_por_molde` recebe o motor de glifo INJETADO. `segmentar_glifos` e os dois alinhadores moram em `calibrar_mercado.py`, que chama `tornar_consciente_de_dpi()` NO IMPORT; um modulo de producao que o importasse pagaria esse efeito colateral so por existir e inverteria a seta que o repositorio mantem em tres precedentes. A promocao e do 02-04."
+  - "A FONTE da assinatura de digitos e o OCR (`ocr-estrito`), escolhida pelo usuario no portao de decisao em 2026-08-30. A `molde` caiu apesar dos 95,32% porque A8 foi refutada (0 de 10 sob a regra de producao) e porque a chave `7655` nao serve um CSV que o usuario quer ler a olho e entregar a outra IA. A `ocr-igualdade` caiu por dominancia estrita."
   - "A `ocr-igualdade` NAO produz as series duplicadas que a hipotese previa: 0 grupos duplicados nas 8 gravacoes, e ela perde 5 linhas a MAIS que a `ocr-estrito` sobre a varredura inteira. O argumento contra ela mudou de 'suja o catalogo' para 'e estritamente dominada'."
 
 patterns-established:
@@ -125,26 +126,39 @@ coverage:
         status: pass
     human_judgment: false
   - id: D6
-    description: "A FONTE da assinatura de digitos da chave da serie foi escolhida pelo usuario com o numero medido na frente"
-    verification: []
+    description: "A FONTE da assinatura de digitos da chave da serie foi escolhida pelo usuario com o numero medido na frente: `ocr-estrito`"
+    verification:
+      - kind: manual_procedural
+        ref: "checkpoint:decision gate=blocking-human, 02-03 Task 2 — usuario escolheu `ocr-estrito` com os relatorios 3 e 4 na mesa"
+        status: pass
     human_judgment: true
-    rationale: "E um `checkpoint:decision` com `gate=\"blocking-human\"` e reversibilidade `one-way`: a chave vai para o disco e a Fase 3 a referencia em cada observacao. Nenhuma automacao pode escolher por ele, e auto-selecao e explicitamente proibida para este gate."
+    rationale: "E um `checkpoint:decision` com `gate=\"blocking-human\"` e reversibilidade `one-way`: a chave vai para o disco e a Fase 3 a referencia em cada observacao. Nenhuma automacao pode escolher por ele, e auto-selecao e explicitamente proibida para este gate. RESOLVIDO pelo usuario em 2026-08-30."
+  - id: D7
+    description: "Nenhuma linha de codigo dos predicados puros esta amarrada a uma fonte de assinatura: `chave_da_serie` e `agrupar` continuam recebendo a assinatura pronta do chamador"
+    verification:
+      - kind: unit
+        ref: "tests/test_mercado_catalogo.py::TestAChaveDaSerie::test_a_assinatura_entra_na_chave_de_forma_explicita"
+        status: pass
+      - kind: unit
+        ref: "tests/test_mercado_catalogo.py::TestOAgrupamento"
+        status: pass
+    human_judgment: false
 
-duration: 1h 45m
+duration: 2h 05m
 completed: 2026-08-30
-status: halted
+status: complete
 ---
 
 # Phase 02 Plan 03: Agrupamento de nome — o corte medido e a fonte da assinatura Summary
 
-**Corte 0,894737 e piso 0,883732 medidos por varredura sobre 3.511 linhas limpas das 8 gravacoes, com a trava de digitos provada NECESSARIA (sem ela nao ha corte proponivel) e a suposicao A8 REFUTADA (o molde acerta 0 de 10 sob a regra de producao) — parado no portao de decisao da fonte da assinatura.**
+**Corte 0,894737 e piso 0,883732 medidos por varredura sobre 3.511 linhas limpas das 8 gravacoes, com a trava de digitos provada NECESSARIA (sem ela nao ha corte proponivel), a suposicao A8 REFUTADA (o molde acerta 0 de 10 sob a regra de producao) e a fonte da assinatura decidida pelo usuario: `ocr-estrito`.**
 
 ## Performance
 
-- **Duration:** 1h 45m
+- **Duration:** 2h 05m
 - **Started:** 2026-08-30T12:55:00Z
-- **Completed:** 2026-08-30T14:40:00Z (parada no portao)
-- **Tasks:** 1 de 2 (a Task 2 e o portao humano)
+- **Completed:** 2026-08-30T15:00:00Z
+- **Tasks:** 2 de 2 (a Task 2 foi o portao humano, resolvido)
 - **Files modified:** 8 criados, mais 2 chaves no `calibration.json` (gitignored, NAO commitado)
 
 ## Accomplishments
@@ -155,12 +169,14 @@ status: halted
 - A trava de digitos deixou de ser argumento e virou numero: sem ela, nenhum corte e proponivel
 - A suposicao A8 (risco ALTO, nunca medida) REFUTADA com o mecanismo da refutacao nomeado
 - As TRES rotas do portao com rendimento e series duplicadas medidos sobre a MESMA populacao
+- A FONTE da assinatura DECIDIDA pelo usuario com os numeros na mesa: `ocr-estrito`
 
 ## Task Commits
 
 1. **Task 1 RED: os predicados afirmados antes de existirem** — `7f118ce` (test)
 2. **Task 1 GREEN: os predicados puros do agrupamento** — `ee2822a` (feat)
 3. **Task 1: a varredura, as fixtures e o teste de regressao** — `7b5fd46` (feat)
+4. **Task 2: a decisao registrada e o caminho de volta** — ver abaixo (docs)
 
 ## Files Created/Modified
 
@@ -334,9 +350,95 @@ numero e que mudou.
 
 ---
 
+# TASK 2 — A DECISAO DO PORTAO
+
+**FONTE ESCOLHIDA: `ocr-estrito`.** A sequencia de digitos da chave da serie vem do **OCR**, e
+a linha cai quando as duas escalas discordam no digito. Escolhida pelo usuario em 2026-08-30,
+no `checkpoint:decision` de `gate="blocking-human"`, com os relatorios 3 e 4 na frente.
+
+## Por que ela, e o que caiu junto
+
+**`molde` — RECUSADA, apesar de ler 95,32% contra 82,44%.**
+O motivo e a propria medicao desta wave: com a regra que a producao teria de usar, ela acerta
+**0 de 10** contra o gabarito de encanto. Os 13 moldes sao `0`-`9`, `,`, `XM Coin` e `Adena` —
+**nao ha molde de letra**, entao o conjunto nao tem classe de rejeicao e toda letra e forcada
+sobre o digito mais parecido. O que sai nao e sequencia de digitos: e impressao digital do nome,
+e ela varia com o frame (o `Adena` duplicou em `adena#55` e `adena#555`). E ha um custo que nao
+aparece em taxa nenhuma: **a chave vai para um CSV que o usuario quer ler a olho nu e entregar a
+outra IA analisar** — `7655` nao serve nenhum dos dois usos. Os 13 pontos percentuais a mais
+seriam pagos com uma chave que ninguem consegue interpretar.
+
+**`ocr-igualdade` — RECUSADA por DOMINANCIA ESTRITA.**
+Le 351 contra 352 (2.988 contra 2.993 na varredura inteira), cria uma serie a menos, e **nao
+resgata o `Lv. I`/`Lv. 1`**, que era a razao inteira de ela existir: quando as escalas discordam
+a linha morre igual. A hipotese contra ela — que criaria series duplicadas — **nao se
+confirmou**: zero duplicatas nas 8 gravacoes, porque ela recusa a linha antes de duplicar. Mas
+isso nao a salvou; recusar antes de duplicar e o que a `ocr-estrito` ja faz, e melhor. Ela nao
+tem nenhuma dimensao em que ganhe.
+
+**`ocr-estrito` — ESCOLHIDA, com o custo aceito de olhos abertos.**
+D-03 fica literal, sem mecanismo novo. Fusao por digito e impossivel por construcao. Zero series
+duplicadas. **O preco, que o usuario conhece:** 311 de 3.511 linhas limpas (**8,86%**) morrem
+porque as escalas discordam no digito, e ha frames em `053105-mercado-aberto` onde sao **10 de
+10** — pagina inteira. Os `Aden's` e `Hardin's Soul Crystal Lv. N` ficam permanentemente
+ilegiveis. Isso derruba, na pratica, o exemplo que D-02 citava como "o ruido que o agrupamento
+tem de absorver": a trava de digitos chega primeiro. A ressalva esta anotada no `02-CONTEXT.md`,
+no bullet onde a promessa foi feita.
+
+## O caminho de volta, com os dois numeros
+
+**A rota `molde` nao e impossivel — ela e INCOMPLETA, e falta exatamente UM numero.** Medido na
+mesma varredura, sobre 60 paginas distintas e 427 linhas da coluna do nome, com cada run
+reclassificado na propria faixa:
+
+| populacao | n | min | max |
+|---|---|---|---|
+| VERDADEIRO — o digito de um prefixo `+N ` | 28 | **0,8510** | 0,9439 |
+| FALSO — todo run aprovado num nome sem digito nenhum | 451 | 0,4752 | **0,6947** |
+
+**Vao de +0,1563.** Um piso PROPRIO da coluna do nome, medido nessa faixa (chave nova, algo como
+`mercado_limiar_de_digito_no_nome`), separaria digito de letra e devolveria os 95,32% com chave
+honesta. O piso de hoje (`mercado_limiar_de_leitura_de_glifo` = 0,4698) **nao serve**: foi medido
+sobre colunas de NUMERO, onde nao ha letra para rejeitar.
+
+Os dois numeros estao escritos em tres lugares para ninguem ter de remedir:
+- a docstring de `l2scanner/mercado_catalogo.assinatura_por_molde` (onde quem revive a rota olha)
+- o `<deferred>` do `02-CONTEXT.md`
+- aqui
+
+**E trocar a fonte depois e portao de novo:** a chave ja gravada no CSV orfana, e as observacoes
+antigas apontam para uma chave que a leitura nova nunca mais produz.
+
+## A porta que ficou aberta de proposito
+
+**`B-grade Gemstone` x `C-grade Gemstone`, 0,9375 — o corte funde os dois.** Um caractere, e e
+LETRA de grade: **a trava de digitos nao alcanca**, porque as duas assinaturas sao vazias. E a
+UNICA fusao sobre os 50 nomes confirmados, e ela **sobrevive a escolha da fonte** — nenhuma das
+tres rotas a evitaria, porque nenhuma delas mexe em letra.
+
+Ficou aberta por medicao, e nao por descuido: subir o corte para 0,94 elimina a fusao **e leva
+junto pares que precisam agrupar** (`test_um_corte_mais_alto_nao_resolve_sem_perder_o_que_precisa_agrupar`
+prende as duas metades). Registrada em `.planning/WINDOWS.md` como `open` e presa por teste em
+`test_o_corte_funde_EXATAMENTE_um_par_do_vocabulario_confirmado`. Quem ler este SUMMARY precisa
+saber que ela existe, que e conhecida, e que fechar custa dado.
+
+## O que a decisao NAO mudou no codigo
+
+**Nenhuma linha dos predicados puros foi amarrada a uma fonte.** `chave_da_serie(nome, assinatura)`
+e `agrupar(leitura, assinatura, catalogo, corte, piso)` continuam recebendo a assinatura JA
+CALCULADA do chamador, exatamente como antes do portao. `assinatura_por_ocr` e
+`assinatura_por_molde` continuam as duas no modulo, e a segunda agora carrega no docstring o
+numero que a derrubou e o que a devolveria. **Quem escolhe a fonte e o 02-04**, ao fiar
+`mercado_pagina.py` — e por isso a decisao pode ser registrada sem reescrever `mercado_catalogo.py`.
+
+---
+
 ## Decisions Made
 
-Ver `key-decisions` no frontmatter. As tres que mais mudaram o plano:
+**A decisao do portao: `ocr-estrito`** — ver a secao "TASK 2" acima, com as duas recusadas e o
+custo de cada uma.
+
+Ver `key-decisions` no frontmatter. As tres da medicao que mais mudaram o plano:
 
 1. **A sonda de oclusao entrou na varredura** (nao estava no plano). Sem ela as populacoes se
    sobrepunham em 1.338 pares, porque o topo de "precisa separar" era o MESMO item de uma linha
@@ -487,16 +589,26 @@ valor de mentira.
 
 ## Next Phase Readiness
 
-**BLOQUEADO NO PORTAO DE DECISAO (Task 2).** `mercado_catalogo.chave_da_serie` e `agrupar`
-continuam recebendo a assinatura PRONTA do chamador — nenhuma linha de codigo foi ligada a uma
-fonte. O 02-04 precisa da decisao para fiar `mercado_pagina.py`.
+**O portao fechou: a fonte e `ocr-estrito`.** O 02-04 ja tem o que precisava para fiar
+`mercado_pagina.py`.
 
 Prontos para o 02-04:
-- os cinco predicados puros, presos por 45 testes
-- `mercado_corte_de_similaridade` e `mercado_piso_de_similaridade` no `calibration.json`
+- os cinco predicados puros, presos por 45 testes, **nenhum amarrado a uma fonte** —
+  `chave_da_serie` e `agrupar` recebem a assinatura pronta do chamador
+- **a fonte decidida:** o chamador passa `assinatura_por_ocr(texto)` de cada escala, e a linha
+  cai quando as duas assinaturas diferem
+- `mercado_corte_de_similaridade = 0,894737` e `mercado_piso_de_similaridade = 0,883732` no
+  `calibration.json`
 - o aviso de que a promocao de `segmentar_glifos` para `mercado_leitura.py` deixa
   `assinatura_por_molde` livre da injecao
-- o `threat_flag` sobre o alcance da sonda de fundo
+- o `threat_flag` sobre o alcance da sonda de fundo: ela mede a DIREITA do inicio do nome e nao
+  pega a marcacao de alvo sobre o comeco
+- **as duas janelas abertas de proposito**, em `WINDOWS.md`: a fusao
+  `B-grade Gemstone` x `C-grade Gemstone` e o alcance da sonda
+
+Espera-se do 02-04, sem surpresa: **8,86% das linhas caindo** por desacordo de digito entre as
+escalas, com pagina inteira em alguns frames. E o custo aceito, e o console tem de mostra-lo como
+"li N, perdi M" em vez de escondê-lo.
 
 ## Self-Check: PASSED
 
@@ -540,6 +652,21 @@ calibration.json:  13 moldes, 3 ancoras, versao 2, layout negociacao, 40 chaves 
 
 `calibration.json` NAO foi commitado (gitignored, conferido com `git check-ignore`).
 
+Depois do fechamento da Task 2 (a decisao, a anotacao no `02-CONTEXT.md` e o caminho de volta na
+docstring), a suite foi rodada de novo, com o mesmo resultado:
+
+```
+python -m pytest -q --ignore=tests/test_agenda.py   1922 passed, 2 skipped
+python -m pytest tests/test_agenda.py -q             132 passed
+python -m pytest tests/test_firewall_escopo.py -q     18 passed
+sem rapidfuzz ok / difflib ok
+```
+
+E a invariante que a Task 2 exigia, conferida: **`chave_da_serie` e `agrupar` continuam recebendo
+a assinatura pronta do chamador.** Nenhum dos dois chama `assinatura_por_ocr` nem
+`assinatura_por_molde`; a fonte e escolha de quem chama, e por isso a decisao do usuario pode ser
+registrada sem reescrever uma linha dos predicados.
+
 ---
 *Phase: 02-leitura-de-p-gina*
-*Completed: 2026-08-30 (parado no portao de decisao da Task 2)*
+*Completed: 2026-08-30 (portao da Task 2 resolvido: `ocr-estrito`)*
