@@ -662,23 +662,25 @@ class TestOArranque:
         return replace(cal_sem_recorte, tiat_chat=recorte, tiat_alvo=recorte)
 
     def montar(self, cal, bosses, caplog, disponivel=True):
+        """O OCR e FORCADO nos dois sentidos, e nao herdado do ambiente.
+
+        As bindings de OCR do Windows nao estao instaladas em todo lugar onde a
+        suite roda. Sem forcar, o caminho "tudo pronto" nunca seria exercitado
+        numa maquina sem elas — e o teste passaria sem provar nada.
+        """
         import logging
 
         from l2scanner import __main__ as principal
 
-        with caplog.at_level(logging.INFO, logger=principal.log.name):
-            if disponivel:
+        original = principal.ocr.disponivel
+        principal.ocr.disponivel = lambda: disponivel
+        try:
+            with caplog.at_level(logging.INFO, logger=principal.log.name):
                 return principal.montar_vigia_de_bosses(
                     cal, na_janela=True, bosses=bosses
                 )
-            original = principal.ocr.disponivel
-            principal.ocr.disponivel = lambda: False
-            try:
-                return principal.montar_vigia_de_bosses(
-                    cal, na_janela=True, bosses=bosses
-                )
-            finally:
-                principal.ocr.disponivel = original
+        finally:
+            principal.ocr.disponivel = original
 
     def test_sem_bloco_nenhum_o_scanner_sobe_e_o_log_diz_como_ligar(
         self, cal, caplog
@@ -736,3 +738,43 @@ class TestOArranque:
         fonte = Path(principal.__file__).read_text(encoding="utf-8")
         assert "VigiaDoTiat" not in fonte
         assert "montar_vigia_do_tiat" not in fonte
+
+    def test_um_bloco_torto_derruba_o_arranque_com_codigo_2(
+        self, monkeypatch, caplog
+    ):
+        """Criterio 6: nenhum traceback chega ao usuario.
+
+        A recusa de config sai como UMA linha de erro legivel e o processo
+        devolve 2 — o mesmo desfecho de `CalibracaoInvalida` e de
+        `ConfiguracaoPerigosa`, que sao as outras duas recusas de configuracao
+        do projeto.
+        """
+        import logging
+        import sys
+
+        from l2scanner import __main__ as principal
+
+        recusa = BossInvalido(
+            "boss 'Tiat North': falta o campo 'respawn_horas_min'."
+        )
+
+        def explode(*_args, **_kwargs):
+            raise recusa
+
+        monkeypatch.setattr(principal, "laco_principal", explode)
+        monkeypatch.setattr(
+            principal,
+            "ARQUIVO_CALIBRACAO",
+            RAIZ / "tests" / "fixtures" / "party_estavel_com_vazamento"
+            / "calibracao.json",
+        )
+        # `--replay` pula a conferencia de geometria da tela: uma sessao
+        # gravada foi feita noutra hora.
+        monkeypatch.setattr(sys, "argv", ["l2scanner", "--replay", "nao-usada"])
+
+        with caplog.at_level(logging.ERROR, logger=principal.log.name):
+            codigo = principal.main()
+
+        assert codigo == 2
+        assert "Tiat North" in caplog.text
+        assert "respawn_horas_min" in caplog.text

@@ -50,6 +50,7 @@ from .config import (  # noqa: E402
     ConfigAusente,
     config_do_chatwoot,
     ler_agenda,
+    ler_bosses,
     ler_membros,
 )
 from .captura_janela import (  # noqa: E402
@@ -105,7 +106,7 @@ from .presenca import (  # noqa: E402
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
 from .sessao import Sessao  # noqa: E402
-from .bosses import VigiaDeBosses  # noqa: E402
+from .bosses import BossInvalido, VigiaDeBosses  # noqa: E402
 from .visao import EstadoDaLinha  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -339,19 +340,44 @@ def montar_vigia_de_manutencao(regiao) -> VigiaDeManutencao | None:
     )
 
 
-def montar_vigia_do_tiat(cal: Calibracao, na_janela: bool) -> VigiaDeBosses | None:
-    """Liga o aviso de Tiat quando chat ou alvo foram calibrados."""
+def montar_vigia_de_bosses(
+    cal: Calibracao, na_janela: bool, bosses
+) -> VigiaDeBosses | None:
+    """Liga o aviso de nascimento de boss, ou diz por que nao ligou.
+
+    Mesmo formato de `montar_vigia_de_manutencao`: tenta, degrada com log,
+    devolve `None`, e o scanner sobe do mesmo jeito.
+
+    A LISTA VAZIA E A PRIMEIRA RECUSA, e a ordem e deliberada: sem bloco
+    `[[boss]]` nenhum nao ha o que vigiar, mesmo com chat, alvo e OCR todos
+    prontos. Conferir a calibracao antes mandaria o usuario recalibrar — quer
+    dizer, consertar o que nao esta quebrado — quando o que falta e uma linha
+    no `config.toml`.
+    """
+    if not bosses:
+        # `info`, e nao `warning`: nunca ter escrito um `[[boss]]` nao e erro,
+        # e o scanner roda sem vigilancia de boss nenhuma desde a v1 (VIGI-04).
+        # A mensagem DIZ COMO LIGAR porque um recurso que se desliga sozinho
+        # sem explicar como acender e indistinguivel de um recurso quebrado.
+        log.info(
+            "Vigilancia de boss desligada: nao ha nenhum bloco [[boss]] no "
+            "config.toml. Para ligar, acrescente um bloco com 'nome' (como o "
+            "mob aparece no jogo), 'respawn_horas_min' e 'respawn_horas_max'."
+        )
+        return None
     if not cal.tiat_chat and not cal.tiat_alvo:
         log.info(
-            "Aviso de Tiat desligado: rode calibrar-tiat.bat para marcar o "
-            "chat e/ou o nome do alvo."
+            "Vigilancia de boss desligada: rode calibrar-tiat.bat para marcar "
+            "o chat e/ou o nome do alvo."
         )
         return None
     if not na_janela:
-        log.warning("Aviso de Tiat desligado: ele precisa de --janela.")
+        log.warning("Vigilancia de boss desligada: ela precisa de --janela.")
         return None
     if not ocr.disponivel():
-        log.warning("Aviso de Tiat DESATIVADO — %s", ocr.motivo_indisponivel())
+        log.warning(
+            "Vigilancia de boss DESATIVADA — %s", ocr.motivo_indisponivel()
+        )
         return None
 
     partes = []
@@ -359,11 +385,17 @@ def montar_vigia_do_tiat(cal: Calibracao, na_janela: bool) -> VigiaDeBosses | No
         partes.append("chat")
     if cal.tiat_alvo:
         partes.append("alvo")
+    # A LINHA NOMEIA OS BOSSES, e nao os conta. E a metade de OPER-02 que esta
+    # fase entrega; a Fase 2 completa a outra metade acrescentando a proxima
+    # janela prevista de cada um — e para isso o nome precisa ja ser a ancora
+    # do texto. Trocar por "vigiando 2 bosses" fecharia essa porta.
     log.info(
-        "Aviso de Tiat ativo — lendo %s a cada 2s; um aviso por aparicao.",
+        "Vigilancia de boss ativa — %s; lendo %s a cada 2s; um aviso por "
+        "nascimento.",
+        ", ".join(boss.nome for boss in bosses),
         " e ".join(partes),
     )
-    return VigiaDeBosses(ocr.ler_texto)
+    return VigiaDeBosses(ocr.ler_texto, bosses=bosses)
 
 
 def montar_vigia_do_mercado(cal: Calibracao, na_janela: bool):
@@ -1649,8 +1681,13 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
             na_janela=bool(args.janela)
         )
 
-    vigia_tiat = montar_vigia_do_tiat(cal, na_janela=bool(args.janela))
-    if vigia_tiat is not None:
+    # A lista de bosses vem do `config.toml` e nao do codigo (VIGI-01). Lida
+    # aqui, ao lado da agenda, porque as duas sao a mesma coisa: dado que o
+    # usuario escreve a mao e que o arranque tem que conferir antes de subir.
+    vigia_bosses = montar_vigia_de_bosses(
+        cal, na_janela=bool(args.janela), bosses=ler_bosses()
+    )
+    if vigia_bosses is not None:
         if cal.tiat_chat:
             extras["tiat_chat"] = cal.tiat_chat
         if cal.tiat_alvo:
@@ -1798,7 +1835,7 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         ao_registrar=_registrar_evento_no_console,
         loot=registro_de_loot,
         manutencao=vigia_manutencao,
-        bosses=vigia_tiat,
+        bosses=vigia_bosses,
         # O sinal do mercado entra por AQUI e sai no console, e so. O
         # `rastreador` nao o recebe, nao o le e nao tem como: ver o tripwire de
         # arquitetura em `tests/test_mercado_27x.py`.
@@ -2204,6 +2241,21 @@ def main() -> int:
     try:
         return laco_principal(args, cal)
     except JanelaNaoEncontrada as erro:
+        log.error("%s", erro)
+        return 2
+    except BossInvalido as erro:
+        # RECUSAR A SUBIR, com a mensagem e sem traceback (VIGI-03). Um
+        # `[[boss]]` torto tem que parar o arranque enquanto o usuario olha
+        # para o console — nunca virar, na Fase 2, uma janela de respawn
+        # impossivel entregue horas depois com a mesma cara de uma certa.
+        #
+        # Isto e deliberadamente MELHOR do que o que `AgendaInvalida` faz hoje
+        # (sobe como traceback), e o precedente esta neste mesmo bloco:
+        # `CalibracaoInvalida` e `ConfiguracaoPerigosa` sao as duas recusas de
+        # configuracao do projeto e as duas fazem exatamente isto.
+        # `AgendaInvalida` e a excecao, nao o modelo — e nao e consertada aqui,
+        # porque mexer no desfecho de um campo que o usuario ja usa nao
+        # pertence a esta fase.
         log.error("%s", erro)
         return 2
     except ConfiguracaoPerigosa as erro:
