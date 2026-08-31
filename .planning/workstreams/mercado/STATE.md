@@ -5,16 +5,16 @@ milestone_name: )
 current_phase: 4
 current_phase_name: Modo --mercado, analise e console
 status: in-progress
-stopped_at: "Completed 04-04-PLAN.md (onda 3) — a margem de craft do ANAL-04: ler_receitas no FIM de config.py (279 linhas ACRESCENTADAS, 0 removidas), margem_de_craft que QUEBRA em vez de adivinhar, e secao_da_margem com a staleness de cada componente. Suite 3077 passed + 23 skipped (base desta arvore 3005 + 23), +72 testes, 0 regressoes. config.toml INTOCADO nos seis commits: o bloco [[receita]] comentado e do 04-05, e o exemplo pronto ja mora em config._EXEMPLO_DA_RECEITA. Os blocos Phase/Plan/Status e current_phase NAO foram tocados: sao do orquestrador depois de 04-05 fechar."
-last_updated: "2026-08-31T10:44:50.946Z"
+stopped_at: "Completed 04-05-PLAN.md (onda 4, a ULTIMA da Fase 4) — vigiar-mercado.bat, a terceira invocacao com dois cliques, e o bloco [[receita]] COMENTADO no fim do config.toml. config.toml: 61 linhas ACRESCENTADAS, 0 REMOVIDAS (numstat 61 0 contra a base 460d1bc), todas comentadas ou em branco, arquivo parseia. Suite 3114 passed + 23 skipped, base deste worktree 3103 + 23: +11 testes, 0 regressoes. Diff total do plano: 3 arquivos, 482 insercoes, 0 delecoes. O .bat mira o personagem pela chave [jogo] personagem (medido em bancada cmd nos tres desfechos) e nao imprime NENHUM echo depois da execucao, com os blocos de erro acima dela; 8 mutantes medidos, 8 mortos, nenhum guarda vacuo. NAO FEITO de proposito: a recusa por OCR em mercado_modo.py:248 ainda manda rodar o vigiar-party.bat — esta fora do files_modified e o proprio criterio proibe tocar l2scanner/; registrado em deferred-items.md. Os blocos Phase/Plan/Status e current_phase seguem INTOCADOS: sao do orquestrador. PORTAO HUMANO da fase ABERTO (3 conferencias ao vivo + a auditoria das 20 decisoes do 04-CONTEXT)."
+last_updated: "2026-08-31T11:09:55.327Z"
 last_activity: 2026-08-31
 last_activity_desc: "Fase 4 plano 01, o que LIGA OS TRES FIOS que as Fases 2 e 3 deixaram sem chamador: l2scanner/mercado_modo.py (o laco de producao), l2scanner/mercado_console.py (o desenho em texto puro, sem dependencia nova) e a flag --mercado em 54 linhas no __main__.py disputado (teto 70, zero remocoes). O modo RECUSA a subir com codigo 2 sem OCR, sem calibracao ou fora do layout de negociacao, nomeando a chave que falta, e sem calibracao nem toca o disco. Uma sessao grava no observacoes.csv E no catalogo-de-nomes.csv, provado ponta a ponta sobre fixturas versionadas com OCR REPRODUZIDO. minimum_update_interval=250 so no mercado e a unica alavanca real de DETC-02; o party fica byte-identico e o acoplamento esta preso nas DUAS direcoes. Suite 2851 passed + 23 skipped, 145 no agenda. Achado registrado em deferred-items.md: mercado_catalogo -> config -> notificador -> rastreador e cadeia de IMPORT da Fase 2, nao de uso. Portao de campo do DETC-02 ABERTO."
-state_head: 57b80e72ce071b61cc2d6baf73ac69c91bc8b2e1
+state_head: a202f10c249750bb49752596e5fb4312fadf6d0d
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 21
-  completed_plans: 20
+  completed_plans: 21
   percent: 25
 ---
 
@@ -120,6 +120,9 @@ Progress: [███░░░░░░░] 25%
 - [Phase 4]: [Phase 4] Casamento de nome DIGITADO pelo usuario e por igualdade EXATA sobre nome_normalizado, e a ambiguidade QUEBRA listando as candidatas. O corte calibrado de similaridade (0.8947) foi medido para agrupar duas leituras de OCR do MESMO pixel: aplicado a texto humano ele juntaria +3 x +4 Dragon Belt (0,9286), B-grade x C-grade Gemstone (0,9375) e Leonard x Leonarde (0,9333), e deixaria passar +3 Dragon Belt x Dragon Belt (0,88) — ele nao erra sempre, erra de forma imprevisivel
 - [Phase 4]: [Phase 4] ReceitaInvalida e classe PROPRIA e a receita torta RECUSA O ARRANQUE, ao contrario da watchlist, cuja AgendaInvalida o laco CAPTURA de proposito. A assimetria tem razao: a watchlist so promove series no console e um erro nela nao pode custar a coleta da noite; a receita e uma CONTA, e uma conta torta que degradasse para 'sem margem' sairia calada
 - [Phase 4]: [Phase 4] HORAS_PARA_MARCAR_COMPONENTE_VELHO = 24 ficou FORA do __all__ de mercado_analise, ao contrario dos pisos de evidencia. Com o nome na lista, o criterio de grep do plano (index + 900 chars) ancoraria no __all__ e a janela cairia no bloco dos pisos, que ja dizia ESCOLHA desde o 04-02: o criterio passaria com a constante muda. Fora da lista, index == rindex == 34615, medido
+- [Phase 4]: 04-05: a mira do vigiar-mercado.bat vem da chave [jogo] personagem (com PERSONAGEM_PADRAO como ultimo recurso), e nao de --janela pelado — com DUAS instancias do jogo abertas e sem cal.janela, o --janela sem valor enumera, acha duas e RECUSA, e um lancador de dois cliques que morre pedindo linha de comando nao entrega DETC-02
+- [Phase 4]: 04-05: os blocos de erro do vigiar-mercado.bat moram ACIMA da linha de execucao, com goto por cima. Isso torna ESTRUTURAL (e nao dependente de guarda lida a olho) a promessa de nao imprimir nada depois de o programa rodar — o defeito medido no calibrar-mercado.bat em 2026-08-28
+- [Phase 4]: 04-05: os criterios da forma 'test -z $(git diff -- X)' ficam CEGOS depois do commit, e o de zero remocoes do config.toml vira FALSO NEGATIVO (cut -f2 sai vazio, e test vazio = 0 e falso). Medido nos dois estados, com controle negativo: a comparacao contra a base do plano (git diff <base>..HEAD -- X) e a unica que sobrevive ao commit
 
 ### Blockers
 
@@ -222,9 +225,9 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 
 ## Session Continuity
 
-**Last session:** 2026-08-31T10:44:50.297Z
+**Last session:** 2026-08-31T11:09:54.932Z
 
-**Stopped At:** Completed 04-04-PLAN.md (onda 3) — a margem de craft do ANAL-04: ler_receitas no FIM de config.py (279 linhas ACRESCENTADAS, 0 removidas), margem_de_craft que QUEBRA em vez de adivinhar, e secao_da_margem com a staleness de cada componente. Suite 3077 passed + 23 skipped (base desta arvore 3005 + 23), +72 testes, 0 regressoes. config.toml INTOCADO nos seis commits: o bloco [[receita]] comentado e do 04-05, e o exemplo pronto ja mora em config._EXEMPLO_DA_RECEITA. Os blocos Phase/Plan/Status e current_phase NAO foram tocados: sao do orquestrador depois de 04-05 fechar.
+**Stopped At:** Completed 04-05-PLAN.md (onda 4, a ULTIMA da Fase 4) — vigiar-mercado.bat, a terceira invocacao com dois cliques, e o bloco [[receita]] COMENTADO no fim do config.toml. config.toml: 61 linhas ACRESCENTADAS, 0 REMOVIDAS (numstat 61 0 contra a base 460d1bc), todas comentadas ou em branco, arquivo parseia. Suite 3114 passed + 23 skipped, base deste worktree 3103 + 23: +11 testes, 0 regressoes. Diff total do plano: 3 arquivos, 482 insercoes, 0 delecoes. O .bat mira o personagem pela chave [jogo] personagem (medido em bancada cmd nos tres desfechos) e nao imprime NENHUM echo depois da execucao, com os blocos de erro acima dela; 8 mutantes medidos, 8 mortos, nenhum guarda vacuo. NAO FEITO de proposito: a recusa por OCR em mercado_modo.py:248 ainda manda rodar o vigiar-party.bat — esta fora do files_modified e o proprio criterio proibe tocar l2scanner/; registrado em deferred-items.md. Os blocos Phase/Plan/Status e current_phase seguem INTOCADOS: sao do orquestrador. PORTAO HUMANO da fase ABERTO (3 conferencias ao vivo + a auditoria das 20 decisoes do 04-CONTEXT).
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -248,3 +251,4 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 | Phase 4 P02 | 11min | 3 tasks | 3 files |
 | Phase 4 P3 | 34min | 3 tasks | 6 files |
 | Phase 4 P4 | 18m | 3 tasks | 5 files |
+| Phase 04 P05 | 30min | 2 tasks | 3 files |
