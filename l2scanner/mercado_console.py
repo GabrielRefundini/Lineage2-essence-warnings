@@ -33,14 +33,17 @@ resumo, e mesmo quando "lidas" e zero.
 
 from __future__ import annotations
 
+import textwrap
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from fractions import Fraction
 
 from . import console
 from .mercado_analise import (
+    PAPEL_PRODUTO,
     descrever_a_tendencia,
+    margem_de_craft,
     mediana_dos_unitarios,
     menor_pedido_visivel,
     ordenar_para_o_console,
@@ -487,4 +490,214 @@ def resumo_da_sessao(leitor, contagem, motivos, orcamento) -> str:
         "  a alcanca. Quem fecha isso e conferir os tres no Gerenciador de "
         "Tarefas.",
     ]
+    return "\n".join(linhas)
+
+
+# ---------------------------------------------------------------------------
+# A MARGEM DE CRAFT DESENHADA (ANAL-04)
+# ---------------------------------------------------------------------------
+
+# O marcador do componente mais velho. Escrito UMA vez, e em ASCII: o console
+# do Windows engasga em acento e em seta unicode, e um marcador que sai como
+# `?` nao marca nada.
+MARCA_DO_COMPONENTE_VELHO = "<--"
+
+# Em quantas colunas a advertencia do cabecalho quebra. Setenta e seis e a
+# largura em que ela cabe num console padrao de 80 sem quebrar sozinha num
+# lugar imprevisivel — e uma quebra imprevisivel e o que faz um paragrafo
+# parecer defeito de formatacao em vez de aviso.
+LARGURA_DO_AVISO = 76
+
+# A advertencia que sai UMA VEZ no cabecalho da secao, e nao por receita.
+#
+# ELA E A LIMITACAO NUMERO 1 DA `margem_de_craft`, TRAZIDA PARA ONDE O USUARIO
+# LE. O programa nao sabe se a oferta ainda existe: a dedup da Fase 3 e por
+# CONTEUDO e sem tempo de saida, entao o CSV nunca registra o desaparecimento
+# de um anuncio. Um menor pedido visivel de vinte minutos atras pode ter sido
+# comprado ha dezenove, e o registro nao teria como saber.
+#
+# UMA VEZ, E NAO UMA POR RECEITA: repetida em cada bloco ela vira ruido que o
+# olho aprende a pular, e ai ela deixa de advertir. E o mesmo argumento que faz
+# `transicao_do_painel` sair por LATCH em vez de por tick.
+AVISO_DE_OFERTA_TALVEZ_COMPRADA = (
+    "ATENCAO: o programa nao sabe se estas ofertas ainda existem - o registro "
+    "nao anota desaparecimento. Um pedido de 20 min atras pode ter sido "
+    "comprado ha 19. Confira na tela antes de agir."
+)
+
+
+def _idade_em_uma_palavra(idade: timedelta | None) -> str:
+    """`ha 8 min`, `ha 3 h`, `ha 3 dias`. UMA unidade, e so ela.
+
+    E A DECISAO DE LAYOUT QUE MANTEM A TABELA LEGIVEL com cinco ingredientes.
+    A `_recencia_em_duas_formas` existe e esta certa onde ela e usada: la a
+    forma absoluta e o que sobrevive a copiar a linha para o WhatsApp. Aqui
+    sao ate seis linhas empilhadas e alinhadas por coluna, e um `(31/08
+    10:00)` por linha empurraria a coluna da idade para fora da tela.
+
+    IDADE NEGATIVA SAI COMO `agora mesmo`, e nao como `ha -3 h`: o CSV e
+    editado a mao no Sheets e uma data adiante e entrada possivel.
+    """
+    if idade is None:
+        return "sem carimbo"
+    segundos = idade.total_seconds()
+    if segundos < 60:
+        return "agora mesmo"
+    if segundos < 3600:
+        return f"ha {int(segundos // 60)} min"
+    if segundos < 86400:
+        return f"ha {int(segundos // 3600)} h"
+    dias = int(segundos // 86400)
+    return f"ha {dias} dia" if dias == 1 else f"ha {dias} dias"
+
+
+def _formatar_margem(valor: Fraction) -> str:
+    """A margem com o SINAL sempre explicito e a marca de derivada.
+
+    O SINAL SAI SEPARADO DO NUMERO de proposito. `formatar_centesimos` faz
+    `divmod`, e `divmod(-450, 100)` e `(-5, 50)` — o que sairia como `-5,50`
+    para quatro reais e cinquenta negativos. Formatar o modulo e prefixar o
+    sinal e a unica forma que nao inventa um centavo.
+
+    O `+` EXPLICITO NO POSITIVO porque a coluna vai ser lida de relance: sem
+    ele, `1.163,50` e `-1.163,50` diferem por um caractere facil de perder, e
+    os dois querem dizer coisas opostas.
+
+    `(derivado)` PELA MESMA RAZAO DE `formatar_unitario_derivado`: este numero
+    nao esta no CSV. Ele nasce de unitarios, que ja sao derivacao, e sem a
+    marca alguem copia a linha e ele vira "o que o scanner leu".
+    """
+    centesimos = round(valor)
+    sinal = "-" if centesimos < 0 else "+"
+    return f"{sinal}{formatar_centesimos(abs(centesimos))} (derivado)"
+
+
+# Onde a coluna do NOME comeca, contada da margem esquerda. Uma constante e
+# nao um numero solto em duas f-strings: o produto e os componentes tem recuos
+# DIFERENTES (a hierarquia se le pelo recuo), e sem um ponto de partida comum
+# as colunas de `menor`, `n` e idade sairiam escalonadas — que e exatamente o
+# que uma tabela existe para nao fazer.
+COLUNA_DO_NOME = 16
+
+
+def _linha_de_item(rotulo: str, linha, recuo: str) -> str:
+    """Um lado da conta: total E quantidade juntos, o `n` e a idade.
+
+    A MESMA DISCIPLINA DA SECAO "VALE QUANTO AGORA": um total solto e sem
+    significado, porque um lote de 100 custa mais que um de 1 sem que nenhum
+    dos dois seja mais caro; e um numero sem `n` e adivinhacao com cara de
+    numero. Os tres andam juntos ou nao andam.
+
+    A IDADE E A ULTIMA COLUNA, e o marcador vem depois dela — assim a marca
+    fica na borda direita, onde o olho a encontra varrendo a coluna em vez de
+    lendo cada linha inteira.
+    """
+    menor = linha.menor
+    unidades = "unidade" if menor.quantidade == 1 else "unidades"
+    marca = f"  {MARCA_DO_COMPONENTE_VELHO}" if linha.velho else ""
+    # O rotulo ocupa o que sobra ate `COLUNA_DO_NOME`, e por isso o campo
+    # encolhe quando o recuo cresce. E o que faz a coluna do nome — e todas as
+    # depois dela — cair no MESMO lugar no produto e nos componentes.
+    largura = max(1, COLUNA_DO_NOME - len(recuo))
+    return (
+        f"{recuo}{rotulo:<{largura}}{linha.nome_exibido:<22}"
+        f"menor {formatar_centesimos(menor.total_em_centesimos)} por "
+        f"{menor.quantidade} {unidades} "
+        f"| n={menor.evidencia.n} "
+        f"| {_idade_em_uma_palavra(linha.idade)}{marca}"
+    )
+
+
+def _bloco_da_margem(receita, modelo, agora: datetime) -> list[str]:
+    """Um bloco por receita: o cabecalho dela, as linhas e a margem OU o motivo."""
+    resultado = margem_de_craft(receita, modelo, agora)
+    titulo = f"  {receita.produto} (rende {receita.rende})"
+
+    # QUANDO ELA QUEBRA, O MOTIVO OCUPA O LUGAR DO NUMERO — e nao aparece ao
+    # lado dele. Imprimir "a margem e X, mas faltou o Leonard" deixaria o X na
+    # tela, e o X e exatamente o numero plausivel e errado que a quebra existe
+    # para impedir.
+    if not resultado.ok:
+        return [titulo, f"    sem margem: {resultado.motivo}", ""]
+
+    linhas = [titulo]
+    for linha in resultado.linhas:
+        if linha.papel == PAPEL_PRODUTO:
+            linhas.append(_linha_de_item("produto", linha, "    "))
+        else:
+            linhas.append(
+                _linha_de_item(
+                    f"- {linha.quantidade_da_receita}x", linha, "      "
+                )
+            )
+
+    # A MAIS VELHA SOBE PARA A LINHA DA MARGEM, COM O NOME DO COMPONENTE. E o
+    # numero que decide se a margem vale alguma coisa: enterra-lo no meio da
+    # lista seria esconde-lo atras de quatro linhas que o olho pula.
+    if resultado.idade_mais_velha is not None:
+        selo = (
+            f" | evidencia mais velha: "
+            f"{_idade_em_uma_palavra(resultado.idade_mais_velha)} "
+            f"({resultado.nome_do_mais_velho})"
+        )
+    else:
+        selo = ""
+    linhas.append(
+        f"    {'margem':<12}"
+        f"{_formatar_margem(resultado.margem_em_centesimos)}{selo}"
+    )
+
+    # A MEDIANA E LINHA SECUNDARIA, e nao a conta principal: ela exige o piso
+    # de cinco POR componente, o que multiplicaria a chance de a resposta
+    # inteira cair. Quando ela nao alcanca o piso, a linha simplesmente nao
+    # sai — dizer "sem mediana" em toda margem seria ruido constante sobre uma
+    # linha que ja e opcional.
+    if resultado.margem_pela_mediana is not None:
+        linhas.append(
+            f"    {'pela mediana':<12}"
+            f"{_formatar_margem(resultado.margem_pela_mediana)}"
+        )
+    linhas.append("")
+    return linhas
+
+
+def secao_da_margem(receitas, modelo, agora: datetime) -> str:
+    """A margem de craft do ANAL-04, em texto puro. DEVOLVE, nao imprime.
+
+    SEM RECEITA, TEXTO VAZIO — e nao um aviso, e nao um erro. A secao e
+    OPCIONAL: o `[[receita]]` nasce comentado no `config.toml` e o usuario o
+    preenche quando quiser. Um "voce nao configurou receitas" a cada repintar
+    seria o programa cobrando do usuario uma coisa que ele nao pediu, e o
+    console tem uma resposta a dar sem ela. Decisao travada no `04-CONTEXT.md`.
+
+    A ADVERTENCIA DO CABECALHO SAI UMA VEZ — ver
+    `AVISO_DE_OFERTA_TALVEZ_COMPRADA`.
+
+    A STALENESS E POR COMPONENTE, com a mais velha promovida a linha da
+    margem. O requisito exige essa granularidade porque uma margem com um
+    ingrediente visto hoje e outro visto ha uma semana nao e uma margem, e um
+    unico carimbo no rodape nao deixaria o usuario ver QUAL metade envelheceu.
+
+    `agora` ENTRA POR PARAMETRO, no molde do resto do modulo: quem tem o
+    `Relogio` e o laco.
+    """
+    if not receitas:
+        return ""
+
+    linhas = [
+        console.moldurar("MARGEM DE CRAFT", agora.strftime("%H:%M")),
+        "",
+        # QUEBRADA, e nao numa linha so de 180 caracteres. Uma advertencia que
+        # rola para fora da janela do console e uma advertencia que ninguem le,
+        # e esta e a unica defesa contra o numero abaixo dela parecer acionavel.
+        *textwrap.wrap(
+            AVISO_DE_OFERTA_TALVEZ_COMPRADA,
+            width=LARGURA_DO_AVISO,
+            initial_indent="  ",
+            subsequent_indent="  ",
+        ),
+        "",
+    ]
+    for receita in receitas:
+        linhas += _bloco_da_margem(receita, modelo, agora)
     return "\n".join(linhas)

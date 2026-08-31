@@ -923,10 +923,25 @@ class TestQuandoAMargemQUEBRA:
         assert linhas_de_item(texto) == []
 
 
+def _quantas_advertencias(texto: str) -> int:
+    """Quantas vezes a advertencia aparece, contada sobre o texto ACHATADO.
+
+    A advertencia sai QUEBRADA em varias linhas — uma linha de 180 caracteres
+    rolaria para fora da janela do console e ninguem a leria. Contar a
+    constante crua no texto desenhado daria zero, e um teste que passasse
+    assim estaria medindo a formatacao em vez da presenca.
+
+    Achatar os dois lados (espacos colapsados) e o que mantem a afirmacao
+    sendo sobre a ADVERTENCIA e nao sobre onde ela quebrou.
+    """
+    achatado = " ".join(texto.split())
+    return achatado.count(" ".join(AVISO_DE_OFERTA_TALVEZ_COMPRADA.split()))
+
+
 class TestOCabecalhoADVERTE_UMA_VEZ:
     def test_a_advertencia_aparece_EXATAMENTE_UMA_VEZ_com_uma_receita(self):
         texto = secao_da_margem([receita()], mundo(), AGORA)
-        assert texto.count(AVISO_DE_OFERTA_TALVEZ_COMPRADA) == 1
+        assert _quantas_advertencias(texto) == 1
 
     def test_ela_continua_UMA_SO_com_DUAS_receitas(self):
         texto = secao_da_margem(
@@ -936,7 +951,25 @@ class TestOCabecalhoADVERTE_UMA_VEZ:
         )
         # UMA VEZ, e nao uma por receita: repetida em cada bloco ela vira
         # ruido que o olho aprende a pular, e ai ela deixa de advertir.
-        assert texto.count(AVISO_DE_OFERTA_TALVEZ_COMPRADA) == 1
+        assert _quantas_advertencias(texto) == 1
+
+    def test_o_CONTROLE_NEGATIVO_do_contador_de_advertencias(self):
+        """O contador acha quando ha o que achar, e nao acha quando nao ha.
+
+        Sem estas duas linhas, `_quantas_advertencias` poderia devolver 1 para
+        qualquer coisa e os dois testes acima passariam para sempre.
+        """
+        assert _quantas_advertencias(AVISO_DE_OFERTA_TALVEZ_COMPRADA * 2) == 2
+        assert _quantas_advertencias("nada a ver") == 0
+
+    def test_a_advertencia_NAO_sai_numa_linha_larga_demais(self):
+        """Uma advertencia que rola para fora da janela nao adverte ninguem."""
+        texto = secao_da_margem([receita()], mundo(), AGORA)
+        del texto
+        assert max(
+            len(linha)
+            for linha in AVISO_DE_OFERTA_TALVEZ_COMPRADA.splitlines()
+        ) > 76, "a constante crua e longa - e por isso que ela e quebrada"
 
     def test_a_advertencia_diz_que_a_oferta_pode_ja_ter_sido_comprada(self):
         baixo = AVISO_DE_OFERTA_TALVEZ_COMPRADA.lower()
@@ -968,7 +1001,7 @@ class TestANomenclaturaDoCONSOLE_tambem:
 
 class TestACadenciaDaSecao:
     def test_a_secao_sai_MENOS_VEZES_que_o_numero_de_ticks(
-        self, cal, leituras, tmp_path, monkeypatch
+        self, cal, leituras, tmp_path, monkeypatch  # noqa: F811
     ):
         """Ela e cara de ler e nao muda a cada segundo.
 
@@ -1013,7 +1046,7 @@ class TestACadenciaDaSecao:
         assert len(chamadas) >= 1
 
     def test_uma_receita_TORTA_recusa_o_ARRANQUE_nomeando_a_receita(
-        self, cal, leituras, tmp_path, monkeypatch, caplog
+        self, cal, leituras, tmp_path, monkeypatch, caplog  # noqa: F811
     ):
         """Ela para o programa enquanto o usuario olha para o console.
 
