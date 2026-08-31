@@ -1945,9 +1945,12 @@ class TestOSilencioAcabaQuandoONascimentoVoltaASerPossivel(
     um nascimento real, sem deixar rastro nenhum — ninguem percebe um alerta
     que nao chegou.
 
-    E por isso que `MARGEM_DO_EPISODIO` vai para o lado CURTO: a janela do
-    episodio e `respawn_horas_min` MENOS cinco minutos, deliberadamente mais
-    curta que o minimo do servidor. Longa demais, ela funde dois nascimentos e
+    E POR ISSO QUE A JANELA DO EPISODIO E CURTA, e desde 2026-08-31 ela e uma
+    grandeza PROPRIA (`respawn.JANELA_DO_EPISODIO`, 25 minutos medidos em
+    campo) e nao mais `respawn_horas_min` menos cinco minutos. O acoplamento
+    antigo tinha exatamente o defeito que esta classe existe para impedir: com
+    8 horas erradas no `config.toml`, a janela virou 7h55 e a supressao comeu
+    dois nascimentos de verdade. Longa demais, ela funde dois nascimentos e
     cala o segundo, que e a falha invisivel; curta demais, ela repete uma
     mensagem, que o usuario le e ignora em dois segundos.
     """
@@ -2052,10 +2055,22 @@ class TestOQueASupressaoPERDE(BaseDaMatrizDeAnuncio):
     def test_dois_nascimentos_dentro_da_janela_produzem_UMA_mensagem(
         self, calibracao, frame_real, tmp_path
     ):
-        """D-26 literal. O que se perde e o MESMO boss nascer duas vezes dentro
-        da mesma janela, e isso e impossivel pela regra do servidor: o respawn
-        conta a partir da MORTE, entao dois nascimentos distam no minimo
-        `respawn_horas_min`.
+        """D-26 literal: dois anuncios do servidor DENTRO da janela do episodio
+        rendem UMA mensagem. E a supressao fazendo o trabalho dela.
+
+        A JANELA MUDOU DE TAMANHO EM 2026-08-31, E A ASERCAO NAO. Este teste
+        rodava com os dois anuncios a TRES HORAS de distancia, e passava porque
+        a janela do episodio saia de `respawn_horas_min` e cobria horas
+        inteiras. A justificativa escrita aqui era "dois nascimentos distam no
+        minimo `respawn_horas_min` pela regra do servidor" — verdade sobre o
+        SERVIDOR e mentira sobre a CONFIGURACAO, e foi por essa mentira que o
+        scanner calou dois nascimentos reais de `Tiat North` naquele dia.
+
+        Agora a janela e uma grandeza propria de 25 minutos, medida nas
+        deteccoes de campo, e os dois anuncios deste teste distam TRES MINUTOS:
+        e o caso que a supressao existe para cobrir de verdade, que e a mesma
+        linha do servidor vista de novo. Tres horas nao sao mais silencio, e
+        isso e o conserto e nao uma regressao.
         """
         pasta = tmp_path / "agenda"
         pares = [
@@ -2067,8 +2082,8 @@ class TestOQueASupressaoPERDE(BaseDaMatrizDeAnuncio):
         s = self.sessao(calibracao, tmp_path, pasta, pares)
 
         ticks = [
-            s.tick(self.frame(frame_real), momento=self.quando(hours=h))
-            for h in (0, 1, 2, 3)
+            s.tick(self.frame(frame_real), momento=self.quando(minutes=m))
+            for m in (0, 1, 2, 3)
         ]
 
         assert sum(len(t.avisos_de_boss) for t in ticks) == 1
@@ -2222,3 +2237,78 @@ class TestOAnuncioDoServidorNaoEEngolidoPeloAlvo(BaseDaMatrizDeAnuncio):
 
         assert ticks[2].nascimentos_calados == []
         assert [n for n in os.listdir(pasta) if "_chat" in n] == []
+
+
+class TestOIncidenteDe31DeAgostoComOConfigErrado(BaseDaMatrizDeAnuncio):
+    """A regressao do incidente de 2026-08-31, com o scanner inteiro em pe.
+
+    A metade pura mora em `tests/test_janela_do_episodio.py`. Este teste existe
+    porque so aqui o `respawn_horas_min = 8` ERRADO fica REALMENTE no lugar:
+    ele entra na `Sessao` como `regras_de_respawn`, continua mandando na
+    PREVISAO de janela, e o que se afirma e que ele nao manda mais no ANUNCIO.
+
+    Um conserto que so funciona com o config certo nao e conserto.
+    """
+
+    NORTH_ERRADO = Boss(
+        nome="Tiat North", respawn_horas_min=8, respawn_horas_max=10
+    )
+    SOUTH_ERRADO = Boss(
+        nome="Tiat South", respawn_horas_min=8, respawn_horas_max=10
+    )
+
+    def sessao(self, calibracao, tmp_path, pasta, pares, simulando=False):
+        return nova_sessao(
+            calibracao,
+            tmp_path,
+            registro=RegistroEmDisco(pasta, simulando=simulando),
+            bosses=self.vigia(pares),
+            regras_de_respawn=[self.NORTH_ERRADO, self.SOUTH_ERRADO],
+        )
+
+    def test_o_nascimento_a_sete_horas_e_meia_do_anterior_ANUNCIA(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """7.83 h foi a distancia real entre o nascimento das 06:22 e o das
+        14:12 de 31/08, e com a janela de 7h55 o segundo virou silencio."""
+        pasta = tmp_path / "agenda"
+        pares = [
+            (self.ANUNCIO_SOUTH, ""),
+            ("", ""),
+            ("", ""),
+            (self.ANUNCIO_SOUTH, ""),
+        ]
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+
+        for i in range(3):
+            s.tick(self.frame(frame_real), momento=self.quando(minutes=i))
+        r = s.tick(
+            self.frame(frame_real),
+            momento=self.quando(hours=7, minutes=50),
+        )
+
+        assert r.avisos_de_boss == [("Tiat South", OrigemDoAviso.CHAT)]
+        assert r.nascimentos_calados == []
+
+    def test_a_previsao_de_janela_CONTINUA_saindo_das_oito_horas_erradas(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """O outro lado do desacoplamento, e ele importa tanto quanto.
+
+        Errar `respawn_horas_min` tem de continuar custando o que sempre
+        custou: uma previsao no horario errado. O que nao pode mais e custar um
+        aviso APAGADO. Aqui o aviso de abertura sai as 8 horas do config
+        ERRADO, e nao as 6 da regra real do servidor.
+        """
+        pasta = tmp_path / "agenda"
+        pares = [(self.ANUNCIO_SOUTH, "")]
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+
+        s.tick(self.frame(frame_real), momento=self.quando())
+        seis = s.tick(self.frame(frame_real), momento=self.quando(hours=6))
+        oito = s.tick(self.frame(frame_real), momento=self.quando(hours=8))
+
+        assert seis.avisos_de_janela == []
+        assert [tipo for _boss, tipo in oito.avisos_de_janela] == [
+            TipoDeJanela.ABRE
+        ]
