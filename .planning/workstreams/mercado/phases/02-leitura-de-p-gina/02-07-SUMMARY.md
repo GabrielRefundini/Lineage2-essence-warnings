@@ -406,6 +406,14 @@ Sao do workstream **tiat**, nao do mercado: o commit `c4175da` mudou o `config.t
 desta onda os toca. Registradas em `.planning/WINDOWS.md` como janela **#27**, ABERTA, e NAO
 consertadas aqui — a fronteira de escopo do executor proibe.
 
+**E a origem foi rastreada, e ela e desconfortavel:** o commit RED desta propria onda,
+`e0e0083`, carregou junto **quatro arquivos do workstream tiat** que nao pertencem ao 02-07 —
+`l2scanner/bosses.py`, `tests/test_bosses.py`, `tests/test_presenca.py` e um `01-03-SUMMARY.md`
+do tiat. Foi um executor concorrente com arquivos ja no index. **Nada foi desfeito:** reverter
+arrastaria trabalho legitimo do tiat, e o commit `c4175da` (posterior, o que mudou a regra do
+Tiat para 8h+2) ja construiu por cima. Registrado como janela **#28**, para que a regra da casa
+— *`git add` por arquivo, nunca `git add -A`* — passe a ter um caso concreto atras dela.
+
 **O flake conhecido do `test_agenda.py`:** a linha 1141 levanta `KeyboardInterrupt` de proposito
 e derrubou a primeira sessao em 87 passed. Rodado de novo com `-p no:randomly`: **144 passed**.
 Abortar nao e falhar.

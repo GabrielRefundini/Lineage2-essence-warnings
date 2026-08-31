@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 19
+open_count: 20
 waived_count: 1
 fixed_count: 7
-total_count: 27
-last_updated: 2026-08-31T00:46:17.943Z
+total_count: 28
+last_updated: 2026-08-31T00:51:01.264Z
 ---
 
 # Broken Windows Ledger
@@ -42,6 +42,7 @@ last_updated: 2026-08-31T00:46:17.943Z
 | 25 | 2 | unmet-truth | tools/medir_brilho_da_quantidade.py |  | A CAUSA da REPROVA do 02-07 esta REMOVIDA: o balde LE ERRADO do piso compartilhado eram as 14 celulas de glifo COLADO (windows #21), e com a particao do 02-08 elas leem CERTO. A varredura de piso do 02-07 volta a ser PROPONIVEL e pega o beneficio de graca, porque medir_brilho_da_quantidade.py chama ler_celula, que agora recebe folga_de_cola da calibracao. NAO foi re-rodada aqui de proposito: ela passa de 10 minutos e ja custou uma sessao a um executor. Quem fechar o 02-07 roda 'tools/medir_brilho_da_quantidade.py --gravar' e deve encontrar o passo ZERO limpo, com os pisos 173..161 seguros e o ultimo seguro em 161 (rendimento previsto 463 -> 2045 em 2170). | fixed |  | 2026-08-30T23:10:56.513Z | 2026-08-31T00:45:43.180Z |
 | 26 | 2 | deviation | calibration.json |  | 02-07 FECHA a janela #16 por MEDICAO: mercado_limiar_de_brilho_da_quantidade = 161, o ULTIMO PISO SEGURO com PASSO_DA_VARREDURA = 1. Balde LE ERRADO do proprio 161 VAZIO sobre 2247 celulas rotuladas; folga (a) ate o primeiro piso que erra = 1 (o 160 acrescenta 2 erros novos), folga (b) ate o tronco medido do 1 = 13 (tronco remedido no censo = 174, e nao os 177 da sondagem do plano). Rendimento da coluna Quantity 541 -> 2133 de 2247; o rotulo 1 (n=1680) vai de 0 para 1590 leituras certas; as 3 gravacoes que liam ZERO (tooltip, alvo-sobreposto, farm-com-party) passam a 199/241, 215/224 e 327/329. A hipotese do 02-08 CONFIRMOU-SE: o balde LE ERRADO do piso compartilhado 180, que tinha 14 celulas e REPROVOU a proposta em 2026-08-30, esta VAZIO depois da particao do glifo colado. O piso e PROPRIO da coluna e nunca global - o mesmo 161 aplicado as colunas de moeda faria 4697 celulas deixarem de ler e 1029 lerem outra coisa. | fixed |  | 2026-08-31T00:46:06.875Z | 2026-08-31T00:46:17.224Z |
 | 27 | 2 | unmet-truth | tests/test_bosses.py |  | FORA DO ESCOPO do 02-07, registrado por descoberta durante a suite completa: tests/test_bosses.py tem 2 falhas PRE-EXISTENTES, do workstream tiat e nao do mercado. O commit c4175da mudou o config.toml para 'Tiat 8h + 2 random (o servidor mudou a regra)' e os dois testes (test_o_arquivo_do_repositorio_tem_os_dois_tiat_com_6_e_8 e test_os_dois_tiat_do_repositorio_tem_6_e_8) seguem cobrando 6 e 8. Nenhum arquivo do 02-07 os toca. Suite: 2501 passed, 2 skipped, 2 failed sem test_agenda.py; 144 passed so com ele. | open |  | 2026-08-31T00:46:17.943Z |  |
+| 28 | 2 | deviation | tests/test_bosses.py |  | CONTAMINACAO ENTRE WORKSTREAMS num commit do 02-07: o commit RED e0e0083 ('test(02-07): o rotulo derivado, as quatro recusas e o ultimo piso seguro') carregou junto quatro arquivos do workstream TIAT que nao pertencem ao 02-07 — l2scanner/bosses.py, tests/test_bosses.py, tests/test_presenca.py e um 01-03-SUMMARY.md do tiat. Foi um executor concorrente com arquivos ja no index. Descoberto no fechamento do 02-07 (sessao seguinte), quando a janela #27 foi rastreada ate a origem. Nada foi desfeito: reverter arrastaria trabalho legitimo do tiat, e o commit c4175da (posterior) ja construiu por cima. Registrado para que o padrao 'git add por arquivo, nunca git add -A' tenha um caso concreto atras dele. | open |  | 2026-08-31T00:51:01.264Z |  |
 
 ````json
 [
@@ -367,6 +368,18 @@ last_updated: 2026-08-31T00:46:17.943Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-31T00:46:17.943Z",
+    "resolved_at": null
+  },
+  {
+    "id": 28,
+    "kind": "deviation",
+    "phase": "2",
+    "file": "tests/test_bosses.py",
+    "line": null,
+    "description": "CONTAMINACAO ENTRE WORKSTREAMS num commit do 02-07: o commit RED e0e0083 ('test(02-07): o rotulo derivado, as quatro recusas e o ultimo piso seguro') carregou junto quatro arquivos do workstream TIAT que nao pertencem ao 02-07 — l2scanner/bosses.py, tests/test_bosses.py, tests/test_presenca.py e um 01-03-SUMMARY.md do tiat. Foi um executor concorrente com arquivos ja no index. Descoberto no fechamento do 02-07 (sessao seguinte), quando a janela #27 foi rastreada ate a origem. Nada foi desfeito: reverter arrastaria trabalho legitimo do tiat, e o commit c4175da (posterior) ja construiu por cima. Registrado para que o padrao 'git add por arquivo, nunca git add -A' tenha um caso concreto atras dele.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T00:51:01.264Z",
     "resolved_at": null
   }
 ]
