@@ -131,7 +131,7 @@ ancorado. E o nome honesto: "menor pedido visível", nunca "preço de venda".
 - [x] **ANAL-01**: "Vale quanto agora": mínimo e mediana dos pedidos visíveis por item da watchlist, sempre com contagem de evidência e recência — nomeado honestamente ("menor pedido visível", nunca "preço de venda")
 - [x] **ANAL-02**: Com o mercado aberto, linhas abaixo da mediana histórica são destacadas no console
 - [x] **ANAL-03**: Tendência por item (direção via regressão stdlib), explícita sobre o tamanho da janela de dados que a sustenta
-- [ ] **ANAL-04**: Margem de craft: receitas no `config.toml`, margem produto vs componentes, com staleness de cada componente visível
+- [x] **ANAL-04**: Margem de craft: receitas no `config.toml`, margem produto vs componentes, com staleness de cada componente visível
 
 ## v2 Requirements
 
@@ -178,7 +178,7 @@ Preenchida na criação do roadmap (2026-08-27).
 | ANAL-01 | Phase 4 | Complete |
 | ANAL-02 | Phase 4 | Complete |
 | ANAL-03 | Phase 4 | Complete |
-| ANAL-04 | Phase 4 | Pending |
+| ANAL-04 | Phase 4 | Complete |
 
 **Coverage:**
 

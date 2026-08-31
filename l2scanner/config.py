@@ -910,3 +910,282 @@ def ler_watchlist_do_mercado(caminho: Path | None = None) -> list[str]:
         if bruto.strip():
             itens.append(bruto)
     return itens
+
+
+# ---------------------------------------------------------------------------
+# AS RECEITAS DO MERCADO — o `[[receita]]` da margem de craft (ANAL-04)
+#
+# O MOLDE E `ler_bosses` + `_boss_de_dict`, LITERALMENTE, e nao por gosto:
+# arquivo ausente nao e erro, secao ausente nao e erro, TOML presente e mal
+# formado E erro de ARRANQUE, e cada recusa NOMEIA a receita quando ha nome
+# utilizavel e cita a POSICAO do bloco quando nao ha. Duas formas diferentes de
+# recusar config no mesmo arquivo obrigariam o usuario a aprender duas.
+#
+# POR QUE ERRO DE ARRANQUE, E NAO UM AVISO: uma receita torta tem de parar o
+# programa enquanto o usuario olha para o console. O contrario — degradar e
+# seguir — produziria uma margem plausivel horas depois, enquanto ele esta AFK,
+# e nada no mundo o avisaria de que o numero esta errado.
+#
+# SEM `[[receita]]` NENHUM A MARGEM SIMPLESMENTE NAO APARECE. Nao e erro e nao
+# e aviso: e uma secao opcional que o usuario preenche quando quiser (decisao
+# travada no `04-CONTEXT.md`). Quem chama e que decide o que fazer com a lista
+# vazia — ver `mercado_console.secao_da_margem`.
+#
+# ESTE BLOCO E APENDICE PURO. O plano 04-04 fixou que a funcao nova vai no FIM
+# do modulo sem tocar nada existente, e por isso o unico import de que ele
+# precisa mora AQUI e nao no topo: um `git diff` deste arquivo tem de mostrar
+# so linhas ACRESCENTADAS. Ha precedente de import fora do topo no pacote
+# (`calibrar.py:61-65`, `calibrar_mercado.py:61-100`), pela mesma razao de
+# ordem que aqui e de contencao de diff.
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass  # noqa: E402
+
+SECAO_DA_RECEITA = "receita"
+
+# O exemplo que TODA recusa desta secao mostra, escrito UMA vez. Uma mensagem
+# que diz "precisa ser uma lista de tabelas" faz o usuario adivinhar a sintaxe
+# do TOML; uma que mostra o bloco pronto ele copia.
+#
+# A FORMA E A DE TABELA INLINE, e a escolha tem razao. A alternativa
+# (`[[receita.componente]]` em sub-blocos) tambem parseia no `tomllib` — as
+# duas foram testadas. Mas COMENTADA ela vira quatro pedacos soltos que o
+# usuario descomenta pela metade sem perceber, e o `config.toml` deste projeto
+# distribui todas as secoes opcionais comentadas. A inline e um bloco contiguo
+# que se comenta e se descomenta como uma UNIDADE, igual ao `watchlist = [...]`
+# que ja mora la.
+_EXEMPLO_DA_RECEITA = (
+    "  Exemplo:\n"
+    "    [[receita]]\n"
+    '    produto = "Dragon Belt"\n'
+    "    rende = 1\n"
+    "    componentes = [\n"
+    '      { item = "Common Aztac", quantidade = 5 },\n'
+    '      { item = "Leonard", quantidade = 20 },\n'
+    "    ]"
+)
+
+
+class ReceitaInvalida(Exception):
+    """Um bloco `[[receita]]` do config.toml nao serve, e o arranque para.
+
+    CLASSE PROPRIA, e nao `AgendaInvalida` reusada como em `ler_membros` e em
+    `ler_watchlist_do_mercado`. A razao e o destino do `except`: aquelas duas
+    sao lidas pelo laco do mercado, que as CAPTURA de proposito para nao matar
+    a coleta da noite por causa de uma virgula na watchlist — a watchlist e
+    filtro de destaque, e nao o produto. A receita e outra coisa: ela e uma
+    CONTA, e uma conta escrita errado nao pode degradar para "sem margem" em
+    silencio. Uma classe separada e o que permite o chamador tratar os dois
+    casos diferente sem inspecionar texto de mensagem.
+    """
+
+
+@dataclass(frozen=True)
+class ComponenteDaReceita:
+    """Um ingrediente e quanto dele a receita pede.
+
+    `item` e o nome COMO O USUARIO O LE NA TELA, e a resolucao dele para uma
+    `chave_da_serie` do CSV acontece na analise, nunca aqui: este modulo le
+    TOML e nao sabe o que e uma serie. A resolucao quebra de proposito quando o
+    nome nao casa ou casa duas vezes — ver `mercado_analise.margem_de_craft`.
+    """
+
+    item: str
+    quantidade: int
+
+
+@dataclass(frozen=True)
+class Receita:
+    """Um `[[receita]]` validado: o produto, quanto ele rende e o que ele come.
+
+    `FROZEN` porque ninguem reescreve uma receita depois de le-la: o
+    `config.toml` e a verdade, e este objeto e uma leitura dele.
+
+    `componentes` E UMA TUPLA e nao uma lista, pelo mesmo motivo: uma lista
+    dentro de um `frozen` seria imutabilidade de fachada.
+    """
+
+    produto: str
+    rende: int
+    componentes: tuple[ComponenteDaReceita, ...]
+
+
+def ler_receitas(caminho: Path | None = None) -> list[Receita]:
+    """Le os blocos [[receita]] do config.toml. ANAL-04.
+
+    ARQUIVO AUSENTE NAO E ERRO, E SECAO AUSENTE TAMBEM NAO. A secao
+    `[[receita]]` nasce COMENTADA no `config.toml`: o modo `--mercado` roda a
+    noite inteira sem receita nenhuma e continua respondendo "vale quanto
+    agora?". Sem `[[receita]]` a margem simplesmente NAO APARECE.
+
+    ARQUIVO PRESENTE E MAL FORMADO E ERRO DE ARRANQUE — ver o comentario da
+    secao acima.
+
+    A LISTA VOLTA NA ORDEM ESCRITA. Devolver embaralhado esconderia de quem
+    depura o que o arquivo realmente diz.
+    """
+    caminho = caminho or ARQUIVO_CONFIG
+    if not caminho.exists():
+        return []
+
+    try:
+        with caminho.open("rb") as arquivo:
+            dados = tomllib.load(arquivo)
+    except tomllib.TOMLDecodeError as erro:
+        raise ReceitaInvalida(
+            f"{caminho.name} nao e um TOML valido: {erro}"
+        ) from erro
+
+    brutos = dados.get(SECAO_DA_RECEITA)
+    if brutos is None:
+        return []
+
+    # `receita = "Dragon Belt"` ITERARIA OS CARACTERES e produziria uma receita
+    # por letra. E o mesmo defeito que `ler_watchlist_do_mercado` ja recusa do
+    # lado dela, e ele e silenciosamente absurdo em vez de ruidosamente errado.
+    if not isinstance(brutos, list):
+        raise ReceitaInvalida(
+            f"{caminho.name}: [[{SECAO_DA_RECEITA}]] precisa ser um ou mais "
+            f"BLOCOS de receita, e nao {type(brutos).__name__}. Um texto solto "
+            f"seria lido letra por letra.\n{_EXEMPLO_DA_RECEITA}"
+        )
+
+    return [
+        _receita_de_dict(bruto, indice) for indice, bruto in enumerate(brutos)
+    ]
+
+
+def _receita_de_dict(bruto: object, indice: int) -> Receita:
+    """Valida um bloco [[receita]] e diz exatamente o que esta errado.
+
+    MESMO PADRAO DE `onde` DO `_boss_de_dict`: cita o NOME sempre que ele
+    existe, porque "o segundo [[receita]] esta errado" faz o usuario contar
+    blocos e "a receita 'Dragon Belt' tem um componente sem 'item'" ele
+    conserta em cinco segundos.
+
+    `rende` E OBRIGATORIO, E NAO OPCIONAL COM PADRAO 1. E ESCOLHA, e a
+    alternativa trocaria uma linha de verbosidade por risco de numero errado:
+    quem crafta cinco de cada vez e esquece o campo receberia uma margem cinco
+    vezes menor que a real, perfeitamente formatada, sem uma linha de erro em
+    lugar nenhum. E o mesmo argumento que tornou `respawn_horas_*`
+    obrigatorios em vez de opcionais.
+
+    `componentes` VAZIO OU AUSENTE TAMBEM E RECUSA, pela mesma familia de
+    razao: uma receita sem ingrediente nenhum produziria uma "margem" igual ao
+    proprio preco do produto — um numero grande, plausivel e sem significado.
+    """
+    if not isinstance(bruto, dict):
+        raise ReceitaInvalida(
+            f"[[{SECAO_DA_RECEITA}]] #{indice + 1}: precisa ser um bloco "
+            f"[[{SECAO_DA_RECEITA}]] com produto, rende e componentes, e nao "
+            f"{type(bruto).__name__}.\n{_EXEMPLO_DA_RECEITA}"
+        )
+
+    produto_bruto = bruto.get("produto")
+    produto = (
+        str(produto_bruto).strip() if isinstance(produto_bruto, str) else ""
+    )
+    onde = (
+        f"receita '{produto}'"
+        if produto
+        else f"[[{SECAO_DA_RECEITA}]] #{indice + 1}"
+    )
+
+    if not produto:
+        raise ReceitaInvalida(
+            f"{onde}: falta o campo 'produto'. Escreva o nome do item craftado "
+            f"como ele aparece na tela, com o prefixo de encanto quando "
+            f"houver.\n{_EXEMPLO_DA_RECEITA}"
+        )
+
+    rende = _inteiro_positivo_da_receita(bruto, "rende", onde)
+
+    brutos = bruto.get("componentes")
+    if brutos is None:
+        raise ReceitaInvalida(
+            f"{onde}: falta o campo 'componentes'. Sem ingrediente nenhum nao "
+            f"ha margem a calcular.\n{_EXEMPLO_DA_RECEITA}"
+        )
+    if not isinstance(brutos, list):
+        raise ReceitaInvalida(
+            f"{onde}: 'componentes' precisa ser uma LISTA de tabelas, veio "
+            f"{type(brutos).__name__}.\n{_EXEMPLO_DA_RECEITA}"
+        )
+    if not brutos:
+        raise ReceitaInvalida(
+            f"{onde}: 'componentes' esta vazio. Uma receita sem ingrediente "
+            f"produziria uma margem igual ao proprio preco do produto - um "
+            f"numero grande e sem significado.\n{_EXEMPLO_DA_RECEITA}"
+        )
+
+    componentes = tuple(
+        _componente_de_dict(componente, posicao, onde)
+        for posicao, componente in enumerate(brutos, start=1)
+    )
+    return Receita(produto=produto, rende=rende, componentes=componentes)
+
+
+def _componente_de_dict(
+    bruto: object, posicao: int, onde: str
+) -> ComponenteDaReceita:
+    """Um ingrediente valido, ou a recusa que NOMEIA a receita e a posicao."""
+    if not isinstance(bruto, dict):
+        raise ReceitaInvalida(
+            f"{onde}: o componente {posicao} precisa ser uma tabela com 'item' "
+            f"e 'quantidade', e nao {type(bruto).__name__}.\n"
+            f"{_EXEMPLO_DA_RECEITA}"
+        )
+
+    item_bruto = bruto.get("item")
+    item = str(item_bruto).strip() if isinstance(item_bruto, str) else ""
+    if not item:
+        raise ReceitaInvalida(
+            f"{onde}: o componente {posicao} nao tem 'item'. Escreva o nome do "
+            f"ingrediente como ele aparece na tela.\n{_EXEMPLO_DA_RECEITA}"
+        )
+
+    quantidade = _inteiro_positivo_da_receita(
+        bruto, "quantidade", f"{onde}, componente '{item}'"
+    )
+    return ComponenteDaReceita(item=item, quantidade=quantidade)
+
+
+def _inteiro_positivo_da_receita(bruto: dict, campo: str, onde: str) -> int:
+    """Uma contagem valida, ou a recusa que nomeia o campo. Nunca booleana.
+
+    BOOLEANO RECUSADO EXPLICITAMENTE, E ANTES DO TESTE NUMERICO, porque
+    `isinstance(True, int)` e verdadeiro em Python. Sem esta ordem,
+    `quantidade = true` passaria como "1 unidade" e `rende = true` como "rende
+    1": uma margem errada entregue com a mesma cara de uma certa, sem um unico
+    erro no console. E o mesmo buraco que o comentario medido de
+    `_horas_de_respawn` ja documenta neste mesmo arquivo - este e o segundo
+    lugar do projeto onde ele apareceria, e a guarda e copiada de la de
+    proposito.
+
+    FRACIONARIO TAMBEM RECUSADO: `rende = 1.5` nao descreve craft nenhum, e
+    aceita-lo faria a margem depender de um arredondamento que ninguem
+    escolheu. `1.0` cai junto, e de proposito: aceitar o float redondo e
+    recusar o quebrado seria uma regra que o usuario descobre por tentativa.
+    """
+    valor = bruto.get(campo)
+    if valor is None:
+        raise ReceitaInvalida(
+            f"{onde}: falta o campo '{campo}'. Ele e um numero INTEIRO maior "
+            f"que zero.\n{_EXEMPLO_DA_RECEITA}"
+        )
+
+    if isinstance(valor, bool):
+        raise ReceitaInvalida(
+            f"{onde}: '{campo}' precisa ser um numero inteiro maior que zero, "
+            f"e nao true/false. Exemplo: {campo} = 5"
+        )
+    if not isinstance(valor, int):
+        raise ReceitaInvalida(
+            f"{onde}: '{campo}' precisa ser um numero INTEIRO maior que zero "
+            f"(recebi {valor!r}). Exemplo: {campo} = 5"
+        )
+    if valor <= 0:
+        raise ReceitaInvalida(
+            f"{onde}: '{campo}' precisa ser MAIOR que zero (recebi {valor})."
+        )
+    return valor

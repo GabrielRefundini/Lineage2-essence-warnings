@@ -5,16 +5,16 @@ milestone_name: )
 current_phase: 4
 current_phase_name: Modo --mercado, analise e console
 status: in-progress
-stopped_at: "Completed 04-03-PLAN.md (onda 2) — a juncao: watchlist como filtro de DESTAQUE, ModeloDeMercado carregado UMA vez, e o destaque contra a mediana de ANTES do tick. Suite 2951 passed + 23 skipped (base desta arvore 2905 + 23). Os blocos Phase/Plan/Status e current_phase NAO foram tocados: sao do orquestrador depois da onda 2 fechar."
-last_updated: "2026-08-31T10:09:57.872Z"
+stopped_at: "Completed 04-04-PLAN.md (onda 3) — a margem de craft do ANAL-04: ler_receitas no FIM de config.py (279 linhas ACRESCENTADAS, 0 removidas), margem_de_craft que QUEBRA em vez de adivinhar, e secao_da_margem com a staleness de cada componente. Suite 3077 passed + 23 skipped (base desta arvore 3005 + 23), +72 testes, 0 regressoes. config.toml INTOCADO nos seis commits: o bloco [[receita]] comentado e do 04-05, e o exemplo pronto ja mora em config._EXEMPLO_DA_RECEITA. Os blocos Phase/Plan/Status e current_phase NAO foram tocados: sao do orquestrador depois de 04-05 fechar."
+last_updated: "2026-08-31T10:44:50.946Z"
 last_activity: 2026-08-31
 last_activity_desc: "Fase 4 plano 01, o que LIGA OS TRES FIOS que as Fases 2 e 3 deixaram sem chamador: l2scanner/mercado_modo.py (o laco de producao), l2scanner/mercado_console.py (o desenho em texto puro, sem dependencia nova) e a flag --mercado em 54 linhas no __main__.py disputado (teto 70, zero remocoes). O modo RECUSA a subir com codigo 2 sem OCR, sem calibracao ou fora do layout de negociacao, nomeando a chave que falta, e sem calibracao nem toca o disco. Uma sessao grava no observacoes.csv E no catalogo-de-nomes.csv, provado ponta a ponta sobre fixturas versionadas com OCR REPRODUZIDO. minimum_update_interval=250 so no mercado e a unica alavanca real de DETC-02; o party fica byte-identico e o acoplamento esta preso nas DUAS direcoes. Suite 2851 passed + 23 skipped, 145 no agenda. Achado registrado em deferred-items.md: mercado_catalogo -> config -> notificador -> rastreador e cadeia de IMPORT da Fase 2, nao de uso. Portao de campo do DETC-02 ABERTO."
-state_head: 29593ff8b4be004930a1d92e28e2f8d86fca9645
+state_head: 57b80e72ce071b61cc2d6baf73ac69c91bc8b2e1
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 21
-  completed_plans: 19
+  completed_plans: 20
   percent: 25
 ---
 
@@ -117,6 +117,9 @@ Progress: [███░░░░░░░] 25%
 - [Phase 4]: [Phase 4/04-03] A watchlist e FILTRO DE DESTAQUE e nunca porta de entrada: sem ela o console responde para as series com MAIS EVIDENCIA (SERIES_NO_TOPO=8, ESCOLHA), com ela as dela vem primeiro e MARCADAS e o resto continua visivel abaixo. Contraria a LETRA do criterio 3 do ROADMAP de proposito, e a divergencia esta escrita na docstring de ordenar_para_o_console. O casamento e EXATO sobre casefold + espacos colapsados, nunca fuzzy: +3 e +4 diferem em um caractere e sao series deliberadamente separadas.
 - [Phase 4]: [Phase 4/04-03] ANAL-02: a ordem do tick e quatro passos NUMERADOS no laco — julgar contra o modelo COMO ELE ESTA, catalogo, registro, e so entao acrescentar (apenas com registrar()==True). O teste que a prende DISCRIMINA: cinco ofertas de unitarios 100..140 dao median_low=120 e a sexta muito barata levaria a mediana de seis para 110; o teste afirma PRIMEIRO que os dois numeros diferem. O CSV e lido UMA vez no arranque — reler a 1 Hz abriria corrida com o usuario editando no Sheets.
 - [Phase 4]: [Phase 4/04-03] Dois criterios do plano REPROVAM e foram rodados como escritos, com o que discrimina acrescentado ao lado. (a) 'calibrar_mercado not in getsource(config)' ja reprovava na arvore PRISTINA — a unica ocorrencia e um comentario em 9dcccbf:791 que a restricao 3 do proprio plano proibe tocar; o que discrimina e a leitura dos imports pelo AST. (b) 'grep ultima_vez no console sem ocorrencia' e insatisfazivel junto do teste que o 04-02 travou exigindo essa mesma palavra na prosa; o que discrimina e a assercao sobre o CODIGO com docstrings arrancadas pelo AST, com controle negativo medido.
+- [Phase 4]: [Phase 4] Casamento de nome DIGITADO pelo usuario e por igualdade EXATA sobre nome_normalizado, e a ambiguidade QUEBRA listando as candidatas. O corte calibrado de similaridade (0.8947) foi medido para agrupar duas leituras de OCR do MESMO pixel: aplicado a texto humano ele juntaria +3 x +4 Dragon Belt (0,9286), B-grade x C-grade Gemstone (0,9375) e Leonard x Leonarde (0,9333), e deixaria passar +3 Dragon Belt x Dragon Belt (0,88) — ele nao erra sempre, erra de forma imprevisivel
+- [Phase 4]: [Phase 4] ReceitaInvalida e classe PROPRIA e a receita torta RECUSA O ARRANQUE, ao contrario da watchlist, cuja AgendaInvalida o laco CAPTURA de proposito. A assimetria tem razao: a watchlist so promove series no console e um erro nela nao pode custar a coleta da noite; a receita e uma CONTA, e uma conta torta que degradasse para 'sem margem' sairia calada
+- [Phase 4]: [Phase 4] HORAS_PARA_MARCAR_COMPONENTE_VELHO = 24 ficou FORA do __all__ de mercado_analise, ao contrario dos pisos de evidencia. Com o nome na lista, o criterio de grep do plano (index + 900 chars) ancoraria no __all__ e a janela cairia no bloco dos pisos, que ja dizia ESCOLHA desde o 04-02: o criterio passaria com a constante muda. Fora da lista, index == rindex == 34615, medido
 
 ### Blockers
 
@@ -219,9 +222,9 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 
 ## Session Continuity
 
-**Last session:** 2026-08-31T10:09:57.441Z
+**Last session:** 2026-08-31T10:44:50.297Z
 
-**Stopped At:** Completed 04-03-PLAN.md (onda 2) — a juncao: watchlist como filtro de DESTAQUE, ModeloDeMercado carregado UMA vez, e o destaque contra a mediana de ANTES do tick. Suite 2951 passed + 23 skipped (base desta arvore 2905 + 23). Os blocos Phase/Plan/Status e current_phase NAO foram tocados: sao do orquestrador depois da onda 2 fechar.
+**Stopped At:** Completed 04-04-PLAN.md (onda 3) — a margem de craft do ANAL-04: ler_receitas no FIM de config.py (279 linhas ACRESCENTADAS, 0 removidas), margem_de_craft que QUEBRA em vez de adivinhar, e secao_da_margem com a staleness de cada componente. Suite 3077 passed + 23 skipped (base desta arvore 3005 + 23), +72 testes, 0 regressoes. config.toml INTOCADO nos seis commits: o bloco [[receita]] comentado e do 04-05, e o exemplo pronto ja mora em config._EXEMPLO_DA_RECEITA. Os blocos Phase/Plan/Status e current_phase NAO foram tocados: sao do orquestrador depois de 04-05 fechar.
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -244,3 +247,4 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 | Phase 4 P01 | 16min | 3 tasks | 9 files |
 | Phase 4 P02 | 11min | 3 tasks | 3 files |
 | Phase 4 P3 | 34min | 3 tasks | 6 files |
+| Phase 4 P4 | 18m | 3 tasks | 5 files |

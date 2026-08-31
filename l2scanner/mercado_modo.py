@@ -62,7 +62,7 @@ from dataclasses import dataclass, field
 
 from . import mercado_registro, ocr
 from .agenda import AgendaInvalida
-from .config import ler_watchlist_do_mercado
+from .config import ReceitaInvalida, ler_receitas, ler_watchlist_do_mercado
 from .frames import Regiao
 from .mercado_analise import ModeloDeMercado
 from .mercado_console import (
@@ -72,6 +72,7 @@ from .mercado_console import (
     destaque_ao_vivo,
     linha_ao_vivo,
     resumo_da_sessao,
+    secao_da_margem,
     secao_do_vale_quanto,
     transicao_do_painel,
 )
@@ -214,6 +215,7 @@ def laco_do_mercado(
     pasta=None,
     ticks_maximos=None,
     watchlist=None,
+    receitas=None,
 ):
     """Le o World Exchange ate o usuario mandar parar. Devolve o codigo de saida.
 
@@ -363,6 +365,37 @@ def laco_do_mercado(
             )
             watchlist = []
 
+    # AS RECEITAS SAO LIDAS UMA VEZ, NO ARRANQUE, JUNTO DA WATCHLIST — e nao a
+    # cada repintar: reler o `config.toml` por secao abriria corrida com o
+    # usuario editando o arquivo no meio da sessao, exatamente como reler o
+    # CSV a 1 Hz abriria com o Sheets.
+    #
+    # E AQUI ELA **RECUSA O ARRANQUE**, AO CONTRARIO DA WATCHLIST LOGO ACIMA.
+    # A assimetria e deliberada e tem uma razao so: a watchlist apenas PROMOVE
+    # series no console, entao um erro nela nao pode custar a coleta da noite;
+    # a receita e uma CONTA, e uma conta torta que degradasse para "sem margem"
+    # sairia calada. O usuario descomentaria um bloco, nao veria margem nenhuma
+    # e nao teria uma linha em lugar nenhum dizendo por que.
+    #
+    # E RECUSAR AQUI NAO CUSTA COLETA: nenhum frame foi capturado ainda. Uma
+    # receita torta para o programa enquanto o usuario olha para o console, que
+    # e o unico momento em que ele pode conserta-la.
+    if receitas is None:
+        try:
+            receitas = ler_receitas()
+        except ReceitaInvalida as erro:
+            return _recusar(
+                [
+                    "MODO MERCADO NAO VAI SUBIR: um bloco [[receita]] do "
+                    "config.toml nao serve.",
+                    str(erro),
+                    "A margem de craft e uma conta: uma receita torta daria "
+                    "um numero perfeitamente formatado e completamente falso. "
+                    "Conserte o bloco, ou comente-o para o modo subir sem "
+                    "margem nenhuma.",
+                ]
+            )
+
     if relogio is None:
         relogio = principal.montar_relogio(args)
 
@@ -422,15 +455,30 @@ def laco_do_mercado(
         do Windows, e num dual boot ela pode estar horas errada. Um carimbo
         exibido sem esse aviso seria um numero preciso e errado.
         """
+        agora = relogio.agora()
         log.info(
             "\n%s",
             secao_do_vale_quanto(
                 modelo,
                 watchlist,
-                relogio.agora(),
+                agora,
                 relogio_confiavel=relogio.confiavel,
             ),
         )
+        # A MARGEM SAI NA MESMA CADENCIA, E NAO NUMA PROPRIA. Ela responde a
+        # mesma pergunta que a secao acima — "vale quanto?" — so que sobre uma
+        # receita, e as duas so mudam quando uma serie ganha observacao nova.
+        # Um segundo temporizador aqui seria um segundo relogio para
+        # envelhecer em desacordo com o primeiro.
+        #
+        # `agora` E O MESMO CARIMBO DAS DUAS: pedir a hora duas vezes faria as
+        # duas secoes do MESMO repintar dizerem horarios diferentes.
+        #
+        # SEM RECEITA `secao_da_margem` DEVOLVE VAZIO, e a guarda esta AQUI
+        # para nao emitir uma linha de log em branco a cada minuto.
+        margem = secao_da_margem(receitas, modelo, agora)
+        if margem:
+            log.info("\n%s", margem)
 
     # ELA SAI JA NO ARRANQUE, ANTES DO PRIMEIRO TICK: o usuario abre o programa
     # para perguntar "vale quanto agora?", e a resposta ja existe no disco da
