@@ -370,6 +370,159 @@ def interpretar_banner(texto: str | None) -> timedelta | None:
     return duracao
 
 
+class MotivoDoVeredito(Enum):
+    """Por que as duas escalas anunciariam, ou por que nao anunciariam.
+
+    NOMEAR CADA DESFECHO E O CONSERTO DE UM DEFEITO, nao enfeite. O
+    `--testar-manutencao` tinha logica propria para dar o veredito, e ela
+    divergiu: em 31/08 as duas escalas leram texto IDENTICO, as duas
+    devolveram None, e a ferramenta imprimiu "As duas escalas DISCORDAM". Elas
+    concordavam. O usuario foi mandado conferir a faixa por causa de uma frase
+    errada, num dia em que a faixa ja estava certa.
+    """
+
+    SEM_BANNER = "sem_banner"
+    ACORDO = "acordo"
+    SO_A_CONFERENCIA = "so_a_conferencia"
+    SO_A_DETECCAO = "so_a_deteccao"
+    CONTRADICAO = "contradicao"
+    ILEGIVEL = "ilegivel"
+
+
+# SEM TRAVESSAO E SEM ACENTO: estas frases saem no console do usuario, que e
+# cp1252, e tambem no log rotativo.
+_EXPLICACOES = {
+    MotivoDoVeredito.SEM_BANNER: (
+        "A escala de DETECCAO nao viu banner nenhum. Em producao a de "
+        "conferencia nem chega a rodar."
+    ),
+    MotivoDoVeredito.ACORDO: (
+        "As duas escalas leram a MESMA duracao. Em producao isto alimenta o "
+        "consenso temporal."
+    ),
+    MotivoDoVeredito.SO_A_CONFERENCIA: (
+        "So a escala de CONFERENCIA leu a duracao; a de deteccao se absteve. "
+        "Abstencao nao e desacordo, entao a leitura vale."
+    ),
+    MotivoDoVeredito.SO_A_DETECCAO: (
+        "So a escala de DETECCAO leu a duracao; a de conferencia se absteve. "
+        "A leitura NAO vale: a de conferencia e a que foi medida acertando."
+    ),
+    MotivoDoVeredito.CONTRADICAO: (
+        "As duas escalas leram duracoes DIFERENTES. Nada sera anunciado."
+    ),
+    MotivoDoVeredito.ILEGIVEL: (
+        "As duas escalas viram o banner e NENHUMA conseguiu ler a duracao. "
+        "Nada sera anunciado."
+    ),
+}
+
+# O conselho que acompanha todo veredito que nao anuncia. Uma frase so, e a
+# mesma no log e no console, porque as duas saidas respondem a mesma pergunta
+# do usuario: onde eu mexo agora.
+CONSELHO_QUANDO_NAO_ANUNCIA = (
+    "Compare os dois textos: se uma escala esta cortando o banner, o conserto "
+    "e a faixa (chave 'banner_manutencao' no calibration.json); se as duas "
+    "leem torto, e o motor de OCR."
+)
+
+
+@dataclass(frozen=True)
+class Veredito:
+    """O que as DUAS escalas decidem sobre UM frame. Estrutura, nunca texto.
+
+    `anunciaria` e derivado de `duracao` de proposito, e nao um campo proprio:
+    assim e IMPOSSIVEL existir um veredito que anuncia sem duracao, ou uma
+    duracao aprovada que nao anuncia.
+    """
+
+    motivo: MotivoDoVeredito
+    duracao: timedelta | None
+
+    @property
+    def anunciaria(self) -> bool:
+        return self.duracao is not None
+
+    @property
+    def explicacao(self) -> str:
+        return _EXPLICACOES[self.motivo]
+
+
+def julgar_as_duas_escalas(
+    deteccao: str | None,
+    conferencia: str | None,
+    tolerancia: timedelta = TOLERANCIA_DO_CONSENSO,
+) -> Veredito:
+    """A PORTA 3, primeira metade: as duas escalas sobre o MESMO frame.
+
+    Funcao PURA e publica, e as duas coisas por um motivo so: o
+    `--testar-manutencao` chama exatamente esta funcao, entao o diagnostico
+    nao tem como divergir do produto. Era essa divergencia que fazia a
+    ferramenta mentir.
+
+    A REGRA MUDOU EM 31/08, E O QUE MUDOU FOI A REGRA, NAO A PORTA
+    ===============================================================
+    ANTES: as duas escalas tinham de produzir a MESMA duracao. Medido nas
+    quatro rodadas de campo, com o banner na tela:
+
+        rodada   deteccao (2x)   conferencia (3x)   a regra antiga dizia
+        1        abstem          20 min 27 s        descarta
+        2        abstem          04 min 13 s        descarta
+        3        04 min 12 s     04 min 12 s        aceita
+        4        abstem          04 min 11 s        descarta
+
+    A 2x acertou 1 de 4; a 3x acertou 4 de 4. E as tres falhas da 2x foram
+    ABSTENCAO (`minutes` saiu com a vogal trocada e a guarda estrutural calou),
+    NUNCA um numero errado. As duas escalas nunca se contradisseram. A regra
+    antiga jogou fora tres leituras boas por uma discordancia que nao existia.
+
+    AGORA: ABSTENCAO NAO E DESACORDO. Quem nao leu nada nao contradisse nada.
+    Contradicao e uma coisa so, e continua barrada: duas duracoes DIFERENTES.
+
+    O QUE NAO FOI AFROUXADO, e o outro lado pesa igual
+    ===================================================
+    1. Quem le SOZINHA tem de ser a de CONFERENCIA. Medido: 4 de 4 contra
+       1 de 4. Perder uma leitura solitaria da escala pior custa uma cadencia,
+       5 s numa contagem de 40 minutos; ancorar nela custa a farm da party.
+    2. O CONSENSO TEMPORAL segue intocado. Nenhum caminho aqui ancora nada
+       sozinho: `_registrar` continua exigindo DUAS leituras concordantes.
+       O que este veredito produz e uma leitura, nunca uma ancora.
+    3. O caso que criou esta guarda (a passada em cor lendo 26 s contra a em
+       cinza lendo 40min26s) continua pego, porque sao duas duracoes
+       diferentes. E ele hoje esta coberto DUAS vezes: a guarda estrutural de
+       `interpretar_banner` transforma aquele texto em abstencao antes mesmo de
+       chegar aqui. Foi essa segunda cobertura que tornou seguro afrouxar a
+       primeira.
+
+    A ORDEM D-e VIVE AQUI TAMBEM: se a deteccao nao viu banner, o veredito e
+    SEM_BANNER sem sequer olhar a conferencia. Em producao a cara nem roda, e
+    um diagnostico que ignorasse isso diria "anunciaria" para um caso que
+    nunca chega a ser lido.
+    """
+    if not eh_banner_de_manutencao(deteccao):
+        return Veredito(MotivoDoVeredito.SEM_BANNER, None)
+
+    da_deteccao = interpretar_banner(deteccao)
+    da_conferencia = (
+        interpretar_banner(conferencia)
+        if eh_banner_de_manutencao(conferencia)
+        else None
+    )
+
+    if da_deteccao is not None and da_conferencia is not None:
+        if abs(da_deteccao - da_conferencia) > tolerancia:
+            return Veredito(MotivoDoVeredito.CONTRADICAO, None)
+        # Aprovado, VENCE A LEITURA DE CONFERENCIA. E a que pagamos para ter e
+        # a que as medicoes mostraram acertando.
+        return Veredito(MotivoDoVeredito.ACORDO, da_conferencia)
+
+    if da_conferencia is not None:
+        return Veredito(MotivoDoVeredito.SO_A_CONFERENCIA, da_conferencia)
+    if da_deteccao is not None:
+        return Veredito(MotivoDoVeredito.SO_A_DETECCAO, None)
+    return Veredito(MotivoDoVeredito.ILEGIVEL, None)
+
+
 def _plural(quantidade: int, singular: str, plural: str) -> str:
     return f"{quantidade} {singular if quantidade == 1 else plural}"
 
@@ -500,8 +653,12 @@ class VigiaDeManutencao:
     40 — e a party largaria o farm por nada.
 
     O CRUZAMENTO DE ESCALAS (D-d) e a segunda guarda, e ela e COMPLEMENTAR ao
-    consenso temporal — nunca substituta. Os dois pegam falhas de classes
-    diferentes, e guardar so um deixaria uma classe inteira descoberta:
+    consenso temporal — nunca substituta. A REGRA dele mudou em 31/08 e a
+    razao inteira, com os numeros de campo, esta em `julgar_as_duas_escalas`:
+    em resumo, ABSTENCAO DE UMA ESCALA NAO E DESACORDO (a regra antiga
+    descartava 3 de 4 leituras boas), e duas duracoes DIFERENTES continuam
+    barradas. Os dois cruzamentos pegam falhas de classes diferentes, e guardar
+    so um deixaria uma classe inteira descoberta:
 
     - Cruzar ESCALAS pega ERRO DE METODO: o motor lendo mal a MESMA imagem.
       Medido em duas imagens reais: em COR o motor erra (le `MO-mi u` e
@@ -512,6 +669,10 @@ class VigiaDeManutencao:
       metodo, com 5 s de intervalo, concordam no MESMO erro sistematico.
       Foi exatamente assim que "40 minutos e 26 segundos" viraria "26 segundos"
       com as duas leituras concordando.
+      HOJE esse mesmo texto vira ABSTENCAO antes de chegar aqui, porque a
+      guarda estrutural de `interpretar_banner` cala no lugar de cair para "so
+      os segundos". E essa cobertura dupla que torna seguro tratar abstencao e
+      contradicao de formas diferentes sem reabrir a porta.
     - Repetir no TEMPO pega ERRO DE FRAME: uma captura no meio do desenho do
       banner, um frame sujo, o jogo engasgando. O cruzamento de escalas e CEGO
       a isso, porque as duas escalas leem os MESMOS pixels.
@@ -614,7 +775,12 @@ class VigiaDeManutencao:
             return None
 
     def _ler_com_as_duas_escalas(self, pixels, agora: datetime):
-        """O acordo de D-d, dentro do tick. Devolve (implicado, duracao) ou None.
+        """O veredito de D-d, dentro do tick. Devolve (implicado, duracao) ou None.
+
+        A DECISAO NAO MORA AQUI, e isso e o conserto de 31/08: ela mora em
+        `julgar_as_duas_escalas`, que e pura e publica, e o `--testar-manutencao`
+        chama a MESMA funcao. Enquanto a ferramenta tinha logica propria ela
+        divergiu e passou a mentir sobre o proprio diagnostico.
 
         A ORDEM IMPORTA, mas NAO POR ORCAMENTO — e vale dizer, porque a razao
         antiga caiu. A passada de deteccao custa 23 ms e a de conferencia 31 ms
@@ -625,52 +791,63 @@ class VigiaDeManutencao:
         chao quando nao ha banner nenhum na tela.
 
         QUALQUER REPROVACAO DEVOLVE None SEM TOCAR EM `_candidata` NEM NA
-        ANCORA. Uma discordancia nao confirma e tambem nao destroi: se ela
+        ANCORA. Uma reprovacao nao confirma e tambem nao destroi: se ela
         zerasse a candidata, um unico frame ruim no meio de uma contagem de 40
         minutos adiaria o anuncio indefinidamente.
-
-        Aprovado, VENCE A LEITURA DE CONFERENCIA. E a que pagamos para ter, e e
-        a que as medicoes de 3x e 4x mostraram acertando.
         """
         barato = self._ler(self._ler_texto, pixels)
         if not eh_banner_de_manutencao(barato):
             return None  # D-e: a cara nem e tocada
 
         caro = self._ler(self._ler_texto_conferencia, pixels)
-        if not eh_banner_de_manutencao(caro):
-            self._registrar_desacordo(barato, caro)
+        veredito = julgar_as_duas_escalas(barato, caro, self._tolerancia)
+        self._registrar_veredito(veredito, barato, caro)
+        if not veredito.anunciaria:
             return None
 
-        duracao_barata = interpretar_banner(barato)
-        duracao_cara = interpretar_banner(caro)
-        if duracao_barata is None or duracao_cara is None:
-            self._registrar_desacordo(barato, caro)
-            return None
+        return agora + veredito.duracao, veredito.duracao
 
-        if not self._bate(agora + duracao_barata, agora + duracao_cara):
-            self._registrar_desacordo(barato, caro)
-            return None
+    def _registrar_veredito(
+        self, veredito: Veredito, barato: str | None, caro: str | None
+    ) -> None:
+        """O banner ESTA na tela: nada aqui pode ser silencioso.
 
-        return agora + duracao_cara, duracao_cara
+        DOIS NIVEIS, e a fronteira entre eles e "isto anuncia?":
 
-    def _registrar_desacordo(self, barato: str | None, caro: str | None) -> None:
-        """O banner ESTA na tela e nos NAO vamos anunciar — o estado mais
-        perigoso deste recurso, e por isso ele nunca pode ser silencioso.
+        - NAO anuncia -> `warning`. E o estado mais perigoso deste recurso: o
+          aviso estava escrito na tela e a party nao vai saber. Vai junto o
+          conselho de onde mexer, porque a pergunta seguinte do usuario e
+          sempre essa.
+        - Anuncia com UMA escala so -> `info`. Caminho novo de 31/08, aceito
+          com razao medida (a conferencia acertou 4 de 4), e mesmo assim o log
+          registra que a ancora nasceu de uma escala so. Se um dia ela nascer
+          errada, esta linha e a unica forma de descobrir por onde entrou.
+        - Anuncia com as duas de acordo -> silencio. E o caminho normal.
 
         Os DOIS textos crus, entre delimitadores visiveis, porque espaco em
         branco importa aqui: `40 minutes` e `40minutes` sao leituras
         diferentes. E o log rotativo (5 MB x 3) e a unica ferramenta de forense
-        pos-farm do projeto — sem estas duas linhas, "por que nao avisou" nao
-        tem resposta em lugar nenhum.
+        pos-farm do projeto — sem estas linhas, "por que nao avisou" nao tem
+        resposta em lugar nenhum.
 
         ESCOLHA DELIBERADA: NAO ha limitacao de repeticao. Durante uma contagem
         de 40 minutos isto pode render centenas de linhas, e sao exatamente as
-        linhas que o usuario vai precisar para decidir se o conserto e a faixa
-        (chave `banner_manutencao` no `calibration.json`) ou o motor de OCR.
+        linhas que o usuario vai precisar.
         """
+        if veredito.motivo is MotivoDoVeredito.ACORDO:
+            return
+        if veredito.anunciaria:
+            log.info(
+                "%s deteccao=>>>%s<<< conferencia=>>>%s<<<",
+                veredito.explicacao,
+                barato,
+                caro,
+            )
+            return
         log.warning(
-            "As duas escalas de OCR DISCORDAM sobre o banner — nada sera "
-            "anunciado. barata=>>>%s<<< conferencia=>>>%s<<<",
+            "%s %s deteccao=>>>%s<<< conferencia=>>>%s<<<",
+            veredito.explicacao,
+            CONSELHO_QUANDO_NAO_ANUNCIA,
             barato,
             caro,
         )
