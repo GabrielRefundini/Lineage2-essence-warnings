@@ -2097,3 +2097,128 @@ class TestOQueASupressaoPERDE(BaseDaMatrizDeAnuncio):
 
         assert sum(len(t.avisos_de_boss) for t in ticks) == 3
         assert not pasta.exists()
+
+
+class TestOAnuncioDoServidorNaoEEngolidoPeloAlvo(BaseDaMatrizDeAnuncio):
+    """CRITERIO 2 / UNIC-02 / D-24 — o criterio visto de FORA do vigia.
+
+    Esta classe existe separada da matriz de `03-01` porque afirma uma coisa
+    diferente: `03-01` prova que uma mensagem a mais nao SAI, e esta prova que
+    o anuncio do servidor CHEGA. As duas juntas sao o criterio 2; sozinha,
+    cada uma seria satisfeita por um bug — calar tudo satisfaz a primeira,
+    falar sempre satisfaz a segunda.
+
+    OS DOIS SILENCIOS, E SO UM DELES E PROIBIDO (D-32). E a coisa mais facil
+    de perder de vista nesta fase, e ler o criterio 2 como "o chat jamais
+    cala" faria alguem desfazer a deduplicacao inteira:
+
+    - SILENCIO DO MARCADOR: o scanner viu, gravou a ancora, registrou em
+      `nascimentos_calados`, logou nomeando o boss, e escolheu nao repetir uma
+      mensagem que o usuario ja recebeu. E o PRODUTO desta fase.
+    - SILENCIO DO VIGIA: o scanner nao viu, nao gravou, nao registrou e nao
+      logou. E o DEFEITO, e de fora e indistinguivel de "nao aconteceu nada".
+
+    O que esta classe afirma e que o segundo virou o primeiro. `03-02` nao
+    tirou o silencio: mudou o silencio de lugar, do escuro para o rastro.
+    """
+
+    def _cenario(self, calibracao, frame_real, tmp_path, chat_no_terceiro):
+        """Alvo segurando `Tiat South` nos tres ticks; o chat so no terceiro.
+
+        E o caso de campo literal: o usuario deixa o boss selecionado e sai de
+        perto do computador, e e o servidor quem anuncia.
+        """
+        pasta = tmp_path / "agenda"
+        pares = [
+            ("", "Tiat South"),
+            ("", "Tiat South"),
+            (chat_no_terceiro, "Tiat South"),
+        ]
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+        return pasta, [
+            s.tick(self.frame(frame_real), momento=self.quando(minutes=i))
+            for i in range(len(pares))
+        ]
+
+    def test_o_alvo_sozinho_anuncia_uma_vez_e_ancora(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """O ponto de partida: o fallback do alvo continua inteiro."""
+        pasta, ticks = self._cenario(
+            calibracao, frame_real, tmp_path, self.ANUNCIO_SOUTH
+        )
+
+        assert ticks[0].avisos_de_boss == [
+            ("Tiat South", OrigemDoAviso.ALVO)
+        ]
+        assert len(ticks[0].despachos) == 1
+        assert (pasta / "nascimento_2026-08-30_tiat-south-2159_alvo").exists()
+
+    def test_o_anuncio_do_servidor_CHEGA_com_o_boss_segurado_no_alvo(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """O defeito que esta fase fecha, afirmado pelo DISCO.
+
+        Antes de `03-02`, o terceiro tick nao produzia nada: o vigia estava
+        desarmado por causa do alvo e a frase do servidor era descartada antes
+        de qualquer escrita. A ancora `_chat_e_alvo` em disco e a prova de que
+        o anuncio atravessou o vigia inteiro.
+        """
+        pasta, ticks = self._cenario(
+            calibracao, frame_real, tmp_path, self.ANUNCIO_SOUTH
+        )
+
+        assert ticks[2].ancoras_gravadas == [
+            ("Tiat South", OrigemDoAviso.CHAT_E_ALVO)
+        ]
+        assert (
+            pasta / "nascimento_2026-08-30_tiat-south-2201_chat_e_alvo"
+        ).exists()
+
+    def test_o_silencio_que_resta_e_o_do_MARCADOR_e_deixa_rastro(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """A diferenca observavel entre "o marcador calou" e "o vigia engoliu".
+
+        Zero despacho novo — o usuario ja recebeu a mensagem deste nascimento
+        no primeiro tick — mas o par aparece em `nascimentos_calados`. E isso
+        que torna o criterio 2 verificavel de fora: sem o rastro, esta
+        asseracao seria identica a de um vigia que engoliu a frase.
+        """
+        _pasta, ticks = self._cenario(
+            calibracao, frame_real, tmp_path, self.ANUNCIO_SOUTH
+        )
+
+        assert ticks[2].despachos == []
+        assert ticks[2].avisos_de_boss == []
+        assert ticks[2].nascimentos_calados == [
+            ("Tiat South", OrigemDoAviso.CHAT_E_ALVO)
+        ]
+
+    def test_o_silencio_sai_no_log_nomeando_o_boss(
+        self, calibracao, frame_real, tmp_path, caplog
+    ):
+        """O rastro tambem existe fora do processo, para a forense pos-farm."""
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            self._cenario(
+                calibracao, frame_real, tmp_path, self.ANUNCIO_SOUTH
+            )
+
+        calados = [m for m in caplog.messages if "calado" in m]
+        assert len(calados) == 1
+        assert "Tiat South" in calados[0]
+        assert "chat_e_alvo" in calados[0]
+
+    def test_a_prova_nao_e_VAZIA_sem_o_anuncio_nao_ha_ancora_de_chat(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """O MESMO cenario com o chat mudo o tempo todo.
+
+        Sem isto, a ancora `_chat_e_alvo` do teste acima poderia estar sendo
+        produzida pelo alvo sozinho e nada aqui provaria que a frase do
+        servidor teve alguma participacao.
+        """
+        pasta, ticks = self._cenario(calibracao, frame_real, tmp_path, "")
+
+        assert ticks[2].nascimentos_calados == []
+        assert [n for n in os.listdir(pasta) if "_chat" in n] == []

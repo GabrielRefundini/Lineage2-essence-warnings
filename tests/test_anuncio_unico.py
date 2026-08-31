@@ -33,6 +33,7 @@ import pytest
 
 from l2scanner import agenda
 from l2scanner.agenda import RegistroEmDisco
+from l2scanner.bosses import VigiaDeBosses
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -346,3 +347,162 @@ class TestOSilencioExpiraEmVezDeCalarParaSempre:
             "o marcador do proprio dia do limite foi apagado: a poda ficou um "
             "dia mais agressiva do que DIAS_DE_MARCADOR promete"
         )
+
+
+# ---------------------------------------------------------------------------
+# O PORTAO DO ESTADO DE REARME POR CANAL (D-24 / T-03-10).
+# ---------------------------------------------------------------------------
+
+NOMES_DO_ESTADO_DE_REARME = ("_armado", "_limpas")
+
+
+def _base_e_niveis(alvo: ast.AST) -> tuple[str | None, int]:
+    """De `self._armado[canal][nome]`, devolve `("_armado", 2)`.
+
+    Desce a cadeia de `ast.Subscript` contando os indices ate chegar no
+    atributo do fundo. Se o fundo nao for um `self.<algo>`, o nome volta
+    `None` e o portao ignora — dicionarios locais nao sao problema dele.
+    """
+    niveis = 0
+    while isinstance(alvo, ast.Subscript):
+        niveis += 1
+        alvo = alvo.value
+    if (
+        isinstance(alvo, ast.Attribute)
+        and isinstance(alvo.value, ast.Name)
+        and alvo.value.id == "self"
+    ):
+        return alvo.attr, niveis
+    return None, niveis
+
+
+def _escritas_no_estado(arvore: ast.AST) -> list[tuple[str, int]]:
+    """Toda escrita INDEXADA em `_armado`/`_limpas`, com quantos indices tem.
+
+    So conta alvos que ja sao `ast.Subscript`: a criacao do dicionario inteiro
+    no `__init__` (`self._armado: dict[...] = {...}`) e legitima e nao e
+    escrita indexada nenhuma.
+    """
+    escritas = []
+    for no in ast.walk(arvore):
+        if isinstance(no, ast.Assign):
+            alvos = no.targets
+        elif isinstance(no, ast.AugAssign):
+            alvos = [no.target]
+        else:
+            continue
+        for alvo in alvos:
+            if not isinstance(alvo, ast.Subscript):
+                continue
+            nome, niveis = _base_e_niveis(alvo)
+            if nome in NOMES_DO_ESTADO_DE_REARME:
+                escritas.append((nome, niveis))
+    return sorted(escritas)
+
+
+def _escritas_de_canal_unico(arvore: ast.AST) -> list[tuple[str, int]]:
+    """As que voltaram ao formato antigo: um nivel de indexacao so."""
+    return [par for par in _escritas_no_estado(arvore) if par[1] < 2]
+
+
+ESTADO_DE_CANAL_UNICO = '''
+class VigiaDeBosses:
+    def avaliar(self, pixels_do_chat, pixels_do_alvo, agora):
+        """O formato de ANTES do plano 03-02: um flag por boss."""
+        for nome, anuncio, _so_o_nome in self._bosses:
+            if no_chat or no_alvo:
+                self._limpas[nome] = 0
+                if not self._armado[nome]:
+                    continue
+                self._armado[nome] = False
+                avisos.append(AvisoDeBoss(boss=nome, origem=origem))
+                continue
+
+            self._limpas[nome] += 1
+            if self._limpas[nome] >= self._limpas_para_rearmar:
+                self._armado[nome] = True
+'''
+
+ESTADO_POR_CANAL = '''
+class VigiaDeBosses:
+    def avaliar(self, pixels_do_chat, pixels_do_alvo, agora):
+        """O formato correto, mais um dicionario de um nivel LEGITIMO."""
+        for nome, anuncio, _so_o_nome in self._bosses:
+            self._ultimo_texto[nome] = texto_do_chat
+            for canal, presente in (("chat", no_chat), ("alvo", no_alvo)):
+                if presente:
+                    self._limpas[canal][nome] = 0
+                    if self._armado[canal][nome]:
+                        self._armado[canal][nome] = False
+                        disparou = True
+                    continue
+
+                self._limpas[canal][nome] += 1
+                if self._limpas[canal][nome] >= self._limpas_para_rearmar:
+                    self._armado[canal][nome] = True
+'''
+
+
+class TestOEstadoDeRearmeEPorCanal:
+    """T-03-10: a regressao que ficaria VERDE em quase toda a suite.
+
+    Os sete testes de rearme das Fases 1 e 2 passam nos DOIS formatos, porque
+    em todos eles os dois canais se comportam igual — o boss aparece so num
+    dos recortes, ou nos dois com a mesma presenca. Quem "simplificar" o
+    estado de volta para um dicionario unico vai ver a suite inteira verde,
+    menos o teste novo de comportamento e este portao.
+
+    E POR AST, E NAO POR BUSCA TEXTUAL, pela mesma razao do resto do arquivo:
+    a docstring de `VigiaDeBosses` cita o formato ANTIGO de proposito, para
+    explicar por escrito o defeito que ele causava. Um `grep` acusaria a
+    documentacao que protege a regra.
+
+    O sintoma em campo de uma regressao aqui seria um anuncio de servidor
+    perdido — e ninguem percebe um alerta que nunca chegou.
+    """
+
+    def test_toda_escrita_no_estado_de_rearme_e_indexada_por_canal(self):
+        acusadas = _escritas_de_canal_unico(ast.parse(_fonte("bosses.py")))
+
+        assert acusadas == [], (
+            f"escrita de estado de rearme com indexacao rasa: {acusadas}. O "
+            "rearme voltou a ser um flag por boss, e o alvo pode calar o "
+            "anuncio do servidor de novo (D-24)"
+        )
+
+    def test_a_prova_nao_e_vazia_o_estado_e_mesmo_escrito_por_canal(self):
+        """O outro sentido: um detector que procurasse o nome errado ficaria
+        verde para sempre, e este projeto ja escreveu essa frase tres vezes."""
+        escritas = _escritas_no_estado(ast.parse(_fonte("bosses.py")))
+
+        assert escritas, (
+            "o detector nao achou escrita nenhuma em _armado/_limpas"
+        )
+        assert all(niveis == 2 for _nome, niveis in escritas)
+        assert {nome for nome, _niveis in escritas} == set(
+            NOMES_DO_ESTADO_DE_REARME
+        )
+
+    def test_CANAIS_tem_exatamente_dois_membros(self):
+        """Os dois nomes moram num lugar so, e sao os de `OrigemDoAviso`."""
+        assert len(VigiaDeBosses.CANAIS) == 2
+        assert set(VigiaDeBosses.CANAIS) == {"chat", "alvo"}
+
+    def test_o_detector_acusa_o_estado_de_canal_unico_fabricado(self):
+        acusadas = _escritas_de_canal_unico(ast.parse(ESTADO_DE_CANAL_UNICO))
+
+        assert acusadas == [
+            ("_armado", 1),
+            ("_armado", 1),
+            ("_limpas", 1),
+            ("_limpas", 1),
+        ]
+
+    def test_o_detector_aprova_o_estado_por_canal_fabricado(self):
+        """E NAO se alarga para o arquivo inteiro: o `self._ultimo_texto[nome]`
+        do fonte fabricado tem um nivel so e e legitimo. O portao olha
+        `_armado` e `_limpas` pelos nomes, e mais nada."""
+        arvore = ast.parse(ESTADO_POR_CANAL)
+
+        assert _escritas_de_canal_unico(arvore) == []
+        assert len(_escritas_no_estado(arvore)) == 4
