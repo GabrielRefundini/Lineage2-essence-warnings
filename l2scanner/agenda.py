@@ -1422,10 +1422,18 @@ def responder_lista_de_presenca(
                 f"O lembrete de {minutos} minutos antes tambem nao esta "
                 f"saindo, mas por outro motivo: os avisos do {nome} estao "
                 f"desativados. Mande /ativarsoloboss se quiser o lembrete de "
-                f"volta."
+                f"volta,"
             )
         else:
             lembrete = f"O lembrete de {minutos} minutos antes CONTINUA chegando,"
+
+        # AS DUAS TERMINAM EM VIRGULA, e nao e capricho: a frase de baixo
+        # continua com " e o historico de loot ...", em minuscula. Um ponto
+        # final aqui produz "volta. e o historico", que e o tipo de descuido
+        # que faz quem le concluir que a mensagem quebrou no meio — e esta
+        # mensagem so aparece no instante em que o usuario acabou de mexer
+        # num interruptor, ou seja exatamente quando ele esta conferindo se
+        # o bot entendeu.
 
         return (
             f"{quem} desligou a lista de presenca do {nome}: paro de perguntar "
