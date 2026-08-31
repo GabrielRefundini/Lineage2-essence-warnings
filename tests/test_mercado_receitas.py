@@ -17,6 +17,7 @@ ele sai bonito no console.
 from __future__ import annotations
 
 import inspect
+import logging
 from datetime import datetime, timedelta
 from fractions import Fraction
 
@@ -29,7 +30,32 @@ from l2scanner.config import (
     ReceitaInvalida,
     ler_receitas,
 )
+from l2scanner.mercado_console import (
+    AVISO_DE_OFERTA_TALVEZ_COMPRADA,
+    MARCA_DO_COMPONENTE_VELHO,
+    secao_da_margem,
+)
+from l2scanner.mercado_modo import laco_do_mercado
 from l2scanner.mercado_registro import ObservacaoLida
+from l2scanner.relogio import Relogio
+
+# O MATERIAL PESADO DA CADENCIA VEM DO ARQUIVO QUE JA O MONTA, e nao de uma
+# segunda copia aqui. `tests/test_mercado_modo.py` ja importa de
+# `tests/test_mercado_replay.py` pela mesma razao: as fixturas VERSIONADAS e as
+# leitoras de OCR REPRODUZIDO custam caro para montar e uma segunda montagem
+# envelheceria em desacordo com a primeira.
+#
+# `cal` e `leituras` sao FIXTURAS: elas entram no espaco de nomes deste modulo
+# para que o pytest as resolva pelo nome, e por isso o `noqa` — o ruff nao tem
+# como saber que "importado e nao usado" e exatamente o mecanismo aqui.
+from tests.test_mercado_modo import (  # noqa: F401
+    FonteFalsa,
+    argumentos,
+    cal,
+    leituras,
+    montar_as_leitoras,
+)
+from tests.test_mercado_replay import PAGINA_CHEIA, PAGINA_CHEIA_VIZINHA
 
 # Ingenuos, hora local, sem `tzinfo` — e o que `Relogio.agora()` devolve e o que
 # `campos_da_observacao` escreve com `.isoformat()`.
@@ -769,3 +795,257 @@ class TestAS_CINCO_LIMITACOES_ESTAO_ESCRITAS:
         assert "fusao" in doc
         # (5) o programa nao conhece o crafting do jogo
         assert "o usuario escreveu a receita" in doc
+
+
+# ===========================================================================
+# TASK 3 — a margem DESENHADA, e a cadencia que nao e a de 1 Hz
+# ===========================================================================
+
+
+def linhas_de_item(texto: str) -> list[str]:
+    """As linhas da tabela: uma por lado da conta. `n=` e a marca delas."""
+    return [linha for linha in texto.splitlines() if "| n=" in linha]
+
+
+class TestSemReceitaANAO_APARECE:
+    """Nao e erro e nao e aviso: e uma secao opcional."""
+
+    def test_o_texto_e_VAZIO(self):
+        assert secao_da_margem([], mundo(), AGORA) == ""
+
+    def test_e_NENHUM_aviso_nem_erro_e_emitido(self, caplog):
+        with caplog.at_level(logging.DEBUG):
+            secao_da_margem([], mundo(), AGORA)
+        graves = [
+            r for r in caplog.records if r.levelno >= logging.WARNING
+        ]
+        assert graves == []
+
+
+class TestOLayoutDaMargem:
+    def test_ha_EXATAMENTE_TRES_linhas_de_item(self):
+        texto = secao_da_margem([receita()], mundo(), AGORA)
+        assert len(linhas_de_item(texto)) == 3
+
+    def test_cada_linha_traz_TOTAL_QUANTIDADE_e_n(self):
+        texto = secao_da_margem([receita()], mundo(), AGORA)
+        for linha in linhas_de_item(texto):
+            # O total no formato do jogo, a quantidade ao lado e o `n`.
+            # Um total solto e sem significado, e um numero sem `n` e
+            # adivinhacao com cara de numero.
+            assert "," in linha, linha
+            assert " por " in linha, linha
+            assert "| n=" in linha, linha
+
+    def test_as_linhas_de_COMPONENTE_sao_INDENTADAS_alem_da_do_produto(self):
+        texto = secao_da_margem([receita()], mundo(), AGORA)
+        produto, *componentes = linhas_de_item(texto)
+        recuo = len(produto) - len(produto.lstrip())
+        for linha in componentes:
+            assert len(linha) - len(linha.lstrip()) > recuo
+
+    def test_a_linha_do_componente_traz_a_QUANTIDADE_QUE_A_RECEITA_PEDE(self):
+        texto = secao_da_margem([receita()], mundo(), AGORA)
+        _, aztac, leonard = linhas_de_item(texto)
+        assert "5x" in aztac
+        assert "20x" in leonard
+
+    def test_o_valor_da_margem_aparece_na_linha_da_margem(self):
+        texto = secao_da_margem([receita()], mundo(), AGORA)
+        # 883585/6 = 147264,1666... -> arredonda para 147264 centesimos
+        assert "1.472,64" in texto
+
+
+class TestAIdadeSaiEmUMA_PALAVRA:
+    def test_a_idade_relativa_esta_na_linha_e_o_carimbo_completo_NAO(self):
+        texto = secao_da_margem([receita()], mundo(), AGORA)
+        _, aztac, leonard = linhas_de_item(texto)
+        assert "ha 8 min" in aztac
+        assert "ha 3 h" in leonard
+        # O carimbo absoluto (`31/08 21:15`) e o que mantem a tabela legivel
+        # quando ha cinco ingredientes: ele NAO entra aqui.
+        for linha in linhas_de_item(texto):
+            assert "/" not in linha, linha
+
+    def test_a_MAIS_VELHA_aparece_TAMBEM_na_linha_da_margem_com_o_NOME(self):
+        texto = secao_da_margem([receita()], mundo(), AGORA)
+        linha_da_margem = [
+            linha for linha in texto.splitlines() if "margem" in linha
+        ][0]
+        assert "Leonard" in linha_da_margem
+        assert "ha 3 h" in linha_da_margem
+
+
+class TestOMarcadorDoComponenteVELHO:
+    def test_ABAIXO_do_limiar_o_marcador_NAO_aparece(self):
+        texto = secao_da_margem(
+            [receita()], mundo(idade_do_leonard=timedelta(hours=23)), AGORA
+        )
+        assert MARCA_DO_COMPONENTE_VELHO not in texto
+
+    def test_ACIMA_do_limiar_o_marcador_APARECE_e_so_na_linha_velha(self):
+        texto = secao_da_margem(
+            [receita()], mundo(idade_do_leonard=timedelta(hours=25)), AGORA
+        )
+        marcadas = [
+            linha
+            for linha in linhas_de_item(texto)
+            if MARCA_DO_COMPONENTE_VELHO in linha
+        ]
+        assert len(marcadas) == 1
+        assert "Leonard" in marcadas[0]
+
+
+class TestQuandoAMargemQUEBRA:
+    def test_ingrediente_ausente_MOSTRA_O_MOTIVO_e_nenhum_numero(self):
+        texto = secao_da_margem(
+            [receita(componentes=(("Common Aztac", 5), ("Adamantine", 2)))],
+            mundo(),
+            AGORA,
+        )
+        assert "Adamantine" in texto
+        assert linhas_de_item(texto) == []
+        assert "1.472,64" not in texto
+
+    def test_nome_ambiguo_LISTA_as_candidatas_e_nenhum_numero(self):
+        modelo = analise.ModeloDeMercado.de_observacoes(
+            [
+                observacao("dragon-belt#0", 148000, 1, nome="Dragon Belt"),
+                observacao("leonard#0", 450, 100, nome="Leonard"),
+                observacao("leonard#1", 900, 100, nome="  leonard  "),
+            ]
+        )
+        texto = secao_da_margem(
+            [receita(componentes=(("Leonard", 20),))], modelo, AGORA
+        )
+        assert "leonard#0" in texto
+        assert "leonard#1" in texto
+        assert linhas_de_item(texto) == []
+
+
+class TestOCabecalhoADVERTE_UMA_VEZ:
+    def test_a_advertencia_aparece_EXATAMENTE_UMA_VEZ_com_uma_receita(self):
+        texto = secao_da_margem([receita()], mundo(), AGORA)
+        assert texto.count(AVISO_DE_OFERTA_TALVEZ_COMPRADA) == 1
+
+    def test_ela_continua_UMA_SO_com_DUAS_receitas(self):
+        texto = secao_da_margem(
+            [receita(), receita(produto="Dragon Belt", rende=2)],
+            mundo(),
+            AGORA,
+        )
+        # UMA VEZ, e nao uma por receita: repetida em cada bloco ela vira
+        # ruido que o olho aprende a pular, e ai ela deixa de advertir.
+        assert texto.count(AVISO_DE_OFERTA_TALVEZ_COMPRADA) == 1
+
+    def test_a_advertencia_diz_que_a_oferta_pode_ja_ter_sido_comprada(self):
+        baixo = AVISO_DE_OFERTA_TALVEZ_COMPRADA.lower()
+        assert "comprad" in baixo
+        assert "confira" in baixo or "confir" in baixo
+
+
+class TestANomenclaturaDoCONSOLE_tambem:
+    def test_nenhuma_expressao_proibida_no_texto_da_secao(self):
+        textos = [
+            secao_da_margem([receita()], mundo(), AGORA),
+            secao_da_margem(
+                [receita(componentes=(("Adamantine", 2),))], mundo(), AGORA
+            ),
+        ]
+        for texto in textos:
+            baixo = texto.lower()
+            for proibida in EXPRESSOES_PROIBIDAS_DA_MARGEM:
+                assert proibida.lower() not in baixo, (
+                    f"a secao da margem usou {proibida!r}. Os dois lados da "
+                    f"conta sao pedidos visiveis, e o scanner nao ve transacao."
+                )
+
+
+# ---------------------------------------------------------------------------
+# A CADENCIA — a secao NAO sai no repintar de 1 Hz
+# ---------------------------------------------------------------------------
+
+
+class TestACadenciaDaSecao:
+    def test_a_secao_sai_MENOS_VEZES_que_o_numero_de_ticks(
+        self, cal, leituras, tmp_path, monkeypatch
+    ):
+        """Ela e cara de ler e nao muda a cada segundo.
+
+        O precedente e `desenhar_status` do laco principal, que sai por
+        INTERVALO e nao por tick. A `linha_ao_vivo` responde "o modo esta
+        vivo?" e repinta a 1 Hz; esta responde "vale quanto?", e a resposta
+        so muda quando uma serie ganha observacao nova.
+        """
+        from l2scanner import mercado_modo
+
+        chamadas = []
+
+        def espiao(receitas, modelo, agora):
+            chamadas.append(agora)
+            return ""
+
+        monkeypatch.setattr(mercado_modo, "secao_da_margem", espiao)
+
+        duas, tres, quadros = montar_as_leitoras(
+            cal, leituras, [PAGINA_CHEIA, PAGINA_CHEIA_VIZINHA]
+        )
+        ticks = 4
+        laco_do_mercado(
+            argumentos(),
+            cal,
+            fonte=FonteFalsa(quadros),
+            ler_texto=duas,
+            ler_texto_conferencia=tres,
+            relogio=Relogio(),
+            pasta=tmp_path,
+            ticks_maximos=ticks,
+            watchlist=[],
+            receitas=[receita()],
+        )
+
+        assert len(chamadas) < ticks, (
+            f"a secao da margem saiu {len(chamadas)} vezes em {ticks} ticks - "
+            f"ela nao pode sair no repintar de 1 Hz"
+        )
+        # E ela SAI: no arranque, antes do primeiro tick, porque o historico
+        # da sessao passada ja existe no disco.
+        assert len(chamadas) >= 1
+
+    def test_uma_receita_TORTA_recusa_o_ARRANQUE_nomeando_a_receita(
+        self, cal, leituras, tmp_path, monkeypatch, caplog
+    ):
+        """Ela para o programa enquanto o usuario olha para o console.
+
+        E o oposto do tratamento da watchlist, e a diferenca tem razao: a
+        watchlist so PROMOVE series no console, entao um erro nela nao pode
+        matar a coleta da noite. A receita e uma CONTA, e uma conta torta nao
+        pode degradar para "sem margem" em silencio.
+        """
+        from l2scanner import mercado_modo
+
+        def explodir(caminho=None):
+            raise ReceitaInvalida(
+                "receita 'Dragon Belt': 'rende' precisa ser MAIOR que zero"
+            )
+
+        monkeypatch.setattr(mercado_modo, "ler_receitas", explodir)
+
+        duas, tres, quadros = montar_as_leitoras(
+            cal, leituras, [PAGINA_CHEIA, PAGINA_CHEIA_VIZINHA]
+        )
+        with caplog.at_level(logging.ERROR):
+            codigo = laco_do_mercado(
+                argumentos(),
+                cal,
+                fonte=FonteFalsa(quadros),
+                ler_texto=duas,
+                ler_texto_conferencia=tres,
+                relogio=Relogio(),
+                pasta=tmp_path,
+                ticks_maximos=4,
+                watchlist=[],
+            )
+
+        assert codigo == mercado_modo.SAIDA_RECUSADA
+        assert "Dragon Belt" in caplog.text
