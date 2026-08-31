@@ -94,10 +94,12 @@ from .loot import (  # noqa: E402
 from . import ocr  # noqa: E402
 from .frames import MssSource, Regiao, ReplaySource, SaudeDoFrame  # noqa: E402
 from .manutencao import (  # noqa: E402
+    CONSELHO_QUANDO_NAO_ANUNCIA,
     SEGUNDOS_ENTRE_LEITURAS,
     VigiaDeManutencao,
     eh_banner_de_manutencao,
     interpretar_banner,
+    julgar_as_duas_escalas,
 )
 from .gravador import Gravador  # noqa: E402
 from .notificador import (  # noqa: E402
@@ -2082,18 +2084,25 @@ def comando_testar_manutencao(args: argparse.Namespace, cal: Calibracao) -> int:
 
         # A LINHA FINAL E O VEREDITO, e ela existe porque e a unica coisa que o
         # usuario precisa ler para saber se o recurso vai anunciar ou calar.
-        if duracao is not None and duracao == duracao_ampliada:
-            log.info("As duas escalas CONCORDAM — em producao isto anunciaria.")
+        #
+        # ELA VEM DE `julgar_as_duas_escalas`, A MESMA FUNCAO QUE O PRODUTO
+        # CHAMA. Aqui morava um `if` proprio, e ele DIVERGIU: em 31/08 as duas
+        # escalas leram texto IDENTICO, as duas devolveram None, e esta linha
+        # imprimiu "as duas escalas discordam". Elas concordavam, e o usuario
+        # foi mandado conferir uma faixa que ja estava certa. Um diagnostico
+        # com logica propria e um diagnostico que um dia mente.
+        veredito = julgar_as_duas_escalas(texto, ampliado)
+        if veredito.anunciaria:
+            log.info("%s Em producao isto ANUNCIARIA.", veredito.explicacao)
         else:
             log.warning(
-                "As duas escalas DISCORDAM — em producao isto NAO anunciaria. "
-                "Compare os dois textos acima: se so uma escala esta cortando o "
-                "banner, o conserto e a faixa (chave 'banner_manutencao' no "
-                "calibration.json); se as duas leem torto, e o motor."
+                "%s Em producao isto NAO anunciaria. %s",
+                veredito.explicacao,
+                CONSELHO_QUANDO_NAO_ANUNCIA,
             )
 
-        if duracao is not None:
-            momento = montar_relogio(args).agora() + duracao
+        if veredito.duracao is not None:
+            momento = montar_relogio(args).agora() + veredito.duracao
             log.info(
                 "Se isto fosse valendo, o servidor cairia as %s",
                 momento.strftime("%H:%M:%S"),
