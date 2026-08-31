@@ -20,14 +20,14 @@ Requisitos do milestone v1-mercado. Cada um mapeia para uma fase do roadmap.
 ### Detecção
 
 - [x] **DETC-01**: "World Exchange aberto" detectado por âncora/template positivo, e o sinal é compartilhado com a lógica de oclusão do detector de morte — um sinal, dois consumidores, nunca duplicado
-- [ ] **DETC-02**: Modo `--mercado` separado — vigiar mercado não degrada nem compete com o modo party (o usuário roda duas instâncias; uma terceira invocação é normal)
+- [x] **DETC-02**: Modo `--mercado` separado — vigiar mercado não degrada nem compete com o modo party (o usuário roda duas instâncias; uma terceira invocação é normal)
 
 ### Leitura
 
 - [x] **LEIT-01**: Nome do item lido por OCR sobre o recorte da coluna do nome e agrupado por similaridade contra os nomes já vistos; um nome que não casa com nenhum conhecido entra como SÉRIE NOVA, sem intervenção do usuário — o que é registrado não depende de lista prévia
 - [x] **LEIT-02**: Preços e quantidades lidos por template-por-dígito com falha FECHADA: frame ilegível é descartado, preço nunca é inventado
 - [x] **LEIT-03**: Página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS (nunca em pixels — frames bit a bit idênticos são o sinal de captura congelada)
-- [ ] **LEIT-04**: Console mostra ao vivo páginas lidas/perdidas e último item reconhecido; resumo final conta as duas metades ("li 7, perdi 3")
+- [x] **LEIT-04**: Console mostra ao vivo páginas lidas/perdidas e último item reconhecido; resumo final conta as duas metades ("li 7, perdi 3")
 - [x] **LEIT-05**: A leitura do nome usa o recorte da COLUNA DO NOME, nunca a linha inteira — a coluna é calibrada e persistida em `calibration.json`. Medido: com a tooltip aberta, o texto dela vaza para dentro da linha e viraria nome de item
 
 #### Por que o OCR de nomes voltou ao escopo
@@ -166,11 +166,11 @@ Preenchida na criação do roadmap (2026-08-27).
 | FUND-02 | Phase 1 | Complete |
 | FUND-03 | Phase 1 | Complete |
 | DETC-01 | Phase 1 | Complete |
-| DETC-02 | Phase 4 | Pending |
+| DETC-02 | Phase 4 | Complete |
 | LEIT-01 | Phase 2 | Complete |
 | LEIT-02 | Phase 2 | Complete |
 | LEIT-03 | Phase 2 | Complete |
-| LEIT-04 | Phase 4 | Pending |
+| LEIT-04 | Phase 4 | Complete |
 | LEIT-05 | Phase 2 | Complete |
 | PERS-01 | Phase 3 | Complete |
 | PERS-02 | Phase 3 | Complete |

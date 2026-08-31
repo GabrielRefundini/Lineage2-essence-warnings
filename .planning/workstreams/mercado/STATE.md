@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1-mercado
 milestone_name: )
-current_phase: 3
-current_phase_name: Persistencia de observacoes
-status: verifying
-stopped_at: Completed 03-03-PLAN.md — tools/gerar_observacoes_do_censo.py e os dois roteiros humanos; a Fase 3 executou inteira e aguarda os dois portoes humanos
-last_updated: "2026-08-31T05:08:46.493Z"
+current_phase: 4
+current_phase_name: Modo --mercado, analise e console
+status: in-progress
+stopped_at: Completed 04-01-PLAN.md — o modo --mercado sobe, le e grava nos dois arquivos
+last_updated: "2026-08-31T06:52:44.401Z"
 last_activity: 2026-08-31
-last_activity_desc: "Fase 3 plano 03, a ULTIMA onda: tools/gerar_observacoes_do_censo.py, o replay de bancada que produz o observacoes.csv com dado REAL a partir das 8 gravacoes do censo. A pasta de producao e recusada como saida por comparacao de caminhos RESOLVIDOS (resolve + normcase), antes do primeiro mkdir; a montagem e o configurar_log do 03-02 fazem o aviso alto aparecer no console com o texto exato da Fase 4. Suite 2798 passed + 23 skipped e 145 no agenda, zero falhas. A Fase 3 executou inteira e aguarda os DOIS portoes humanos, escritos por extenso no 03-03-SUMMARY.md"
-state_head: b3be0be264d832d05e16c43ba53ab7a36d9291c4
+last_activity_desc: "Fase 4 plano 01, o que LIGA OS TRES FIOS que as Fases 2 e 3 deixaram sem chamador: l2scanner/mercado_modo.py (o laco de producao), l2scanner/mercado_console.py (o desenho em texto puro, sem dependencia nova) e a flag --mercado em 54 linhas no __main__.py disputado (teto 70, zero remocoes). O modo RECUSA a subir com codigo 2 sem OCR, sem calibracao ou fora do layout de negociacao, nomeando a chave que falta, e sem calibracao nem toca o disco. Uma sessao grava no observacoes.csv E no catalogo-de-nomes.csv, provado ponta a ponta sobre fixturas versionadas com OCR REPRODUZIDO. minimum_update_interval=250 so no mercado e a unica alavanca real de DETC-02; o party fica byte-identico e o acoplamento esta preso nas DUAS direcoes. Suite 2851 passed + 23 skipped, 145 no agenda. Achado registrado em deferred-items.md: mercado_catalogo -> config -> notificador -> rastreador e cadeia de IMPORT da Fase 2, nao de uso. Portao de campo do DETC-02 ABERTO."
+state_head: b8e8f8bd2e7cc620d34ffe65b6cb5c75f8f31100
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 16
-  completed_plans: 16
+  total_plans: 21
+  completed_plans: 17
   percent: 25
 ---
 
@@ -28,10 +28,12 @@ progress:
 
 ## Current Position
 
-Phase: 3 — Persistencia de observacoes
-Plan: 3 planos escritos, 3 FECHADOS — a Fase 3 esta completa
-Status: Verifying — a fase inteira executada; faltam os DOIS portoes humanos, escritos por extenso no fim do `03-03-SUMMARY.md`
-Last activity: 2026-08-31 — Completed 03-03, a ULTIMA onda da Fase 3: `tools/gerar_observacoes_do_censo.py`, o replay de bancada que transforma as 8 gravacoes do censo num `observacoes.csv` com dado REAL. Ele fecha o buraco que a fase tinha por desenho — o registro nasceu sem chamador, e quatro dos cinco criterios do ROADMAP ("o usuario abre, importa, conta e ve") nao teriam material. **A recusa da pasta de producao como saida e MECANICA**: `resolve()` + `os.path.normcase`, comparando caminhos e nunca texto, rodando ANTES do primeiro `mkdir` — conferido a mao, `--saida .mercado` sai com codigo 2 sem criar a pasta. A ferramenta monta pela `montar_registro_de_mercado` do 03-02 e instala `configurar_log` antes, entao o aviso alto que o usuario ve aqui e byte a byte o que a Fase 4 vai mostrar. Suite 2798 passed + 23 skipped, e 145 no agenda. Zero falhas. **A varredura do censo NAO foi rodada pelo agente** — ela e do usuario, no checkout principal, pelo roteiro 1.
+Phase: 4 — Modo --mercado, analise e console
+Plan: 5 planos escritos, 1 FECHADO (04-01) — faltam 04-02 a 04-05
+Status: In Progress — o laco de producao existe e esta verde; a analise (ANAL-01 a 04) e dos planos seguintes
+Last activity: 2026-08-31 — Completed 04-01, o plano que LIGA OS TRES FIOS: `l2scanner/mercado_modo.py` (o laco), `l2scanner/mercado_console.py` (o desenho em texto puro) e a flag `--mercado` em 54 linhas no `__main__.py` disputado (teto era 70, zero remocoes). O modo RECUSA a subir com codigo 2 sem OCR, sem calibracao ou fora do layout de negociacao, nomeando a chave que falta — e sem calibracao ele nem toca o disco. Uma sessao produz linha no `observacoes.csv` E no `catalogo-de-nomes.csv`, provado ponta a ponta sobre fixturas versionadas com OCR REPRODUZIDO. `pecas_de_calibracao_de_mercado_faltando` virou a verdade unica sobre "calibrado para mercado" (15 chaves, nao 14 — o plano herdara uma conta errada). `minimum_update_interval` opcional na `JanelaSource`, padrao `None`, e a unica alavanca real de DETC-02; o party fica byte-identico e ha tripwire prendendo o acoplamento nas DUAS direcoes. Suite 2851 passed + 23 skipped, e 145 no agenda sem o flake. **ACHADO REGISTRADO em `deferred-items.md`**: `mercado_catalogo` -> `config` (por `RAIZ`) -> `notificador` -> `rastreador` arrasta a party para `sys.modules` desde a Fase 2 — cadeia de IMPORT, nao de uso, e o teste foi invertido para prende-la em vez de mentir. **Portao de campo do DETC-02 continua ABERTO**, junto das duas conferencias humanas herdadas da Fase 2.
+
+Antes disso, 2026-08-31 — Completed 03-03, a ULTIMA onda da Fase 3: `tools/gerar_observacoes_do_censo.py`, o replay de bancada que transforma as 8 gravacoes do censo num `observacoes.csv` com dado REAL. Ele fecha o buraco que a fase tinha por desenho — o registro nasceu sem chamador, e quatro dos cinco criterios do ROADMAP ("o usuario abre, importa, conta e ve") nao teriam material. **A recusa da pasta de producao como saida e MECANICA**: `resolve()` + `os.path.normcase`, comparando caminhos e nunca texto, rodando ANTES do primeiro `mkdir` — conferido a mao, `--saida .mercado` sai com codigo 2 sem criar a pasta. A ferramenta monta pela `montar_registro_de_mercado` do 03-02 e instala `configurar_log` antes, entao o aviso alto que o usuario ve aqui e byte a byte o que a Fase 4 vai mostrar. Suite 2798 passed + 23 skipped, e 145 no agenda. Zero falhas. **A varredura do censo NAO foi rodada pelo agente** — ela e do usuario, no checkout principal, pelo roteiro 1.
 
 Antes disso, 2026-08-30 — Completed 02-05, a ULTIMA onda da Fase 2: o catalogo de nomes ganhou arquivo proprio em `.mercado/catalogo-de-nomes.csv` (atomico, sem poda, leitura defensiva) e o estabilizador ficou completo (congelamento pela JANELA INTEIRA, acordo pela INTERSECAO das posicoes aceitas em ambos, piso de 7 posicoes lido do disco). **O replay das 8 gravacoes do censo RODOU no checkout principal: 517 frames, 478 ticks com painel aberto, li 151 e perdi 189, 39 series, 1.007 linhas descartadas, ZERO frames congelados.** As 189 perdas: 136 abaixo do minimo comparado, 34 primeiro frame do par, 19 discordancia. Suite 2605 passed + 144.
 
@@ -99,6 +101,12 @@ Progress: [███░░░░░░░] 25%
 - [Phase 3]: 03-03: a recusa da pasta de producao como saida do replay e MECANICA — resolve() + os.path.normcase, comparando caminhos e nunca texto, e rodando antes do primeiro mkdir
 - [Phase 3]: 03-03: o codigo de saida diferente de zero significa 'nao viu observacao nenhuma', e nao 'nao gravou nova' — a leitura literal do plano faria a segunda rodada (a prova de campo do PERS-02) reportar falha ao dar certo
 - [Phase 3]: 03-03: a Contagem separa 'duplicada' de 'perdida' — registrar() devolve False por dois motivos, e somar os dois faria o relatorio afirmar dedup sobre uma feature morta
+- [Phase 4]: O modo --mercado RECUSA a subir (codigo 2) quando falta OCR, calibracao ou o layout de negociacao: aqui a feature E o produto, ao contrario do scanner de party onde a montagem degrada para None
+- [Phase 4]: `pecas_de_calibracao_de_mercado_faltando` e a verdade UNICA sobre "calibrado para mercado" — 15 chaves num lugar so (nao 14: `_calibrado` sempre conferiu 12, e os comentarios do 02-05/02-07 numeravam sem contar `mercado_grade`)
+- [Phase 4]: `minimum_update_interval=250` so no mercado e a UNICA alavanca real de DETC-02; o padrao `None` da `JanelaSource` e o contrato que mantem o caminho da party byte-identico. 250 e ESCOLHA (margem de 4x contra o falso congelamento), nao medicao
+- [Phase 4]: Um modulo do pacote NUNCA faz `from .__main__ import` — por `python -m` isso reexecuta o arranque sob outro nome de logger e as mensagens de erro saem para um logger sem manipulador. `_modulo_do_arranque()` resolve por `sys.modules['__main__']` com fallback
+- [Phase 4]: Tripwire de arquitetura por AST (imports, `__module__` do namespace, codigo com docstring arrancada), e nao por substring no fonte cru — que reprovaria a propria documentacao do firewall
+- [Phase 4]: O `rich` fica fora por DOUTRINA DE ZERO-INSTALL, e NAO pelo FIRE-01: a banlist do FIRE-01 e so de sintese de input. A justificativa errada do CONTEXT esta corrigida no fonte de `mercado_console.py`
 
 ### Blockers
 
@@ -201,9 +209,9 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 
 ## Session Continuity
 
-**Last session:** 2026-08-31T05:08:46.249Z
+**Last session:** 2026-08-31T06:52:44.076Z
 
-**Stopped At:** Completed 03-03-PLAN.md — tools/gerar_observacoes_do_censo.py e os dois roteiros humanos; a Fase 3 executou inteira e aguarda os dois portoes humanos
+**Stopped At:** Completed 04-01-PLAN.md — o modo --mercado sobe, le e grava nos dois arquivos
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -223,3 +231,4 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 | Phase 03 P01 | 18min | 3 tasks | 2 files |
 | Phase 03 P02 | 18min | 2 tasks | 5 files |
 | Phase 03 P03 | 9min | 2 tasks | 2 files |
+| Phase 4 P01 | 16min | 3 tasks | 9 files |
