@@ -38,6 +38,9 @@ from __future__ import annotations
 import ast
 import csv
 import inspect
+import os
+import shutil
+import stat
 import subprocess
 import sys
 from datetime import datetime
@@ -969,3 +972,186 @@ class TestALeituraNAO_ESCREVE:
             if isinstance(no, ast.Call) and isinstance(no.func, ast.Attribute)
         }
         assert "truncate" not in chamadas, chamadas
+
+
+# ===========================================================================
+# A ESCRITA QUE NUNCA LEVANTA (PERS-03)
+# ===========================================================================
+#
+# SO OS CENARIOS QUE A MEDICAO PROVOU REPRODUTIVEIS NO WINDOWS estao aqui:
+# arquivo marcado somente-leitura (`PermissionError`, errno 13) e pasta
+# removida depois do arranque (`FileNotFoundError`, errno 2).
+#
+# NAO USAR `os.chmod` SOBRE A PASTA — a medicao desta pesquisa mostrou que
+# criar subpasta e criar arquivo dentro dela CONTINUAM FUNCIONANDO com o bit
+# ligado no Windows, e um teste escrito assim passaria por acidente, provando
+# nada. E a mesma familia do levantamento ja citado em `gravador.py:146-149`.
+
+# O que morte, saida e ressurreicao tem em comum: elas continuam. A frase e
+# conferida por substring porque ela E o PERS-03 escrito uma vez, no molde
+# literal de `montar_gravador` (`__main__.py:255-258`).
+A_PROMESSA = "morte, saida e ressurreicao"
+
+
+def _travar(arquivo: Path) -> None:
+    os.chmod(arquivo, stat.S_IREAD)
+
+
+def _destravar(arquivo: Path) -> None:
+    """Devolve a permissao para o `tmp_path` poder ser limpo."""
+    if arquivo.exists():
+        os.chmod(arquivo, stat.S_IWRITE | stat.S_IREAD)
+
+
+class TestUmaFalhaDeDiscoDESLIGA_A_FEATURE_E_NAO_O_PRODUTO:
+    """Disco cheio nao pode derrubar o scanner e matar os alertas da party."""
+
+    def test_arquivo_somente_leitura_devolve_False_e_NAO_levanta(
+        self, tmp_path, caplog
+    ):
+        pasta = tmp_path / ".mercado"
+        registro = RegistroDeObservacoes(pasta)
+        _travar(registro.arquivo)
+        try:
+            with caplog.at_level("DEBUG", logger=LOGGER):
+                resultado = registro.registrar(_linha(), AGORA)
+        finally:
+            _destravar(registro.arquivo)
+
+        assert resultado is False
+        assert any(r.levelname == "ERROR" for r in caplog.records)
+
+    def test_a_SEGUNDA_mensagem_diz_o_que_CONTINUA_funcionando(
+        self, tmp_path, caplog
+    ):
+        """`error` e nao `warning`, pelo precedente explicito da casa: `warning`
+        e linha descartada, `error` e feature desligada."""
+        pasta = tmp_path / ".mercado"
+        registro = RegistroDeObservacoes(pasta)
+        _travar(registro.arquivo)
+        try:
+            with caplog.at_level("ERROR", logger=LOGGER):
+                registro.registrar(_linha(), AGORA)
+        finally:
+            _destravar(registro.arquivo)
+
+        assert A_PROMESSA in caplog.text
+        assert len([r for r in caplog.records if r.levelname == "ERROR"]) == 2
+
+    def test_apos_a_falha_ligado_e_FALSO_e_a_proxima_nao_repete_o_erro(
+        self, tmp_path, caplog
+    ):
+        """Um retry por tick a 1 Hz encheria o log com o mesmo erro e daria ao
+        usuario a impressao de que ainda esta gravando. Quem religa e o proximo
+        arranque, depois de o usuario consertar o arquivo."""
+        pasta = tmp_path / ".mercado"
+        registro = RegistroDeObservacoes(pasta)
+        _travar(registro.arquivo)
+        try:
+            with caplog.at_level("ERROR", logger=LOGGER):
+                registro.registrar(_linha(), AGORA)
+                erros_depois_da_primeira = len(caplog.records)
+                assert registro.ligado is False
+
+                assert registro.registrar(_linha(quantidade=7), AGORA) is False
+                assert len(caplog.records) == erros_depois_da_primeira
+        finally:
+            _destravar(registro.arquivo)
+
+    def test_a_chave_que_FALHOU_nao_entra_no_indice(self, tmp_path):
+        """O indice e a promessa de "isto ja esta no disco".
+
+        Uma chave la sem linha no arquivo bloquearia PARA SEMPRE a gravacao da
+        observacao correta — seria a dedup trabalhando contra o proprio dado.
+        """
+        pasta = tmp_path / ".mercado"
+        registro = RegistroDeObservacoes(pasta)
+        _travar(registro.arquivo)
+        try:
+            registro.registrar(_linha(), AGORA)
+        finally:
+            _destravar(registro.arquivo)
+
+        assert chave_da_observacao(_linha()) not in registro.chaves
+        assert registro.chaves == set()
+
+    def test_a_pasta_removida_DEPOIS_do_arranque_nao_levanta(self, tmp_path):
+        """`FileNotFoundError` (errno 2) e subclasse de `OSError` — coberto."""
+        pasta = tmp_path / ".mercado"
+        registro = RegistroDeObservacoes(pasta)
+        shutil.rmtree(pasta)
+
+        assert registro.registrar(_linha(), AGORA) is False
+        assert registro.ligado is False
+
+    def test_o_que_foi_gravado_ANTES_da_falha_continua_no_arquivo_e_no_indice(
+        self, tmp_path
+    ):
+        """Degradar a feature nao e perder o que ja estava bom."""
+        pasta = tmp_path / ".mercado"
+        registro = RegistroDeObservacoes(pasta)
+        assert registro.registrar(_linha(quantidade=48), AGORA) is True
+        gravado = registro.arquivo.read_bytes()
+
+        _travar(registro.arquivo)
+        try:
+            assert registro.registrar(_linha(quantidade=7), AGORA) is False
+        finally:
+            _destravar(registro.arquivo)
+
+        assert registro.arquivo.read_bytes() == gravado
+        assert chave_da_observacao(_linha(quantidade=48)) in registro.chaves
+        assert chave_da_observacao(_linha(quantidade=7)) not in registro.chaves
+
+    def test_com_a_feature_desligada_o_disco_NEM_E_TOCADO(self, tmp_path):
+        pasta = tmp_path / ".mercado"
+        registro = RegistroDeObservacoes(pasta)
+        registro.ligado = False
+
+        assert registro.registrar(_linha(), AGORA) is False
+        assert len(_linhas_cruas(pasta)) == 1  # so o cabecalho
+
+
+class TestAsCapturasSaoESTREITAS:
+    """A conferencia e por AST e nao por texto: um comentario nunca a invalida
+    nem a satisfaz."""
+
+    def _arvore(self):
+        from l2scanner import mercado_registro
+
+        return ast.parse(inspect.getsource(mercado_registro))
+
+    def test_nao_ha_except_largo_em_lugar_nenhum(self):
+        """O analog do `Gravador` usa `except Exception` e ele e largo DEMAIS
+        para o que a medicao mostrou: os quatro modos de falha desta maquina —
+        `PermissionError` (13) para somente-leitura e para nome ocupado por
+        diretorio, `FileNotFoundError` (2) para pasta inexistente e
+        `FileExistsError` (17, winerror 183) para `mkdir` sobre nome de arquivo
+        — sao TODOS subclasses de `OSError`. Um `except OSError` cobre as
+        quatro, e um `except Exception` esconderia um `AttributeError` de
+        refactor como se fosse disco cheio.
+        """
+        maus = [
+            tratador
+            for no in ast.walk(self._arvore())
+            if isinstance(no, ast.Try)
+            for tratador in no.handlers
+            if tratador.type is None
+            or (
+                isinstance(tratador.type, ast.Name)
+                and tratador.type.id in ("Exception", "BaseException")
+            )
+        ]
+        assert not maus, [t.lineno for t in maus]
+
+    def test_nao_ha_sincronizacao_forcada_nem_reescrita_atomica_nem_relogio(self):
+        """`fsync` foi medido em 432x o custo do `flush` e nao compra o modo de
+        falha desta fase; `os.replace` perderia a sessao inteira num corte; e
+        `datetime.now()` violaria o D-16, que manda o carimbo entrar por
+        parametro."""
+        chamadas = {
+            no.func.attr
+            for no in ast.walk(self._arvore())
+            if isinstance(no, ast.Call) and isinstance(no.func, ast.Attribute)
+        }
+        assert chamadas.isdisjoint({"fsync", "replace", "now"}), chamadas
