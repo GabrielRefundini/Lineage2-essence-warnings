@@ -277,6 +277,85 @@ O nome **não é higienizado** de propósito: `+1 Phantom Mask Sealed` é o nome
 real do item no jogo, e adulterá-lo para caber numa planilha faria o arquivo
 mentir sobre o que estava na tela.
 
+### Margem de craft (receitas)
+
+As receitas moram no **`config.toml`**, na raiz do projeto, num bloco `[[receita]]`
+no **fim** do arquivo. Ele nasce **comentado** — descomente e troque os nomes.
+
+```toml
+[[receita]]
+produto = "Dragon Belt"
+rende = 1
+componentes = [
+  { item = "Common Aztac", quantidade = 5 },
+  { item = "Leonard", quantidade = 20 },
+]
+```
+
+**Um bloco por receita.** Para uma segunda, repita o bloco inteiro.
+
+#### Qual arquivo vale
+
+Se você tiver um `config.local.toml`, ele **vence** o `config.toml`. É **um arquivo
+ou o outro, nunca a soma** — escrever uma receita em cada não dá duas receitas, dá
+só as do local.
+
+Com os dois preenchidos, o arranque avisa nomeando o vencedor:
+
+```
+ATENCAO: config.toml e config.local.toml tem [[receita]]. Vale o
+config.local.toml; os blocos do config.toml estao sendo IGNORADOS...
+```
+
+Esse aviso não é decoração. Sem ele, uma receita escrita no arquivo errado
+produziria **exatamente o mesmo silêncio** que "não configurei receita nenhuma" — a
+seção de margem simplesmente não apareceria, e não haveria como distinguir os dois
+casos. Um bloco que não faz nada é invisível; um bloco que não faz nada e não avisa
+é armadilha.
+
+#### O que a margem precisa para aparecer
+
+**Observação do produto E de TODOS os componentes.** Faltando qualquer um, a margem
+inteira quebra e **diz o nome do que falta**, em vez de calcular.
+
+Isso é de propósito. Uma margem calculada com um ingrediente faltando daria um
+número plausível e errado — e número plausível e errado é pior que número nenhum,
+porque você agiria com base nele.
+
+Na prática: antes de configurar a receita, deixe o `--mercado` rodando nas abas onde
+o produto e os componentes aparecem, até haver observação de todos.
+
+**Sem nenhuma receita configurada, a margem simplesmente não aparece.** Não é erro,
+não é aviso: é uma seção opcional.
+
+#### O nome tem de bater exato
+
+O casamento do nome do componente é **exato**, nunca por semelhança. A razão está
+medida:
+
+| par | similaridade |
+|---|---|
+| `+3 Dragon Belt` × `+4 Dragon Belt` | 0,9286 |
+| `B-grade Gemstone` × `C-grade Gemstone` | 0,9375 |
+
+O corte de similaridade usado na leitura é **0,8947** — os dois pares passariam por
+ele e virariam o mesmo item. Um `+3` custa uma fração do `+4`, e um B-grade não é um
+C-grade: a margem sairia plausível e errada.
+
+Por isso, se o nome da receita não casar com nada observado, ele **quebra e lista as
+candidatas** em vez de escolher a mais parecida. Copie o nome como ele aparece na
+coluna `nome_exibido` do `observacoes.csv`.
+
+#### Staleness por componente
+
+Cada componente mostra **a própria** idade de observação, separadamente. Uma margem
+com um ingrediente visto hoje e outro visto há uma semana não é uma margem, e juntar
+tudo num só carimbo esconderia exatamente isso.
+
+O limiar para marcar um componente como velho é de **24 horas**. Esse número é
+**escolha declarada, não medição** — está escrito assim no fonte, ao lado da
+constante.
+
 ## Opções
 
 | Opção | O que faz |
