@@ -42,7 +42,15 @@ from l2scanner.acervo import (
 )
 from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
-from l2scanner.identidade import Assinatura, criar_assinatura
+from l2scanner.identidade import (
+    LIMIAR_DE_CASAMENTO,
+    MARGEM_MINIMA_SOBRE_O_SEGUNDO,
+    Assinatura,
+    _pontuar_mascara,
+    criar_assinatura,
+    identificar_linhas,
+    mascara_de_texto,
+)
 from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
 from l2scanner.visao import _recorte_do_nome, extrair
 
@@ -1021,4 +1029,364 @@ class TestEstaFaseLeENaoAprende:
 
         assert _retrato_da_pasta(acervo_pasta) == antes, (
             "o laco escreveu no acervo; aprender e trabalho da Fase 2"
+        )
+
+
+# ---------------------------------------------------------------------------
+# A CONVIVENCIA: a calibracao e o acervo carregando a MESMA pessoa (OPER-02)
+# ---------------------------------------------------------------------------
+
+# Quantos bits da mascara sao virados para produzir a COPIA QUASE IDENTICA.
+#
+# Nao e um numero escolhido no olho. Medido nesta fixture, na linha 1
+# (mascara 20x100 com 48 pixels de texto), virando bits deterministicos:
+#
+#     bits  calibrada  copia   margem   desfecho de identificar_linhas
+#        1     1.0000  0.9895   0.0105  SILENCIO
+#        3     1.0000  0.9694   0.0306  SILENCIO
+#        8     1.0000  0.9212   0.0788  SILENCIO
+#       12     1.0000  0.8879   0.1121  SILENCIO   (ainda abaixo de 0.12)
+#       20     1.0000  0.8306   0.1694  "J4guar"   (a margem passou)
+#       40     1.0000  0.7237   0.2763  "J4guar"
+#
+# 8 fica no meio da faixa perigosa: as DUAS pontuacoes bem acima de
+# LIMIAR_DE_CASAMENTO (0.75) e a margem bem abaixo de
+# MARGEM_MINIMA_SOBRE_O_SEGUNDO (0.12). E exatamente a forma do desfecho que a
+# deduplicacao existe para impedir.
+BITS_VIRADOS = 8
+
+# A linha da fixture usada nos casos de convivencia. `J4guar` na ordem original.
+LINHA_DA_CONVIVENCIA = 1
+
+
+@pytest.fixture
+def calibrada_de_verdade(pixels, calibracao) -> Assinatura:
+    """A assinatura CALIBRADA da linha, com o nome que o usuario digitou."""
+    recorte = _recorte_do_nome(pixels, calibracao, LINHA_DA_CONVIVENCIA)
+    assert recorte is not None
+    return criar_assinatura("J4guar", recorte)
+
+
+def quase_igual(assinatura: Assinatura, nome: str = "") -> Assinatura:
+    """A mesma pessoa capturada de outro frame: chave diferente, imagem igual.
+
+    Um pixel basta para a chave mudar (D-01/D-06 usam o conteudo inteiro), e e
+    por isso que a regra da CHAVE sozinha nao fecha o buraco de OPER-02.
+    """
+    achatada = assinatura.mascara.flatten().copy()
+    alvos = np.random.RandomState(42).choice(
+        achatada.size, size=BITS_VIRADOS, replace=False
+    )
+    achatada[alvos] ^= 1
+    return Assinatura(nome=nome, mascara=achatada.reshape(assinatura.mascara.shape))
+
+
+class TestOReconhecimentoDeHojeContinuaIgual:
+    """Criterio 2, primeira metade: quem prefere digitar nao perde nada.
+
+    O acervo VAZIO e o estado de todo mundo que ainda nao chegou na Fase 2. Se a
+    fusao mexesse na lista calibrada, a feature cobraria um preco de quem nem a
+    esta usando.
+    """
+
+    def test_com_o_acervo_vazio_a_lista_calibrada_volta_intacta(
+        self, tmp_path, pixels, calibracao
+    ):
+        calibradas = [
+            criar_assinatura(nome, _recorte_do_nome(pixels, calibracao, i))
+            for i, nome in enumerate(["Korzis", "J4guar", "Kaus", "TioMad"])
+        ]
+        identidades = carregar_identidades(
+            calibradas, AcervoDeIdentidades(tmp_path)
+        )
+        assert identidades.assinaturas == calibradas
+        assert [a.nome for a in identidades.assinaturas] == [
+            "Korzis",
+            "J4guar",
+            "Kaus",
+            "TioMad",
+        ]
+
+    def test_com_o_acervo_vazio_o_frame_real_entrega_os_mesmos_nomes(
+        self, tmp_path, pixels
+    ):
+        """A afirmacao que `tests/test_identidade.py` ja faz, refeita PELA FUSAO.
+
+        Aqui a lista de assinaturas nao vem do `calibration.json` direto: ela
+        passa por `carregar_identidades`. E o que prova que a fusao nao e um
+        caminho paralelo com resultado proprio.
+        """
+        cal = Calibracao.carregar(FIXTURES / "calibracao.json")
+        identidades = carregar_identidades(
+            list(cal.assinaturas), AcervoDeIdentidades(tmp_path)
+        )
+        cal.assinaturas = identidades.assinaturas
+
+        obs = observar_frame(pixels, cal)
+        assert [linha.nome for linha in obs.linhas[:4]] == cal.nomes
+
+
+class TestAMesmaPessoaNosDoisLugares:
+    """Criterio 2, segunda metade: nenhuma das duas sombreia a outra.
+
+    O PIOR DESFECHO, e ele nao e neutro: sem deduplicacao, duas assinaturas
+    quase identicas pontuam ~1.000 e ~0.92 na MESMA linha, a diferenca fica
+    abaixo de `MARGEM_MINIMA_SOBRE_O_SEGUNDO` (0.12) e `identificar_linhas`
+    devolve `Casamento(None, ...)`. Acrescentar a pessoa ao acervo a faria PARAR
+    de ser reconhecida.
+    """
+
+    def test_conteudo_identico_a_entrada_do_acervo_e_descartada(
+        self, tmp_path, pixels, calibracao, calibrada_de_verdade
+    ):
+        """Chave igual: a entrada do acervo nao entra, e a linha fica com o nome
+        CALIBRADO."""
+        semear(tmp_path, calibrada_de_verdade)  # anonima, mesmo conteudo
+
+        identidades = carregar_identidades(
+            [calibrada_de_verdade], AcervoDeIdentidades(tmp_path)
+        )
+        assert identidades.conhecidas == 1
+        assert identidades.assinaturas[0] is calibrada_de_verdade
+
+        calibracao.assinaturas = identidades.assinaturas
+        obs = observar_frame(pixels, calibracao)
+        assert obs.linhas[LINHA_DA_CONVIVENCIA].nome == "J4guar"
+
+    def test_mesmo_nome_e_conteudo_diferente_a_entrada_do_acervo_e_descartada(
+        self, tmp_path, pixels, calibracao, calibrada_de_verdade
+    ):
+        """A REGRA DO NOME, e o caso que a regra da chave NAO cobre.
+
+        Duas capturas da mesma pessoa em frames diferentes tem chaves
+        diferentes. Sem esta regra, a linha ficaria MUDA — a pessoa deixaria de
+        ser reconhecida por ter sido acrescentada ao acervo.
+        """
+        copia = quase_igual(calibrada_de_verdade, nome="J4guar")
+        assert chave_da_assinatura(copia) != chave_da_assinatura(
+            calibrada_de_verdade
+        ), "premissa: a copia tem chave PROPRIA, entao a regra da chave nao pega"
+        semear(tmp_path, copia, nome="J4guar")
+
+        identidades = carregar_identidades(
+            [calibrada_de_verdade], AcervoDeIdentidades(tmp_path)
+        )
+        assert identidades.conhecidas == 1, (
+            "a copia com o mesmo nome entrou na lista; a linha vai ficar muda "
+            "pela margem, que e o pior desfecho de OPER-02"
+        )
+
+        calibracao.assinaturas = identidades.assinaturas
+        obs = observar_frame(pixels, calibracao)
+        assert obs.linhas[LINHA_DA_CONVIVENCIA].nome == "J4guar"
+
+    def test_pessoa_nova_entra_normalmente_e_depois_das_calibradas(
+        self, tmp_path, pixels, calibracao, calibrada_de_verdade
+    ):
+        """Nenhuma regra pode fechar a porta para quem o acervo conhece a mais."""
+        outra = assinatura_da_linha(pixels, calibracao, 3)
+        semear(tmp_path, outra, nome="TioMad")
+
+        identidades = carregar_identidades(
+            [calibrada_de_verdade], AcervoDeIdentidades(tmp_path)
+        )
+        assert identidades.conhecidas == 2
+        assert identidades.assinaturas[0] is calibrada_de_verdade
+        assert identidades.assinaturas[1].nome == "TioMad"
+
+    def test_nenhuma_calibrada_e_descartada_por_regra_nenhuma(
+        self, tmp_path, pixels, calibracao
+    ):
+        """T-01-10: a entrada do acervo nao desaloja quem foi digitado a mao.
+
+        As quatro calibradas continuam la, na mesma ordem, mesmo com o acervo
+        carregando copias exatas de TODAS elas.
+        """
+        calibradas = [
+            criar_assinatura(nome, _recorte_do_nome(pixels, calibracao, i))
+            for i, nome in enumerate(["Korzis", "J4guar", "Kaus", "TioMad"])
+        ]
+        for assinatura in calibradas:
+            semear(tmp_path, assinatura)
+
+        identidades = carregar_identidades(
+            calibradas, AcervoDeIdentidades(tmp_path)
+        )
+        assert identidades.assinaturas == calibradas
+
+    def test_a_anonima_so_deduplica_por_chave(
+        self, tmp_path, pixels, calibracao
+    ):
+        """Duas anonimas de conteudos diferentes CONVIVEM.
+
+        Uma entrada sem nome nao tem o que comparar com a regra do nome. Ela so
+        e descartada quando a chave dela ja veio da calibracao.
+        """
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, 0))
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, 3))
+
+        identidades = carregar_identidades([], AcervoDeIdentidades(tmp_path))
+        assert identidades.conhecidas == 2
+        assert identidades.sem_nome == 2
+
+    def test_a_anonima_com_a_chave_de_uma_calibrada_e_descartada(
+        self, tmp_path, calibrada_de_verdade
+    ):
+        """Mesmo sem nome para comparar, a chave sozinha ja fecha o caso."""
+        semear(tmp_path, Assinatura("", calibrada_de_verdade.mascara))
+
+        identidades = carregar_identidades(
+            [calibrada_de_verdade], AcervoDeIdentidades(tmp_path)
+        )
+        assert identidades.conhecidas == 1
+        assert identidades.sem_nome == 0
+
+    def test_a_string_vazia_nao_reserva_nome_nenhum(
+        self, tmp_path, pixels, calibracao, calibrada_de_verdade
+    ):
+        """A regra do nome nao pode casar `""` com `""` e engolir as anonimas.
+
+        Duas entradas ANONIMAS de conteudos diferentes tem o mesmo "nome" (a
+        string vazia). Se a regra do nome nao exigisse nome NAO VAZIO, a segunda
+        anonima seria descartada por parecer duplicada da primeira — e o acervo
+        so conseguiria guardar UMA pessoa sem nome no mundo inteiro.
+        """
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, 0))
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, 2))
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, 3))
+
+        identidades = carregar_identidades(
+            [calibrada_de_verdade], AcervoDeIdentidades(tmp_path)
+        )
+        assert identidades.conhecidas == 4
+        assert identidades.sem_nome == 3
+
+    def test_nomes_reservados_da_lista_fundida_nao_carrega_vazio(
+        self, tmp_path, pixels, calibracao, calibrada_de_verdade
+    ):
+        """A string vazia nao pode virar um nome que reserva alguma coisa."""
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, 0))
+
+        identidades = carregar_identidades(
+            [calibrada_de_verdade], AcervoDeIdentidades(tmp_path)
+        )
+        calibracao.assinaturas = identidades.assinaturas
+
+        assert calibracao.nomes_com_assinatura == {"J4guar"}
+        assert "" not in calibracao.nomes_com_assinatura
+        # A linha 1 e a do `J4guar`, que TEM assinatura: uma linha nao
+        # reconhecida nunca pode pegar emprestado o nome de quem a assinatura
+        # nao colocou ali.
+        assert calibracao.nome_da_linha(1) == "Membro 2"
+
+
+class TestOResiduoAnonimoDegradaParaSilencio:
+    """O caso que a deduplicacao NAO cobre, e a razao de ele ser aceitavel.
+
+    Uma entrada ANONIMA posta a mao, parecida mas nao identica a uma calibrada,
+    nao tem nome para comparar: a regra da chave nao pega (as chaves diferem) e a
+    regra do nome nao se aplica (nao ha nome). As duas passam do limiar, a margem
+    fica abaixo de 0.12 e a linha vira SILENCIO.
+
+    Aceito de proposito, por dois motivos:
+
+      - E o unico desfecho SEGURO da familia. A linha CALA em vez de mentir, que
+        e a garantia que o projeto mais preza. Um nome errado manda a party
+        socorrer a pessoa errada.
+      - Nao e alcancavel pelo caminho normal. Esta fase nunca escreve, e a Fase 2
+        so grava depois de nao casar com nada ja gravado (APRE-04). Um
+        quase-duplicado anonimo so nasce de uma entrada posta a mao.
+    """
+
+    def test_as_duas_premissas_do_caso_sao_medidas_antes_do_desfecho(
+        self, pixels, calibracao, calibrada_de_verdade
+    ):
+        """Sem estas duas medidas, o silencio poderia vir de outra causa.
+
+        Se a copia nao passasse do limiar, a linha receberia o nome calibrado e
+        o teste nao estaria provando nada sobre a margem. Se as chaves fossem
+        iguais, o caso seria o da deduplicacao por chave, e nao o residuo.
+        """
+        copia = quase_igual(calibrada_de_verdade)
+        assert copia.anonima
+        assert chave_da_assinatura(copia) != chave_da_assinatura(
+            calibrada_de_verdade
+        )
+
+        recorte = _recorte_do_nome(pixels, calibracao, LINHA_DA_CONVIVENCIA)
+        pontos = _pontuar_mascara(
+            mascara_de_texto(recorte), [calibrada_de_verdade, copia]
+        )
+        assert pontos[0] > LIMIAR_DE_CASAMENTO, pontos
+        assert pontos[1] > LIMIAR_DE_CASAMENTO, pontos
+        assert abs(pontos[0] - pontos[1]) < MARGEM_MINIMA_SOBRE_O_SEGUNDO, (
+            f"as duas pontuacoes precisam EMPATAR para o caso existir: {pontos}"
+        )
+
+    def test_a_linha_CALA_e_o_nome_errado_NAO_sai(
+        self, tmp_path, pixels, calibracao, calibrada_de_verdade
+    ):
+        copia = quase_igual(calibrada_de_verdade)
+        semear(tmp_path, copia)  # anonima, posta a mao
+
+        identidades = carregar_identidades(
+            [calibrada_de_verdade], AcervoDeIdentidades(tmp_path)
+        )
+        assert identidades.conhecidas == 2, (
+            "o residuo e justamente a entrada que NENHUMA regra descarta"
+        )
+
+        recorte = _recorte_do_nome(pixels, calibracao, LINHA_DA_CONVIVENCIA)
+        casamento = identificar_linhas(
+            {LINHA_DA_CONVIVENCIA: recorte}, identidades.assinaturas
+        )[LINHA_DA_CONVIVENCIA]
+
+        assert casamento.nome is None, (
+            "o desfecho aceito e SILENCIO; qualquer nome aqui seria um chute"
+        )
+        assert casamento.nome != "J4guar"
+
+    def test_nenhum_evento_sai_em_nome_de_quem_calou(
+        self, tmp_path, pixels, calibracao, calibrada_de_verdade
+    ):
+        """O silencio atravessa ate o rastreador: zero alerta, rotulo generico."""
+        semear(tmp_path, quase_igual(calibrada_de_verdade))
+        identidades = carregar_identidades(
+            [calibrada_de_verdade], AcervoDeIdentidades(tmp_path)
+        )
+        calibracao.assinaturas = identidades.assinaturas
+
+        obs = observar_frame(pixels, calibracao)
+        # `None` e nao `""`: a linha nao casou com NINGUEM. A string vazia seria
+        # "casou com uma anonima", que e outro estado — reconhecida e sem nome.
+        assert obs.linhas[LINHA_DA_CONVIVENCIA].nome is None
+
+        _, mortes = mortes_apos_zerar(
+            obs,
+            LINHA_DA_CONVIVENCIA,
+            identidades.configuradas,
+            calibracao.nomes,
+        )
+        assert mortes == [], f"uma linha que calou nao morre. Saiu: {mortes}"
+
+
+class TestADocstringRespondeAPergunta:
+    """A pergunta que o `<phase_specific_direction>` mandou FECHAR POR ESCRITO.
+
+    "O que acontece quando a calibracao e o acervo carregam a mesma pessoa" tem
+    de estar respondido onde quem mexe na funcao le, e nao so num plano
+    arquivado.
+    """
+
+    def test_as_tres_perguntas_estao_respondidas(self):
+        texto = carregar_identidades.__doc__ or ""
+        assert "--nomes" in texto, "falta POR QUE a calibrada vence"
+        assert "-j" in texto, (
+            "falta POR QUE a ordem e estrutural, e nao uma condicao"
+        )
+        assert "MARGEM_MINIMA_SOBRE_O_SEGUNDO" in texto and "0.12" in texto, (
+            "falta o NUMERO que torna a regra do nome necessaria"
+        )
+        assert "anonima" in texto.lower(), (
+            "falta dizer o que fica de fora e por que isso e aceitavel"
         )
