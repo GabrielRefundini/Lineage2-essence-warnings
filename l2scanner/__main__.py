@@ -23,6 +23,7 @@ from datetime import datetime, timedelta  # noqa: E402
 from logging.handlers import RotatingFileHandler  # noqa: E402
 from pathlib import Path  # noqa: E402
 
+from .acervo import AcervoDeIdentidades, carregar_identidades  # noqa: E402
 from .calibracao import (  # noqa: E402
     Calibracao,
     CalibracaoInvalida,
@@ -126,6 +127,13 @@ PASTA_AGENDA = RAIZ / ".agenda"
 # poda marcadores com prefixo de data em 3 dias — certo para "ja avisei",
 # fatal para estatistica: "quantos loots o J4guar pegou" e para sempre.
 PASTA_LOOT = RAIZ / ".loot"
+# O acervo de assinaturas visuais. IRMA de `.agenda/` e `.loot/`, e nunca
+# dentro delas: o RegistroEmDisco poda marcadores com prefixo de data em 3
+# dias, e uma assinatura e como estatistica de loot — uma pergunta sobre
+# MESES, nao sobre a semana. Fora do `calibration.json` pelo mesmo raciocinio
+# invertido: `calibrar.bat` reescreve aquele arquivo inteiro e `assinaturas`
+# e campo da party, entao la dentro o acervo morreria por desenho.
+PASTA_IDENTIDADES = RAIZ / ".identidades"
 
 INTERVALO_PADRAO = 1.0
 
@@ -2002,11 +2010,30 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     # --janela, entao aqui a fonte e sempre uma JanelaSource.
     gravador = montar_gravador(args, fonte)
 
+    # O ACERVO ENTRA AQUI, ANTES DO RASTREADOR, e a atribuicao e EM MEMORIA.
+    #
+    # `cal.assinaturas` passa a ser a fusao "calibradas primeiro, acervo
+    # depois" — e o `calibration.json` NAO e regravado por este caminho, nem
+    # pode passar a ser. Escrever o acervo de volta no arquivo que o
+    # `calibrar.bat` reescreve desfaria pelo lado de dentro a unica razao de a
+    # pasta ser propria.
+    identidades = carregar_identidades(
+        list(cal.assinaturas), AcervoDeIdentidades(PASTA_IDENTIDADES)
+    )
+    cal.assinaturas = identidades.assinaturas
+    log.info("%s", identidades.resumo)
+
     rastreador = Rastreador(
         nomes=list(cal.nomes),
         nome_proprio=cal.nome_proprio,
         nomes_reservados=cal.nomes_com_assinatura,
         modo_solo=args.solo,
+        # O ELO QUE FALTAVA. Ate 2026-08-31 este argumento nao era passado em
+        # lugar nenhum de producao: o campo tinha default `False` e so os
+        # testes o atribuiam. Ou seja, o silencio do `#linhaN` estava provado
+        # na suite e DESLIGADO em campo, e uma linha nao reconhecida pegava
+        # emprestado `nomes[indice]` para anunciar uma morte com o nome errado.
+        assinaturas_configuradas=identidades.configuradas,
     )
     if args.solo:
         log.info(

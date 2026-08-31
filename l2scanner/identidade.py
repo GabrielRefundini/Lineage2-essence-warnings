@@ -154,6 +154,23 @@ class Assinatura:
     def pixels_de_texto(self) -> int:
         return int(self.mascara.sum())
 
+    @property
+    def anonima(self) -> bool:
+        """Esta assinatura existe, e nao sabemos de quem e.
+
+        E o estado normal de uma entrada do acervo antes do batismo: o scanner
+        reconhece a linha, e nao tem nome nenhum para chamar aquela pessoa.
+
+        A string VAZIA foi escolhida em vez de `None` porque ela e FALSY, e e a
+        falsidade dela que faz `_chave_da_linha` (`linha.nome or f"#linha{...}"`)
+        e `_rotular` (`if linha.nome:`) degradarem para `#linha{N}` e
+        "Membro N" sem uma linha de mudanca no rastreador. O silencio de quem
+        nao foi reconhecido e HERDADO pelo anonimo, e nao remendado por cima —
+        e o remendo por cima e exatamente onde uma linha anonima ganharia
+        permissao para virar sujeito de alerta.
+        """
+        return not self.nome
+
     def como_dict(self) -> dict:
         """Serializa para o arquivo de calibracao.
 
@@ -222,7 +239,18 @@ class Casamento:
 
     @property
     def identificado(self) -> bool:
-        return self.nome is not None
+        """Sabemos QUEM esta nesta linha?
+
+        Um casamento com uma assinatura ANONIMA e um CASAMENTO, e nao uma
+        IDENTIFICACAO: o scanner achou a mesma pessoa de sempre e continua sem
+        saber o nome dela. `self.nome is not None` responderia "sim, sei quem e"
+        sobre uma linha que ninguem batizou — e o acervo existe justamente para
+        guardar entradas antes do batismo.
+
+        A distincao esta aqui, e nao no chamador, para que a Fase 2 (aprender) e
+        a Fase 3 (batizar) nao herdem uma propriedade que mente por omissao.
+        """
+        return bool(self.nome)
 
 
 def _primeira_coluna_com_texto(mascara: np.ndarray) -> int | None:

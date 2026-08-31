@@ -1259,9 +1259,30 @@ class TestSemRelogioProprio:
     previsao ERRADA, entregue no grupo, com exatamente a mesma cara de uma
     certa. E o modo de falha caro desta fase, e ele nao aparece em teste
     nenhum que passe o tempo por parametro.
+
+    `acervo.py` entrou na Fase 1 do workstream `identidade`, e ele entra na
+    tupla ANTES de ter uma linha de logica de tempo — a antecipacao E a
+    decisao. O acervo de assinaturas e DURAVEL e NAO PODADO por decisao
+    travada do usuario, que viu o numero na mao (562 bytes por assinatura,
+    medido no `calibration.json` real em 2026-08-31) e dispensou qualquer
+    limpeza no v1. A maneira de um modulo assim adquirir poda POR ACIDENTE e
+    adquirindo um relogio proprio primeiro: um `datetime.now()` num `gravar`
+    ou numa varredura vira, duas fases depois, um "so leio o que e recente"
+    que ninguem escreveu de proposito — e o que se perde nao e um aviso, e a
+    identidade de uma pessoa que o scanner passa a chamar de "Membro 3".
+    Adotar agora custa uma linha, porque o modulo ja cumpre a regra; adotar
+    na Fase 2 seria adotar um modulo que ja pode ter violado a regra, e o
+    portao nasceria vermelho ou nasceria afrouxado.
     """
 
-    MODULOS = ("agenda.py", "loot.py", "presenca.py", "bosses.py", "respawn.py")
+    MODULOS = (
+        "agenda.py",
+        "loot.py",
+        "presenca.py",
+        "bosses.py",
+        "respawn.py",
+        "acervo.py",
+    )
 
     @staticmethod
     def _relogios_proprios(fonte: str) -> list[str]:
