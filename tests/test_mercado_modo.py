@@ -629,6 +629,110 @@ class TestOAntiSpamDoPainelFechado:
         assert len(transicoes) == 1, [r.getMessage() for r in transicoes]
 
 
+def linhas_ao_vivo_emitidas(caplog) -> list[str]:
+    """As linhas ao vivo REALMENTE emitidas pelo laco, e nao o texto da funcao.
+
+    A diferenca e o defeito inteiro: `linha_ao_vivo` sempre soube montar as
+    duas metades, e havia teste sobre o texto que ela DEVOLVE. O que nao havia
+    era teste sobre a CADENCIA em que o laco a chama - e era ali que a metade
+    perdida sumia.
+
+    O casamento e pelo prefixo que a propria funcao escreve. Um `in` solto
+    ("perdidas" em qualquer lugar) casaria tambem no RESUMO DA SESSAO, que sai
+    no `finally` de toda execucao: o teste ficaria verde com zero linha ao vivo,
+    que e exatamente o estado que ele existe para reprovar.
+    """
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.getMessage().startswith("mercado | ")
+    ]
+
+
+class TestACadenciaDaLinhaAoVivo:
+    """LEIT-04: a linha repinta por TICK COM O PAINEL ABERTO, nao por pagina.
+
+    A decisao travada no `04-CONTEXT.md` e "mostra ao vivo: paginas lidas E
+    perdidas" e "o resumo conta AS DUAS METADES - nunca so a metade boa". Emitir
+    a linha so quando uma pagina e ACEITA calava o console exatamente no momento
+    em que a metade perdida cresce, que e o oposto do requisito: no censo foram
+    151 lidas contra 189 PERDIDAS.
+    """
+
+    def test_painel_ABERTO_com_pagina_PERDIDA_ainda_repinta_a_linha(
+        self, cal, leituras, tmp_path, caplog
+    ) -> None:
+        """UM frame de pagina cheia: painel ABERTO, e pagina nenhuma aceita.
+
+        O acordo entre dois frames que o LEIT-03 exige nao acontece com um
+        frame so, entao este tick e literalmente "painel aberto, pagina
+        perdida" - o caso medido na verificacao da Fase 4, onde saiam ZERO
+        linhas ao vivo.
+        """
+        duas, tres, quadros = montar_as_leitoras(cal, leituras, [PAGINA_CHEIA])
+        with caplog.at_level(logging.INFO):
+            laco_do_mercado(
+                argumentos(),
+                cal,
+                fonte=FonteFalsa(quadros),
+                ler_texto=duas,
+                ler_texto_conferencia=tres,
+                relogio=Relogio(),
+                pasta=tmp_path,
+                ticks_maximos=1,
+            )
+
+        # O TICK TEM DE TER SIDO DE PAINEL ABERTO E PAGINA PERDIDA, e isso e
+        # afirmado e nao suposto: se um dia a fixtura passar a ser aceita como
+        # pagina, o teste abaixo ficaria verde pelo caminho ERRADO - o antigo,
+        # o de emitir por pagina aceita.
+        assert "o painel do mercado ABRIU" in caplog.text, (
+            "a fixtura parou de abrir o painel: este teste nao esta mais no "
+            "caso que ele existe para cobrir"
+        )
+        assert "paginas PERDIDAS                 1" in caplog.text, (
+            "a fixtura passou a ser ACEITA como pagina: este teste nao esta "
+            "mais no caso 'painel aberto, pagina perdida'"
+        )
+
+        ao_vivo = linhas_ao_vivo_emitidas(caplog)
+        assert ao_vivo, (
+            "ZERO linhas ao vivo num tick de painel ABERTO com pagina "
+            "PERDIDA. O console fica mudo justamente quando a metade perdida "
+            "cresce - LEIT-04 e o 04-CONTEXT exigem as DUAS metades ao vivo."
+        )
+        assert "perdidas 1" in ao_vivo[-1], ao_vivo[-1]
+
+    def test_painel_FECHADO_nao_repinta_a_linha_ao_vivo(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        """O CONTROLE NEGATIVO do teste acima, e a razao de o portao existir.
+
+        "Por tick" sem portao seriam 3.600 linhas por hora com o painel fechado
+        - o estado NORMAL e majoritario de um farm real - e o log rotativo
+        perderia a forense que ele existe para guardar. E o mesmo raciocinio do
+        latch de `transicao_do_painel`, logo acima.
+
+        Sem este teste, "emitir sempre" passaria no teste de cima e o conserto
+        viraria o defeito oposto.
+        """
+        quadros = [
+            np.full((400, 400, 3), 20 + i * 7, dtype=np.uint8) for i in range(6)
+        ]
+        with caplog.at_level(logging.INFO):
+            laco_do_mercado(
+                argumentos(),
+                cal,
+                fonte=FonteFalsa(quadros),
+                ler_texto=LeitoraDeRecorte(),
+                ler_texto_conferencia=LeitoraDeRecorte(),
+                relogio=Relogio(),
+                pasta=tmp_path,
+                ticks_maximos=6,
+            )
+        assert linhas_ao_vivo_emitidas(caplog) == []
+
+
 # ---------------------------------------------------------------------------
 # O MODELO NO LACO: carga UNICA, acrescimo por observacao, destaque ANTES
 # ---------------------------------------------------------------------------

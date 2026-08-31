@@ -140,7 +140,12 @@ def acumular_motivos(acumulados: Counter, leitura) -> None:
 def linha_ao_vivo(leitor, contagem, ultimo_item) -> str:
     """A repintada de 1 Hz: as DUAS metades e o ultimo item reconhecido.
 
-    Ela devolve UMA linha, na cadencia da captura - a mesma do resto do scanner.
+    Ela devolve UMA linha, e quem chama a emite A CADA TICK COM O PAINEL
+    ABERTO - na cadencia da CAPTURA, e nunca por pagina aceita. A distincao e o
+    requisito: por pagina aceita, o console emudeceria justamente no tick em que
+    a metade PERDIDA cresce, e no censo foram 151 lidas contra 189 perdidas.
+    Com o painel FECHADO ela nao sai, porque ali quem responde "o modo esta
+    vivo?" e a linha de transicao (ver `laco_do_mercado`).
 
     O QUE ELA NAO MOSTRA, E POR QUE: o `residuo_do_cruzamento`. A guarda de
     cruzamento esta DESLIGADA por medicao (02-02), entao o residuo e observacao
@@ -266,7 +271,8 @@ AVISO_DO_RELOGIO_SEM_ANCORA = (
 # De quantos em quantos segundos a secao repinta.
 #
 # ELA NAO SAI POR TICK, E ISSO E DECISAO. A `linha_ao_vivo` e a que responde "o
-# modo esta vivo?" e por isso repinta a 1 Hz; esta responde "vale quanto?", e a
+# modo esta vivo?" e por isso repinta a 1 Hz com o painel aberto; esta
+# responde "vale quanto?", e a
 # resposta so muda quando uma serie ganha observacao nova - o que, pelo censo,
 # acontece a cada dezenas de segundos no melhor caso. Repintar um bloco de
 # dezenas de linhas por segundo afogaria a linha ao vivo que o LEIT-04 exige.

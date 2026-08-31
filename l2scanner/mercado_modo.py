@@ -487,7 +487,8 @@ def laco_do_mercado(
     # historico gravado parecer vazio no segundo em que ele abre.
     desenhar_a_analise()
     # E DEPOIS POR INTERVALO, NUNCA POR TICK. A `linha_ao_vivo` e a que responde
-    # "o modo esta vivo?" e repinta a 1 Hz; esta responde "vale quanto?", e a
+    # "o modo esta vivo?" e repinta a 1 Hz com o painel aberto; esta responde
+    # "vale quanto?", e a
     # resposta so muda quando uma serie ganha observacao nova. O precedente e
     # `desenhar_status` do laco principal, que tambem sai por intervalo.
     proxima_secao = time.monotonic() + SEGUNDOS_ENTRE_SECOES
@@ -617,6 +618,28 @@ def laco_do_mercado(
                     catalogo.gravar()
                     paginas_desde_a_gravacao = 0
 
+            # A LINHA AO VIVO SAI POR TICK COM O PAINEL ABERTO, E NAO POR
+            # PAGINA ACEITA - e a diferenca entre as duas e o requisito.
+            #
+            # Emitida de dentro do `if pagina is not None`, ela calava o console
+            # exatamente no tick em que a metade PERDIDA cresce, que e a metade
+            # que o LEIT-04 existe para nao deixar esconder: no censo foram 151
+            # lidas contra 189 perdidas. Quem estivesse olhando veria a linha
+            # congelar e nao teria como distinguir "o painel fechou", "a captura
+            # travou" e "as ultimas dez leituras foram todas recusadas" - tres
+            # coisas com respostas diferentes.
+            #
+            # ELA FICA DEPOIS DO BLOCO DA PAGINA, e nao antes: `contagem` e
+            # `ultimo_item` tem de ser os DESTE tick. Antes, a linha mostraria
+            # sempre o estado do tick anterior.
+            #
+            # O PORTAO E O PAINEL ABERTO, e nao "todo tick". Painel fechado e o
+            # estado normal e majoritario de um farm real, e uma linha por tick
+            # ali seriam 3.600 por hora afogando a forense do log rotativo -
+            # mesmo raciocinio do latch de `transicao_do_painel`. Com o painel
+            # fechado quem responde "o modo esta vivo?" e a linha de transicao,
+            # que ja saiu.
+            if aberto_agora:
                 log.info("%s", linha_ao_vivo(leitor, contagem, ultimo_item))
 
             if time.monotonic() >= proxima_secao:
