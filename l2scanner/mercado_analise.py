@@ -85,9 +85,12 @@ __all__ = [
     "N_MINIMO_PARA_MEDIANA",
     "N_MINIMO_PARA_MENOR",
     "N_MINIMO_PARA_TENDENCIA",
+    "Tendencia",
+    "descrever_a_tendencia",
     "mediana_dos_unitarios",
     "menor_pedido_visivel",
     "recencia_do_preco",
+    "tendencia",
     "unitario",
 ]
 
@@ -352,3 +355,123 @@ def recencia_do_preco(
     if not observacoes:
         return None
     return max(obs.primeira_vez for obs in observacoes)
+
+
+# ===========================================================================
+# A TENDENCIA (ANAL-03)
+# ===========================================================================
+
+# A palavra que qualifica o `n` da tendencia, escrita UMA vez.
+#
+# ELA E OBRIGATORIA E A ESCOLHA DELA E O REQUISITO. "Ofertas distintas" e o que
+# impede o usuario de ler a reta como "o preco caiu tanto por cento nas ultimas
+# dez HORAS". Nao existe serie temporal de preco neste CSV — existe uma
+# sequencia de anuncios diferentes, e o `n` conta anuncios, nao instantes.
+UNIDADE_DA_JANELA = "ofertas distintas"
+
+
+@dataclass(frozen=True)
+class Tendencia:
+    """A variacao percentual sobre a janela inteira, com o tamanho dela junto.
+
+    `variacao_percentual` e `None` sempre que nao ha numero a dizer, e
+    `motivo_da_ausencia` diz POR QUE — abaixo do piso, ou intercepto zero. Quem
+    desenha nunca precisa adivinhar o motivo de um campo vazio.
+    """
+
+    evidencia: Evidencia
+    variacao_percentual: float | None
+    motivo_da_ausencia: str | None
+
+
+def tendencia(observacoes: Sequence[ObservacaoLida]) -> Tendencia:
+    """Regressao linear sobre o ORDINAL das ofertas distintas. ANAL-03.
+
+    **O EIXO `x` E O ORDINAL `1..n`, E ISSO E O CORACAO DESTA FUNCAO.** As
+    ofertas sao ordenadas por `primeira_vez` e recebem posicao `1, 2, 3, ...`;
+    `y` e o unitario convertido para `float` so no momento da chamada.
+
+    O CARIMBO NAO PODE SER O `x`. `gravar_as_paginas` chama `relogio.agora()`
+    POR LINHA (`tools/gerar_observacoes_do_censo.py`), entao as dez linhas de
+    uma mesma pagina tem carimbos separados por MICROSSEGUNDOS. Uma regressao
+    sobre `x` quase-constante devolve uma inclinacao de magnitude absurda por
+    segundo **sem levantar `StatisticsError`** — tecnicamente `x` varia — e essa
+    inclinacao, virada percentual sobre a janela, apaga a queda inteira e
+    reporta praticamente zero. Numero plausivel e errado e o modo de falha que
+    este projeto inteiro combate. Ordinais sao distintos por construcao, entao
+    o modo de falha "x is constant" fica IMPOSSIVEL.
+
+    **O QUE SE REPORTA E A VARIACAO PERCENTUAL SOBRE A JANELA INTEIRA**,
+    `slope * (n - 1) / intercept`, e nao a inclinacao crua: "tantos centesimos
+    por oferta" nao significa nada para quem le. `intercept` igual a zero vira
+    caso sem tendencia reportavel, com o motivo nomeado, em vez de deixar uma
+    divisao por zero escapar — o CSV e editado a mao e um total zerado e entrada
+    possivel.
+
+    `statistics.linear_regression` porque o ANAL-03 pede regressao stdlib
+    literalmente; minimos quadrados a mao seria reconstruir o que ja existe.
+
+    ABAIXO DE `N_MINIMO_PARA_TENDENCIA` A RESPOSTA E O QUE FALTA, no mesmo
+    padrao de estado explicito do resto do modulo.
+    """
+    comparaveis = _comparaveis(observacoes)
+    evidencia = Evidencia(n=len(comparaveis), piso=N_MINIMO_PARA_TENDENCIA)
+    if not evidencia.suficiente:
+        return Tendencia(
+            evidencia=evidencia,
+            variacao_percentual=None,
+            motivo_da_ausencia="evidencia insuficiente",
+        )
+
+    em_ordem = sorted(comparaveis, key=lambda obs: obs.primeira_vez)
+    ordinais = list(range(1, len(em_ordem) + 1))
+    unitarios = [
+        float(unitario(obs.total_em_centesimos, obs.quantidade)) for obs in em_ordem
+    ]
+
+    reta = statistics.linear_regression(ordinais, unitarios)
+    if reta.intercept == 0:
+        return Tendencia(
+            evidencia=evidencia,
+            variacao_percentual=None,
+            motivo_da_ausencia="intercepto zero, sem base para percentual",
+        )
+
+    janela = len(em_ordem) - 1
+    return Tendencia(
+        evidencia=evidencia,
+        variacao_percentual=reta.slope * janela / reta.intercept * 100,
+        motivo_da_ausencia=None,
+    )
+
+
+def descrever_a_tendencia(resultado: Tendencia) -> str:
+    """O texto da tendencia, com o `n` da janela SEMPRE junto.
+
+    O `n` NAO E OPCIONAL NESTA FRASE, e por isso ele nao chega por parametro
+    separado: ele vem dentro do proprio `resultado`, e nao ha como montar a
+    frase sem ele. Sem o tamanho da janela, a tendencia de 3 pontos parece a de
+    300 — que e exatamente o que o ANAL-03 existe para impedir.
+
+    A UNIDADE E `UNIDADE_DA_JANELA`, e nunca uma palavra de serie temporal: o
+    CSV nao tem serie temporal de preco, e chamar o `n` de "observacoes ao longo
+    do tempo" faria o usuario ler a reta como variacao ao longo de horas.
+
+    Sem acento e sem travessao, como todo texto que este projeto poe na frente
+    do usuario: o console do Windows abre em cp1252.
+    """
+    n = resultado.evidencia.n
+    if resultado.variacao_percentual is None:
+        if not resultado.evidencia.suficiente:
+            return (
+                f"tendencia: evidencia insuficiente com {n} {UNIDADE_DA_JANELA} "
+                f"(preciso de {resultado.evidencia.piso})"
+            )
+        return (
+            f"tendencia: nao reportavel em {n} {UNIDADE_DA_JANELA} "
+            f"({resultado.motivo_da_ausencia})"
+        )
+    return (
+        f"tendencia: {resultado.variacao_percentual:+.1f}% ao longo das ultimas "
+        f"{n} {UNIDADE_DA_JANELA}"
+    )
