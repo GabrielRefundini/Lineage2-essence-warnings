@@ -10,6 +10,7 @@ Agora chama.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -1705,3 +1706,383 @@ class TestUmNascimentoUmaMensagem:
 
         assert len(r.despachos) == 1
         assert not r.falhou_ao_analisar
+
+
+# ---------------------------------------------------------------------------
+# A MATRIZ DOS CRITERIOS 3, 4, 5 E 6 DA FASE 3.
+#
+# NAO MEXER EM `ancoras_mais_recentes` NEM EM `_PESO_DA_ORIGEM` PARA "MELHORAR"
+# ESTES TESTES. Com a supressao ligada, uma remarcacao de alvo continua
+# reescrevendo a ancora mais recente, e a mensagem de janela de daqui a seis
+# horas vai citar o ALVO mesmo tendo havido anuncio no chat. Isso e o custo de
+# D-15, apresentado ao usuario e aceito por ele, e D-27 manda preserva-lo:
+# mexer ali mudaria o calculo da janela, que e Fase 2 verificada, e reabriria
+# uma decisao que `03-CONTEXT.md` lista entre as ideias ADIADAS.
+# ---------------------------------------------------------------------------
+
+
+class BaseDaMatrizDeAnuncio:
+    """O molde comum: dois bosses, um roteiro de ticks, uma pasta."""
+
+    NORTH = Boss(nome="Tiat North", respawn_horas_min=6, respawn_horas_max=8)
+    SOUTH = Boss(nome="Tiat South", respawn_horas_min=6, respawn_horas_max=8)
+
+    ANUNCIO_SOUTH = "Tiat South [Lv. 60] has spawned!"
+    ANUNCIO_NORTH = "Tiat North [Lv. 60] has spawned!"
+
+    NASCIMENTO = datetime(2026, 8, 30, 21, 59)
+
+    def quando(self, **desloc):
+        return (self.NASCIMENTO + timedelta(**desloc)).timestamp()
+
+    def vigia(self, pares):
+        """`pares` e a lista `(chat, alvo)` que cada tick vai ler, em ordem.
+
+        O vigia le os DOIS recortes uma vez por tick, o do chat antes do do
+        alvo, entao um roteiro achatado casa tick a tick. Depois do fim do
+        roteiro os recortes voltam limpos, que e o que acontece de verdade.
+        """
+        leituras = [texto for par in pares for texto in par]
+
+        def ler(_pixels):
+            return leituras.pop(0) if leituras else ""
+
+        return VigiaDeBosses(
+            ler,
+            bosses=(self.NORTH, self.SOUTH),
+            segundos_entre_leituras=1,
+        )
+
+    def frame(self, frame_real):
+        recorte = np.zeros((5, 5, 3), dtype=np.uint8)
+        return replace(
+            frame_real, extras={"tiat_chat": recorte, "tiat_alvo": recorte}
+        )
+
+    def sessao(self, calibracao, tmp_path, pasta, pares, simulando=False):
+        return nova_sessao(
+            calibracao,
+            tmp_path,
+            registro=RegistroEmDisco(pasta, simulando=simulando),
+            bosses=self.vigia(pares),
+            regras_de_respawn=[self.NORTH, self.SOUTH],
+        )
+
+    @staticmethod
+    def remarcacoes_de_alvo(nome, vezes):
+        """O usuario desmarcando e remarcando o boss, `vezes` vezes.
+
+        Sao TRES ticks por remarcacao porque `VigiaDeBosses` exige duas
+        leituras limpas consecutivas para rearmar — e o rearme e justamente o
+        que faz cada remarcacao produzir uma deteccao nova. Sem ele, o defeito
+        de campo nao se reproduz.
+        """
+        return [("", nome), ("", ""), ("", "")] * vezes
+
+
+class TestOAlvoCalaDepoisDeOChatFalar(BaseDaMatrizDeAnuncio):
+    """CRITERIO 3 / UNIC-03 / D-25 — a metade maior do defeito de campo.
+
+    Em 2026-08-30 o usuario recebeu tres mensagens de alvo depois das tres de
+    chat, porque cada remarcacao rearmava o vigia e nada em disco lembrava que
+    o boss ja tinha sido anunciado.
+    """
+
+    def _rodar(self, calibracao, frame_real, tmp_path, vezes=7):
+        pasta = tmp_path / "agenda"
+        pares = [(self.ANUNCIO_SOUTH, "")] + self.remarcacoes_de_alvo(
+            "Tiat South", vezes
+        )
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+        return pasta, [
+            s.tick(self.frame(frame_real), momento=self.quando(minutes=i))
+            for i in range(len(pares))
+        ]
+
+    def test_o_chat_anuncia_uma_vez_e_as_remarcacoes_nao_produzem_nada(
+        self, calibracao, frame_real, tmp_path
+    ):
+        _pasta, ticks = self._rodar(calibracao, frame_real, tmp_path)
+
+        assert ticks[0].avisos_de_boss == [
+            ("Tiat South", OrigemDoAviso.CHAT)
+        ]
+        assert sum(len(t.despachos) for t in ticks[1:]) == 0
+
+    # SEIS, E NAO SETE, e a diferenca ensina como as duas defesas se dividem.
+    # A PRIMEIRA remarcacao cai dentro do desarme EM MEMORIA que a deteccao do
+    # chat acabou de fazer no vigia, e nunca chega a virar deteccao — e o
+    # primeiro filtro, barato, que evita bater no disco a cada tick. As outras
+    # seis chegam, e quem as cala e o MARCADOR. O filtro em memoria nao e a
+    # garantia: ele morre no reinicio e nao existe entre as duas instancias.
+    DETECCOES_DE_ALVO = 6
+
+    def test_as_remarcacoes_CONTINUAM_gravando_ancora(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """Criterio 6 dentro do 3: a supressao e do ANUNCIO, nunca da
+        ancoragem (D-27)."""
+        pasta, ticks = self._rodar(calibracao, frame_real, tmp_path)
+
+        por_alvo = [
+            par
+            for t in ticks[1:]
+            for par in t.ancoras_gravadas
+            if par[1] is OrigemDoAviso.ALVO
+        ]
+        assert len(por_alvo) == self.DETECCOES_DE_ALVO
+        assert (
+            len(
+                [
+                    n
+                    for n in os.listdir(pasta)
+                    if n.startswith("nascimento_") and n.endswith("_alvo")
+                ]
+            )
+            == self.DETECCOES_DE_ALVO
+        )
+
+    def test_cada_deteccao_calada_deixa_rastro(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """T-03-05: sem rastro, o unico sintoma de uma supressao errada e o
+        silencio, e ninguem percebe um alerta que nao chegou."""
+        _pasta, ticks = self._rodar(calibracao, frame_real, tmp_path)
+
+        calados = [par for t in ticks for par in t.nascimentos_calados]
+        assert (
+            calados
+            == [("Tiat South", OrigemDoAviso.ALVO)] * self.DETECCOES_DE_ALVO
+        )
+
+    def test_o_silencio_sai_no_log_com_o_boss(
+        self, calibracao, frame_real, tmp_path, caplog
+    ):
+        pasta = tmp_path / "agenda"
+        # DUAS remarcacoes para UMA supressao: a primeira e engolida pelo
+        # desarme em memoria do vigia, e so a segunda chega ao marcador. Ver
+        # `DETECCOES_DE_ALVO` acima.
+        pares = [(self.ANUNCIO_SOUTH, "")] + self.remarcacoes_de_alvo(
+            "Tiat South", 2
+        )
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            for i in range(len(pares)):
+                s.tick(self.frame(frame_real), momento=self.quando(minutes=i))
+
+        calados = [m for m in caplog.messages if "calado" in m]
+        assert len(calados) == 1
+        assert "Tiat South" in calados[0]
+
+
+class TestOFallbackDoAlvoContinuaExistindo(BaseDaMatrizDeAnuncio):
+    """CRITERIO 4 / UNIC-04 / D-25.
+
+    O alvo existe para o caso que o usuario descreveu: o scanner perdeu o
+    anuncio (estava fechado, ou o OCR falhou) e o boss esta na frente dele.
+    Calar o alvo por completo trocaria uma repeticao barata por um nascimento
+    perdido.
+    """
+
+    def test_sem_o_chat_o_alvo_anuncia_UMA_vez(
+        self, calibracao, frame_real, tmp_path
+    ):
+        pasta = tmp_path / "agenda"
+        pares = self.remarcacoes_de_alvo("Tiat South", 3)
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+
+        ticks = [
+            s.tick(self.frame(frame_real), momento=self.quando(minutes=i))
+            for i in range(len(pares))
+        ]
+
+        despachados = [t for t in ticks if t.despachos]
+        assert len(despachados) == 1
+        texto, _categoria, _alvo = despachados[0].despachos[0]
+        assert "seu alvo virou" in texto
+        assert despachados[0].avisos_de_boss == [
+            ("Tiat South", OrigemDoAviso.ALVO)
+        ]
+
+    def test_as_remarcacoes_seguintes_calam(
+        self, calibracao, frame_real, tmp_path
+    ):
+        pasta = tmp_path / "agenda"
+        pares = self.remarcacoes_de_alvo("Tiat South", 3)
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+
+        ticks = [
+            s.tick(self.frame(frame_real), momento=self.quando(minutes=i))
+            for i in range(len(pares))
+        ]
+
+        assert [par for t in ticks for par in t.nascimentos_calados] == [
+            ("Tiat South", OrigemDoAviso.ALVO)
+        ] * 2
+
+
+class TestOSilencioAcabaQuandoONascimentoVoltaASerPossivel(
+    BaseDaMatrizDeAnuncio
+):
+    """CRITERIO 5 / UNIC-05 / D-26 / D-29 / T-03-01.
+
+    O TESTE MAIS IMPORTANTE DO PLANO. Ele e a prova de que a supressao nao
+    virou PERDA: o silencio termina no instante em que o proximo nascimento se
+    torna POSSIVEL pela regra do `[[boss]]`, e nao no instante em que ele se
+    torna provavel. Terminar mais tarde seria confortavel no papel e custaria
+    um nascimento real, sem deixar rastro nenhum — ninguem percebe um alerta
+    que nao chegou.
+
+    E por isso que `MARGEM_DO_EPISODIO` vai para o lado CURTO: a janela do
+    episodio e `respawn_horas_min` MENOS cinco minutos, deliberadamente mais
+    curta que o minimo do servidor. Longa demais, ela funde dois nascimentos e
+    cala o segundo, que e a falha invisivel; curta demais, ela repete uma
+    mensagem, que o usuario le e ignora em dois segundos.
+    """
+
+    def _dois_anuncios(self, calibracao, frame_real, tmp_path, **intervalo):
+        pasta = tmp_path / "agenda"
+        pares = [
+            (self.ANUNCIO_SOUTH, ""),
+            ("", ""),
+            ("", ""),
+            (self.ANUNCIO_SOUTH, ""),
+        ]
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+
+        s.tick(self.frame(frame_real), momento=self.quando())
+        s.tick(self.frame(frame_real), momento=self.quando(minutes=1))
+        s.tick(self.frame(frame_real), momento=self.quando(minutes=2))
+        return s.tick(self.frame(frame_real), momento=self.quando(**intervalo))
+
+    def test_um_segundo_nascimento_em_respawn_horas_min_AINDA_ANUNCIA(
+        self, calibracao, frame_real, tmp_path
+    ):
+        r = self._dois_anuncios(calibracao, frame_real, tmp_path, hours=6)
+
+        assert r.avisos_de_boss == [("Tiat South", OrigemDoAviso.CHAT)]
+        assert r.nascimentos_calados == []
+
+    def test_um_segundo_anuncio_dez_minutos_depois_CALA(
+        self, calibracao, frame_real, tmp_path
+    ):
+        r = self._dois_anuncios(calibracao, frame_real, tmp_path, minutes=10)
+
+        assert r.avisos_de_boss == []
+        assert r.nascimentos_calados == [("Tiat South", OrigemDoAviso.CHAT)]
+
+    def test_o_episodio_e_por_boss_e_o_outro_nao_e_calado_junto(
+        self, calibracao, frame_real, tmp_path
+    ):
+        pasta = tmp_path / "agenda"
+        pares = [(self.ANUNCIO_SOUTH, ""), (self.ANUNCIO_NORTH, "")]
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+
+        s.tick(self.frame(frame_real), momento=self.quando())
+        r = s.tick(self.frame(frame_real), momento=self.quando(minutes=1))
+
+        assert r.avisos_de_boss == [("Tiat North", OrigemDoAviso.CHAT)]
+
+
+class TestAAncoragemSobreviveASupressao(BaseDaMatrizDeAnuncio):
+    """CRITERIO 6 / UNIC-06 / D-27 — a Fase 2 continua inteira.
+
+    A ancora nao muda de comportamento nesta fase. O teste afirma isso pelo
+    ARQUIVO em disco, e nao so pelo `ResultadoDoTick`: um campo de resultado
+    pode ser preenchido sem nada ter sido gravado, e o que a Fase 2 le seis
+    horas depois e o disco.
+    """
+
+    def test_a_ancora_do_alvo_existe_em_disco_com_o_anuncio_suprimido(
+        self, calibracao, frame_real, tmp_path
+    ):
+        pasta = tmp_path / "agenda"
+        pares = [(self.ANUNCIO_SOUTH, ""), ("", ""), ("", ""), ("", "Tiat South")]
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+
+        for i in range(3):
+            s.tick(self.frame(frame_real), momento=self.quando(minutes=i))
+        r = s.tick(self.frame(frame_real), momento=self.quando(minutes=6))
+
+        assert r.despachos == []
+        assert r.ancoras_gravadas == [("Tiat South", OrigemDoAviso.ALVO)]
+        assert (pasta / "nascimento_2026-08-30_tiat-south-2205_alvo").exists()
+
+    def test_a_previsao_de_janela_continua_saindo_depois_de_uma_supressao(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """A ancora reescrita pelo alvo continua mandando na previsao — e o
+        custo de D-15, que esta fase preserva de proposito."""
+        pasta = tmp_path / "agenda"
+        pares = [(self.ANUNCIO_SOUTH, ""), ("", ""), ("", ""), ("", "Tiat South")]
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+
+        for i in range(3):
+            s.tick(self.frame(frame_real), momento=self.quando(minutes=i))
+        s.tick(self.frame(frame_real), momento=self.quando(minutes=6))
+
+        r = s.tick(
+            self.frame(frame_real), momento=self.quando(hours=6, minutes=6)
+        )
+
+        assert [tipo for _boss, tipo in r.avisos_de_janela] == [
+            TipoDeJanela.ABRE
+        ]
+
+
+class TestOQueASupressaoPERDE(BaseDaMatrizDeAnuncio):
+    """O preco de D-26, AFIRMADO e nao escondido.
+
+    Um comportamento aceito nunca fica sem teste neste projeto: sem um teste
+    nomeado, a perda vira surpresa no dia em que alguem a descobrir em campo.
+    """
+
+    def test_dois_nascimentos_dentro_da_janela_produzem_UMA_mensagem(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """D-26 literal. O que se perde e o MESMO boss nascer duas vezes dentro
+        da mesma janela, e isso e impossivel pela regra do servidor: o respawn
+        conta a partir da MORTE, entao dois nascimentos distam no minimo
+        `respawn_horas_min`.
+        """
+        pasta = tmp_path / "agenda"
+        pares = [
+            (self.ANUNCIO_SOUTH, ""),
+            ("", ""),
+            ("", ""),
+            (self.ANUNCIO_SOUTH, ""),
+        ]
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+
+        ticks = [
+            s.tick(self.frame(frame_real), momento=self.quando(hours=h))
+            for h in (0, 1, 2, 3)
+        ]
+
+        assert sum(len(t.avisos_de_boss) for t in ticks) == 1
+
+    def test_em_simulacao_a_mesma_sessao_repete_e_o_disco_fica_vazio(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """Molde de `TestOModoDeSimulacaoNaJanela`: um comportamento aceito e
+        AFIRMADO, nunca consertado."""
+        pasta = tmp_path / "agenda"
+        pares = [
+            (self.ANUNCIO_SOUTH, ""),
+            ("", ""),
+            ("", ""),
+            (self.ANUNCIO_SOUTH, ""),
+            ("", ""),
+            ("", ""),
+            (self.ANUNCIO_SOUTH, ""),
+        ]
+        s = self.sessao(calibracao, tmp_path, pasta, pares, simulando=True)
+
+        ticks = [
+            s.tick(self.frame(frame_real), momento=self.quando(minutes=i))
+            for i in range(len(pares))
+        ]
+
+        assert sum(len(t.avisos_de_boss) for t in ticks) == 3
+        assert not pasta.exists()
