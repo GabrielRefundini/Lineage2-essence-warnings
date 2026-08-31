@@ -1030,8 +1030,18 @@ def atender_comandos(
     monotonico: float,
     rastreador=None,
     loot=None,
+    bosses=(),
 ) -> None:
     """Le, obedece e confirma. Nunca levanta.
+
+    `bosses` E A LISTA DO `config.toml`, e ela chega dos DOIS lacos. O default
+    vazio existe so para os testes antigos que nao passam nada continuarem
+    medindo o que mediam; em producao os dois chamadores passam a lista de
+    verdade, e ha portao de AST em `tests/test_janela_sob_demanda.py` exigindo
+    isso dos dois. A razao do portao: com a lista vazia o `/tiat` responde "nao
+    ha boss vigiado" em vez de falhar, e do lado de quem perguntou isso e
+    indistinguivel de config errado — logica certa ligada num caminho so e a
+    familia de defeito que este projeto ja pagou duas vezes.
 
     DOIS RELOGIOS, E ELES NAO SAO INTERCAMBIAVEIS:
 
@@ -1193,6 +1203,22 @@ def atender_comandos(
             # digitou, para conferir na hora que acertou o boss, e e por isso
             # que ela precisa chegar onde a pergunta foi feita.
             avisar_o_grupo = False
+        elif pedido.comando is Comando.JANELA:
+            resposta = _obedecer_janela(registro, bosses, agora)
+            # Pergunta pessoal, mesmo racional ja escrito no ramo do `.status`.
+            # Aqui ha um agravante proprio: este texto o grupo JA RECEBE
+            # sozinho, uma vez por janela vencida, pelo caminho de
+            # `_avisar_janelas_de_respawn`. Ecoar a consulta seria mandar duas
+            # vezes a mesma informacao para quem nao perguntou — e treinar a
+            # party a ignorar justamente a mensagem que importa, a que sai no
+            # vencimento.
+            #
+            # A FLAG E ATRIBUIDA E NAO HERDADA, e o comentario do topo deste
+            # laco diz por que: este e um ramo que devolve `str`, e sem a
+            # atribuicao ele herdaria em silencio o valor do comando ANTERIOR
+            # da mesma volta. Ha portao de AST em
+            # `tests/test_janela_sob_demanda.py`.
+            avisar_o_grupo = False
         elif pedido.comando is Comando.AJUDA:
             resposta = texto_de_ajuda()
             # Pergunta pessoal, mesmo racional ja escrito no ramo do `.status`
@@ -1296,6 +1322,50 @@ def _obedecer_cancelar(registro, eventos, agora, quem: str) -> str:
     if not registro.cancelar(chave_da_ocorrencia(nome, inicio)):
         return f"O silencio do {nome} ja estava cancelado."
     return f"{quem} cancelou: " + texto_de_cancelamento(nome, inicio, rolando)
+
+
+def _obedecer_janela(registro, bosses, agora: datetime) -> str:
+    """A previsao de janela, respondida a quem perguntou.
+
+    NAO HA TEXTO NOVO AQUI, e essa e a decisao inteira desta funcao. Ela chama
+    a MESMA `respawn.linhas_de_previsao` que o console imprime no arranque e de
+    hora em hora — a irma desta chamada e `_anunciar_previsao_de_janelas`, e as
+    duas leem o mesmo disco e produzem o mesmo texto. Uma segunda redacao,
+    escrita aqui para o WhatsApp, seria a quinta origem de texto desta fase e a
+    primeira livre para divergir das outras quatro: no dia em que o servidor
+    trocasse a regra de respawn, o console e o celular passariam a dizer coisas
+    diferentes sobre o mesmo boss, e ninguem descobriria qual dos dois estava
+    errado. E a mesma razao ja escrita em `respawn.anunciar_janelas` para os
+    dois lacos compartilharem uma implementacao so.
+
+    A LEITURA DE DISCO E SEGURA AQUI pela razao ja escrita em
+    `_anunciar_previsao_de_janelas`: esta funcao SO LE. Nao marca, nao despacha
+    e nao decide nada, e a proibicao de D-21 e sobre CHECAR ANTES DE MARCAR.
+
+    O `agora` ENTRA POR PARAMETRO, como em todo o resto do arquivo. Ele vem do
+    laco — que num replay le o horario GRAVADO — e decide o tempo verbal das
+    linhas.
+
+    SEM BOSS NENHUM A RESPOSTA DIZ ISSO, e nao devolve vazio.
+    `linhas_de_previsao` devolve lista vazia sem boss e esta certa: quem imprime
+    no console e um laco, e uma linha a mais ali repetiria o que
+    `montar_vigia_de_bosses` ja diz. Aqui a lista vazia viraria uma mensagem em
+    BRANCO no WhatsApp, e do lado de quem perguntou isso e indistinguivel do
+    bot ter caido. O texto aponta o `config.toml` porque e la que se conserta.
+
+    SEM ANCORA A RESPOSTA NAO INVENTA HORARIO — quem garante isso e
+    `linhas_de_previsao`, que ja se cala por boss, e T-02-13 explica por que.
+    Nada aqui pode passar por cima daquilo.
+    """
+    linhas = linhas_de_previsao(
+        agora, bosses, ancoras_mais_recentes(registro.nascimentos())
+    )
+    if not linhas:
+        return (
+            "Nao ha nenhum boss vigiado: o config.toml esta sem bloco [[boss]], "
+            "entao nao tenho janela de respawn para prever."
+        )
+    return "\n".join(linhas)
 
 
 def _obedecer_modo(rastreador, solo: bool, quem: str) -> str:
@@ -1622,6 +1692,12 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
             atender_comandos(
                 leitor, registro, eventos, despachante, agora,
                 time.monotonic(), loot=registro_de_loot,
+                # A MESMA lista que `_avisar_janelas_de_respawn` e
+                # `_anunciar_previsao_de_janelas` recebem neste laco. Sem ela o
+                # `/tiat` responde "nao ha boss vigiado" no modo `--so-agenda`,
+                # que e justamente o modo de quem esta com o jogo FECHADO — o
+                # publico inteiro deste comando.
+                bosses=bosses,
             )
             encerrou = silencio.atualizar(agora)
             if encerrou:
@@ -2251,6 +2327,12 @@ def laco_principal(
                 time.monotonic(),
                 rastreador,
                 loot=registro_de_loot,
+                # A MESMA lista que `_anunciar_previsao_de_janelas` recebe no
+                # arranque deste laco, e aqui ela se chama `regras_de_respawn`
+                # e nao `bosses` — o nome `bosses` ja e o VIGIA nesta funcao. O
+                # portao de AST afirma a FORMA (uma variavel, nao um literal) e
+                # nao o nome, exatamente por isso.
+                bosses=regras_de_respawn,
             )
 
             resultado = sessao.tick(frame, momento)

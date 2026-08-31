@@ -148,9 +148,10 @@ class TestInterpretar:
             Comando.PARTY,
             # Entrar e sair da lista de presenca do proximo Solo Boss.
             # Crescimento de proposito, e de uma natureza que a lista nunca
-            # tinha tido: sao os DOIS UNICOS comandos alcancaveis por um
-            # SEGUNDO nivel de autorizacao — o `[[membro]]` do config.toml.
-            # Todos os outros continuam so para o nivel de dono. Ver
+            # tinha tido: foram os PRIMEIROS comandos alcancaveis por um
+            # SEGUNDO nivel de autorizacao — o `[[membro]]` do config.toml. A
+            # `JANELA`, mais abaixo, e o terceiro e entrou por outro argumento.
+            # Todos os demais continuam so para o nivel de dono. Ver
             # `TestFronteiraDeAutorizacao`.
             Comando.JOIN,
             Comando.LEAVE,
@@ -205,6 +206,20 @@ class TestInterpretar:
             # que.
             Comando.DESATIVAR_LISTA,
             Comando.ATIVAR_LISTA,
+            # E a janela de respawn dos bosses vigiados, sob demanda.
+            # Crescimento DE PROPOSITO, e o de menor estrago possivel da lista:
+            # e o primeiro comando de MEMBRO que nao escreve nada — nao muda
+            # estado, nao fala do remetente, nao muda o que o grupo recebe. O
+            # que ele revela, o proprio bot ja anuncia ao grupo por conta
+            # propria quando cada janela vence; ele so adianta, sob demanda, um
+            # texto que ja e publico para essa mesma plateia.
+            #
+            # O SIMBOLO E GENERICO E A FORMA ESCRITA E QUE E `/tiat`. O
+            # workstream inteiro le os blocos `[[boss]]` do config.toml, e um
+            # membro chamado `TIAT` seria o unico ponto do sistema onde trocar
+            # de boss exigiria editar codigo. Ver `_VOCABULARIO`, onde `tiat`
+            # mora ao lado de `janela`, `boss` e `respawn`.
+            Comando.JANELA,
         }
 
     def test_as_formas_do_desligamento_do_boss(self):

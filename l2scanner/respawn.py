@@ -667,6 +667,13 @@ def linhas_de_previsao(
     passa `k` cedo, onde `k` e o tempo que o boss ficou vivo. As linhas entram
     no MESMO portao de tokens de `tests/test_respawn.py`, e nao num segundo que
     poderia divergir dele.
+
+    A LINHA COM ANCORA TERMINA PELA REGRA (`_regra_da_janela`), e a razao de a
+    frase morar aqui — e nao so na resposta do comando `/tiat` — esta escrita
+    naquela funcao. A LINHA SEM ANCORA NAO A RECEBE, e a assimetria e
+    deliberada: T-02-13 exige que ela nao contenha numero NENHUM, e a regra e
+    feita de dois numeros. Alem disso, ela nao teria o que explicar — nao ha
+    intervalo previsto para justificar.
     """
     linhas: list[str] = []
     for boss in bosses:
@@ -686,9 +693,62 @@ def linhas_de_previsao(
             f"{'abre' if agora < abre else 'abriu'} em {_quando(abre)} e o "
             f"limite otimista "
             f"{'passa' if agora < limite else 'passou'} em {_quando(limite)}, "
-            f"contados {desde}.{ressalva}"
+            f"contados {desde}.{ressalva} {_regra_da_janela(boss)}"
         )
     return linhas
+
+
+def _regra_da_janela(boss: Boss) -> str:
+    """A regra do servidor por extenso: a parte FIXA mais o SORTEIO.
+
+    POR QUE ESTA FRASE EXISTE. A linha antiga entregava dois horarios e nenhuma
+    explicacao para eles serem dois. Quem le um intervalo sem a regra que o
+    produziu inventa a explicacao sozinho, e a mais natural — "o bot esta em
+    duvida entre dois horarios" — e falsa: o scanner nao esta incerto sobre a
+    conta, o SERVIDOR e que sorteia dentro da faixa. A diferenca decide o que a
+    party faz: uma conta duvidosa se ignora, um sorteio se espera.
+
+    POR QUE ELA MORA AQUI, DENTRO DA PREVISAO, E NAO SO NA RESPOSTA DO COMANDO.
+    Foi uma escolha entre duas, e as duas tinham argumento. Contra: o console e
+    o anuncio horario ficam com uma frase a mais que ninguem pediu. A favor, e
+    e o que decidiu: e a MESMA disciplina de `_citacao_da_ancora`, escrita ali
+    por D-16 — quem le o console tem que poder julgar o numero com a mesma
+    informacao de quem le o WhatsApp. A regra e parte de como julgar o numero,
+    e nao enfeite; posta so na resposta do comando, ela seria a primeira coisa
+    desta familia a existir num canal e faltar no outro, e a segunda copia
+    nasceria livre para divergir da primeira no dia em que o servidor trocasse
+    a regra de novo. Uma frase a mais no console e barato; duas versoes da
+    mesma verdade nao e.
+
+    OS DOIS NUMEROS SAO CALCULADOS E NUNCA ESCRITOS. A parte fixa e
+    `respawn_horas_min`; a aleatoria e a DIFERENCA entre os dois campos do
+    `[[boss]]`. O servidor ja mudou a regra uma vez — era 6h fixas mais ate 2h,
+    virou 8h mais ate 2h — e vai mudar de novo. Um literal aqui viraria uma
+    mentira que passa em todos os testes, porque nenhum deles compara o texto
+    com o `config.toml`.
+
+    FAIXA ZERO NAO ANUNCIA SORTEIO. `ler_bosses` so recusa `max` MENOR que
+    `min`, entao `max == min` e uma configuracao legal. A frase generica sairia
+    como "mais ate 0h aleatorias", que e pior que nao dizer nada: ela promete
+    um sorteio inexistente e manda o leitor procurar uma faixa de largura zero.
+
+    NAO AFIRMA ENCERRAMENTO (D-19) e nao pode passar a afirmar. Ela descreve a
+    regra do servidor, que conta a partir da MORTE; a previsao conta a partir
+    do NASCIMENTO. Dizer aqui que "depois de 10h ele ja nasceu" seria juntar as
+    duas contas e produzir exatamente a afirmacao que o portao de tokens de
+    `tests/test_respawn.py` recusa.
+    """
+    fixas = boss.respawn_horas_min
+    aleatorias = boss.respawn_horas_max - boss.respawn_horas_min
+    if aleatorias <= 0:
+        return (
+            f"A regra deste boss sao {fixas:g}h cravadas, sem parte sorteada: "
+            f"os dois horarios acima sao o mesmo instante."
+        )
+    return (
+        f"A regra sao {fixas:g}h fixas mais ate {aleatorias:g}h aleatorias, "
+        f"entao o nascimento cai em algum ponto entre os dois horarios acima."
+    )
 
 
 def _quando(instante: datetime) -> str:
