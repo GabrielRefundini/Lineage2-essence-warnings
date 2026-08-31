@@ -61,6 +61,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -72,11 +73,15 @@ if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
 from l2scanner import ocr  # noqa: E402
-from l2scanner.__main__ import montar_registro_de_mercado  # noqa: E402
+from l2scanner.__main__ import (  # noqa: E402
+    configurar_log,
+    montar_registro_de_mercado,
+)
 from l2scanner.calibracao import Calibracao, CalibracaoInvalida  # noqa: E402
 from l2scanner.mercado_pagina import LeitorDePagina  # noqa: E402
 from l2scanner.mercado_registro import (  # noqa: E402
     ARQUIVO_DE_OBSERVACOES,
+    PASTA_DO_MERCADO,
 )
 from l2scanner.mercado_visao import (  # noqa: E402
     RastreioDoPainel,
@@ -111,6 +116,55 @@ SAIDA_SEM_OCR = 5
 SAIDA_SEM_CALIBRACAO = 6
 SAIDA_SEM_REGISTRO = 7
 SAIDA_SEM_OBSERVACAO = 8
+
+
+# ---------------------------------------------------------------------------
+# A GUARDA DA SAIDA — a primeira coisa que roda, antes de qualquer `mkdir`
+# ---------------------------------------------------------------------------
+
+
+def _normalizado(caminho) -> str:
+    """O caminho num formato so, para a comparacao poder ser de igualdade.
+
+    `resolve()` desfaz o `..` do meio e transforma relativo em absoluto;
+    `os.path.normcase` troca `/` por `\\` e baixa a caixa NO WINDOWS, e e um
+    no-op onde a caixa importa de verdade. Os dois juntos sao a razao de a
+    comparacao ser sobre CAMINHOS e nao sobre TEXTO: no Windows a mesma pasta
+    chega escrita de tres jeitos, e uma comparacao de string aprovaria dois.
+    """
+    return os.path.normcase(str(Path(caminho).resolve()))
+
+
+def razao_para_recusar_a_saida(saida) -> str | None:
+    """A pasta de producao do registro nao pode ser saida do replay. Ou `None`.
+
+    ELA NAO IMPRIME E NAO CRIA NADA — e uma pergunta, e quem chama decide. Isso
+    e o que permite chama-la ANTES de qualquer `mkdir`, que e o unico momento em
+    que a guarda ainda vale alguma coisa.
+
+    A RAZAO POR EXTENSO, e nao so "recusado": uma linha derivada de replay
+    carrega o carimbo de AGORA sobre um preco que foi visto dias atras. O
+    registro de producao e dado acumulado e sem desfazer, e o CONTEXT ja recusou
+    colunas de gravacao e de frame justamente para o arquivo nao virar um lugar
+    onde bancada e producao se misturam (D-04).
+
+    A subpasta e recusada junto com a raiz: deixar `--saida .mercado/rascunho`
+    passar poria o arquivo dentro da pasta que o usuario abre no Sheets.
+    """
+    alvo = _normalizado(saida)
+    producao = _normalizado(PASTA_DO_MERCADO)
+    if alvo != producao and not alvo.startswith(producao + os.sep):
+        return None
+    return (
+        "SAIDA RECUSADA: " + str(saida) + " e (ou esta dentro de) a pasta de "
+        "PRODUCAO do registro, " + str(PASTA_DO_MERCADO) + ".\n"
+        "  Uma linha derivada de replay carrega o carimbo de AGORA sobre um "
+        "preco que foi visto dias atras.\n"
+        "  O registro de producao e dado acumulado e SEM DESFAZER: misturar os "
+        "dois estragaria o arquivo para sempre.\n"
+        "  Aponte --saida para uma pasta de rascunho, por exemplo "
+        "C:/temp/portao-fase3."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +320,15 @@ def main(argv=None) -> int:
     print("calibracao: " + str(calibracao))
     print("saida     : " + str(saida))
 
+    # A GUARDA DA SAIDA VEM PRIMEIRO, ANTES DE QUALQUER CRIACAO DE PASTA. Uma
+    # guarda que rodasse depois do `mkdir` ja teria deixado a marca do replay
+    # dentro da pasta que ela existe para proteger.
+    recusa = razao_para_recusar_a_saida(saida)
+    if recusa is not None:
+        print("")
+        print(recusa)
+        return SAIDA_RECUSADA
+
     if not gravacoes.is_dir():
         print("")
         print("ERRO: " + str(gravacoes) + " nao e um diretorio.")
@@ -329,6 +392,12 @@ def main(argv=None) -> int:
             "GRADE DE NEGOCIACAO. Recalibre."
         )
         return SAIDA_SEM_CALIBRACAO
+
+    # O LOG DO PROJETO ANTES DA MONTAGEM, e nao depois. Sem isto o `log.error`
+    # da montagem nao teria manipulador nenhum e o usuario nao veria nada — e o
+    # criterio da fase e literalmente "o usuario VE o aviso alto". E o que faz a
+    # metade CONSOLE do D-13 valer tambem fora do scanner.
+    configurar_log(False)
 
     registro = montar_registro_de_mercado(saida)
     if registro is None:
