@@ -75,6 +75,7 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "ARQUIVO_DE_OBSERVACOES",
+    "ARQUIVO_DO_LEIAME",
     "COLUNAS",
     "ContratoDoArquivoQuebrado",
     "PASTA_DO_MERCADO",
@@ -83,10 +84,18 @@ __all__ = [
     "campos_da_observacao",
     "chave_da_observacao",
     "chave_dos_campos",
+    "escrever_leiame",
     "residuo_dos_campos",
 ]
 
 ARQUIVO_DE_OBSERVACOES = "observacoes.csv"
+
+# O texto que explica o CSV, ao lado do CSV. Ele e a saida (c) da pesquisa, e as
+# outras duas foram RECUSADAS com motivo: uma linha de instrucao no TOPO do
+# arquivo quebraria o cabecalho-contrato e o Sheets a importaria como dado, e
+# uma coluna `total_exibido` seria dois campos para o mesmo fato — a mesma
+# objecao que derrubou a coluna do unitario.
+ARQUIVO_DO_LEIAME = "LEIAME.txt"
 
 # A ORDEM espelha a do catalogo irmao na mesma pasta (chave, nome,
 # primeira_vez, ...) para que dois arquivos vizinhos nao tenham convencoes
@@ -250,6 +259,114 @@ def residuo_dos_campos(campos: Sequence[str]) -> int | None:
 # ===========================================================================
 
 
+# SEM ACENTO, como todo texto que este projeto poe na frente do usuario: o
+# console do Windows abre em cp1252 e a mesma frase acaba colada num log, numa
+# mensagem de erro e num editor qualquer. O arquivo e escrito em UTF-8; a
+# escolha aqui e de consistencia, nao de codificacao.
+TEXTO_DO_LEIAME = """O QUE E ESTA PASTA
+==================
+`.mercado/` e estado local e duravel deste scanner. Sao dois arquivos, com
+donos diferentes e nada compartilhado entre eles:
+
+  catalogo-de-nomes.csv   o VOCABULARIO. Escrito pela leitura de pagina, guarda
+                          os nomes de item ja vistos e a chave estavel de cada
+                          serie.
+  observacoes.csv         o REGISTRO. Escrito pelo registro de observacoes, uma
+                          linha por observacao de anuncio.
+
+Nenhum dos dois e versionado, e nao ha desfazer: a estatistica e desta maquina.
+
+Este LEIAME e escrito UMA VEZ, quando a pasta nasce, e NUNCA e reescrito. Se
+voce anotar alguma coisa aqui, a anotacao fica.
+
+
+COMO IMPORTAR observacoes.csv NO GOOGLE SHEETS
+==============================================
+1. No Sheets: menu Arquivo > Importar > Enviar o arquivo (File > Import >
+   Upload).
+2. Escolha o observacoes.csv.
+3. No campo de separador, escolha PERSONALIZADO (Custom) e digite ";".
+
+Dois avisos que economizam tempo:
+
+- NAO existe uma opcao pronta de ponto e virgula na lista. Ela oferece apenas
+  deteccao automatica, tabulacao, virgula e personalizado — quem procurar
+  "ponto e virgula" vai procurar por uma opcao que nao existe.
+- Abrir o arquivo com duplo clique no Drive NAO oferece esse dialogo. So o
+  caminho pelo menu Arquivo > Importar deixa escolher o separador.
+
+
+POR QUE O SEPARADOR E PONTO E VIRGULA
+=====================================
+A exibicao do jogo usa padrao brasileiro, com virgula decimal (62,00). Um CSV
+separado por virgula colapsaria a planilha inteira numa coluna so no instante
+em que voce abrisse o arquivo.
+
+
+OS PRECOS SAO INTEIROS EM CENTESIMOS
+====================================
+6200 no arquivo e 62,00 na tela. Nao ha ponto nem virgula decimal em nenhuma
+coluna de preco, e o nome da coluna carrega a unidade: total_em_centesimos.
+
+NAO HA COLUNA DE PRECO UNITARIO, e a razao cabe numa frase: o unitario que o
+jogo mostra e arredondado a duas casas, e reconstruir o total a partir dele
+devolve um numero que nunca existiu.
+
+
+A COLUNA residuo_do_cruzamento
+==============================
+Ela e a diferenca, em centesimos, entre o total lido e o produto do unitario
+pela quantidade. E uma pista sobre a propria LEITURA, e nunca um preco.
+
+  celula VAZIA   quer dizer "nao deu para medir": alguma das tres celulas da
+                 linha nao leu.
+  ZERO           quer dizer "conferi e bateu".
+
+Sao fatos diferentes. Uma planilha que trate os dois como o mesmo estara
+somando leituras que nunca aconteceram.
+
+
+UMA LINHA POR OBSERVACAO
+========================
+A data e a da PRIMEIRA vez que aquela observacao foi vista. Rever a mesma
+pagina nao acrescenta linha.
+
+
+O SINAL DE MAIS NO COMECO DO NOME - PERGUNTA EM ABERTO
+======================================================
+Alguns nomes de item comecam com o sinal de mais (por exemplo: +6 Agathion
+Alpha Hunter Sealed), e planilhas costumam tratar uma celula que comeca assim
+como inicio de FORMULA. Isto nao e defeito conhecido deste arquivo — e uma
+suposicao ainda NAO MEDIDA.
+
+Se acontecer na sua importacao, avise. O arquivo esta certo, e a correcao seria
+na planilha, nunca no dado: sujar o nome para agradar um importador e o oposto
+do que este arquivo existe para ser.
+"""
+
+
+def escrever_leiame(pasta: Path) -> bool:
+    """Poe o LEIAME ao lado do CSV, e SO SE ELE NAO EXISTIR.
+
+    Devolve `True` quando escreveu e `False` quando ja havia um. A regra e
+    ESCREVER SO SE AUSENTE, nunca sobrescrever, e a razao e o dono do arquivo:
+    ele e um texto para humano, na pasta do humano, e o usuario pode anotar
+    coisas ali. Um programa que o reescrevesse a cada arranque apagaria a
+    anotacao calado — a mesma familia de erro que o cabecalho-contrato existe
+    para impedir do outro lado do modulo.
+
+    NAO SE DEFENDE, pelo mesmo criterio do construtor que a chama: ela roda
+    dentro de `RegistroDeObservacoes.__init__`, que a montagem
+    (`montar_registro_de_mercado`) envolve num `try`. Uma rede aqui dentro
+    duplicaria a de la e esconderia a falha de quem precisa decidir.
+    """
+    alvo = pasta / ARQUIVO_DO_LEIAME
+    if alvo.exists():
+        return False
+    alvo.write_text(TEXTO_DO_LEIAME, encoding="utf-8")
+    return True
+
+
 class RegistroDeObservacoes:
     """O arquivo `.mercado/observacoes.csv`, e o unico escritor dele.
 
@@ -278,6 +395,11 @@ class RegistroDeObservacoes:
         # e dado acumulado e sem desfazer. Producao passa `PASTA_DO_MERCADO`.
         self._pasta = pasta
         self._pasta.mkdir(parents=True, exist_ok=True)
+        # Logo DEPOIS do `mkdir` e ANTES de qualquer leitura: o texto que
+        # explica o arquivo nasce junto com a pasta que o guarda, e nunca
+        # depois. Ele nao toca o CSV — e um arquivo ao lado, nao uma linha
+        # dentro.
+        escrever_leiame(self._pasta)
         self.ligado = True
         self.chaves: set[tuple[str, int, int]] = set()
         self.carregar()
