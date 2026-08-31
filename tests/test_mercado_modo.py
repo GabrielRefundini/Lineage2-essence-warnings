@@ -27,15 +27,22 @@ from __future__ import annotations
 import argparse
 import copy
 import logging
+import re
+from collections import Counter
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from l2scanner.__main__ import montar_catalogo_de_mercado
 from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.mercado_catalogo import ARQUIVO_DO_CATALOGO
-from l2scanner.mercado_modo import laco_do_mercado
+from l2scanner.mercado_leitura import (
+    MOTIVO_DA_GRAMATICA,
+    MOTIVO_DA_OCLUSAO,
+)
+from l2scanner.mercado_modo import Contagem, laco_do_mercado
 from l2scanner.mercado_pagina import pecas_de_calibracao_de_mercado_faltando
 from l2scanner.mercado_registro import ARQUIVO_DE_OBSERVACOES
 from l2scanner.relogio import Relogio
@@ -389,3 +396,210 @@ class TestMontarCatalogoDeMercado:
         catalogo = montar_catalogo_de_mercado(tmp_path / "novo")
         assert catalogo is not None
         assert catalogo.arquivo.parent.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# LEIT-04: o console ao vivo e o resumo das duas metades
+# ---------------------------------------------------------------------------
+
+# Numeros PRIMOS e distintos, de proposito: com 7 e 17 na mesma tela, um
+# `str(valor) in texto` ingenuo aprovaria "7" por causa do "17". As afirmacoes
+# abaixo usam fronteira de palavra justamente por isso.
+CONTADORES_FALSOS = {
+    "paginas_lidas": 7,
+    "paginas_perdidas": 3,
+    "paginas_vazias": 11,
+    "paginas_de_outro_layout": 13,
+    "ticks_com_painel_aberto": 17,
+    "frames_congelados": 19,
+    "linhas_descartadas": 23,
+}
+
+
+class LeitorFalso:
+    """Os SETE contadores publicos do `LeitorDePagina`, e nada mais.
+
+    O console recebe o leitor e nao sabe se ele leu pixel nenhum - e essa e a
+    razao de as funcoes de desenho DEVOLVEREM texto: elas ficam afirmaveis sem
+    fixtura, sem OCR e sem capturar stdout.
+    """
+
+    def __init__(self, **contadores) -> None:
+        valores = dict(CONTADORES_FALSOS)
+        valores.update(contadores)
+        for nome, valor in valores.items():
+            setattr(self, nome, valor)
+        self.ultimo_motivo_de_perda = None
+        self.ultima_leitura = None
+
+
+def _orcamento_de_exemplo():
+    from l2scanner.mercado_console import OrcamentoDoTick
+
+    orcamento = OrcamentoDoTick(limite=1.0)
+    for segundos in (0.10, 0.11, 0.12, 0.13, 1.40):
+        orcamento.registrar(segundos)
+    return orcamento
+
+
+class TestALinhaAoVivo:
+    def test_ela_tem_docstring(self) -> None:
+        from l2scanner.mercado_console import linha_ao_vivo
+
+        assert linha_ao_vivo.__doc__
+
+    def test_mostra_as_duas_metades_e_o_ultimo_item(self) -> None:
+        from l2scanner.mercado_console import linha_ao_vivo
+
+        texto = linha_ao_vivo(
+            LeitorFalso(paginas_lidas=7, paginas_perdidas=3),
+            Contagem(),
+            "Blessed Scroll of Escape",
+        )
+        assert re.search(r"\b7\b", texto)
+        assert re.search(r"\b3\b", texto)
+        assert "Blessed Scroll of Escape" in texto
+
+    def test_com_zero_lidas_a_metade_PERDIDA_continua_visivel(self) -> None:
+        """Nunca so a metade boa: o censo mediu 151 lidas contra 189 perdidas.
+
+        Esconder a segunda faria o usuario confiar numa cobertura que nao
+        existe - que e exatamente o defeito que LEIT-04 existe para impedir.
+        """
+        from l2scanner.mercado_console import linha_ao_vivo
+
+        texto = linha_ao_vivo(
+            LeitorFalso(paginas_lidas=0, paginas_perdidas=3), Contagem(), None
+        )
+        assert re.search(r"\b0\b", texto)
+        assert re.search(r"\b3\b", texto)
+
+    def test_ela_NAO_mostra_o_residuo_do_cruzamento(self) -> None:
+        """A guarda de cruzamento esta DESLIGADA por medicao (02-02).
+
+        O residuo e observacao, nao veredito, e ele ja esta no CSV para o
+        usuario olhar no Sheets. No repintar de 1 Hz ele so competiria por
+        atencao com os dois numeros que julgam a sessao.
+        """
+        import inspect as _inspect
+
+        from l2scanner.mercado_console import linha_ao_vivo
+
+        assert "residuo" not in _inspect.getsource(linha_ao_vivo)
+
+
+class TestOResumoDaSessao:
+    def test_os_SETE_contadores_aparecem_com_o_seu_valor(self) -> None:
+        from l2scanner.mercado_console import resumo_da_sessao
+
+        texto = resumo_da_sessao(
+            LeitorFalso(), Contagem(), Counter(), _orcamento_de_exemplo()
+        )
+        for nome, valor in CONTADORES_FALSOS.items():
+            assert re.search(rf"\b{valor}\b", texto), (nome, valor)
+
+    def test_as_tres_contagens_de_escrita_nao_se_somam(self) -> None:
+        """`observacoes`, `duplicadas` e `perdidas` sao fatos DIFERENTES."""
+        from l2scanner.mercado_console import resumo_da_sessao
+
+        texto = resumo_da_sessao(
+            LeitorFalso(),
+            Contagem(observacoes=41, duplicadas=43, perdidas=47),
+            Counter(),
+            _orcamento_de_exemplo(),
+        )
+        for valor in (41, 43, 47):
+            assert re.search(rf"\b{valor}\b", texto)
+
+    def test_os_motivos_somam_por_SESSAO_e_nao_por_pagina(self) -> None:
+        """Dois ticks com o MESMO motivo produzem contagem 2.
+
+        O campo `motivos` da pagina carrega so a ultima leitura, nao um
+        acumulado - somar o acumulado e trabalho do laco, e e isso que este
+        teste prende.
+        """
+        from l2scanner.mercado_console import acumular_motivos, resumo_da_sessao
+
+        acumulados = Counter()
+        for _ in range(2):
+            acumular_motivos(acumulados, LeituraFalsa((MOTIVO_DA_OCLUSAO,)))
+
+        texto = resumo_da_sessao(
+            LeitorFalso(), Contagem(), acumulados, _orcamento_de_exemplo()
+        )
+        assert MOTIVO_DA_OCLUSAO in texto
+        linha = [l for l in texto.splitlines() if MOTIVO_DA_OCLUSAO in l]
+        assert linha and re.search(r"\b2\b", linha[0]), texto
+
+    def test_o_motivo_usa_a_CONSTANTE_e_nao_a_palavra_do_CONTEXT(self) -> None:
+        """O CONTEXT chama uma delas de "gramatica"; a constante vale `numero`."""
+        from l2scanner.mercado_console import acumular_motivos, resumo_da_sessao
+
+        acumulados = Counter()
+        acumular_motivos(acumulados, LeituraFalsa((MOTIVO_DA_GRAMATICA,)))
+        texto = resumo_da_sessao(
+            LeitorFalso(), Contagem(), acumulados, _orcamento_de_exemplo()
+        )
+        assert MOTIVO_DA_GRAMATICA in texto
+        assert "gramatica" not in texto
+
+    def test_o_orcamento_traz_p50_p95_maximo_e_estouros(self) -> None:
+        from l2scanner.mercado_console import resumo_da_sessao
+
+        texto = resumo_da_sessao(
+            LeitorFalso(), Contagem(), Counter(), _orcamento_de_exemplo()
+        ).lower()
+        assert "p50" in texto
+        assert "p95" in texto
+        assert "maximo" in texto
+        assert "estouraram" in texto
+
+    def test_o_resumo_diz_que_contencao_e_do_SISTEMA(self) -> None:
+        """Os numeros dizem o que ESTE processo custou, e so isso."""
+        from l2scanner.mercado_console import resumo_da_sessao
+
+        texto = resumo_da_sessao(
+            LeitorFalso(), Contagem(), Counter(), _orcamento_de_exemplo()
+        )
+        assert "sistema" in texto.lower()
+
+
+class LeituraFalsa:
+    """So o campo que o acumulador de motivos le."""
+
+    def __init__(self, motivos) -> None:
+        self.motivos = tuple(motivos)
+
+
+class TestOAntiSpamDoPainelFechado:
+    def test_painel_fechado_por_varios_ticks_da_UMA_linha_de_transicao(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        """Painel fechado e o estado NORMAL e majoritario de um farm real.
+
+        Uma linha por tick seriam 3.600 linhas por hora - e o log rotativo
+        perderia a forense que ele existe para guardar.
+        """
+        quadros = [
+            np.full((400, 400, 3), 20 + i * 7, dtype=np.uint8) for i in range(6)
+        ]
+        with caplog.at_level(logging.INFO):
+            laco_do_mercado(
+                argumentos(),
+                cal,
+                fonte=FonteFalsa(quadros),
+                ler_texto=LeitoraDeRecorte(),
+                ler_texto_conferencia=LeitoraDeRecorte(),
+                relogio=Relogio(),
+                pasta=tmp_path,
+                ticks_maximos=6,
+            )
+        transicoes = [
+            r for r in caplog.records if "painel do mercado" in r.getMessage()
+        ]
+        # EXATAMENTE uma, e nao "no maximo uma": seis ticks fechados sao UMA
+        # transicao (o estado inicial, que o usuario precisa ver para saber que
+        # o modo esta vivo e nao esta achando nada). Um `<= 1` ficaria verde
+        # tambem com ZERO, que e o modo de falha oposto - silencio
+        # indistinguivel de travamento.
+        assert len(transicoes) == 1, [r.getMessage() for r in transicoes]
