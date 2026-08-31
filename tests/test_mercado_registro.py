@@ -35,6 +35,9 @@ nenhum precisa ser saneado — sanear alteraria o rotulo que o usuario le.
 
 from __future__ import annotations
 
+import csv
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -93,13 +96,16 @@ def _linhas_cruas(pasta: Path) -> list[str]:
 
 
 def _campos_da_primeira_observacao(pasta: Path) -> list[str]:
-    """Os campos da linha 2 do arquivo, relidos pelo modulo `csv`."""
-    import csv
-    import io
+    """Os campos da linha 2 do arquivo, relidos pelo modulo `csv`.
 
-    bruto = (pasta / ARQUIVO_DE_OBSERVACOES).read_text(encoding="utf-8", newline="")
-    linhas = list(csv.reader(io.StringIO(bruto, newline=""), delimiter=SEPARADOR))
-    return linhas[1]
+    `newline=""` no `open` e obrigatorio nos DOIS sentidos: sem ele a traducao
+    universal de quebras de linha alteraria um `nome_exibido` que contem `\\r`,
+    e este helper existe justamente para provar que o nome volta IDENTICO.
+    """
+    with (pasta / ARQUIVO_DE_OBSERVACOES).open(
+        "r", encoding="utf-8", newline=""
+    ) as fonte:
+        return list(csv.reader(fonte, delimiter=SEPARADOR))[1]
 
 
 # ===========================================================================
@@ -286,6 +292,78 @@ class TestOContratoDasColunas:
 
         assert mercado_registro.SEPARADOR is SEPARADOR
         assert mercado_registro.PASTA_DO_MERCADO == PASTA_DO_MERCADO
+
+
+class TestOModuloNaoArrastaAMetadeDeVisao:
+    """`LinhaLida` so sob `TYPE_CHECKING` — e a prova disso e um subprocesso.
+
+    UM NUMERO QUE CAIU PRECISA DIZER QUE CAIU. O plano cobrava a forma mais
+    forte: `cv2` e `numpy` ausentes de `sys.modules` depois de importar
+    `mercado_registro`. MEDIDO: impossivel, e nao por culpa deste modulo —
+    `import l2scanner.mercado_catalogo` SOZINHO ja deixa os dois la, porque ele
+    importa `.config`, que importa `.visao`. Como importar `PASTA_DO_MERCADO` e
+    `SEPARADOR` do catalogo (em vez de redefinir) e contrato desta fase, as duas
+    exigencias se contradiziam.
+
+    O que ficou e o que mede a mesma coisa e da para afirmar: este modulo nao
+    acrescenta peso NENHUM por conta propria.
+    """
+
+    def test_importar_o_registro_acrescenta_UM_modulo_so_ao_que_o_catalogo_ja_traz(
+        self,
+    ):
+        codigo = (
+            "import sys\n"
+            "import l2scanner.mercado_catalogo\n"
+            "antes = set(sys.modules)\n"
+            "import l2scanner.mercado_registro\n"
+            "novos = sorted(set(sys.modules) - antes)\n"
+            "print(';'.join(novos))\n"
+        )
+        saida = subprocess.run(
+            [sys.executable, "-c", codigo],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=Path(__file__).resolve().parent.parent,
+        )
+        assert saida.stdout.strip() == "l2scanner.mercado_registro"
+
+    def test_mercado_leitura_NAO_e_carregado_pelo_registro(self):
+        """O `TYPE_CHECKING` sendo real, e nao decorativo."""
+        codigo = (
+            "import sys\n"
+            "import l2scanner.mercado_registro\n"
+            "print('l2scanner.mercado_leitura' in sys.modules)\n"
+        )
+        saida = subprocess.run(
+            [sys.executable, "-c", codigo],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=Path(__file__).resolve().parent.parent,
+        )
+        assert saida.stdout.strip() == "False"
+
+    def test_o_catalogo_JA_traz_cv2_e_numpy_e_por_isso_o_criterio_original_caiu(self):
+        """A medicao que derrubou o criterio, presa para nao se perder.
+
+        Se um dia alguem aliviar a cadeia de `config` e este teste ficar
+        vermelho, e boa noticia — e a hora de cobrar de volta a forma forte.
+        """
+        codigo = (
+            "import sys\n"
+            "import l2scanner.mercado_catalogo\n"
+            "print('cv2' in sys.modules, 'numpy' in sys.modules)\n"
+        )
+        saida = subprocess.run(
+            [sys.executable, "-c", codigo],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=Path(__file__).resolve().parent.parent,
+        )
+        assert saida.stdout.strip() == "True True"
 
 
 # ===========================================================================
