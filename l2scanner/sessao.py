@@ -677,6 +677,7 @@ class Sessao:
 
         resultado.aprendizados.extend(saida.aprendizados)
         resultado.recusas_de_aprendizado.extend(saida.recusas)
+        self._registrar_recusas(saida.recusas)
 
         for aprendizado in saida.aprendizados:
             if aprendizado.desfecho not in ("criado", "ja_existia"):
@@ -744,6 +745,69 @@ class Sessao:
                     "nome delas. Isso vale para a party inteira, e nao so para "
                     "a linha aprendida."
                 )
+
+    def _registrar_recusas(self, recusas: list) -> None:
+        """O auto-diagnostico de D-07, com a cadencia que nao foi inventada.
+
+        CADA RECUSA VAI PARA `log.debug`, para quem estiver depurando ter a
+        serie inteira. O RESUMO sai so quando o RETRATO MUDA — a primeira
+        recusa, e depois so quando aparece um minimo ou um maximo novo.
+
+        Escolher a emissao por MUDANCA, e nao a cada K recusas, e deliberado:
+        qualquer K seria um numero inventado, e este plano nao pode acrescentar
+        um. A emissao por mudanca e auto-limitada — as primeiras leituras
+        registram, e assim que as distancias convergem ela cala sozinha — e
+        ainda entrega exatamente o que o usuario precisa: a faixa real das
+        distancias, uma vez, no comeco do log. Uma linha por segundo no
+        `scanner.log` e a outra forma de nao ser lido, e a razao ja esta escrita
+        nos sinalizadores `_ja_avisou_*` do mercado (T-02-10).
+
+        O TEXTO DIZ O QUE FAZER COM O NUMERO. Um campo estruturado que so o
+        teste ve nao ajuda ninguem a escolher a tolerancia dele.
+        """
+        if not recusas:
+            return
+
+        for recusa in recusas:
+            log.debug(
+                "Recusei aprender a linha %d por instabilidade: %s, "
+                "tolerancia atual %d celula(s)",
+                recusa.indice + 1,
+                (
+                    f"{recusa.distancia} celula(s) de diferenca"
+                    if recusa.distancia is not None
+                    else "formas diferentes, distancia nao existe"
+                ),
+                recusa.tolerado,
+            )
+
+        retrato = self.aprendiz.retrato()
+        assinatura_do_retrato = (retrato.menor, retrato.maior)
+        if assinatura_do_retrato == self._ultimo_retrato_de_recusas:
+            return
+        self._ultimo_retrato_de_recusas = assinatura_do_retrato
+
+        if retrato.menor is None:
+            faixa = (
+                "sem distancia medida ainda (as leituras tinham formas "
+                "diferentes)"
+            )
+        else:
+            faixa = (
+                f"as leituras diferem de {retrato.menor} a {retrato.maior} "
+                f"celula(s), mediana {retrato.mediana:.1f}"
+            )
+
+        log.info(
+            "Nao aprendi assinatura nova por instabilidade: %d recusa(s) nesta "
+            "sessao, %s, e a tolerancia atual e %d. Para o scanner aceitar "
+            "essas leituras como a mesma pessoa, suba [identidade] "
+            "celulas_toleradas no config.toml para um valor dentro dessa "
+            "faixa. Este numero e medido na SUA tela, e nao um palpite.",
+            retrato.recusas,
+            faixa,
+            self.aprendiz.ajustes.celulas_toleradas,
+        )
 
     def _contar_linhas_sem_nome(self, observacao: Observacao) -> None:
         """Quanto tempo cada linha ocupada esta sem ser reconhecida.
