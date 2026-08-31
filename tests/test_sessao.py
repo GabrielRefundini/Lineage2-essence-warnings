@@ -1809,13 +1809,23 @@ class TestOAlvoCalaDepoisDeOChatFalar(BaseDaMatrizDeAnuncio):
         ]
         assert sum(len(t.despachos) for t in ticks[1:]) == 0
 
-    # SEIS, E NAO SETE, e a diferenca ensina como as duas defesas se dividem.
-    # A PRIMEIRA remarcacao cai dentro do desarme EM MEMORIA que a deteccao do
-    # chat acabou de fazer no vigia, e nunca chega a virar deteccao — e o
-    # primeiro filtro, barato, que evita bater no disco a cada tick. As outras
-    # seis chegam, e quem as cala e o MARCADOR. O filtro em memoria nao e a
-    # garantia: ele morre no reinicio e nao existe entre as duas instancias.
-    DETECCOES_DE_ALVO = 6
+    # SETE, E NAO SEIS: o numero mudou no plano `03-02`, e mudou de proposito.
+    #
+    # Ate `03-01`, a PRIMEIRA remarcacao caia dentro do desarme EM MEMORIA que
+    # a deteccao do chat acabava de fazer no vigia, e nunca chegava a virar
+    # deteccao — o rearme era um flag por BOSS, e o chat desarmava o alvo
+    # junto. `03-02` partiu esse estado por CANAL (D-24), porque o mesmo
+    # desarme cruzado descartava o ANUNCIO DO SERVIDOR quando o boss ficava
+    # segurado no alvo. Com os canais separados, as sete remarcacoes chegam, e
+    # quem as cala e o MARCADOR.
+    #
+    # A ancora de origem `alvo` a mais e o custo aceito de D-15 (T-03-11): o
+    # disco ganha uma por episodio, e D-16 manda a mensagem citar a origem
+    # para quem le julgar. O que a divisao ensinava continua valendo e ficou
+    # mais nitido: o filtro em memoria evita bater no disco enquanto o MESMO
+    # sinal persiste NAQUELE canal, e o marcador e a garantia — ele e o unico
+    # que sobrevive ao reinicio e o unico que existe entre as duas instancias.
+    DETECCOES_DE_ALVO = 7
 
     def test_as_remarcacoes_CONTINUAM_gravando_ancora(
         self, calibracao, frame_real, tmp_path
@@ -1859,9 +1869,10 @@ class TestOAlvoCalaDepoisDeOChatFalar(BaseDaMatrizDeAnuncio):
         self, calibracao, frame_real, tmp_path, caplog
     ):
         pasta = tmp_path / "agenda"
-        # DUAS remarcacoes para UMA supressao: a primeira e engolida pelo
-        # desarme em memoria do vigia, e so a segunda chega ao marcador. Ver
-        # `DETECCOES_DE_ALVO` acima.
+        # DUAS remarcacoes, DUAS supressoes: desde `03-02` o alvo tem estado
+        # de rearme proprio, entao a primeira remarcacao tambem chega ao
+        # marcador em vez de morrer no desarme que a deteccao do chat fez.
+        # Ver `DETECCOES_DE_ALVO` acima.
         pares = [(self.ANUNCIO_SOUTH, "")] + self.remarcacoes_de_alvo(
             "Tiat South", 2
         )
@@ -1872,8 +1883,8 @@ class TestOAlvoCalaDepoisDeOChatFalar(BaseDaMatrizDeAnuncio):
                 s.tick(self.frame(frame_real), momento=self.quando(minutes=i))
 
         calados = [m for m in caplog.messages if "calado" in m]
-        assert len(calados) == 1
-        assert "Tiat South" in calados[0]
+        assert len(calados) == 2
+        assert all("Tiat South" in mensagem for mensagem in calados)
 
 
 class TestOFallbackDoAlvoContinuaExistindo(BaseDaMatrizDeAnuncio):
