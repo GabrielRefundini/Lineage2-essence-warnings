@@ -20,7 +20,7 @@ import ast
 import inspect
 import logging
 import statistics
-from datetime import datetime
+from datetime import datetime, timedelta
 from fractions import Fraction
 from pathlib import Path
 
@@ -498,3 +498,168 @@ class TestOModuloDeAnaliseEPURO:
         }
         assert "now" not in chamadas
         assert "today" not in chamadas
+
+
+# ===========================================================================
+# TASK 3 — a tendencia sobre o ORDINAL, com o tamanho da janela junto (ANAL-03)
+# ===========================================================================
+
+
+def _dez_em_queda() -> list[ObservacaoLida]:
+    """Dez ofertas com carimbos a MICROSSEGUNDOS e unitarios em queda monotona.
+
+    Os carimbos imitam o que a producao produz: `gravar_as_paginas` chama
+    `relogio.agora()` POR LINHA (`tools/gerar_observacoes_do_censo.py:215`),
+    entao as dez linhas de uma mesma pagina distam microssegundos.
+    """
+    base = datetime(2026, 8, 30, 21, 15, 0)
+    return [
+        _oferta(
+            total=(100 - 5 * i) * 100,  # unitarios 100, 95, ... 55
+            quantidade=100,
+            carimbo=base + timedelta(microseconds=37 * i),
+        )
+        for i in range(10)
+    ]
+
+
+class TestATendenciaRodaSobreOORDINAL:
+    """O carimbo nao pode ser o eixo `x`, e este e o coracao da task."""
+
+    def test_dez_ofertas_em_queda_dao_variacao_NEGATIVA_e_PLAUSIVEL(self):
+        r = analise.tendencia(_dez_em_queda())
+        assert r.evidencia.suficiente
+        assert r.variacao_percentual < 0
+        assert abs(r.variacao_percentual) < 100
+
+    def test_o_eixo_do_CARIMBO_devolveria_numero_errado_SEM_LEVANTAR(self):
+        """A prova de que o ordinal nao e detalhe de estilo.
+
+        Sobre o MESMO conjunto, uma regressao com o carimbo no eixo `x` NAO
+        levanta `StatisticsError` — tecnicamente `x` varia — e devolve uma
+        inclinacao de magnitude absurda por segundo, que ao virar percentual
+        sobre a janela apaga a queda inteira. Numero plausivel e errado e o modo
+        de falha que este projeto inteiro combate.
+
+        O teste compara os dois resultados com o INTERVALO ACEITAVEL, e nao com
+        um numero escolhido a mao: o do ordinal cai dentro, o do carimbo nao.
+        """
+        ofertas = _dez_em_queda()
+        unitarios = [
+            float(analise.unitario(o.total_em_centesimos, o.quantidade))
+            for o in ofertas
+        ]
+        carimbos = [o.primeira_vez.timestamp() for o in ofertas]
+
+        pelo_carimbo = statistics.linear_regression(carimbos, unitarios)
+        # Nao levanta, e e exatamente esse o perigo.
+        assert abs(pelo_carimbo.slope) > 1e4, pelo_carimbo
+
+        variacao_pelo_carimbo = (
+            pelo_carimbo.slope * (len(ofertas) - 1) / pelo_carimbo.intercept * 100
+        )
+        # A queda real e de dezenas por cento; o carimbo devolve praticamente
+        # zero — ele APAGA a queda em vez de mede-la.
+        assert abs(variacao_pelo_carimbo) < 1
+
+        r = analise.tendencia(ofertas)
+        assert r.variacao_percentual < -1
+        assert abs(r.variacao_percentual) < 100
+
+    def test_o_fonte_da_funcao_NOMEIA_o_ordinal(self):
+        fonte = inspect.getsource(analise.tendencia).lower()
+        assert "ordinal" in fonte
+
+    def test_a_ordem_e_por_primeira_vez_e_nao_a_do_arquivo(self):
+        """O ordinal e `1..n` sobre as ofertas ordenadas por `primeira_vez` —
+        uma lista embaralhada tem de dar o mesmo resultado."""
+        ofertas = _dez_em_queda()
+        embaralhadas = [ofertas[i] for i in (4, 0, 9, 2, 7, 1, 8, 3, 6, 5)]
+        assert (
+            analise.tendencia(embaralhadas).variacao_percentual
+            == analise.tendencia(ofertas).variacao_percentual
+        )
+
+
+class TestOPisoDaTendencia:
+    """Uma reta sobre tres pontos tem a mesma cara de uma sobre trezentos."""
+
+    def test_o_valor_travado(self):
+        assert analise.N_MINIMO_PARA_TENDENCIA == 8
+
+    def test_com_SETE_ofertas_o_resultado_diz_o_que_FALTA_e_informa_OITO(self):
+        sete = _dez_em_queda()[:7]
+        r = analise.tendencia(sete)
+        assert not r.evidencia.suficiente
+        assert r.evidencia.n == 7
+        assert r.evidencia.piso == 8
+        assert r.evidencia.faltam == 1
+        assert r.variacao_percentual is None
+
+    def test_lista_vazia_nao_LEVANTA(self):
+        """`linear_regression` de menos de dois pontos levanta
+        `StatisticsError`. O piso pega muito antes."""
+        r = analise.tendencia([])
+        assert not r.evidencia.suficiente
+        assert r.variacao_percentual is None
+
+
+class TestATendenciaSemQueda:
+    """Serie parada e serie sem intercepto: nenhuma das duas pode levantar."""
+
+    def test_unitarios_todos_IGUAIS_dao_variacao_ZERO(self):
+        base = datetime(2026, 8, 30, 21, 15, 0)
+        iguais = [
+            _oferta(
+                total=6200,
+                quantidade=100,
+                carimbo=base + timedelta(microseconds=41 * i),
+            )
+            for i in range(10)
+        ]
+        r = analise.tendencia(iguais)
+        assert r.evidencia.suficiente
+        assert r.variacao_percentual == 0
+
+    def test_intercepto_ZERO_nao_estoura_em_divisao_por_zero(self):
+        """Totais zerados (o CSV e editado a mao) fariam `slope/intercept` ser
+        `0/0`. O caso vira 'sem tendencia reportavel', com o motivo nomeado."""
+        base = datetime(2026, 8, 30, 21, 15, 0)
+        zerados = [
+            _oferta(
+                total=0,
+                quantidade=100,
+                carimbo=base + timedelta(microseconds=41 * i),
+            )
+            for i in range(10)
+        ]
+        r = analise.tendencia(zerados)
+        assert r.variacao_percentual is None
+        assert r.motivo_da_ausencia
+
+
+class TestOTamanhoDaJanelaVIAJA_JUNTO:
+    """Sem o `n`, a tendencia de 3 pontos parece a de 300 (ANAL-03)."""
+
+    def test_o_n_da_janela_e_o_numero_de_ofertas_passadas(self):
+        ofertas = _dez_em_queda()
+        assert analise.tendencia(ofertas).evidencia.n == len(ofertas)
+
+    def test_o_texto_usa_a_palavra_que_designa_OFERTAS_DISTINTAS(self):
+        """Ela e o que impede o usuario de ler a reta como uma variacao ao longo
+        de horas. A palavra que designa observacoes ao longo do tempo esta
+        PROIBIDA: nao existe serie temporal de preco neste CSV."""
+        texto = analise.descrever_a_tendencia(analise.tendencia(_dez_em_queda()))
+        assert "ofertas distintas" in texto
+        assert "observac" not in texto.lower()
+
+    def test_o_texto_carrega_o_n_mesmo_ABAIXO_do_piso(self):
+        texto = analise.descrever_a_tendencia(analise.tendencia(_dez_em_queda()[:7]))
+        assert "7" in texto
+        assert "8" in texto
+        assert "ofertas distintas" in texto
+        assert "observac" not in texto.lower()
+
+    def test_o_texto_do_resultado_bom_carrega_o_n(self):
+        texto = analise.descrever_a_tendencia(analise.tendencia(_dez_em_queda()))
+        assert "10" in texto
