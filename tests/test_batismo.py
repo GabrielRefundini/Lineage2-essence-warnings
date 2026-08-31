@@ -49,6 +49,7 @@ import pytest
 from l2scanner.acervo import (
     PREFIXO_ASSINATURA,
     PREFIXO_NOME,
+    PREFIXO_PERGUNTA,
     AcervoDeIdentidades,
     carregar_identidades,
     chave_da_assinatura,
@@ -59,8 +60,11 @@ from l2scanner.batismo import (
     DIGITOS_DO_APELIDO,
     Pendente,
     apelido_da_chave,
+    apelidos_para_escolher,
+    interpretar_batismo,
     montar_pergunta,
     pendentes_do_acervo,
+    resolver,
     responder_batismo,
 )
 from l2scanner.calibracao import Calibracao
@@ -1210,3 +1214,505 @@ class TestSemTravessaoNoQueOUsuarioLe:
             assert "—" not in texto, f"travessao em: {texto!r}"
             assert "–" not in texto, f"meia risca em: {texto!r}"
             texto.encode("cp1252")
+
+
+# ---------------------------------------------------------------------------
+# TAREFA 2: o PINO, provado contra uma party que se reorganizou
+# ---------------------------------------------------------------------------
+
+
+# Onde mora a entrada B do cenario de reorganizacao.
+#
+# A entrada A mora em `LINHA_DA_FATIA`, e e ELA que a pergunta cita. Depois da
+# reorganizacao as duas trocam de lugar: B passa a ocupar a linha que a
+# pergunta citou, e A vai parar aqui.
+LINHA_DA_OUTRA = 3
+
+
+def party_reorganizada(px: np.ndarray, cal: Calibracao, um: int, outro: int):
+    """O MESMO frame com os recortes de NOME de duas linhas TROCADOS.
+
+    A reorganizacao e MONTADA e nao suposta: os blocos de pixel do nome trocam
+    de lugar de verdade, entao o `extrair` seguinte le a pessoa de `um` na
+    posicao de `outro` exatamente como leria se a party window tivesse
+    compactado em jogo.
+
+    So o recorte do NOME troca, e nao a linha inteira, porque e o recorte do
+    nome que carrega a identidade: HP e MP nao entram na assinatura.
+    """
+    novo = px.copy()
+    a = cal.regiao_do_nome(um)
+    b = cal.regiao_do_nome(outro)
+    assert (a.altura, a.largura) == (b.altura, b.largura)
+
+    fatia_a = (
+        slice(a.topo, a.topo + a.altura),
+        slice(a.esquerda, a.esquerda + a.largura),
+    )
+    fatia_b = (
+        slice(b.topo, b.topo + b.altura),
+        slice(b.esquerda, b.esquerda + b.largura),
+    )
+    novo[fatia_a] = px[fatia_b].copy()
+    novo[fatia_b] = px[fatia_a].copy()
+    return novo
+
+
+def chave_vista_na_linha(px: np.ndarray, cal: Calibracao, indice: int) -> str:
+    """De quem e a assinatura que esta NESTA linha, agora, neste frame.
+
+    Derivada do MATERIAL (a chave e o sha256 do conteudo da mascara), e nao do
+    reconhecedor: e assim que o teste consegue afirmar quem esta na linha
+    citada ANTES de afirmar o desfecho do batismo.
+    """
+    return chave_da_assinatura(assinatura_da_linha(px, cal, indice))
+
+
+def prefixos_presentes(pasta: Path) -> set[str]:
+    """Os prefixos de arquivo que existem na pasta, por igualdade de conjuntos.
+
+    Nao e um grep negativo por "indice" ou "mapa": um grep negativo passaria
+    por engano no dia em que um segundo estado nascesse com outro nome. Um
+    arquivo que nao case nenhum dos tres prefixos entra no conjunto com o nome
+    INTEIRO, entao a igualdade acusa e ainda diz qual e.
+    """
+    conhecidos = (PREFIXO_ASSINATURA, PREFIXO_NOME, PREFIXO_PERGUNTA)
+    achados = set()
+    for arquivo in pasta.iterdir():
+        if not arquivo.is_file():
+            continue
+        for prefixo in conhecidos:
+            if arquivo.name.startswith(prefixo):
+                achados.add(prefixo)
+                break
+        else:
+            achados.add(arquivo.name)
+    return achados
+
+
+class TestOPinoAtravessaAReorganizacaoDaParty:
+    """A PROVA CENTRAL DO BATI-03, e ela e comportamental.
+
+    A sequencia e a real: a pergunta sai citando uma linha, o usuario volta ao
+    jogo, a party se reorganiza, e a resposta chega minutos depois. Se o alvo
+    fosse a linha, o nome iria para a pessoa errada em SILENCIO, com a mensagem
+    parecendo perfeitamente normal.
+    """
+
+    def _cenario(self, tmp_path, pixels, calibracao):
+        """Duas entradas anonimas: A na linha da fatia, B na outra linha."""
+        chave_a = semear(
+            tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        )
+        chave_b = semear(
+            tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_OUTRA)
+        )
+        carregar_na_calibracao(calibracao, tmp_path)
+        return chave_a, chave_b
+
+    def test_a_pergunta_cita_a_linha_e_a_resposta_vai_para_a_CHAVE(
+        self, tmp_path, pixels, calibracao
+    ):
+        chave_a, chave_b = self._cenario(tmp_path, pixels, calibracao)
+        acervo = AcervoDeIdentidades(tmp_path)
+
+        # (1) a pergunta sai citando a linha onde A foi vista.
+        pergunta = montar_pergunta(
+            acervo, [Pendente(chave=chave_a, indice=LINHA_DA_FATIA)]
+        )
+        assert f"linha {LINHA_DA_FATIA + 1}" in pergunta
+
+        # (2) a party se REORGANIZA: agora quem esta na linha citada e B.
+        reorganizado = party_reorganizada(
+            pixels, calibracao, LINHA_DA_FATIA, LINHA_DA_OUTRA
+        )
+        assert (
+            chave_vista_na_linha(reorganizado, calibracao, LINHA_DA_FATIA) == chave_b
+        ), (
+            "premissa do caso: a entrada B tem de estar MESMO na linha citada "
+            "na segunda observacao. Um caso que reorganizasse 'mais ou menos' "
+            "e depois afirmasse o desfecho estaria provando outra coisa"
+        )
+
+        # (3) a resposta chega, apontando para o apelido de A.
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_a)} Mostarda",
+            tmp_path,
+            acervo=acervo,
+            assinaturas_vivas=calibracao.assinaturas,
+        )
+
+        # A AFIRMACAO E SOBRE O NOME DO ARQUIVO NO ACERVO, e nunca sobre "a
+        # linha N ficou com o nome": um caso escrito sobre a linha passaria por
+        # ACIDENTE quando a reorganizacao devolvesse a pessoa a mesma posicao.
+        assert (tmp_path / f"{PREFIXO_NOME}{chave_a}").read_text(
+            encoding="utf-8"
+        ) == "Mostarda"
+        assert not (tmp_path / f"{PREFIXO_NOME}{chave_b}").exists(), (
+            "o nome foi para a entrada que estava na LINHA citada, e nao para "
+            "a que a pergunta PINOU. Resolver por posicao batiza a pessoa "
+            "errada em silencio, e a mensagem parece perfeitamente normal"
+        )
+
+    def test_a_linha_citada_continua_SEM_NOME_depois_do_batismo(
+        self, tmp_path, pixels, calibracao
+    ):
+        """O outro lado da mesma prova, agora na TELA."""
+        chave_a, _ = self._cenario(tmp_path, pixels, calibracao)
+        reorganizado = party_reorganizada(
+            pixels, calibracao, LINHA_DA_FATIA, LINHA_DA_OUTRA
+        )
+
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_a)} Mostarda",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+            assinaturas_vivas=calibracao.assinaturas,
+        )
+
+        linhas = observar_frame(reorganizado, calibracao).linhas
+        assert linhas[LINHA_DA_FATIA].nome == "", (
+            "quem esta AGORA na linha citada ganhou o nome: o alvo virou a "
+            "posicao em algum lugar do caminho"
+        )
+        assert linhas[LINHA_DA_OUTRA].nome == "Mostarda", (
+            "e a pessoa certa aparece com o nome onde quer que ela esteja "
+            "agora — e o que 'a assinatura diz onde a pessoa esta' significa"
+        )
+
+
+class TestNaoExisteSintaxeQueAlcanceUmaLinha:
+    """D-03 nao precisou de trava: ele e uma AUSENCIA.
+
+    `/batizar 3` cai em "apelido desconhecido" porque "3" e so um prefixo hex
+    que nao casa chave nenhuma. Ninguem deve "consertar" isso acrescentando um
+    ramo que aceite numero de linha.
+    """
+
+    @pytest.mark.parametrize(
+        "argumento", ["3 Mostarda", "linha3 Mostarda", "#linha3 Mostarda"]
+    )
+    def test_nenhuma_das_tres_formas_escreve_coisa_alguma(
+        self, tmp_path, pixels, calibracao, argumento
+    ):
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA))
+        acervo = AcervoDeIdentidades(tmp_path)
+        antes = retrato_da_pasta(tmp_path)
+
+        resposta = responder_batismo(acervo, argumento)
+
+        assert resposta.grupo is None, "uma recusa nao ecoa no grupo"
+        assert retrato_da_pasta(tmp_path) == antes, f"{argumento!r} mexeu na pasta"
+
+    def test_um_numero_de_linha_cai_em_apelido_DESCONHECIDO(
+        self, tmp_path, pixels, calibracao
+    ):
+        """O "3" e hex valido; ele so nao aponta para nada."""
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA))
+        acervo = AcervoDeIdentidades(tmp_path)
+
+        privado = responder_batismo(acervo, "3 Mostarda").privado
+
+        assert "nao e numero de linha" in privado, (
+            "a recusa precisa DIZER que apelido nao e numero de linha: '3' e "
+            "exatamente o que um usuario distraido digitaria pensando na "
+            f"terceira linha.\n{privado}"
+        )
+
+    @pytest.mark.parametrize("argumento", ["linha3 Mostarda", "#linha3 Mostarda"])
+    def test_o_que_nao_e_hex_cai_em_MALFORMADO(
+        self, tmp_path, pixels, calibracao, argumento
+    ):
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA))
+        acervo = AcervoDeIdentidades(tmp_path)
+
+        privado = responder_batismo(acervo, argumento).privado
+
+        assert "Nao entendi" in privado
+        assert "PRIMEIRO" in privado, (
+            "o erro humano mais provavel e inverter os dois argumentos, entao "
+            f"a recusa tem de dizer qual e qual.\n{privado}"
+        )
+
+
+def par_de_assinaturas_com_prefixo_COMUM(px, cal):
+    """Duas assinaturas REAIS cujas chaves comecam igual, e o tamanho do comum.
+
+    QUAL DAS DUAS ESTRATEGIAS DO PLANO FOI USADA, E POR QUE. O plano oferecia
+    chamar `resolver` direto com chaves fabricadas — e isso e feito, no
+    `TestResolverJamaisDesempata`, porque `resolver` e uma funcao PURA e
+    testa-la direto e o caminho certo para o combinatorio, exatamente como a
+    Fase 2 alimentou o `Aprendiz` direto com `Candidata`.
+
+    Mas o criterio de aceite tambem pede que a PASTA fique inalterada numa
+    recusa ambigua, e isso exige duas entradas de verdade no acervo — o
+    `_ler` recalcula a chave a partir do conteudo e descarta o que nao bate,
+    entao nao ha como enfiar uma chave inventada la dentro. Por isso este
+    helper: ele PROCURA, de forma deterministica, um par que colida.
+
+    A busca vira um bit da mascara de um recorte real por vez e agrupa as
+    chaves pelos tres primeiros digitos. Com algumas centenas de variantes o
+    par existe com folga (o aniversario sobre 4096 baldes), e a ordem da
+    varredura e fixa, entao o par encontrado e sempre o mesmo.
+    """
+    base = assinatura_da_linha(px, cal, LINHA_DA_FATIA).mascara
+    plano = base.flatten()
+    baldes: dict[str, tuple[str, Assinatura]] = {}
+
+    for celula in range(min(600, plano.size)):
+        virado = plano.copy()
+        virado[celula] = 0 if virado[celula] else 1
+        assinatura = Assinatura(nome="", mascara=virado.reshape(base.shape))
+        chave = chave_da_assinatura(assinatura)
+        balde = chave[:3]
+        if balde in baldes:
+            outra_chave, outra = baldes[balde]
+            comum = 0
+            while chave[comum] == outra_chave[comum]:
+                comum += 1
+            return outra, assinatura, comum
+        baldes[balde] = (chave, assinatura)
+
+    raise AssertionError(
+        "nenhum par de chaves com prefixo comum foi encontrado em 600 "
+        "variantes; a busca precisa de mais amostras"
+    )
+
+
+class TestUmPrefixoAmbiguoERecusadoENuncaDesempatado:
+    """D-02. O desempate silencioso e a mentira plausivel de sempre.
+
+    Duas assinaturas que comecam igual sao DUAS PESSOAS. Escolher uma delas
+    por ordem, por data ou por qualquer outro criterio produz uma mensagem que
+    parece normal e batiza a pessoa errada.
+    """
+
+    def _acervo_com_o_par(self, tmp_path, pixels, calibracao):
+        uma, outra, comum = par_de_assinaturas_com_prefixo_COMUM(
+            pixels, calibracao
+        )
+        acervo = AcervoDeIdentidades(tmp_path)
+        assert acervo.gravar(uma) == "criado"
+        assert acervo.gravar(outra) == "criado"
+        return acervo, chave_da_assinatura(uma), chave_da_assinatura(outra), comum
+
+    def test_a_recusa_cita_TODOS_os_candidatos_e_a_pasta_fica_inalterada(
+        self, tmp_path, pixels, calibracao
+    ):
+        acervo, uma, outra, comum = self._acervo_com_o_par(
+            tmp_path, pixels, calibracao
+        )
+        antes = retrato_da_pasta(tmp_path)
+
+        resposta = responder_batismo(acervo, f"{uma[:comum]} Mostarda")
+
+        candidatos = apelidos_para_escolher((uma, outra))
+        for candidato in candidatos:
+            assert candidato in resposta.privado, (
+                f"a recusa nao cita {candidato!r}. Sem a lista o usuario nao "
+                f"tem como agir.\n{resposta.privado}"
+            )
+        assert "mais digitos" in resposta.privado, (
+            "a recusa precisa dizer O QUE FAZER: uma recusa que so diz 'nao' "
+            "manda o usuario tentar de novo do mesmo jeito"
+        )
+        assert retrato_da_pasta(tmp_path) == antes, (
+            "um prefixo ambiguo escreveu alguma coisa: em algum lugar do "
+            "caminho houve um desempate"
+        )
+
+    def test_com_um_digito_a_mais_a_MESMA_chamada_resolve(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A guarda que prova que a recusa era sobre AMBIGUIDADE.
+
+        Sem este caso irmao, a recusa acima passaria igualzinho se o comando
+        estivesse simplesmente quebrado.
+        """
+        acervo, uma, _, comum = self._acervo_com_o_par(tmp_path, pixels, calibracao)
+
+        resposta = responder_batismo(acervo, f"{uma[: comum + 1]} Mostarda")
+
+        assert acervo.nomeados() == {uma: "Mostarda"}, resposta.privado
+
+
+class TestUmPrefixoDesconhecidoERecusadoDizendoOQueExiste:
+    def test_a_recusa_lista_os_apelidos_que_estao_sem_nome(
+        self, tmp_path, pixels, calibracao
+    ):
+        chaves = [
+            semear(tmp_path, assinatura_da_linha(pixels, calibracao, i))
+            for i in range(3)
+        ]
+        acervo = AcervoDeIdentidades(tmp_path)
+        acervo.nomear(chaves[0], "Titander")
+
+        privado = responder_batismo(acervo, "ffffff Mostarda").privado
+
+        assert "ffffff" in privado, "a recusa diz qual apelido nao existe"
+        for chave in chaves[1:]:
+            assert apelido_da_chave(chave) in privado, (
+                "a recusa lista os apelidos que estao SEM NOME agora; sem "
+                f"isso o usuario nao tem como agir.\n{privado}"
+            )
+        assert apelido_da_chave(chaves[0]) not in privado, (
+            "quem ja tem nome nao esta esperando batismo, e listar essa "
+            "entrada convidaria um rebatismo que ninguem pediu"
+        )
+
+
+class TestOApelidoEDerivadoENadaEGuardado:
+    """D-02: nao existe indice, nao existe mapa. So os tres irmaos."""
+
+    def test_depois_de_uma_pergunta_e_um_batismo_so_ha_os_tres_prefixos(
+        self, tmp_path, pixels, calibracao
+    ):
+        chave = semear(
+            tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        )
+        acervo = AcervoDeIdentidades(tmp_path)
+
+        montar_pergunta(acervo, pendentes_do_acervo(acervo))
+        responder_batismo(acervo, f"{apelido_da_chave(chave)} Mostarda")
+
+        assert prefixos_presentes(tmp_path) == {
+            PREFIXO_ASSINATURA,
+            PREFIXO_NOME,
+            PREFIXO_PERGUNTA,
+        }
+
+
+class TestOPinoAtravessaOReinicio:
+    """A pergunta sai numa instancia; o comando e obedecido por OUTRA.
+
+    O apelido continua resolvendo para a mesma chave porque ele e DERIVADO do
+    conteudo, e o conteudo nao mudou.
+    """
+
+    def test_o_apelido_resolve_igual_numa_instancia_nova(
+        self, tmp_path, pixels, calibracao
+    ):
+        chave = semear(
+            tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        )
+        quem_perguntou = AcervoDeIdentidades(tmp_path)
+        pergunta = montar_pergunta(
+            quem_perguntou, pendentes_do_acervo(quem_perguntou)
+        )
+        apelido = apelido_da_chave(chave)
+        assert apelido in pergunta
+
+        # O reinicio, ou a outra instancia do usuario: objeto novo, mesma pasta.
+        quem_respondeu = AcervoDeIdentidades(tmp_path)
+        responder_batismo(quem_respondeu, f"{apelido} Mostarda")
+
+        assert quem_respondeu.nomeados() == {chave: "Mostarda"}
+
+
+class TestResolverJamaisDesempata:
+    """A funcao PURA, alimentada direto com chaves fabricadas.
+
+    E o caminho certo para o combinatorio, exatamente como a Fase 2 alimentou o
+    `Aprendiz` direto com `Candidata`: aqui nao ha disco, nao ha frame e nao ha
+    nada a montar, so a pergunta "a que chave este prefixo aponta".
+    """
+
+    UMA = "15caecfa" + "0" * 56
+    OUTRA = "15caec00" + "1" * 56
+    TERCEIRA = "f19e3c92" + "2" * 56
+    TODAS = (UMA, OUTRA, TERCEIRA)
+
+    def test_um_so_candidato_resolve(self):
+        achado = resolver("f19e", self.TODAS)
+        assert (achado.motivo, achado.chave) == ("ok", self.TERCEIRA)
+
+    def test_dois_candidatos_RECUSAM_com_os_dois_na_lista(self):
+        achado = resolver("15caec", self.TODAS)
+        assert achado.motivo == "ambiguo"
+        assert achado.chave is None, "jamais um desempate"
+        assert set(achado.candidatos) == {self.UMA, self.OUTRA}
+
+    def test_o_digito_que_separa_resolve(self):
+        assert resolver("15caecf", self.TODAS).chave == self.UMA
+        assert resolver("15caec0", self.TODAS).chave == self.OUTRA
+
+    def test_nenhum_candidato_e_desconhecido(self):
+        achado = resolver("3", self.TODAS)
+        assert (achado.motivo, achado.chave) == ("desconhecido", None)
+
+    @pytest.mark.parametrize(
+        "prefixo", ["", "linha3", "#linha3", "15CAEC", "15caecg", "a" * 65]
+    )
+    def test_o_que_nao_e_hex_e_malformado(self, prefixo):
+        achado = resolver(prefixo, self.TODAS)
+        assert (achado.motivo, achado.chave) == ("malformado", None)
+
+    def test_a_chave_inteira_tambem_e_um_prefixo_valido(self):
+        assert resolver(self.UMA, self.TODAS).chave == self.UMA
+
+    def test_apelidos_para_escolher_ESTICA_quando_seis_digitos_empatam(self):
+        """A recusa ambigua nao pode virar um beco.
+
+        Duas chaves que compartilham os seis primeiros digitos produziriam uma
+        lista com o MESMO apelido duas vezes, e o "mande mais digitos" nao
+        teria como ser seguido.
+        """
+        escolhas = apelidos_para_escolher((self.UMA, self.OUTRA))
+        assert len(set(escolhas)) == 2, escolhas
+        for escolha, chave in zip(escolhas, (self.UMA, self.OUTRA)):
+            assert chave.startswith(escolha)
+            assert resolver(escolha, self.TODAS).chave == chave
+
+
+class TestAGramaticaEUmaSo:
+    """`interpretar_batismo` valida na leitura e le no responder.
+
+    Duas gramaticas divergiriam no primeiro ajuste e o comando passaria a
+    aceitar o que nao executa.
+    """
+
+    INVALIDOS = [
+        None,
+        "",
+        "   ",
+        "15caec",  # uma palavra so
+        "Mostarda",
+        "15caec Mostarda demais",  # tres palavras
+        "zzzzzz Mostarda",  # fora do hex
+        "15caec M",  # nick de 1 caractere
+        "15caec " + "M" * 17,  # nick de 17
+        "15caec Mos-tarda",  # fora do charset de nick
+        "Mostarda 15caec",  # os dois invertidos
+    ]
+
+    @pytest.mark.parametrize("argumento", INVALIDOS)
+    def test_a_interpretacao_recusa(self, argumento):
+        assert interpretar_batismo(argumento) is None, argumento
+
+    @pytest.mark.parametrize("argumento", INVALIDOS)
+    def test_e_o_responder_recusa_O_MESMO_conjunto(
+        self, tmp_path, pixels, calibracao, argumento
+    ):
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA))
+        acervo = AcervoDeIdentidades(tmp_path)
+        antes = retrato_da_pasta(tmp_path)
+
+        resposta = responder_batismo(acervo, argumento)
+
+        assert "Nao entendi" in resposta.privado, argumento
+        assert retrato_da_pasta(tmp_path) == antes, (
+            f"{argumento!r} foi recusado pela interpretacao e ESCREVEU pelo "
+            "responder: as duas gramaticas divergiram"
+        )
+
+    def test_o_apelido_em_maiusculo_e_aceito_e_normalizado(self):
+        """Copiar `15CAEC` de algum lugar continua funcionando.
+
+        Isso nao alarga o charset nem um caractere: o `fullmatch` roda sobre a
+        forma ja minuscula, e `15CAECG` continua recusado.
+        """
+        assert interpretar_batismo("15CAEC Mostarda") == ("15caec", "Mostarda")
+        assert interpretar_batismo("15CAECG Mostarda") is None
+
+    def test_o_nick_e_preservado_como_digitado(self):
+        assert interpretar_batismo("15caec MoStArDa") == ("15caec", "MoStArDa")
