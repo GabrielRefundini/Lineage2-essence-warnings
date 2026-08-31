@@ -24,7 +24,7 @@ from logging.handlers import RotatingFileHandler  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from .acervo import AcervoDeIdentidades, carregar_identidades  # noqa: E402
-from .aprendiz import AjustesDoAprendiz, Aprendiz  # noqa: E402
+from .aprendiz import AjustesDoAprendiz, Aprendiz, ToleranciaAlemDoTeto  # noqa: E402
 from .calibracao import (  # noqa: E402
     Calibracao,
     CalibracaoInvalida,
@@ -52,6 +52,7 @@ from .config import (  # noqa: E402
     ConfigAusente,
     config_do_chatwoot,
     ler_agenda,
+    ler_ajustes_do_aprendiz,
     ler_bosses,
     ler_membros,
 )
@@ -2531,7 +2532,20 @@ def main() -> int:
     # `JanelaSource`, e provar "codigo 2 e sem traceback" exigiria uma fonte de
     # captura viva — quebrando "demonstravel com o jogo fechado" justamente onde
     # essa linha custa alguma coisa.
-    ajustes_do_aprendiz = AjustesDoAprendiz()
+    #
+    # O `try` E LOCAL, E NAO O BLOCO GRANDE LA EMBAIXO, e a razao e a POSICAO.
+    # Aquele `try` comeca depois do `--mercado`, que constroi fonte de captura;
+    # a recusa por tolerancia tem de acontecer ANTES dela. O desfecho e o mesmo
+    # de `BossInvalido` e de `ConfiguracaoPerigosa`, e de proposito: mensagem,
+    # sem traceback, codigo 2. Uma tolerancia alem do teto produziria
+    # assinaturas de duas pessoas misturadas num acervo IRREVERSIVEL, e o
+    # estrago so apareceria depois, como uma pessoa que parou de ser
+    # reconhecida em silencio. Subir com ela e pior do que nao subir.
+    try:
+        ajustes_do_aprendiz = ler_ajustes_do_aprendiz()
+    except ToleranciaAlemDoTeto as erro:
+        log.error("%s", erro)
+        return 2
 
     janela_pedida = args.janela == "AUTO"
 

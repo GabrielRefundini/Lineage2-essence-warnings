@@ -1189,3 +1189,115 @@ def _inteiro_positivo_da_receita(bruto: dict, campo: str, onde: str) -> int:
             f"{onde}: '{campo}' precisa ser MAIOR que zero (recebi {valor})."
         )
     return valor
+
+
+# ---------------------------------------------------------------------------
+# A SECAO `[identidade]` — os dois numeros do aprendizado de assinaturas
+#
+# O MOLDE E `ler_watchlist_do_mercado`, LITERALMENTE: arquivo ausente nao e
+# erro, secao ausente nao e erro, chave ausente devolve o default DAQUELA
+# chave, TOML presente e mal formado E erro de ARRANQUE, e a mensagem MOSTRA a
+# secao pronta para copiar em vez de so descreve-la.
+#
+# `AjustesDoAprendiz` e `ToleranciaAlemDoTeto` nascem em `aprendiz.py` e sao
+# IMPORTADOS aqui, e nao o contrario. E a mesma direcao de importacao ja
+# escrita no topo deste arquivo para `Boss` e `BossInvalido`: `aprendiz` fala
+# `Assinatura`, `AcervoDeIdentidades` e stdlib, e nunca `config`. Declarar os
+# ajustes aqui obrigaria `aprendiz` a importar `config`, e o ciclo fecharia no
+# primeiro uso.
+#
+# A FAIXA DOS VALORES NAO E CONFERIDA AQUI. Quem recusa negativo, acima do teto
+# e `leituras_para_aprender` menor que 1 e o `__post_init__` de
+# `AjustesDoAprendiz`, porque o teto e uma propriedade MEDIDA do reconhecedor e
+# precisa valer para todo caminho de construcao — inclusive um script ou um
+# teste que nunca encoste no `config.toml`. Aqui so mora o que E pergunta de
+# sintaxe de arquivo: existe, e do tipo certo.
+# ---------------------------------------------------------------------------
+
+from .aprendiz import AjustesDoAprendiz  # noqa: E402
+
+SECAO_DA_IDENTIDADE = "identidade"
+CHAVE_DE_LEITURAS = "leituras_para_aprender"
+CHAVE_DE_CELULAS = "celulas_toleradas"
+
+# O exemplo que toda recusa desta secao mostra, escrito UMA vez. Uma mensagem
+# que diz "precisa ser um numero" faz o usuario adivinhar; uma que mostra a
+# linha pronta ele copia.
+_EXEMPLO_DA_IDENTIDADE = (
+    "  Exemplo:\n"
+    "    [identidade]\n"
+    "    leituras_para_aprender = 5\n"
+    "    celulas_toleradas = 0"
+)
+
+
+def _inteiro_da_identidade(secao: dict, chave: str, nome_do_arquivo: str, padrao: int) -> int:
+    """Um inteiro da secao `[identidade]`, ou o default quando a chave falta.
+
+    UM BOOLEANO NAO PASSA POR INTEIRO, e a checagem vem ANTES do `isinstance`
+    de `int`: em Python `True` E um `int` de valor 1, e `celulas_toleradas =
+    true` viraria, em silencio, uma tolerancia de UMA celula. Quem escreveu
+    `true` nao quis dizer isso, e a armadilha e classica o bastante para o
+    projeto ja recusa-la do mesmo jeito em `_inteiro_positivo` da receita.
+    """
+    bruto = secao.get(chave)
+    if bruto is None:
+        return padrao
+    if isinstance(bruto, bool) or not isinstance(bruto, int):
+        raise AgendaInvalida(
+            f"{nome_do_arquivo}: [{SECAO_DA_IDENTIDADE}] {chave} precisa ser um "
+            f"numero INTEIRO, veio {type(bruto).__name__} ({bruto!r}).\n"
+            f"{_EXEMPLO_DA_IDENTIDADE}"
+        )
+    return bruto
+
+
+def ler_ajustes_do_aprendiz(caminho: Path | None = None) -> AjustesDoAprendiz:
+    """Os dois numeros que governam o aprendizado de assinaturas visuais.
+
+    ARQUIVO AUSENTE NAO E ERRO, E SECAO AUSENTE TAMBEM NAO. O `[identidade]` do
+    `config.toml` esta COMENTADO e o usuario nunca o preencheu; o scanner tem de
+    aprender com os defaults sem ele. Chave ausente devolve o default DAQUELA
+    chave, e nao o par inteiro: quem escreveu so `celulas_toleradas` nao esta
+    pedindo para o N voltar ao padrao.
+
+    ARQUIVO PRESENTE E MAL FORMADO E ERRO DE ARRANQUE, e reusa `AgendaInvalida`
+    pela razao ja escrita em `ler_membros` e em `ler_watchlist_do_mercado`: ela
+    JA e a excecao de "o config.toml nao faz sentido", ja e capturada onde o
+    arranque quer capturar, e uma classe nova duplicaria esse tratamento sem
+    ganhar nada.
+
+    A RECUSA POR FAIXA SOBE DAQUI SEM SER TRATADA. `AjustesDoAprendiz` valida no
+    `__post_init__` e levanta `ToleranciaAlemDoTeto`; embrulhar essa excecao aqui
+    esconderia, atras de um erro de sintaxe de arquivo, o unico erro desta secao
+    que fala de uma MEDIDA. `main()` captura as duas, e cada uma diz a sua
+    coisa.
+    """
+    caminho = caminho or ARQUIVO_CONFIG
+    if not caminho.exists():
+        return AjustesDoAprendiz()
+
+    try:
+        with caminho.open("rb") as arquivo:
+            dados = tomllib.load(arquivo)
+    except tomllib.TOMLDecodeError as erro:
+        raise AgendaInvalida(
+            f"{caminho.name} nao e um TOML valido: {erro}"
+        ) from erro
+
+    secao = dados.get(SECAO_DA_IDENTIDADE, {})
+    if not isinstance(secao, dict):
+        raise AgendaInvalida(
+            f"{caminho.name}: [{SECAO_DA_IDENTIDADE}] precisa ser uma SECAO, "
+            f"veio {type(secao).__name__}.\n{_EXEMPLO_DA_IDENTIDADE}"
+        )
+
+    padroes = AjustesDoAprendiz()
+    return AjustesDoAprendiz(
+        leituras_para_aprender=_inteiro_da_identidade(
+            secao, CHAVE_DE_LEITURAS, caminho.name, padroes.leituras_para_aprender
+        ),
+        celulas_toleradas=_inteiro_da_identidade(
+            secao, CHAVE_DE_CELULAS, caminho.name, padroes.celulas_toleradas
+        ),
+    )

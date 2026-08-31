@@ -1309,6 +1309,19 @@ class TestARecusaDizQuantoMediu:
 # ---------------------------------------------------------------------------
 
 
+def _bloco_do_teto() -> str:
+    """O texto ao redor de `TETO_DE_CELULAS_TOLERADAS` em `aprendiz.py`.
+
+    Uma JANELA em volta da constante, e nao so o que vem depois: o idioma da
+    casa e o comentario de bloco ANTES do valor, como em `identidade.py` e em
+    `acervo.py`. O que este helper prende e a CO-LOCALIZACAO — a derivacao mora
+    junto do numero, e nao num documento que ninguem abre.
+    """
+    fonte = (RAIZ / "l2scanner" / "aprendiz.py").read_text(encoding="utf-8")
+    onde = fonte.index("TETO_DE_CELULAS_TOLERADAS")
+    return fonte[max(0, onde - 4000) : onde + 2000]
+
+
 class TestOTetoEDerivadoENaoEscolhido:
     """O codigo tem de dizer DE ONDE o numero veio.
 
@@ -1326,8 +1339,7 @@ class TestOTetoEDerivadoENaoEscolhido:
         propriedade do reconhecedor, quando e um limite aferido num nome de
         tamanho medio.
         """
-        fonte = (RAIZ / "l2scanner" / "aprendiz.py").read_text(encoding="utf-8")
-        bloco = fonte[fonte.index("TETO_DE_CELULAS_TOLERADAS") :][:4000]
+        bloco = _bloco_do_teto()
 
         for numero in ("12", "20", "48"):
             assert numero in bloco, (
@@ -1343,8 +1355,7 @@ class TestOTetoEDerivadoENaoEscolhido:
         da faixa medida. O teto protege contra o erro grosseiro — uma tolerancia
         de 30, 50 celulas — e nao promete seguranca para todo nick.
         """
-        fonte = (RAIZ / "l2scanner" / "aprendiz.py").read_text(encoding="utf-8")
-        bloco = fonte[fonte.index("TETO_DE_CELULAS_TOLERADAS") :][:4000].lower()
+        bloco = _bloco_do_teto().lower()
 
         assert "condicao de validade" in bloco
         assert "pixels de texto" in bloco
@@ -1610,9 +1621,15 @@ class TestASecaoDoConfigToml:
 
     def test_o_comentario_diz_onde_achar_o_numero(self):
         """Fecha o circuito de D-07: o log produz o numero, o comentario diz
-        onde coloca-lo."""
+        onde coloca-lo.
+
+        A JANELA e em volta de `[identidade]`, e nao so o que vem depois: o tom
+        dos vizinhos deste arquivo e o comentario ANTES da secao, ensinando o
+        que o numero faz antes de mostrar a linha para descomentar.
+        """
         texto = (RAIZ / "config.toml").read_text(encoding="utf-8")
-        bloco = texto[texto.index("[identidade]") :][:2000]
+        onde = texto.index("[identidade]")
+        bloco = texto[max(0, onde - 3000) : onde + 500]
         assert "scanner.log" in bloco
         assert str(TETO_DE_CELULAS_TOLERADAS) in bloco, (
             "o teto e a razao dele cabem em uma linha"

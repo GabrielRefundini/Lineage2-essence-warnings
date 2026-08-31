@@ -62,6 +62,59 @@ from .identidade import LIMIAR_DE_CASAMENTO, PIXELS_MINIMOS_DE_TEXTO, Assinatura
 # quatro leituras nunca chega a ser gravada.
 LEITURAS_PARA_APRENDER = 5
 
+# O maior `celulas_toleradas` que ainda nao mistura duas pessoas numa mesma
+# assinatura. DERIVADO da medida da Fase 1, e nao escolhido.
+#
+# A tolerancia diz "estas duas leituras sao a MESMA pessoa". O reconhecedor
+# tambem responde essa pergunta, e as duas respostas nao podem se contradizer:
+# uma tolerancia MAIOR do que o ponto em que o RECONHECEDOR passa a distinguir
+# duas mascaras chamaria de estaveis duas leituras que ele considera pessoas
+# diferentes, e a assinatura gravada seria uma media de duas pessoas.
+#
+# Medido na Fase 1 (`tests/test_acervo.py`, bloco de `BITS_VIRADOS`), virando
+# bits de uma mascara `20x100` — 2000 celulas, com 48 PIXELS DE TEXTO:
+#
+#     celulas viradas   calibrada   copia    margem    desfecho
+#            1            1.0000    0.9895   0.0105    SILENCIO
+#            3            1.0000    0.9694   0.0306    SILENCIO
+#            8            1.0000    0.9212   0.0788    SILENCIO
+#           12            1.0000    0.8879   0.1121    SILENCIO
+#           20            1.0000    0.8306   0.1694    o nome SAI
+#           40            1.0000    0.7237   0.2763    o nome SAI
+#
+# Em 12 celulas o reconhecedor ainda se RECUSA a distinguir as duas (margem
+# 0.1121, abaixo dos 0.12 de `MARGEM_MINIMA_SOBRE_O_SEGUNDO`); em 20 ele ja
+# distingue (margem 0.1694). A transicao esta entre 12 e 20, e 12 e o maior
+# ponto MEDIDO que ainda cai do lado seguro. O teto e esse numero, e nao um
+# arredondamento dele: se um dia a medicao for refeita com mais pontos, e a
+# MEDICAO que muda o teto.
+#
+# A CONDICAO DE VALIDADE, E ELA NAO PODE FICAR DE FORA.
+#
+# Os 48 pixels de texto sao a BASE da medida, e nao um detalhe da fixture. Doze
+# celulas sao 25% do sinal DAQUELA mascara; num nick curto, com 20 pixels de
+# texto, as mesmas 12 celulas sao 60% do sinal e destroem a assinatura muito
+# antes de o reconhecedor chegar perto da faixa medida. Ou seja: este teto e um
+# limite superior aferido num nome de tamanho MEDIO, e nao uma propriedade
+# universal do reconhecedor. Ele protege contra o erro grosseiro — uma
+# tolerancia de 30, de 50 celulas — e nao promete seguranca para todo nick em
+# toda tolerancia abaixo dele. Quem subir a tolerancia perto do teto com uma
+# party de nicks curtos esta fora da faixa em que a medida foi feita.
+#
+# Refazer a medida por faixa de pixels de texto e o caminho honesto quando
+# houver gravacao multi-frame de campo; ate la, o default continua sendo zero.
+TETO_DE_CELULAS_TOLERADAS = 12
+
+
+class ToleranciaAlemDoTeto(Exception):
+    """A configuracao pediria assinaturas de duas pessoas misturadas.
+
+    Recusada NO ARRANQUE, com mensagem e sem traceback, no precedente de
+    `BossInvalido` e de `ConfiguracaoPerigosa`: subir com ela seria pior do que
+    nao subir, porque o estrago vai para um acervo IRREVERSIVEL e so aparece
+    depois, como uma pessoa que parou de ser reconhecida em silencio.
+    """
+
 
 @dataclass(frozen=True)
 class AjustesDoAprendiz:
@@ -83,6 +136,43 @@ class AjustesDoAprendiz:
 
     leituras_para_aprender: int = LEITURAS_PARA_APRENDER
     celulas_toleradas: int = 0
+
+    def __post_init__(self) -> None:
+        """A validacao mora AQUI, e nao no leitor do `config.toml`.
+
+        O teto nao e uma pergunta de sintaxe de arquivo: e uma propriedade
+        MEDIDA do reconhecedor, e ela tem de valer para TODO caminho de
+        construcao — inclusive um teste, um script ou um chamador futuro que
+        nunca encoste no `config.toml`. Validar so na leitura deixaria a porta
+        aberta para todos os outros.
+
+        As mensagens sao para o USUARIO: portugues sem acento, sem travessao,
+        dizendo o valor recebido, o limite, a unidade e o que fazer.
+        """
+        if self.celulas_toleradas < 0:
+            raise ToleranciaAlemDoTeto(
+                f"[identidade] celulas_toleradas = {self.celulas_toleradas} nao "
+                "faz sentido: a unidade e CELULA da mascara do nome, e um "
+                "numero de celulas nunca e negativo. Use 0 (o padrao) para "
+                "exigir leituras identicas."
+            )
+        if self.celulas_toleradas > TETO_DE_CELULAS_TOLERADAS:
+            raise ToleranciaAlemDoTeto(
+                f"[identidade] celulas_toleradas = {self.celulas_toleradas} "
+                f"passa do teto de {TETO_DE_CELULAS_TOLERADAS} celulas da "
+                "mascara do nome. Acima dele o proprio reconhecedor ja trata as "
+                "duas leituras como pessoas DIFERENTES, e a assinatura gravada "
+                "seria a media de duas pessoas, num acervo que nao tem comando "
+                f"de esquecer. Use um valor de 0 a {TETO_DE_CELULAS_TOLERADAS}."
+            )
+        if self.leituras_para_aprender < 1:
+            raise ToleranciaAlemDoTeto(
+                f"[identidade] leituras_para_aprender = "
+                f"{self.leituras_para_aprender} nao pode ser menor que 1: com "
+                "zero o scanner gravaria a assinatura no PRIMEIRO frame, sem "
+                "nenhuma confirmacao de que a leitura e estavel. O padrao e "
+                f"{LEITURAS_PARA_APRENDER} leitura(s)."
+            )
 
 
 @dataclass(frozen=True)
