@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -633,3 +634,189 @@ class TestNenhumRastreadorNasceMudo:
             "o detector nao encontrou NENHUM `Rastreador(...)` em l2scanner/ — "
             "o portao esta olhando para o lugar errado"
         )
+
+
+# ---------------------------------------------------------------------------
+# A ESCRITA: duas instancias disputando, e o disco que falha sem mentir
+# ---------------------------------------------------------------------------
+
+
+def falhar_dentro_de(pasta: Path, real):
+    """Um `os.open`/`os.write` que so falha para a pasta do teste.
+
+    Patchar a funcao inteira derrubaria a propria pytest junto. O envelope
+    delega para a de verdade tudo que nao e o acervo sob teste.
+    """
+
+    def falso(alvo, *args, **kwargs):
+        if str(pasta) in str(alvo):
+            raise OSError("disco cheio (simulado)")
+        return real(alvo, *args, **kwargs)
+
+    return falso
+
+
+def recusar_escrita(descritor, dados):
+    raise OSError("disco cheio (simulado)")
+
+
+class TestGravar:
+    """A primitiva de escrita existe e e provada; ela NAO tem chamador no laco.
+
+    Aprender uma assinatura sozinho e trabalho da Fase 2. Esta fase prova que a
+    escrita se comporta — a corrida das duas instancias e o disco que falha —
+    para que a Fase 2 possa decidir QUANDO chamar sem ter tambem de descobrir SE
+    funciona.
+    """
+
+    def test_gravar_uma_assinatura_nova_devolve_criado(
+        self, tmp_path, pixels, calibracao
+    ):
+        acervo = AcervoDeIdentidades(tmp_path)
+        assinatura = assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+
+        assert acervo.gravar(assinatura) == "criado"
+        assert acervo.chaves() == [chave_da_assinatura(assinatura)]
+
+    def test_gravar_de_novo_devolve_ja_existia_e_nao_duplica(
+        self, tmp_path, pixels, calibracao
+    ):
+        acervo = AcervoDeIdentidades(tmp_path)
+        assinatura = assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        acervo.gravar(assinatura)
+
+        assert acervo.gravar(assinatura) == "ja_existia"
+        assert len(acervo.chaves()) == 1
+
+    def test_duas_instancias_na_mesma_pasta_produzem_UMA_entrada(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A premissa do projeto: Yazalaque e Faerlina rodando ao mesmo tempo.
+
+        `O_CREAT|O_EXCL` decide a corrida no kernel. Exatamente uma cria; a
+        outra recebe `"ja_existia"`, que e uma resposta verdadeira e nao um
+        erro.
+        """
+        yazalaque = AcervoDeIdentidades(tmp_path)
+        faerlina = AcervoDeIdentidades(tmp_path)
+        assinatura = assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+
+        desfechos = sorted(
+            [yazalaque.gravar(assinatura), faerlina.gravar(assinatura)]
+        )
+        assert desfechos == ["criado", "ja_existia"]
+        assert len(yazalaque.chaves()) == 1
+
+    def test_assinaturas_diferentes_produzem_entradas_diferentes(
+        self, tmp_path, pixels, calibracao
+    ):
+        acervo = AcervoDeIdentidades(tmp_path)
+        acervo.gravar(assinatura_da_linha(pixels, calibracao, 0))
+        acervo.gravar(assinatura_da_linha(pixels, calibracao, 1))
+
+        assert len(acervo.chaves()) == 2
+
+    def test_o_corpo_gravado_nao_carrega_o_nome(self, tmp_path, pixels, calibracao):
+        """O nome mora no irmao (D-03).
+
+        Se ele fosse junto, corrigir um batismo exigiria reescrever a
+        assinatura — e reescrever a assinatura muda a chave, que e a unica coisa
+        que nao pode mudar.
+        """
+        acervo = AcervoDeIdentidades(tmp_path)
+        assinatura = replace(
+            assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA), nome="Kaus"
+        )
+        acervo.gravar(assinatura)
+
+        (arquivo,) = list(tmp_path.glob("assinatura_*.json"))
+        corpo = json.loads(arquivo.read_text(encoding="utf-8"))
+        assert "nome" not in corpo
+        assert set(corpo) == {"altura", "largura", "bits"}
+
+    def test_o_que_foi_gravado_e_relido_igual(self, tmp_path, pixels, calibracao):
+        """Ida e volta: gravar e ler tem de concordar sobre a chave.
+
+        Se nao concordassem, TODA entrada gravada seria descartada pela
+        conferencia de chave da leitura — e o acervo pareceria funcionar
+        (`"criado"` toda vez) enquanto nunca reconhecesse ninguem.
+        """
+        acervo = AcervoDeIdentidades(tmp_path)
+        assinatura = assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        acervo.gravar(assinatura)
+
+        (lida,) = acervo.assinaturas()
+        assert np.array_equal(lida.mascara, assinatura.mascara)
+        assert lida.anonima
+
+    def test_falha_de_disco_devolve_falhou_e_nao_deixa_entrada(
+        self, tmp_path, pixels, calibracao, monkeypatch
+    ):
+        """`falhou` e uma terceira resposta, e nao um `criado` disfarcado.
+
+        E a distincao que permite ao chamador da Fase 2 tentar de novo em vez de
+        acreditar que aprendeu. Colapsada em `criado`, a pessoa ficaria anonima
+        para sempre — o batismo pergunta uma vez so — sem erro em lugar nenhum.
+        """
+        acervo = AcervoDeIdentidades(tmp_path)
+        monkeypatch.setattr(
+            "l2scanner.acervo.os.open", falhar_dentro_de(tmp_path, os.open)
+        )
+
+        desfecho = acervo.gravar(
+            assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        )
+
+        assert desfecho == "falhou"
+        assert desfecho not in ("criado", "ja_existia")
+        assert list(tmp_path.glob("assinatura_*")) == []
+
+    def test_falha_no_meio_da_escrita_nao_deixa_entrada_pela_metade(
+        self, tmp_path, pixels, calibracao, monkeypatch
+    ):
+        """O descritor abriu, o corpo nao foi.
+
+        A entrada intacta ao lado continua legivel, e a que falhou nao aparece
+        em `assinaturas()` — nem como assinatura truncada com chave que bate,
+        que seria a forma perigosa: uma mascara pela metade casando com a pessoa
+        errada.
+        """
+        acervo = AcervoDeIdentidades(tmp_path)
+        intacta = assinatura_da_linha(pixels, calibracao, 0)
+        assert acervo.gravar(intacta) == "criado"
+
+        monkeypatch.setattr("l2scanner.acervo.os.write", recusar_escrita)
+        assert acervo.gravar(assinatura_da_linha(pixels, calibracao, 1)) == "falhou"
+
+        assert acervo.chaves() == [chave_da_assinatura(intacta)]
+        (sobrevivente,) = acervo.assinaturas()
+        assert np.array_equal(sobrevivente.mascara, intacta.mascara)
+
+    def test_uma_escrita_parcial_tambem_e_falha(
+        self, tmp_path, pixels, calibracao, monkeypatch
+    ):
+        """`os.write` pode escrever MENOS do que pediram, sem levantar nada.
+
+        Um corpo truncado que ninguem contou seria a unica forma de o acervo
+        gravar lixo com a cara de sucesso.
+        """
+        acervo = AcervoDeIdentidades(tmp_path)
+        monkeypatch.setattr("l2scanner.acervo.os.write", lambda fd, dados: 1)
+
+        assert (
+            acervo.gravar(assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA))
+            == "falhou"
+        )
+        assert acervo.assinaturas() == []
+        assert list(tmp_path.glob("assinatura_*")) == []
+
+    def test_a_docstring_de_gravar_nomeia_os_dois_precedentes(self):
+        """O projeto tem DOIS tri-estados opostos, e quem le precisa saber qual.
+
+        Sem isso escrito, o proximo modulo duravel copia o da agenda por
+        proximidade e colapsa uma falha de disco em sucesso.
+        """
+        doc = AcervoDeIdentidades.gravar.__doc__
+        assert "RegistroDeLoot" in doc
+        assert "RegistroEmDisco" in doc
+        assert "criado | ja_existia | falhou" in doc

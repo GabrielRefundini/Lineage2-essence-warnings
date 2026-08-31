@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -170,6 +171,81 @@ class AcervoDeIdentidades:
     def __init__(self, pasta: Path) -> None:
         self._pasta = pasta
         self._pasta.mkdir(parents=True, exist_ok=True)
+
+    # -- escrita ------------------------------------------------------------
+
+    def gravar(self, assinatura: Assinatura) -> str:
+        """Grava uma assinatura. Tri-estado: criado | ja_existia | falhou.
+
+        ESTE ACERVO SEGUE O `loot.RegistroDeLoot`, E NAO O
+        `agenda.RegistroEmDisco`. O projeto tem os dois tri-estados e eles sao
+        OPOSTOS, entao a escolha precisa estar escrita.
+
+        O `marcar` da agenda colapsa `OSError` em True porque aviso duplicado e
+        melhor que aviso perdido — la existe um desfecho barato para escolher no
+        escuro (medido em campo: 2026-08-26 19:30, uma simulacao disputou a
+        chave com o scanner real e por milissegundos nao apagou o aviso de TvT).
+
+        Aqui nao existe desfecho barato. Colapsar `"falhou"` em `"criado"` faria
+        a Fase 2 acreditar que aprendeu uma pessoa que nao esta em disco, parar
+        de perguntar (o batismo pergunta UMA vez) e deixa-la anonima para
+        sempre, sem erro em lugar nenhum. Colapsar em `"ja_existia"` seria
+        igualmente falso: a deduplicacao tomaria uma falha de disco por
+        conhecimento. A escrita duplicada ja e recusada pelo `O_EXCL`, entao a
+        unica assimetria que sobra e perdido-contra-repetir — e repetir e de
+        graca.
+
+        O `O_CREAT|O_EXCL` resolve a corrida das duas instancias do usuario de
+        graca: exatamente uma cria, a outra recebe `"ja_existia"`, e nao ha
+        ler-modificar-escrever para corromper.
+
+        O corpo gravado NAO tem a chave `nome`. O nome mora no arquivo irmao, e
+        e por isso que a chave nao muda quando ele chega.
+        """
+        chave = chave_da_assinatura(assinatura)
+        corpo = assinatura.como_dict()
+        corpo.pop("nome", None)
+        dados = json.dumps(corpo).encode("utf-8")
+        alvo = self._pasta / f"{PREFIXO_ASSINATURA}{chave}{SUFIXO_ASSINATURA}"
+
+        try:
+            descritor = os.open(alvo, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return "ja_existia"
+        except OSError:
+            return "falhou"
+
+        # Diferenca em relacao ao `.loot/`: la o arquivo e VAZIO e a identidade
+        # E o nome. Aqui o corpo carrega o conteudo da assinatura, entao ha uma
+        # escrita entre o `open` e o `close` — e ela tambem pode falhar.
+        falhou = False
+        try:
+            falhou = os.write(descritor, dados) != len(dados)
+        except OSError:
+            falhou = True
+        # O `close` entra FORA do try da escrita e conta como falha por conta
+        # propria: no Windows os bytes so chegam ao disco no fechamento, entao
+        # um `close` que levanta e uma gravacao que nao aconteceu.
+        try:
+            os.close(descritor)
+        except OSError:
+            falhou = True
+
+        if falhou:
+            # Apagar o que ficou pela metade, e nao deixar para tras.
+            #
+            # O `O_EXCL` garante que ESTE processo criou o arquivo, entao
+            # remove-lo nao pode atropelar a outra instancia. Deixa-lo faria a
+            # proxima tentativa receber `"ja_existia"` sobre uma entrada que a
+            # leitura descarta — ou seja, o acervo diria para sempre que conhece
+            # alguem que ele nao consegue ler.
+            try:
+                alvo.unlink()
+            except OSError:
+                pass
+            return "falhou"
+
+        return "criado"
 
     # -- leitura ------------------------------------------------------------
 
