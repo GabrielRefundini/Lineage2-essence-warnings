@@ -78,7 +78,7 @@ Plans:
   2. Os preços e quantidades lidos batem dígito a dígito com o que o usuário vê no frame — separador de milhar tratado como glifo de primeira classe; quando o frame está ilegível, a linha aparece como descartada, nunca como um número plausível. O número NUNCA vem do motor de OCR que lê o nome: medido contra as gravações da Fase 1, ele perde a vírgula decimal e devolve `1650` onde a tela diz `16,50` — erro de 100x com aparência plausível, exatamente o que LEIT-02 existe para impedir
   3. Uma página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS; frames bit a bit idênticos são reportados como captura congelada, não aceitos como acordo
 
-**Plans**: 7/8 plans executed (8 waves - a fase e SERIAL por construcao: um portao humano, quatro ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
+**Plans**: 8/8 plans executed (8 waves - a fase e SERIAL por construcao: um portao humano, quatro ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
 
 Plans:
 **Wave 1**
@@ -111,7 +111,7 @@ Plans:
 
 **Wave 8** *(blocked on Wave 7 - o replay so mede a fase depois que o piso da Quantity e a guarda de largura existem, senao o rendimento e artefato: as leituras erradas contam como acerto)*
 
-- [ ] 02-05-PLAN.md - (wave 8) O catalogo em `.mercado/catalogo-de-nomes.csv` (atomico, defensivo, sem poda), o estabilizador completo (congelamento pela janela inteira + acordo sobre a tupla parseada) e o replay atras do `pytest.skip`
+- [x] 02-05-PLAN.md - (wave 8) O catalogo em `.mercado/catalogo-de-nomes.csv` (atomico, defensivo, sem poda), o estabilizador completo (congelamento pela janela inteira + acordo sobre a tupla parseada) e o replay atras do `pytest.skip`
 
 **Bloqueio externo - explicito:** o `calibration.json` da maquina do usuario diz hoje `layout: "adena"`, e a aba Adena **nao tem nome de item** (o OCR da primeira coluna devolve literalmente `'Adena'`). LEIT-01 e LEIT-05 nao tem objeto naquele layout, e o censo das 335 gravacoes da ~25 frames de Adena contra ~283 da grade de negociacao. So o USUARIO pode recalibrar - a fase PARA na Wave 1 e espera.
 
@@ -163,7 +163,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fundação — firewall, gravador e spike de campo | 5/5 | ✓ Complete | 2026-08-29 |
-| 2. Leitura de página | 7/8 | In Progress|  |
+| 2. Leitura de página | 8/8 | In Progress|  |
 | 3. Persistência de observações | 0/TBD | Not started | - |
 | 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
 

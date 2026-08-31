@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 20
+open_count: 24
 waived_count: 1
 fixed_count: 7
-total_count: 28
-last_updated: 2026-08-31T00:51:01.264Z
+total_count: 32
+last_updated: 2026-08-31T01:31:43.303Z
 ---
 
 # Broken Windows Ledger
@@ -43,6 +43,10 @@ last_updated: 2026-08-31T00:51:01.264Z
 | 26 | 2 | deviation | calibration.json |  | 02-07 FECHA a janela #16 por MEDICAO: mercado_limiar_de_brilho_da_quantidade = 161, o ULTIMO PISO SEGURO com PASSO_DA_VARREDURA = 1. Balde LE ERRADO do proprio 161 VAZIO sobre 2247 celulas rotuladas; folga (a) ate o primeiro piso que erra = 1 (o 160 acrescenta 2 erros novos), folga (b) ate o tronco medido do 1 = 13 (tronco remedido no censo = 174, e nao os 177 da sondagem do plano). Rendimento da coluna Quantity 541 -> 2133 de 2247; o rotulo 1 (n=1680) vai de 0 para 1590 leituras certas; as 3 gravacoes que liam ZERO (tooltip, alvo-sobreposto, farm-com-party) passam a 199/241, 215/224 e 327/329. A hipotese do 02-08 CONFIRMOU-SE: o balde LE ERRADO do piso compartilhado 180, que tinha 14 celulas e REPROVOU a proposta em 2026-08-30, esta VAZIO depois da particao do glifo colado. O piso e PROPRIO da coluna e nunca global - o mesmo 161 aplicado as colunas de moeda faria 4697 celulas deixarem de ler e 1029 lerem outra coisa. | fixed |  | 2026-08-31T00:46:06.875Z | 2026-08-31T00:46:17.224Z |
 | 27 | 2 | unmet-truth | tests/test_bosses.py |  | FORA DO ESCOPO do 02-07, registrado por descoberta durante a suite completa: tests/test_bosses.py tem 2 falhas PRE-EXISTENTES, do workstream tiat e nao do mercado. O commit c4175da mudou o config.toml para 'Tiat 8h + 2 random (o servidor mudou a regra)' e os dois testes (test_o_arquivo_do_repositorio_tem_os_dois_tiat_com_6_e_8 e test_os_dois_tiat_do_repositorio_tem_6_e_8) seguem cobrando 6 e 8. Nenhum arquivo do 02-07 os toca. Suite: 2501 passed, 2 skipped, 2 failed sem test_agenda.py; 144 passed so com ele. | open |  | 2026-08-31T00:46:17.943Z |  |
 | 28 | 2 | deviation | tests/test_bosses.py |  | CONTAMINACAO ENTRE WORKSTREAMS num commit do 02-07: o commit RED e0e0083 ('test(02-07): o rotulo derivado, as quatro recusas e o ultimo piso seguro') carregou junto quatro arquivos do workstream TIAT que nao pertencem ao 02-07 — l2scanner/bosses.py, tests/test_bosses.py, tests/test_presenca.py e um 01-03-SUMMARY.md do tiat. Foi um executor concorrente com arquivos ja no index. Descoberto no fechamento do 02-07 (sessao seguinte), quando a janela #27 foi rastreada ate a origem. Nada foi desfeito: reverter arrastaria trabalho legitimo do tiat, e o commit c4175da (posterior) ja construiu por cima. Registrado para que o padrao 'git add por arquivo, nunca git add -A' tenha um caso concreto atras dele. | open |  | 2026-08-31T00:51:01.264Z |  |
+| 29 | 2 | unrun-verify | l2scanner/mercado_pagina.py |  | O detector de captura CONGELADA nunca dispara sobre material real: frames_congelados = ZERO nas 8 gravacoes do censo (517 frames, 478 com painel aberto). A unica prova dele e a fixtura SINTETICA (a mesma janela passada tres vezes) em tests/test_mercado_pagina.py. Isso e esperado — o censo foi gravado com captura sadia, e nao ha gravacao de captura travada — mas significa que a borda de TRES nunca foi exercitada por um congelamento de verdade. A verificacao humana de fim de fase precisa provoca-lo de proposito: minimizar a janela do jogo, ou pausar a captura, e conferir que o aviso alto sai e nenhuma pagina e aceita. | open |  | 2026-08-31T01:31:39.978Z |  |
+| 30 | 2 | deviation | tests/test_mercado_replay.py |  | SUPOSICAO MINHA REFUTADA POR MEDICAO no 02-05: escrevi 20260828-063409-mercado-scroll-transicao como CONTROLE 'sem oclusao' num teste de relacao, e ela descarta MAIS linhas por frame (6,30 = 170/27) que a gravacao de tooltip deliberado (3,62 = 141/39) e que a de alvo-sobreposto (0,74 = 35/47). CAUSA: durante a rolagem o fundo alternado das linhas esta em transicao e a sonda o le nao-uniforme; a recusa e legitima e fail-closed, mas nao e oclusao. O teste NAO foi forcado a passar — a comparacao falsa saiu e as taxas medidas por gravacao entraram no relatorio do replay. Consequencia para quem for calibrar depois: 'linhas descartadas' NAO e sinonimo de 'linhas cobertas'. | open |  | 2026-08-31T01:31:40.889Z |  |
+| 31 | 2 | deviation | l2scanner/mercado_pagina.py |  | O piso de posicoes comparadas (mercado_minimo_de_linhas_comparadas = 7, T-02-26) e o MAIOR fator isolado de perda de pagina do censo: 136 das 189 perdas (72%) sao 'abaixo do minimo comparado', contra 34 de 'primeiro frame do par' e 19 de 'os dois frames discordam'. O rendimento medido da fase e li 151 / perdi 189 sobre 478 ticks com painel aberto. O piso NAO foi mexido — ele foi MEDIDO pelo 02-02 sobre a intersecao entre frames vizinhos, e baixa-lo reabriria o acordo trivial. Registrado porque e o unico numero desta fase que um humano poderia querer renegociar depois de ver o custo, e a renegociacao precisa de uma varredura nova e nao de um palpite. | open |  | 2026-08-31T01:31:42.203Z |  |
+| 32 | 2 | deviation | tests/test_mercado_leitura.py |  | Um teste do 02-07 (TestARecusaEPorLinhaNuncaPorPagina::test_a_linha_descartada_NAO_entra_no_estabilizador) teve a PREMISSA superada pelo piso do 02-05: ele afirmava que a pagina de tooltip e ACEITA no segundo frame, e com 2 linhas lidas de 10 ela e exatamente a pagina que T-02-26 recusa. O piso NAO foi afrouxado para salvar o teste — o teste passou a DERIVAR o piso das linhas que a propria fixtura entrega, com a historia das tres ondas escrita na docstring, e a recusa com o valor de PRODUCAO ganhou teste proprio em test_mercado_pagina.py. | open |  | 2026-08-31T01:31:43.303Z |  |
 
 ````json
 [
@@ -380,6 +384,54 @@ last_updated: 2026-08-31T00:51:01.264Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-31T00:51:01.264Z",
+    "resolved_at": null
+  },
+  {
+    "id": 29,
+    "kind": "unrun-verify",
+    "phase": "2",
+    "file": "l2scanner/mercado_pagina.py",
+    "line": null,
+    "description": "O detector de captura CONGELADA nunca dispara sobre material real: frames_congelados = ZERO nas 8 gravacoes do censo (517 frames, 478 com painel aberto). A unica prova dele e a fixtura SINTETICA (a mesma janela passada tres vezes) em tests/test_mercado_pagina.py. Isso e esperado — o censo foi gravado com captura sadia, e nao ha gravacao de captura travada — mas significa que a borda de TRES nunca foi exercitada por um congelamento de verdade. A verificacao humana de fim de fase precisa provoca-lo de proposito: minimizar a janela do jogo, ou pausar a captura, e conferir que o aviso alto sai e nenhuma pagina e aceita.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T01:31:39.978Z",
+    "resolved_at": null
+  },
+  {
+    "id": 30,
+    "kind": "deviation",
+    "phase": "2",
+    "file": "tests/test_mercado_replay.py",
+    "line": null,
+    "description": "SUPOSICAO MINHA REFUTADA POR MEDICAO no 02-05: escrevi 20260828-063409-mercado-scroll-transicao como CONTROLE 'sem oclusao' num teste de relacao, e ela descarta MAIS linhas por frame (6,30 = 170/27) que a gravacao de tooltip deliberado (3,62 = 141/39) e que a de alvo-sobreposto (0,74 = 35/47). CAUSA: durante a rolagem o fundo alternado das linhas esta em transicao e a sonda o le nao-uniforme; a recusa e legitima e fail-closed, mas nao e oclusao. O teste NAO foi forcado a passar — a comparacao falsa saiu e as taxas medidas por gravacao entraram no relatorio do replay. Consequencia para quem for calibrar depois: 'linhas descartadas' NAO e sinonimo de 'linhas cobertas'.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T01:31:40.889Z",
+    "resolved_at": null
+  },
+  {
+    "id": 31,
+    "kind": "deviation",
+    "phase": "2",
+    "file": "l2scanner/mercado_pagina.py",
+    "line": null,
+    "description": "O piso de posicoes comparadas (mercado_minimo_de_linhas_comparadas = 7, T-02-26) e o MAIOR fator isolado de perda de pagina do censo: 136 das 189 perdas (72%) sao 'abaixo do minimo comparado', contra 34 de 'primeiro frame do par' e 19 de 'os dois frames discordam'. O rendimento medido da fase e li 151 / perdi 189 sobre 478 ticks com painel aberto. O piso NAO foi mexido — ele foi MEDIDO pelo 02-02 sobre a intersecao entre frames vizinhos, e baixa-lo reabriria o acordo trivial. Registrado porque e o unico numero desta fase que um humano poderia querer renegociar depois de ver o custo, e a renegociacao precisa de uma varredura nova e nao de um palpite.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T01:31:42.203Z",
+    "resolved_at": null
+  },
+  {
+    "id": 32,
+    "kind": "deviation",
+    "phase": "2",
+    "file": "tests/test_mercado_leitura.py",
+    "line": null,
+    "description": "Um teste do 02-07 (TestARecusaEPorLinhaNuncaPorPagina::test_a_linha_descartada_NAO_entra_no_estabilizador) teve a PREMISSA superada pelo piso do 02-05: ele afirmava que a pagina de tooltip e ACEITA no segundo frame, e com 2 linhas lidas de 10 ela e exatamente a pagina que T-02-26 recusa. O piso NAO foi afrouxado para salvar o teste — o teste passou a DERIVAR o piso das linhas que a propria fixtura entrega, com a historia das tres ondas escrita na docstring, e a recusa com o valor de PRODUCAO ganhou teste proprio em test_mercado_pagina.py.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T01:31:43.303Z",
     "resolved_at": null
   }
 ]

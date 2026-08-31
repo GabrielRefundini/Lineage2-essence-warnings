@@ -5,16 +5,16 @@ milestone_name: )
 current_phase: 2
 current_phase_name: Leitura de pagina
 status: verifying
-stopped_at: Completed 02-07-PLAN.md
-last_updated: "2026-08-31T00:49:27.827Z"
-last_activity: 2026-08-30
+stopped_at: Completed 02-05-PLAN.md — Fase 2 completa (8 de 8 planos)
+last_updated: "2026-08-31T01:35:32.135Z"
+last_activity: 2026-08-31
 last_activity_desc: "Fase 2 plano 06: a TERCEIRA leitura de numero (a coluna do unitario) entrou em ler_linha e esta provada por contagem (2/2 em f010, 4/4 em f005); a guarda de cruzamento foi construida e ficou DESLIGADA pela rota REPROVADA do 02-02, degradada para observacao com a refutacao escrita no fonte"
-state_head: 2aeb2bfa9abf2e430b21ae32bcfeef9b1c792945
+state_head: 151d6f04a8a790fb4077c6a4c9cf6352b6fef10a
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 13
-  completed_plans: 12
+  completed_plans: 13
   percent: 25
 ---
 
@@ -29,9 +29,11 @@ progress:
 ## Current Position
 
 Phase: 2 — Leitura de pagina
-Plan: 8 planos escritos, 7 fechados — so o 02-05 (o replay que afirma a fase) segue pendente
-Status: Executing — 02-05 e o proximo
-Last activity: 2026-08-31 — Completed 02-07: o piso de brilho PROPRIO da coluna Quantity foi MEDIDO em 161 e PROPOSTO (`PROPOSTO piso=161, folga ate o primeiro que erra=1, folga ate o tronco medido do 1=13, tronco=174, balde LE ERRADO do proprio piso VAZIO sobre 2247 celulas rotuladas`). O rendimento da coluna foi de 541 para 2133, o rotulo `1` (n=1680) de 0 para 1590, e as tres gravacoes que liam ZERO passaram a ler. A REPROVA de 30/08 caiu por REMOCAO DA CAUSA: as 14 celulas do balde do piso compartilhado eram o glifo COLADO, que o 02-08 consertou. Janela #16 FECHADA.
+Plan: 8 planos escritos, 8 FECHADOS — a Fase 2 esta completa
+Status: Verifying — a fase inteira executada; falta a verificacao humana de fim de fase
+Last activity: 2026-08-30 — Completed 02-05, a ULTIMA onda: o catalogo de nomes ganhou arquivo proprio em `.mercado/catalogo-de-nomes.csv` (atomico, sem poda, leitura defensiva) e o estabilizador ficou completo (congelamento pela JANELA INTEIRA, acordo pela INTERSECAO das posicoes aceitas em ambos, piso de 7 posicoes lido do disco). **O replay das 8 gravacoes do censo RODOU no checkout principal: 517 frames, 478 ticks com painel aberto, li 151 e perdi 189, 39 series, 1.007 linhas descartadas, ZERO frames congelados.** As 189 perdas: 136 abaixo do minimo comparado, 34 primeiro frame do par, 19 discordancia. Suite 2605 passed + 144.
+
+Antes disso, 2026-08-31 — Completed 02-07: o piso de brilho PROPRIO da coluna Quantity foi MEDIDO em 161 e PROPOSTO (`PROPOSTO piso=161, folga ate o primeiro que erra=1, folga ate o tronco medido do 1=13, tronco=174, balde LE ERRADO do proprio piso VAZIO sobre 2247 celulas rotuladas`). O rendimento da coluna foi de 541 para 2133, o rotulo `1` (n=1680) de 0 para 1590, e as tres gravacoes que liam ZERO passaram a ler. A REPROVA de 30/08 caiu por REMOCAO DA CAUSA: as 14 celulas do balde do piso compartilhado eram o glifo COLADO, que o 02-08 consertou. Janela #16 FECHADA.
 
 Progress: [███░░░░░░░] 25%
 
@@ -83,6 +85,10 @@ Progress: [███░░░░░░░] 25%
 - [Phase 02]: A folga de cola do glifo foi MEDIDA em 1 e a guarda do run largo entrou em ler_glifos: 69 leituras erradas e plausiveis do censo viraram ZERO, e o rendimento subiu de 1135 para 1148 linhas completas — Um run mais largo que o maior molde de um caractere era casado contra UM molde e virava UM digito (44 lia 4, 149,44 lia 14,44), com score e margem que atravessavam as duas peneiras - a unica falha ABERTA da Fase 2, violando LEIT-02. O limite ficou DERIVADO dos moldes (max(largura)=6) e nao virou chave, porque uma copia gravada seria a segunda verdade sobre uma so geometria; o vale medido de quatro niveis (7 a 10 px, ZERO celulas aceitas) prova que a escolha dentro dele nao muda nada. So a folga de cola e livre, e por isso e a unica chave nova - medida pela varredura, com o balde LE ERRADO vazio nas duas populacoes rotuladas.
 - [Phase 02]: A MEDICAO refutou duas afirmacoes do plano 02-08: afrouxar a folga nao inventa numero (folgas 2-4 leem IDENTICO a folga 1), e o pior caso da particao e 17x abaixo do tick e nao tres ordens de grandeza — particionar_run escolhe pelo PIOR segmento do corte, entao larguras permitidas a mais so acrescentam candidatos piores, que perdem - a sondagem do planejador previa 54 invencoes na variante D e mediu outra regra de escolha. A afirmacao 'a largura de corte decide entre conserto e invencao' e verdadeira sobre a ESCOLHA DO CORTE e falsa sobre a LARGURA PERMITIDA. O relogio: 9,02 ms medio e 60,16 ms no pior caso, contra o teto declarado de 200 ms - passa, mas com menos folga do que o plano supunha.
 - [Phase 02]: O piso de brilho PROPRIO da coluna Quantity foi MEDIDO em 161 e PROPOSTO: LE CERTO 2133, NAO LE 114, LE ERRADO ZERO sobre 2247 celulas rotuladas do censo — E o ULTIMO PISO SEGURO com PASSO_DA_VARREDURA = 1, com a propria linha na tabela de candidatos e o balde LE ERRADO vazio. Folga (a) ate o primeiro piso que erra = 1; folga (b) ate o tronco remedido do 1 (V=174, e nao os 177 da sondagem) = 13. O rendimento da coluna foi de 541 para 2133, e o rotulo 1 (n=1680) foi de 0 para 1590. A REPROVA anterior caiu por REMOCAO DA CAUSA: as 14 celulas que sujavam o balde do piso compartilhado eram o glifo COLADO, consertado pelo 02-08.
+- [Phase 2]: [Phase 02] O rendimento da Fase 2 esta MEDIDO e nao estimado: replay das 8 gravacoes NOMEADAS do censo, 517 frames, 478 ticks com painel aberto -> li 151, perdi 189, 7 vazias, 131 de outro layout, 1.007 linhas descartadas, 39 series distintas, ZERO frames congelados. Das 189 perdas, 136 (72%) sao o piso de posicoes comparadas (T-02-26) fazendo o trabalho para o qual foi medido, 34 sao o primeiro frame do par e 19 sao discordancia real.
+- [Phase 2]: [Phase 02] O congelamento de captura roda ANTES da busca do painel, e a janela anterior e guardada por COPIA. A ordem: captura congelada e propriedade da CAPTURA e nao da pagina, e procurar o painel em pixels mortos produziria um voto 'aberto' convincente. A copia: um backend que reusa o proprio buffer produziria congelamento ETERNO sobre captura viva — o falso positivo exato que o detector existe para nao produzir, invertido.
+- [Phase 2]: [Phase 02] A regra que decide se uma chave ausente desliga a leitura: mercado_minimo_de_linhas_comparadas ENTRA em _calibrado e mercado_folga_de_cola_do_glifo NAO. A ausencia da folga degrada para MAIS SEGURO (a celula com run largo cai fechada); a ausencia do piso degrada para o ACORDO TRIVIAL, que aceita como lida uma pagina em que quase nada atravessou. So a primeira pode sobreviver sem a chave.
+- [Phase 2]: [Phase 02] REFUTADO por medicao no 02-05: 'linhas descartadas' NAO e sinonimo de 'linhas cobertas'. A gravacao scroll-transicao, escrita por mim como controle 'sem oclusao', descarta 6,30 linhas por frame contra 3,62 da gravacao de tooltip deliberado e 0,74 da de alvo-sobreposto. Durante a rolagem o fundo alternado esta em transicao e a sonda o le nao-uniforme: recusa legitima e fail-closed, mas nao oclusao. O teste falso saiu; as taxas medidas entraram no relatorio.
 
 ### Blockers
 
@@ -95,6 +101,7 @@ Progress: [███░░░░░░░] 25%
 
 - JANELA 13 ABERTA: `l2scanner/calibrar.py` (calibracao de PARTY) apaga TODA a calibracao de mercado — `calibrar_selecionando` monta uma Calibracao do zero (calibrar.py:353) e o fluxo grava por cima do arquivo inteiro (calibrar.py:1244). Confirmado em campo 2026-08-30. Enquanto nao for consertado, recalibrar a party DE NOVO custa a calibracao de mercado outra vez. Resgate em calibration.RESGATE-13-glifos.json.
 - ~~DECISAO PENDENTE (02-03 Task 2): a fonte da assinatura de digitos.~~ **RESOLVIDA em 2026-08-30: `ocr-estrito`.** O usuario aceitou o custo de 8,86% das linhas caindo (as vezes pagina inteira) para nao pagar uma chave `7655` que ele nao consegue ler no CSV. O caminho de volta da rota `molde` esta medido e escrito na docstring de `mercado_catalogo.assinatura_por_molde` (vao +0,1563, entre 0,8510 e 0,6947).
+- VERIFICACAO HUMANA DE FIM DE FASE, o que nenhuma fixtura alcanca: (1) o OCR REAL com WinRT — o pytest roda no Python GLOBAL e injeta as leitoras, entao nenhum teste desta fase chamou o motor de verdade; a leitura de nome precisa ser conferida com o jogo aberto; (2) o congelamento de captura — frames_congelados = ZERO em todo o censo, e a borda de TRES so foi exercitada por fixtura sintetica: minimize a janela do jogo ou pause a captura e confira que o aviso alto sai e nenhuma pagina e aceita; (3) o rendimento 151/189 e um julgamento de produto — 72% das perdas sao o piso de 7 posicoes, e baixa-lo reabre o acordo trivial e exige varredura nova.
 
 ### Quick Tasks Completed
 
@@ -144,9 +151,9 @@ Progress: [███░░░░░░░] 25%
 
 ## Session Continuity
 
-**Last session:** 2026-08-31T00:49:27.679Z
+**Last session:** 2026-08-31T01:35:06.471Z
 
-**Stopped At:** Completed 02-07-PLAN.md
+**Stopped At:** Completed 02-05-PLAN.md — Fase 2 completa (8 de 8 planos)
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -162,3 +169,4 @@ Progress: [███░░░░░░░] 25%
 | Phase 02 P06 | 25 min | 1 tasks | 5 files |
 | Phase 02 P08 | 95 min | 2 tasks | 14 files |
 | Phase 02 P07 | 1h 8m | 2 tasks | 10 files |
+| Phase 02 P05 | 105 min | 3 tasks | 7 files |
