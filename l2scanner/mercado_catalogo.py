@@ -1,15 +1,22 @@
-"""Os predicados PUROS do agrupamento de nome de item do World Exchange.
+"""O agrupamento de nome de item do World Exchange, e o catalogo em disco.
 
-Este modulo nao abre janela, nao le teclado, nao escreve arquivo e nao pergunta
-nada. Ele responde "estas duas leituras sao a mesma serie?" e "qual e a chave
-dela?". Quem guarda o catalogo em disco e quem mostra a recusa a um humano vem
-depois (02-05); quem produz os pixels e `mercado_leitura.py` (02-04).
+Duas metades, e a ordem em que elas nasceram esta registrada porque explica o
+desenho. Ate o 02-04 este modulo era SO de predicados: ele respondia "estas duas
+leituras sao a mesma serie?" e "qual e a chave dela?", sem tocar em arquivo
+nenhum. O 02-05 acrescentou a segunda metade — `Catalogo`, o arquivo duravel em
+`.mercado/catalogo-de-nomes.csv`.
 
-PRIMEIRA ETAPA, DE PROPOSITO: SO OS PREDICADOS
-===============================================
-Nada de I/O aqui ainda. O arquivo do catalogo tem escrita atomica, leitura
-defensiva e formato a decidir, e misturar isso com a regra de agrupamento faria
-um modulo em que nao da para afirmar a regra sem montar um arquivo.
+A SEPARACAO SOBREVIVEU A JUNCAO, E ELA E O QUE IMPORTA: as funcoes puras
+(`agrupar`, `similaridade`, `chave_da_serie`, `assinatura_por_ocr`) continuam
+sem saber que existe disco, e `Catalogo` continua sem saber decidir se duas
+leituras sao a mesma serie. Cada metade da para afirmar sozinha.
+
+A FRONTEIRA COM A FASE 3, QUE NAO SE MEXE
+==========================================
+**A Fase 2 escreve o catalogo de NOMES; a Fase 3 escreve o CSV de OBSERVACOES.**
+Dois arquivos, dois donos, nenhum compartilhado. Este modulo nao conhece o nome
+do arquivo da fase seguinte, e nao e por descuido: um segundo escritor para um
+arquivo que ja tem dono e o modo de falha que a fronteira existe para impedir.
 
 A METRICA E `difflib.SequenceMatcher`, E NAO `rapidfuzz` (D-04)
 ================================================================
@@ -68,10 +75,16 @@ aviso. Fusao no CSV e irreversivel; descarte nao e.
 
 from __future__ import annotations
 
+import csv
 import difflib
 import logging
+import os
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Callable, Iterable, Sequence
+
+from .config import RAIZ
 
 log = logging.getLogger(__name__)
 
@@ -346,3 +359,288 @@ def agrupar(
         ),
         True,
     )
+
+
+# ===========================================================================
+# A METADE DE ARQUIVO (02-05): o catalogo duravel
+# ===========================================================================
+
+# `.mercado/` e o TERCEIRO diretorio-ponto de estado local duravel deste
+# repositorio, ao lado de `.loot/` e `.agenda/`, e ele entra no `.gitignore`
+# pela mesma razao que eles: versionar misturaria a estatistica de maquinas
+# diferentes. O caminho vem SEMPRE da RAIZ do projeto e NUNCA de entrada do
+# usuario — um caminho vindo de fora seria uma travessia de diretorio de graca,
+# e nada aqui precisa dessa liberdade.
+PASTA_DO_MERCADO = RAIZ / ".mercado"
+ARQUIVO_DO_CATALOGO = "catalogo-de-nomes.csv"
+
+# PONTO-E-VIRGULA, E NAO VIRGULA, e a escolha vale por dois: a Fase 3 herda
+# este dialeto. A decisao travada da exibicao usa VIRGULA DECIMAL (`62,00`), e
+# um CSV separado por virgula colapsaria a planilha inteira numa coluna so no
+# instante em que o usuario abrisse o arquivo no Sheets.
+SEPARADOR = ";"
+
+COLUNAS = ("chave", "nome_exibido", "primeira_vez", "ultima_vez", "avistamentos")
+
+
+@dataclass
+class SerieDeNome:
+    """Uma serie do catalogo, com a estatistica que o usuario julga no Sheets.
+
+    `chave` e a identidade e nunca muda. `nome_exibido` e ROTULO: o usuario
+    pode corrigi-lo a mao no Sheets, e por isso ele volta como entrada NAO
+    CONFIAVEL na releitura seguinte.
+
+    `avistamentos` e `primeira_vez` existem por causa de D-08: nome novo entra
+    DIRETO como serie nova, sem quarentena, porque a quarentena esconderia a
+    primeira aparicao — que e justamente o evento que o usuario quer ver. A
+    contagem e o que deixa ele julgar a serie nova sem que o programa julgue
+    por ele.
+    """
+
+    chave: str
+    nome_exibido: str
+    primeira_vez: datetime
+    ultima_vez: datetime
+    avistamentos: int
+
+
+class Catalogo:
+    """O catalogo de nomes em `.mercado/catalogo-de-nomes.csv`.
+
+    A FRONTEIRA COM A FASE 3, ESCRITA PARA NAO SE PERDER
+    -----------------------------------------------------
+    **A Fase 2 escreve o catalogo de NOMES; a Fase 3 escreve o CSV de
+    OBSERVACOES.** Dois arquivos, dois donos, nenhum compartilhado. A Fase 3 LE
+    a chave que esta fase produziu e NUNCA escreve aqui; se ela encontrar uma
+    chave que nao esta no catalogo, isso e erro de programa e nao caso de uso.
+
+    NAO TEM PODA, DE PROPOSITO: estatistica de item e para sempre, igual ao
+    `.loot/`. O volume e de milhares de linhas, nao de milhoes (T-02-28).
+
+    ELE NAO MORA NO `calibration.json`, E ISSO E D-07: aquele arquivo e
+    reescrito INTEIRO pela ferramenta de calibracao, e o catalogo e dado
+    ACUMULADO — sumiria na primeira recalibracao.
+    """
+
+    def __init__(self, pasta: Path) -> None:
+        # A pasta chega no construtor, e nao derivada aqui dentro, pelo mesmo
+        # motivo de `RegistroDeLoot.__init__`: e o que permite ao teste apontar
+        # para `tmp_path` sem nunca tocar a `.mercado/` do usuario, que e dado
+        # acumulado e sem desfazer. Producao passa `PASTA_DO_MERCADO`.
+        self._pasta = pasta
+        self._pasta.mkdir(parents=True, exist_ok=True)
+        self.series: dict[str, SerieDeNome] = {}
+        self.carregar()
+
+    @property
+    def arquivo(self) -> Path:
+        return self._pasta / ARQUIVO_DO_CATALOGO
+
+    # -- leitura ------------------------------------------------------------
+
+    def carregar(self) -> dict[str, SerieDeNome]:
+        """Le o arquivo. Ausente -> vazio. Linha ruim -> so ela cai, com aviso.
+
+        A REGRA E LITERAL E ELA E A MITIGACAO DE T-02-22: descartar a linha
+        malformada com aviso, e NUNCA tratar o arquivo inteiro como corrompido.
+        Um append interrompido trunca a ultima linha, e essa e a mesma familia
+        do FUND-01 — o dado parcial nao pode virar dado plausivel. Mas o resto
+        do arquivo esta inteiro, e jogar fora meses de estatistica por causa de
+        uma linha seria trocar uma perda pequena por uma total.
+
+        Catalogo inexistente carrega VAZIO e nao levanta: a primeira execucao
+        numa maquina limpa e um estado legitimo, nao um erro.
+
+        O `newline=""` nao e enfeite: sem ele o modulo `csv` nao consegue
+        remontar um campo que contem quebra de linha, e um `nome_exibido`
+        colado do Sheets traz uma junto mais vezes do que se imagina.
+        """
+        self.series = {}
+        try:
+            with self.arquivo.open("r", encoding="utf-8", newline="") as fonte:
+                linhas = list(csv.reader(fonte, delimiter=SEPARADOR))
+        except FileNotFoundError:
+            return self.series
+        except OSError as erro:
+            log.warning(
+                "Nao consegui ler o catalogo de nomes em %s (%s). A leitura "
+                "segue com o catalogo VAZIO desta sessao; o arquivo em disco "
+                "nao foi tocado.",
+                self.arquivo,
+                erro,
+            )
+            return self.series
+
+        for numero, campos in enumerate(linhas, start=1):
+            if not campos or all(not campo.strip() for campo in campos):
+                continue
+            if numero == 1 and tuple(campo.strip() for campo in campos) == COLUNAS:
+                # O cabecalho. Ele e conveniencia para o olho humano, nao a
+                # identidade do arquivo — um arquivo sem ele ainda carrega.
+                continue
+            serie = self._serie_da_linha(campos, numero)
+            if serie is None:
+                continue
+            self.series[serie.chave] = serie
+        return self.series
+
+    def _serie_da_linha(
+        self, campos: list[str], numero: int
+    ) -> SerieDeNome | None:
+        """Uma linha -> serie, ou `None` com aviso que NOMEIA a linha.
+
+        O aviso diz o numero da linha e o que ela tinha porque a forense deste
+        projeto acontece DEPOIS do farm, com o log na mao: sem o numero, o
+        usuario nao acha a linha para consertar no Sheets.
+        """
+
+        def recusar(motivo: str) -> None:
+            log.warning(
+                "Catalogo de nomes, linha %d DESCARTADA (%s): %r. As demais "
+                "linhas do arquivo carregaram normalmente — uma linha ruim "
+                "nunca condena o arquivo inteiro.",
+                numero,
+                motivo,
+                SEPARADOR.join(campos),
+            )
+
+        if len(campos) != len(COLUNAS):
+            recusar(f"esperava {len(COLUNAS)} campos, veio {len(campos)}")
+            return None
+
+        chave, nome, primeira, ultima, avistamentos = campos
+        chave = chave.strip()
+        if not chave:
+            recusar("chave vazia")
+            return None
+        try:
+            nascimento = datetime.fromisoformat(primeira.strip())
+            visto = datetime.fromisoformat(ultima.strip())
+        except ValueError:
+            recusar("data que nao e ISO-8601")
+            return None
+        try:
+            contagem = int(avistamentos.strip())
+        except ValueError:
+            recusar("avistamentos que nao e inteiro")
+            return None
+        if contagem < 1:
+            recusar("avistamentos menor que 1")
+            return None
+
+        return SerieDeNome(
+            chave=chave,
+            nome_exibido=nome,
+            primeira_vez=min(nascimento, visto),
+            ultima_vez=max(nascimento, visto),
+            avistamentos=contagem,
+        )
+
+    # -- escrita ------------------------------------------------------------
+
+    def registrar(
+        self, chave: str | None, nome_exibido: str, agora: datetime
+    ) -> SerieDeNome | None:
+        """Um avistamento. Nome novo vira serie NOVA na hora, sem quarentena.
+
+        `None` quando nao ha chave: `chave_da_serie` ja devolve `None` para
+        leitura vazia, e uma chave vazia que virasse linha do CSV seria
+        referenciada pela Fase 3 como se fosse item.
+
+        `primeira_vez` e MIN e `ultima_vez` e MAX, e nao "a que chegou por
+        ultimo": horario de verao e ajuste de NTP andam para tras de verdade, e
+        um tick com relogio atrasado nao pode fazer a serie parecer mais nova
+        nem mais velha do que o material prova.
+        """
+        if not chave:
+            return None
+        serie = self.series.get(chave)
+        if serie is None:
+            serie = SerieDeNome(
+                chave=chave,
+                nome_exibido=nome_exibido,
+                primeira_vez=agora,
+                ultima_vez=agora,
+                avistamentos=1,
+            )
+            self.series[chave] = serie
+            return serie
+        serie.nome_exibido = nome_exibido
+        serie.primeira_vez = min(serie.primeira_vez, agora)
+        serie.ultima_vez = max(serie.ultima_vez, agora)
+        serie.avistamentos += 1
+        return serie
+
+    def gravar(self) -> None:
+        """Reescreve o catalogo INTEIRO, de forma ATOMICA.
+
+        O precedente e `loot.py:264-281`: um `.tmp-<pid>` AO LADO do destino,
+        seguido de `os.replace`. O temporario NAO vai para o `%TEMP%` porque
+        `os.replace` entre volumes diferentes nao e atomico e no Windows nem
+        funciona — a razao ja esta escrita por extenso em `calibracao.py:433-441`.
+        O pid no nome impede uma segunda instancia de atropelar o tmp da
+        primeira. Ou fica o arquivo antigo INTEIRO, ou o novo INTEIRO, nunca
+        meio (T-02-24).
+
+        Reescrever tudo em vez de dar append e o que permite `avistamentos`
+        subir sem o arquivo crescer uma linha por avistamento — e o que faz a
+        ORDEM ser estavel: as linhas saem ordenadas pela CHAVE, e nao pela
+        ordem de insercao do dicionario, para que duas execucoes sobre o mesmo
+        material produzam o mesmo arquivo byte a byte.
+
+        O modo e `"w"` com `newline=""`: `"w"` porque o destino aqui e o
+        TEMPORARIO, que acabou de ganhar um nome com o pid dentro e nao pode
+        existir de antes; `newline=""` porque o modulo `csv` escreve o seu
+        proprio terminador e deixar o Python traduzir por cima produziria `\r\r\n`
+        no Windows.
+        """
+        temporario = self._pasta / f"{ARQUIVO_DO_CATALOGO}.tmp-{os.getpid()}"
+        with temporario.open("w", encoding="utf-8", newline="") as destino:
+            escritor = csv.writer(destino, delimiter=SEPARADOR)
+            escritor.writerow(COLUNAS)
+            for chave in sorted(self.series):
+                serie = self.series[chave]
+                escritor.writerow(
+                    (
+                        serie.chave,
+                        serie.nome_exibido,
+                        serie.primeira_vez.isoformat(),
+                        serie.ultima_vez.isoformat(),
+                        serie.avistamentos,
+                    )
+                )
+        os.replace(temporario, self.arquivo)
+
+    # -- a ponte com os predicados -----------------------------------------
+
+    def entradas(self) -> dict[str, EntradaDoCatalogo]:
+        """As series no formato que `agrupar` consome.
+
+        Duas formas para a mesma coisa e um cheiro, e aqui ele e deliberado:
+        `SerieDeNome` carrega a ESTATISTICA (que so o arquivo precisa) e
+        `EntradaDoCatalogo` carrega a IDENTIDADE (que so o predicado precisa).
+        Fundir as duas obrigaria o predicado puro a conhecer datas e contagens
+        para responder "estas duas leituras sao a mesma serie?".
+        """
+        return {
+            chave: EntradaDoCatalogo(
+                chave=chave,
+                nome=serie.nome_exibido,
+                assinatura=assinatura_da_chave(chave),
+            )
+            for chave, serie in self.series.items()
+        }
+
+
+def assinatura_da_chave(chave: str) -> str:
+    """A assinatura de digitos que `chave_da_serie` anexou depois do `#`.
+
+    Ela e RECUPERADA da chave em vez de recalculada a partir do nome, e a
+    diferenca importa: o `nome_exibido` e editavel pelo usuario no Sheets, e
+    recalcular a assinatura a partir de um nome corrigido a mao mudaria a
+    identidade de uma serie que ja esta gravada. A chave e imutavel; o rotulo
+    nao e.
+    """
+    _corpo, _sep, assinatura = chave.rpartition(SEPARADOR_DA_ASSINATURA)
+    return assinatura
