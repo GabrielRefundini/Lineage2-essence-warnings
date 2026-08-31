@@ -78,7 +78,7 @@ Plans:
   2. Os preços e quantidades lidos batem dígito a dígito com o que o usuário vê no frame — separador de milhar tratado como glifo de primeira classe; quando o frame está ilegível, a linha aparece como descartada, nunca como um número plausível. O número NUNCA vem do motor de OCR que lê o nome: medido contra as gravações da Fase 1, ele perde a vírgula decimal e devolve `1650` onde a tela diz `16,50` — erro de 100x com aparência plausível, exatamente o que LEIT-02 existe para impedir
   3. Uma página só é aceita quando dois frames consecutivos concordam nas linhas PARSEADAS; frames bit a bit idênticos são reportados como captura congelada, não aceitos como acordo
 
-**Plans**: 6/8 plans executed (8 waves - a fase e SERIAL por construcao: um portao humano, quatro ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
+**Plans**: 7/8 plans executed (8 waves - a fase e SERIAL por construcao: um portao humano, quatro ondas de medicao que gravam no mesmo arquivo, e so entao o codigo de leitura)
 
 Plans:
 **Wave 1**
@@ -103,7 +103,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 - compartilha `mercado_leitura.py` com o 02-06)*
 
-- [ ] 02-07-PLAN.md - (wave 6) Medicao III: `tools/medir_brilho_da_quantidade.py` - o piso de brilho PROPRIO da coluna Quantity, medido com rotulo derivado de `Total`/`Unit price`, porque o digito `1` nao se le (tronco a V=177 contra o piso 180) e quantidade `1` e o caso comum do mercado
+- [x] 02-07-PLAN.md - (wave 6) Medicao III: `tools/medir_brilho_da_quantidade.py` - o piso de brilho PROPRIO da coluna Quantity, medido com rotulo derivado de `Total`/`Unit price`, porque o digito `1` nao se le (tronco a V=177 contra o piso 180) e quantidade `1` e o caso comum do mercado
 
 **Wave 7** *(blocked on Wave 6 - compartilha `mercado_leitura.py`, `calibracao.py` e a calibracao de fixtura com o 02-07)*
 
@@ -163,7 +163,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fundação — firewall, gravador e spike de campo | 5/5 | ✓ Complete | 2026-08-29 |
-| 2. Leitura de página | 6/8 | In Progress|  |
+| 2. Leitura de página | 7/8 | In Progress|  |
 | 3. Persistência de observações | 0/TBD | Not started | - |
 | 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
 
