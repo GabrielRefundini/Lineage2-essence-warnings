@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 27
+open_count: 28
 waived_count: 1
 fixed_count: 10
-total_count: 38
-last_updated: 2026-08-31T04:42:27.578Z
+total_count: 39
+last_updated: 2026-08-31T06:39:41.505Z
 ---
 
 # Broken Windows Ledger
@@ -53,6 +53,7 @@ last_updated: 2026-08-31T04:42:27.578Z
 | 36 | 03 | unmet-truth | tests/test_mercado_leitura.py | 534 | test_as_duas_leitoras_sao_CHAMADAS_em_toda_linha_que_vira_LinhaLida vermelho na base f03eee80, tambem em isolamento; sem vinculo de import com o 03-02 | fixed |  | 2026-08-31T04:17:44.268Z | 2026-08-31T04:42:26.745Z |
 | 37 | 02 | deviation | tests/test_mercado_leitura.py | 186 | REGRESSAO DA FASE 2 DIAGNOSTICADA E CONSERTADA (fecha a janela #36): test_as_duas_leitoras_sao_CHAMADAS_em_toda_linha_que_vira_LinhaLida caia com assert 5 == 6, e NAO por defeito de producao. LeitoraContadora anotava id(pixels) de recortes numpy TRANSITORIOS e o teste deduplicava com set(); o CPython recicla o endereco assim que o recorte de uma linha e liberado, entao recortes DIFERENTES apareciam com o mesmo id e o set os fundia num so. MEDIDO: um unico id chegou a carregar QUATRO conteudos (sha1) distintos, e len(set(vistos_2x)) deu 4, 5 ou 6 para as MESMAS seis chamadas, conforme o layout do heap. PRODUCAO INTACTA, provado por medida insensivel ao alocador e IDENTICA em 8b87eb3 (verde) e efcd73a (vermelho): linhas aceitas=6, barata.chamadas=6, conferencia.chamadas=6, len(vistos_2x)=len(vistos_3x)=6, vistos_2x==vistos_3x=True; e o sitio de producao e incondicional (mercado_leitura.py:1537-1538, barato=ler_texto(recorte_do_nome) seguido de caro=ler_texto_conferencia(recorte_do_nome), MESMO objeto, sem desvio que possa pular uma das duas). O corpo do teste e o LeitoraContadora.__call__ sao BYTE-IDENTICOS nos dois commits: efcd73a foi GATILHO (o estabilizador mudou a alocacao), nunca causa. Classe: Heisenbug — qualquer instrumentacao em __call__ deixava a suite VERDE, o que por si so ja refutava a hipotese de regressao de leitura. CONSERTO: LeitoraContadora passou a segurar referencia forte a cada recorte (self._vivos), o que impede a reciclagem e devolve a id() o significado que as afirmacoes sempre presumiram. NENHUMA afirmacao foi tocada — a invariante D-01/D-02 continua inteira, confirmada por MUTACAO: trocar a conferencia por leitura de escala unica mata 8 testes (o alvo com assert 0 == 6) e passar uma COPIA em vez do mesmo objeto mata 2. Estavel em 10 sementes de hash e em todos os contextos de isolamento. | fixed |  | 2026-08-31T04:42:09.728Z | 2026-08-31T04:42:27.128Z |
 | 38 | 02 | deviation | .planning/workstreams/mercado/phases/02-leitura-de-p-gina/02-05-SUMMARY.md | 368 | A CONTAGEM DE FECHAMENTO DO 02-05 NAO SE SUSTENTA. 02-05-SUMMARY.md:368 e 02-VERIFICATION.md:223 registram Suite 2605 passed, 2 skipped (sem test_agenda.py) mais 144 passed = zero falhas. MEDIDO agora NO PROPRIO COMMIT DE FECHAMENTO efcd73a, no Python global: 1 failed, 2551 passed, 14 skipped sem test_agenda.py, e 144 passed so com ele — ou seja 2695 passed, 14 skipped e UMA FALHA. Nem o total, nem os skips, nem o zero-falhas batem: aquela medicao nao foi tirada em efcd73a, foi tirada antes do commit final da fase, e a fase fechou VERMELHA sem saber. A falha era a janela #36 (o id() reciclado), agora consertada, e a suite esta em 2794 passed + 145 passed, zero falhas. Registrado porque um numero que caiu precisa dizer que caiu, e porque a licao de processo e que a contagem de fechamento tem de ser medida NO commit que fecha a fase, nunca antes dele. | fixed |  | 2026-08-31T04:42:21.312Z | 2026-08-31T04:42:27.578Z |
+| 39 | 4 | unrun-verify | .planning/workstreams/mercado/phases/04-modo-mercado-an-lise-e-console/04-02-SUMMARY.md |  | Os pisos de evidencia 1, 5 e 8 sao ESCOLHA e nao medicao: nenhum foi medido, e o observacoes.csv real nao existe nesta arvore. Conferencia humana pendente numa sessao de farm de verdade | open |  | 2026-08-31T06:39:41.505Z |  |
 
 ````json
 [
@@ -511,6 +512,18 @@ last_updated: 2026-08-31T04:42:27.578Z
     "reason": "",
     "recorded_at": "2026-08-31T04:42:21.312Z",
     "resolved_at": "2026-08-31T04:42:27.578Z"
+  },
+  {
+    "id": 39,
+    "kind": "unrun-verify",
+    "phase": "4",
+    "file": ".planning/workstreams/mercado/phases/04-modo-mercado-an-lise-e-console/04-02-SUMMARY.md",
+    "line": null,
+    "description": "Os pisos de evidencia 1, 5 e 8 sao ESCOLHA e nao medicao: nenhum foi medido, e o observacoes.csv real nao existe nesta arvore. Conferencia humana pendente numa sessao de farm de verdade",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T06:39:41.505Z",
+    "resolved_at": null
   }
 ]
 ````

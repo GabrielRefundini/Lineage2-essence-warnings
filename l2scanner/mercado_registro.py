@@ -57,6 +57,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
@@ -78,13 +79,17 @@ __all__ = [
     "ARQUIVO_DO_LEIAME",
     "COLUNAS",
     "ContratoDoArquivoQuebrado",
+    "ObservacaoLida",
     "PASTA_DO_MERCADO",
     "RegistroDeObservacoes",
     "SEPARADOR",
     "campos_da_observacao",
     "chave_da_observacao",
     "chave_dos_campos",
+    "conferir_o_cabecalho",
+    "conferir_o_terminador",
     "escrever_leiame",
+    "observacoes_do_arquivo",
     "residuo_dos_campos",
 ]
 
@@ -254,6 +259,36 @@ def residuo_dos_campos(campos: Sequence[str]) -> int | None:
     return int(bruto)
 
 
+@dataclass(frozen=True)
+class ObservacaoLida:
+    """Uma linha do disco, TIPADA — a forma que a analise consome.
+
+    OS CAMPOS SAO EXATAMENTE `COLUNAS`, NA ORDEM DE `COLUNAS`, e isso e
+    proposital: uma coluna a mais aqui seria um dado derivado morando junto do
+    dado afirmado, que e a objecao que derrubou a coluna do unitario (D-02). O
+    unitario continua sendo DERIVADO na hora de comparar, nunca guardado.
+
+    `FROZEN` porque ninguem reescreve uma observacao depois de le-la: o arquivo
+    e a verdade, e este objeto e uma leitura dele.
+
+    O QUE ELA ACRESCENTA A UMA LISTA DE CAMPOS CRUS sao os TIPOS —
+    `total_em_centesimos` e `quantidade` como `int` e `primeira_vez` como
+    `datetime`. A analise faz `Fraction(total, quantidade)`, e `Fraction` de
+    string nao e a mesma coisa que `Fraction` de inteiro; e ordena por carimbo,
+    e ordenar texto ISO por acaso funciona ate o dia em que nao funciona.
+
+    `residuo_do_cruzamento` e `int | None` porque `None` e `0` sao fatos
+    DIFERENTES (D-01) e o tipo tem de deixar isso visivel para quem consome.
+    """
+
+    chave_da_serie: str
+    nome_exibido: str
+    primeira_vez: datetime
+    total_em_centesimos: int
+    quantidade: int
+    residuo_do_cruzamento: int | None
+
+
 # ===========================================================================
 # A METADE DE DISCO: o arquivo que cresce por append
 # ===========================================================================
@@ -367,6 +402,208 @@ def escrever_leiame(pasta: Path) -> bool:
     return True
 
 
+# -- o portao de contrato, FORA da classe -------------------------------
+#
+# As duas conferencias sao sobre o ARQUIVO e nao sobre o REGISTRO, entao
+# moram no modulo e a classe as CHAMA. E o que permite `observacoes_do_arquivo`
+# atravessar o mesmo portao sem uma segunda implementacao dele no projeto.
+
+
+def conferir_o_terminador(bruto: str, arquivo: Path) -> None:
+    """O achado central da pesquisa: sem quebra final, o arquivo e recusado.
+
+    A CONTAGEM DE CAMPOS NAO SERVE PARA ISTO, E ESTA MEDIDO. Sobre a linha
+    de seis colunas `k;nome;2026-08-30T14:03:21;6200;48;80\\r\\n`, cortada
+    byte a byte a partir do fim, os CINCO cortes deixam o arquivo sem quebra
+    de linha final — mas DOIS deles produzem seis campos todos parseaveis,
+    com `80` virando `8` e `48` virando `4`. Essa linha passaria pela
+    contagem, viraria observacao, e pior: viraria CHAVE DE DEDUP que
+    bloquearia a gravacao da observacao correta mais tarde. `'8'` e um
+    inteiro perfeitamente valido, entao a validacao por tipo tambem nao a
+    pega. So o terminador pega — 5 de 5.
+
+    A BICONDICIONAL QUE SUSTENTA O CRITERIO TAMBEM FOI MEDIDA:
+    `csv.writer.writerow` emite UMA unica chamada de escrita contendo a
+    linha E o terminador, logo **um registro esta completo se e somente se o
+    arquivo termina em quebra de linha**.
+
+    UM ARQUIVO QUE NAO TERMINA EM QUEBRA DE LINHA NAO E "UM ARQUIVO BOM COM
+    UMA LINHA RUIM NO FIM": e um arquivo cujo estado o programa nao consegue
+    afirmar. Por isso o tratamento e o MESMO do cabecalho divergente — a
+    feature desliga alto e um humano olha — e nao um tratamento proprio. E a
+    doutrina que a fase ja tem (D-12), aplicada na mesma funcao de arranque
+    e sobre o mesmo arquivo, e nao uma excecao inventada para este caso.
+
+    AS DUAS OUTRAS SAIDAS FORAM CONSIDERADAS E RECUSADAS, e um numero que
+    caiu precisa dizer que caiu:
+
+    (a) REMOVER A CAUDA DO DISCO (truncar ate a ultima quebra de linha).
+        Seria o programa apagando bytes do usuario num caminho de LEITURA. E
+        uma das duas hipoteses do proprio aviso e "linha boa, salva a mao
+        sem quebra final" — entao a saida apagaria dado BOM em metade dos
+        casos que ela existe para tratar. Contradiz o D-12, que recusa mexer
+        calado num arquivo que o usuario edita a mao e importa no Sheets.
+
+    (b) COMPLETAR A CAUDA COM UMA QUEBRA DE LINHA antes do proximo append.
+        E a PIOR das tres, porque preserva a linha possivelmente truncada E
+        A PROMOVE: na leitura seguinte ela termina em newline, passa nas
+        duas redes por linha, e vira observacao PERMANENTE. O `'80'` cortado
+        para `'8'` tem seis campos validos e viraria preco errado para
+        sempre — o defeito exato que esta fase existe para nao ter.
+
+    CUSTO ACEITO, E ELE E REAL: uma queda de energia de verdade desliga o
+    registro ate intervencao manual. Aceitavel porque a mensagem diz ao
+    usuario exatamente o que fazer para religar, e porque a alternativa e
+    preco errado gravado como bom.
+    """
+    if bruto.endswith("\n"):
+        return
+
+    cauda = bruto[bruto.rfind("\n") + 1 :]
+    mensagem = (
+        "MERCADO DESLIGADO — o arquivo de observacoes %s NAO TERMINA EM "
+        "QUEBRA DE LINHA, e por isso NADA foi lido dele. Duas hipoteses, e "
+        "o criterio nao consegue distinguir uma da outra: ou a ultima "
+        "gravacao foi INTERROMPIDA (queda de energia, ou disco cheio no "
+        "meio da escrita), ou o arquivo foi EDITADO A MAO e salvo sem a "
+        "quebra de linha final. A cauda crua e %r, e ela esta INTACTA no "
+        "disco: nenhum byte foi removido, reparado ou reescrito. O QUE "
+        "FAZER: abra o arquivo, olhe a ultima linha, complete-a ou "
+        "apague-a, e salve COM quebra de linha no fim — isso religa a "
+        "feature no proximo arranque. Enquanto isso, os alertas de party "
+        "(morte, saida e ressurreicao) seguem sendo detectados e entregues."
+    )
+    log.error(mensagem, arquivo, cauda)
+    raise ContratoDoArquivoQuebrado(mensagem % (arquivo, cauda))
+
+
+def conferir_o_cabecalho(linhas: list[list[str]], arquivo: Path) -> None:
+    """A mesma forma do analog, com o `else` INVERTIDO (D-11, D-12).
+
+    Em `mercado_catalogo.py:478-481` o cabecalho e CONVENIENCIA para o olho
+    humano, e esta escrito la que "um arquivo sem ele ainda carrega". Aqui
+    ele e a IDENTIDADE do arquivo. A inversao tem motivo: migrar sozinho um
+    arquivo que o usuario edita a mao e importa no Sheets e exatamente como
+    se corrompe dado calado — o append escreveria valores nas colunas
+    erradas e ninguem veria, porque o arquivo continuaria abrindo.
+
+    Tres estados, e so tres: arquivo AUSENTE cria com cabecalho (tratado em
+    `carregar`); primeiro registro IDENTICO a `COLUNAS` depois de `strip`
+    segue; DIVERGENTE, ou ausente num arquivo nao-vazio, levanta.
+    """
+    encontrado = tuple(campo.strip() for campo in linhas[0]) if linhas else ()
+    if encontrado == COLUNAS:
+        return
+
+    mensagem = (
+        "MERCADO DESLIGADO — o cabecalho de %s nao e o que este programa "
+        "escreve, e por isso NADA foi lido dele. Esperava %r e encontrei "
+        "%r. NENHUM byte foi alterado: migrar sozinho um arquivo que voce "
+        "edita a mao e importa no Sheets e como se corrompe dado calado, "
+        "porque o append passaria a escrever valores nas colunas erradas e "
+        "o arquivo continuaria abrindo. O QUE FAZER: restaure a primeira "
+        "linha para o cabecalho esperado, ou renomeie o arquivo para o "
+        "programa criar um novo — qualquer um dos dois religa a feature no "
+        "proximo arranque. Enquanto isso, os alertas de party (morte, "
+        "saida e ressurreicao) seguem sendo detectados e entregues."
+    )
+    log.error(mensagem, arquivo, COLUNAS, encontrado)
+    raise ContratoDoArquivoQuebrado(
+        mensagem % (arquivo, COLUNAS, encontrado)
+    )
+
+
+def observacoes_do_arquivo(arquivo: Path) -> list[ObservacaoLida]:
+    """As linhas do CSV, TIPADAS, pelo MESMO portao que `carregar` atravessa.
+
+    ELA NAO E UM PARSER NOVO, E ISSO E O CRITERIO. `carregar` valida tudo e
+    depois DESCARTA os campos, guardando so o `set` de chaves — a analise
+    precisa dos campos. A tentacao obvia seria escrever uma segunda leitura
+    "simples" com `csv.reader`, e ela reintroduziria exatamente o defeito que a
+    Fase 3 gastou um plano inteiro para pegar: das cinco truncagens medidas byte
+    a byte, DUAS produzem seis campos todos parseaveis, com `80` virando `8`.
+    A contagem de campos nao pega, a validacao por tipo nao pega — so o
+    terminador pega. Duas implementacoes de leitura seriam duas chances de uma
+    delas nao ter esse portao. Uma verdade so sobre o que o arquivo e.
+
+    ELA NUNCA ESCREVE, E NUNCA CRIA A PASTA. `carregar` cria o arquivo ausente
+    com cabecalho porque ela e o arranque do ESCRITOR; esta e leitura pura, e a
+    Fase 4 inteira nao reescreve o CSV. Arquivo ausente devolve lista vazia sem
+    levantar: a `.mercado/` nasce vazia e a analise tem de dizer "sem
+    evidencia", nao explodir.
+
+    O QUE LEVANTA E O QUE CAI SOZINHO, e a divisao e a mesma de sempre: o
+    terminador e o cabecalho sao o arquivo INTEIRO recusado
+    (`ContratoDoArquivoQuebrado`, feature desligada alto); uma linha ruim cai
+    sozinha com `warning` que NOMEIA o numero dela, e as demais carregam
+    (D-14).
+
+    NAO DEDUPLICA, de proposito: quem dedupa e o registro, na escrita. Aqui a
+    resposta e "o que esta escrito no arquivo", e esconder uma linha repetida
+    faria a contagem de evidencia da analise divergir do que o usuario ve
+    quando abre o CSV no Sheets.
+    """
+    try:
+        with arquivo.open("r", encoding="utf-8", newline="") as fonte:
+            bruto = fonte.read()
+    except FileNotFoundError:
+        return []
+
+    if not bruto:
+        # Zero bytes e o unico caso que nao passa pelo portao, pelo mesmo motivo
+        # escrito em `carregar`: nao ha byte do usuario para preservar nem para
+        # julgar. Aqui, diferente de la, nada e criado — leitura e leitura.
+        return []
+
+    conferir_o_terminador(bruto, arquivo)
+    linhas = list(csv.reader(io.StringIO(bruto, newline=""), delimiter=SEPARADOR))
+    conferir_o_cabecalho(linhas, arquivo)
+
+    lidas: list[ObservacaoLida] = []
+    for numero, campos in enumerate(linhas, start=1):
+        if numero == 1:
+            continue  # o cabecalho, ja conferido
+        if not campos or all(not campo.strip() for campo in campos):
+            continue
+
+        try:
+            chave, centesimos, unidades = chave_dos_campos(campos)
+        except ValueError as erro:
+            # O molde literal de `_montar_o_indice`: numero da linha, motivo em
+            # texto, conteudo cru em `%r`. A forense deste projeto acontece
+            # DEPOIS do farm, com o log na mao — sem o numero o usuario nao acha
+            # a linha para consertar no Sheets.
+            log.warning(
+                "Observacoes, linha %d DESCARTADA na leitura da analise (%s): "
+                "%r. As demais linhas do arquivo carregaram normalmente — uma "
+                "linha ruim nunca condena o arquivo inteiro.",
+                numero,
+                erro,
+                SEPARADOR.join(campos),
+            )
+            continue
+
+        lidas.append(
+            ObservacaoLida(
+                chave_da_serie=chave,
+                nome_exibido=campos[COLUNAS.index("nome_exibido")],
+                # `chave_dos_campos` ja provou que este campo e ISO-8601; aqui
+                # ele so vira objeto. `datetime.fromisoformat` e o caminho de
+                # volta exato do `agora.isoformat()` que `campos_da_observacao`
+                # escreve — ingenuo, hora local, sem fuso, como o resto do
+                # projeto.
+                primeira_vez=datetime.fromisoformat(
+                    campos[COLUNAS.index("primeira_vez")].strip()
+                ),
+                total_em_centesimos=centesimos,
+                quantidade=unidades,
+                residuo_do_cruzamento=residuo_dos_campos(campos),
+            )
+        )
+
+    return lidas
+
+
 class RegistroDeObservacoes:
     """O arquivo `.mercado/observacoes.csv`, e o unico escritor dele.
 
@@ -458,106 +695,20 @@ class RegistroDeObservacoes:
     # -- o portao de contrato ----------------------------------------------
 
     def _conferir_o_terminador(self, bruto: str) -> None:
-        """O achado central da pesquisa: sem quebra final, o arquivo e recusado.
+        """Delega a `conferir_o_terminador`, a funcao de modulo.
 
-        A CONTAGEM DE CAMPOS NAO SERVE PARA ISTO, E ESTA MEDIDO. Sobre a linha
-        de seis colunas `k;nome;2026-08-30T14:03:21;6200;48;80\\r\\n`, cortada
-        byte a byte a partir do fim, os CINCO cortes deixam o arquivo sem quebra
-        de linha final — mas DOIS deles produzem seis campos todos parseaveis,
-        com `80` virando `8` e `48` virando `4`. Essa linha passaria pela
-        contagem, viraria observacao, e pior: viraria CHAVE DE DEDUP que
-        bloquearia a gravacao da observacao correta mais tarde. `'8'` e um
-        inteiro perfeitamente valido, entao a validacao por tipo tambem nao a
-        pega. So o terminador pega — 5 de 5.
-
-        A BICONDICIONAL QUE SUSTENTA O CRITERIO TAMBEM FOI MEDIDA:
-        `csv.writer.writerow` emite UMA unica chamada de escrita contendo a
-        linha E o terminador, logo **um registro esta completo se e somente se o
-        arquivo termina em quebra de linha**.
-
-        UM ARQUIVO QUE NAO TERMINA EM QUEBRA DE LINHA NAO E "UM ARQUIVO BOM COM
-        UMA LINHA RUIM NO FIM": e um arquivo cujo estado o programa nao consegue
-        afirmar. Por isso o tratamento e o MESMO do cabecalho divergente — a
-        feature desliga alto e um humano olha — e nao um tratamento proprio. E a
-        doutrina que a fase ja tem (D-12), aplicada na mesma funcao de arranque
-        e sobre o mesmo arquivo, e nao uma excecao inventada para este caso.
-
-        AS DUAS OUTRAS SAIDAS FORAM CONSIDERADAS E RECUSADAS, e um numero que
-        caiu precisa dizer que caiu:
-
-        (a) REMOVER A CAUDA DO DISCO (truncar ate a ultima quebra de linha).
-            Seria o programa apagando bytes do usuario num caminho de LEITURA. E
-            uma das duas hipoteses do proprio aviso e "linha boa, salva a mao
-            sem quebra final" — entao a saida apagaria dado BOM em metade dos
-            casos que ela existe para tratar. Contradiz o D-12, que recusa mexer
-            calado num arquivo que o usuario edita a mao e importa no Sheets.
-
-        (b) COMPLETAR A CAUDA COM UMA QUEBRA DE LINHA antes do proximo append.
-            E a PIOR das tres, porque preserva a linha possivelmente truncada E
-            A PROMOVE: na leitura seguinte ela termina em newline, passa nas
-            duas redes por linha, e vira observacao PERMANENTE. O `'80'` cortado
-            para `'8'` tem seis campos validos e viraria preco errado para
-            sempre — o defeito exato que esta fase existe para nao ter.
-
-        CUSTO ACEITO, E ELE E REAL: uma queda de energia de verdade desliga o
-        registro ate intervencao manual. Aceitavel porque a mensagem diz ao
-        usuario exatamente o que fazer para religar, e porque a alternativa e
-        preco errado gravado como bom.
+        A CONFERENCIA MORA FORA DA CLASSE porque ela nao e sobre o REGISTRO: e
+        sobre o ARQUIVO. `observacoes_do_arquivo` precisa exatamente do mesmo
+        portao, e duas implementacoes do mesmo portao seriam duas chances de
+        divergir — e a divergencia reintroduziria a truncagem parseavel que a
+        Fase 3 gastou um plano inteiro para pegar. Uma verdade so sobre o que o
+        arquivo e.
         """
-        if bruto.endswith("\n"):
-            return
-
-        cauda = bruto[bruto.rfind("\n") + 1 :]
-        mensagem = (
-            "MERCADO DESLIGADO — o arquivo de observacoes %s NAO TERMINA EM "
-            "QUEBRA DE LINHA, e por isso NADA foi lido dele. Duas hipoteses, e "
-            "o criterio nao consegue distinguir uma da outra: ou a ultima "
-            "gravacao foi INTERROMPIDA (queda de energia, ou disco cheio no "
-            "meio da escrita), ou o arquivo foi EDITADO A MAO e salvo sem a "
-            "quebra de linha final. A cauda crua e %r, e ela esta INTACTA no "
-            "disco: nenhum byte foi removido, reparado ou reescrito. O QUE "
-            "FAZER: abra o arquivo, olhe a ultima linha, complete-a ou "
-            "apague-a, e salve COM quebra de linha no fim — isso religa a "
-            "feature no proximo arranque. Enquanto isso, os alertas de party "
-            "(morte, saida e ressurreicao) seguem sendo detectados e entregues."
-        )
-        log.error(mensagem, self.arquivo, cauda)
-        raise ContratoDoArquivoQuebrado(mensagem % (self.arquivo, cauda))
+        conferir_o_terminador(bruto, self.arquivo)
 
     def _conferir_o_cabecalho(self, linhas: list[list[str]]) -> None:
-        """A mesma forma do analog, com o `else` INVERTIDO (D-11, D-12).
-
-        Em `mercado_catalogo.py:478-481` o cabecalho e CONVENIENCIA para o olho
-        humano, e esta escrito la que "um arquivo sem ele ainda carrega". Aqui
-        ele e a IDENTIDADE do arquivo. A inversao tem motivo: migrar sozinho um
-        arquivo que o usuario edita a mao e importa no Sheets e exatamente como
-        se corrompe dado calado — o append escreveria valores nas colunas
-        erradas e ninguem veria, porque o arquivo continuaria abrindo.
-
-        Tres estados, e so tres: arquivo AUSENTE cria com cabecalho (tratado em
-        `carregar`); primeiro registro IDENTICO a `COLUNAS` depois de `strip`
-        segue; DIVERGENTE, ou ausente num arquivo nao-vazio, levanta.
-        """
-        encontrado = tuple(campo.strip() for campo in linhas[0]) if linhas else ()
-        if encontrado == COLUNAS:
-            return
-
-        mensagem = (
-            "MERCADO DESLIGADO — o cabecalho de %s nao e o que este programa "
-            "escreve, e por isso NADA foi lido dele. Esperava %r e encontrei "
-            "%r. NENHUM byte foi alterado: migrar sozinho um arquivo que voce "
-            "edita a mao e importa no Sheets e como se corrompe dado calado, "
-            "porque o append passaria a escrever valores nas colunas erradas e "
-            "o arquivo continuaria abrindo. O QUE FAZER: restaure a primeira "
-            "linha para o cabecalho esperado, ou renomeie o arquivo para o "
-            "programa criar um novo — qualquer um dos dois religa a feature no "
-            "proximo arranque. Enquanto isso, os alertas de party (morte, "
-            "saida e ressurreicao) seguem sendo detectados e entregues."
-        )
-        log.error(mensagem, self.arquivo, COLUNAS, encontrado)
-        raise ContratoDoArquivoQuebrado(
-            mensagem % (self.arquivo, COLUNAS, encontrado)
-        )
+        """Delega a `conferir_o_cabecalho`, pelo mesmo motivo do terminador."""
+        conferir_o_cabecalho(linhas, self.arquivo)
 
     # -- as duas redes por linha -------------------------------------------
 
