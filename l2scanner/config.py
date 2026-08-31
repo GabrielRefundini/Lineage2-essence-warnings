@@ -796,3 +796,117 @@ def _personagem_do_arquivo(caminho: Path | None) -> str | None:
             f'  Exemplo: {CHAVE_DO_PERSONAGEM} = "Yazalaque"'
         )
     return bruto.strip() or None
+
+
+# ---------------------------------------------------------------------------
+# A watchlist do mercado ([mercado] watchlist)
+#
+# ELA VOLTA COMO FILTRO DE DESTAQUE, NUNCA COMO PORTA DE ENTRADA. Ate a Fase 2
+# ela era a lista fechada do que o scanner conseguia ler: um molde de nome por
+# item, e item fora dela nao era lido. Em 2026-08-29 isso caiu — o nome passa a
+# vir por OCR e TUDO que aparece no quadro e registrado. O que sobrou para ela
+# e o papel que o `02-CONTEXT.md` ja previa: promover no console o que o usuario
+# quer olhar primeiro, sem esconder o resto.
+#
+# POR QUE ESTA FUNCAO EXISTE, SE A FERRAMENTA DE CALIBRACAO JA LE A MESMA CHAVE.
+# Aquele modulo chama `tornar_consciente_de_dpi()` NO PROPRIO IMPORT e traz
+# `cv2` junto, porque e uma ferramenta de bancada com janela de GUI. Importa-lo
+# daqui seria pagar DPI, OpenCV e janela por uma leitura de TOML dentro do laco
+# de producao do modo `--mercado`. As duas leituras existem porque os dois
+# chamadores tem custos de import diferentes, e a duplicacao esta declarada aqui
+# em vez de escondida.
+#
+# A validacao e o espelho de `ler_bosses` e de `_personagem_do_arquivo`, de
+# proposito: arquivo ausente nao e erro, secao ausente nao e erro, TOML quebrado
+# E erro de arranque, e a mensagem MOSTRA o formato certo em vez de so
+# descreve-lo.
+# ---------------------------------------------------------------------------
+
+SECAO_DO_MERCADO = "mercado"
+CHAVE_DA_WATCHLIST = "watchlist"
+
+# O exemplo que toda recusa desta secao mostra, escrito UMA vez. Uma mensagem
+# que diz "precisa ser uma lista" faz o usuario adivinhar a sintaxe do TOML; uma
+# que mostra a linha pronta ele copia.
+_EXEMPLO_DA_WATCHLIST = (
+    "  Exemplo:\n"
+    "    [mercado]\n"
+    "    watchlist = [\n"
+    '      "Dragon Belt",\n'
+    '      "+3 Dragon Belt",\n'
+    "    ]"
+)
+
+
+def ler_watchlist_do_mercado(caminho: Path | None = None) -> list[str]:
+    """Os itens que o usuario quer ver PRIMEIRO no console do mercado.
+
+    ARQUIVO AUSENTE NAO E ERRO, E SECAO AUSENTE TAMBEM NAO. O `[mercado]
+    watchlist` do `config.toml` esta COMENTADO e o usuario nunca o preencheu; o
+    modo `--mercado` tem de responder "vale quanto agora?" sem ele, ordenando
+    pelas series com mais evidencia. Quem chama e que decide o que fazer com a
+    lista vazia — ver `mercado_analise.ordenar_para_o_console`.
+
+    ARQUIVO PRESENTE E MAL FORMADO E ERRO DE ARRANQUE, e reusa `AgendaInvalida`
+    pela razao ja escrita em `ler_membros`: ela JA e a excecao de "o config.toml
+    nao faz sentido", ja e capturada onde o arranque quer capturar, e uma
+    terceira classe duplicaria esse tratamento sem ganhar nada.
+
+    AS DUAS RECUSAS SAO OS DOIS ERROS QUE O USUARIO CONSEGUE ESCREVER:
+
+    - `watchlist = "Dragon Belt"` — texto solto em vez de lista. Ele ITERARIA
+      OS CARACTERES: o console marcaria `D`, `r`, `a`, `g`... como itens
+      vigiados. Silenciosamente absurdo, e o mesmo defeito que a ferramenta de
+      calibracao ja recusa do lado dela.
+    - um item que nao e texto (`42`, `true`, uma tabela). A mensagem NOMEIA A
+      POSICAO, porque "o item 2 da watchlist" o usuario conserta em cinco
+      segundos e "um item esta errado" o faz contar linhas.
+
+    ITEM SO DE ESPACO E AUSENCIA, e nao um alvo chamado "   ": ele nao casaria
+    serie nenhuma e apareceria como uma marca invisivel no console.
+
+    A LISTA VOLTA NA ORDEM ESCRITA. Quem ordena e o console, e a ordem entre os
+    itens marcados sai da evidencia — mas devolver embaralhado aqui esconderia
+    de quem depura o que o arquivo realmente diz.
+    """
+    caminho = caminho or ARQUIVO_CONFIG
+    if not caminho.exists():
+        return []
+
+    try:
+        with caminho.open("rb") as arquivo:
+            dados = tomllib.load(arquivo)
+    except tomllib.TOMLDecodeError as erro:
+        raise AgendaInvalida(
+            f"{caminho.name} nao e um TOML valido: {erro}"
+        ) from erro
+
+    secao = dados.get(SECAO_DO_MERCADO, {})
+    if not isinstance(secao, dict):
+        raise AgendaInvalida(
+            f"{caminho.name}: [{SECAO_DO_MERCADO}] precisa ser uma SECAO, veio "
+            f"{type(secao).__name__}.\n{_EXEMPLO_DA_WATCHLIST}"
+        )
+
+    brutos = secao.get(CHAVE_DA_WATCHLIST)
+    if brutos is None:
+        return []
+
+    if not isinstance(brutos, list):
+        raise AgendaInvalida(
+            f"{caminho.name}: [{SECAO_DO_MERCADO}] {CHAVE_DA_WATCHLIST} precisa "
+            f"ser uma LISTA, veio {type(brutos).__name__}. Um texto solto seria "
+            f"lido letra por letra.\n{_EXEMPLO_DA_WATCHLIST}"
+        )
+
+    itens: list[str] = []
+    for posicao, bruto in enumerate(brutos, start=1):
+        if not isinstance(bruto, str):
+            raise AgendaInvalida(
+                f"{caminho.name}: o item {posicao} de [{SECAO_DO_MERCADO}] "
+                f"{CHAVE_DA_WATCHLIST} precisa ser TEXTO, veio "
+                f"{type(bruto).__name__}.\n{_EXEMPLO_DA_WATCHLIST}"
+            )
+        if bruto.strip():
+            itens.append(bruto)
+    return itens

@@ -82,13 +82,18 @@ __all__ = [
     "Evidencia",
     "MedianaDosUnitarios",
     "MenorPedidoVisivel",
+    "ModeloDeMercado",
     "N_MINIMO_PARA_MEDIANA",
     "N_MINIMO_PARA_MENOR",
     "N_MINIMO_PARA_TENDENCIA",
+    "SERIES_NO_TOPO",
+    "SerieNoConsole",
     "Tendencia",
     "descrever_a_tendencia",
     "mediana_dos_unitarios",
     "menor_pedido_visivel",
+    "nome_normalizado",
+    "ordenar_para_o_console",
     "recencia_do_preco",
     "tendencia",
     "unitario",
@@ -475,3 +480,185 @@ def descrever_a_tendencia(resultado: Tendencia) -> str:
         f"tendencia: {resultado.variacao_percentual:+.1f}% ao longo das ultimas "
         f"{n} {UNIDADE_DA_JANELA}"
     )
+
+
+# ===========================================================================
+# O MODELO EM MEMORIA — a historia agrupada por serie
+# ===========================================================================
+
+
+class ModeloDeMercado:
+    """As observacoes ja agrupadas por `chave_da_serie`, em memoria.
+
+    ELE E O QUE PERMITE O `ordenar_para_o_console` E O DESTAQUE DO ANAL-02
+    EXISTIREM. As funcoes acima fazem aritmetica sobre UMA serie e nao decidem o
+    que e uma serie; este objeto e quem agrupa, e continua PURO: sem disco, sem
+    relogio, sem impressao. Quem le o arquivo e o laco (`mercado_modo`), que
+    passa a lista pronta para `de_observacoes`.
+
+    ELE E MUTAVEL DE PROPOSITO, e e a unica coisa mutavel deste modulo. O laco
+    carrega o CSV UMA vez no arranque e depois so ACRESCENTA cada observacao que
+    o registro aceitou. Reler o arquivo a 1 Hz seria trabalho puro sobre
+    milhares de linhas e, pior, abriria corrida com o usuario editando o CSV no
+    Sheets no meio da sessao.
+    """
+
+    def __init__(self, por_serie: dict[str, list]) -> None:
+        self._por_serie = por_serie
+
+    @classmethod
+    def de_observacoes(cls, observacoes: Sequence[ObservacaoLida]):
+        """Agrupa uma lista de `ObservacaoLida` por `chave_da_serie`.
+
+        A ORDEM DENTRO DE CADA SERIE E A DO ARQUIVO, e nao ordenada por carimbo:
+        quem precisa de ordem cronologica (a `tendencia`) ordena por conta
+        propria, e reordenar aqui esconderia de quem depura o que o CSV diz.
+        """
+        por_serie: dict[str, list] = {}
+        for obs in observacoes:
+            por_serie.setdefault(obs.chave_da_serie, []).append(obs)
+        return cls(por_serie)
+
+    def series(self) -> list[str]:
+        """As chaves conhecidas, na ordem em que apareceram pela primeira vez."""
+        return list(self._por_serie)
+
+    def observacoes_de(self, chave: str) -> list:
+        """As observacoes de UMA serie. Serie desconhecida devolve lista vazia.
+
+        Lista vazia e nao `KeyError`: a pergunta "o que eu sei sobre esta serie"
+        tem resposta ate quando a resposta e "nada", e um `KeyError` obrigaria
+        todo chamador a envolver a chamada.
+        """
+        return list(self._por_serie.get(chave, ()))
+
+    def contagem_de(self, chave: str) -> int:
+        """Quantas ofertas distintas esta serie tem no modelo."""
+        return len(self._por_serie.get(chave, ()))
+
+    def nome_exibido_de(self, chave: str) -> str:
+        """O nome que o usuario LE, tirado da observacao mais recente da serie.
+
+        A MAIS RECENTE, e nao a primeira: o OCR erra e o catalogo corrige o nome
+        ao longo da sessao, entao a leitura mais nova e a melhor aposta sobre
+        como o item se chama hoje. A chave crua e o desempate quando a serie
+        esta vazia — mostrar campo em branco pareceria defeito.
+        """
+        observacoes = self._por_serie.get(chave)
+        if not observacoes:
+            return chave
+        return max(observacoes, key=lambda obs: obs.primeira_vez).nome_exibido
+
+    def acrescentar(self, observacao: ObservacaoLida) -> None:
+        """Uma observacao NOVA entra na historia. So o laco chama isto.
+
+        E o laco quem decide o que e "nova": ele so chama aqui quando
+        `registro.registrar(...)` devolveu `True`, que e o unico sinal de que a
+        linha nao era duplicada e o registro estava ligado. Acrescentar sem esse
+        portao faria a mesma oferta contar duas vezes no `n` — e o `n` e o que a
+        fase inteira existe para nao mentir.
+        """
+        self._por_serie.setdefault(observacao.chave_da_serie, []).append(
+            observacao
+        )
+
+
+# ===========================================================================
+# A ORDENACAO PARA O CONSOLE — a watchlist como DESTAQUE
+# ===========================================================================
+
+# Quantas series aparecem no topo por evidencia quando nao ha watchlist.
+#
+# OITO E ESCOLHA, E NAO MEDICAO — pela mesma disciplina dos pisos acima. A razao
+# dela existir: o censo viu 39 series distintas, e despejar 39 blocos de tres
+# linhas cada num console repintado seria uma parede que ninguem le. Oito cabe
+# numa tela sem rolagem junto com o resumo do laco.
+#
+# ELE NAO CORTA A WATCHLIST. O corte e do rabo por evidencia; um item que o
+# usuario marcou e sumiu por corte seria a watchlist virando porta de SAIDA, que
+# e o defeito simetrico ao que a Fase 2 corrigiu na porta de entrada.
+SERIES_NO_TOPO = 8
+
+
+@dataclass(frozen=True)
+class SerieNoConsole:
+    """Uma linha da lista que o console vai desenhar, ja resolvida."""
+
+    chave: str
+    nome_exibido: str
+    n: int
+    na_watchlist: bool
+
+
+def nome_normalizado(nome: str) -> str:
+    """Caixa dobrada e espacos colapsados. O UNICO criterio de casamento.
+
+    `casefold` e nao `lower` porque ele e a normalizacao de comparacao do
+    Unicode; e o `" ".join(split())` colapsa o espaco duplo que o usuario digita
+    sem perceber e o espaco que o OCR as vezes acrescenta.
+
+    E SO ISSO — NADA DE SIMILARIDADE FUZZY. O `CLAUDE.md` recomenda `rapidfuzz`
+    para nome de membro de party, e para AQUELE problema ele esta certo: la o
+    alvo e um conjunto fechado de apelidos e o OCR erra letras. Aqui ele seria
+    um defeito: `+3 Dragon Belt` e `+4 Dragon Belt` diferem em UM caractere e
+    sao series DELIBERADAMENTE separadas — medido numa unica pagina real, o
+    mesmo nome base valia de 7,02 a 100,00 conforme o encanto. Qualquer
+    similaridade que tolerasse um caractere juntaria as duas e destruiria as
+    duas series.
+    """
+    return " ".join(nome.split()).casefold()
+
+
+def ordenar_para_o_console(
+    modelo: ModeloDeMercado, watchlist: Sequence[str]
+) -> list[SerieNoConsole]:
+    """As series a mostrar, watchlist primeiro e MARCADA, resto por evidencia.
+
+    ESTA FUNCAO CONTRARIA A LETRA DO CRITERIO 3 DO ROADMAP DE PROPOSITO, e a
+    divergencia esta escrita aqui porque ela precisa ser visivel para quem
+    verificar a fase. O criterio 3 diz *"para cada item da watchlist"*. Ele e
+    ANTERIOR a Fase 2, que em 2026-08-29 tirou a watchlist da porta de entrada:
+    o nome passou a vir por OCR e TUDO que aparece e registrado. O `[mercado]
+    watchlist` do `config.toml` continua comentado e o usuario nunca o
+    preencheu. Responder so "para cada item da watchlist" seria, hoje, responder
+    para NADA.
+
+    O criterio e honrado em SUBSTANCIA, em tres regras:
+
+    1. **Sem watchlist, as series com MAIS EVIDENCIA vem primeiro.** O usuario
+       nao precisa configurar nada para ver valor — que e exatamente a premissa
+       que fez a Fase 2 trocar a watchlist por OCR.
+    2. **Com watchlist, as series dela vem PRIMEIRO e MARCADAS.**
+    3. **O resto continua visivel abaixo.** Filtrar de vez esconderia o item
+       novo que a Fase 2 existe para descobrir, e o item novo e a razao de o
+       scanner ler o quadro inteiro.
+
+    O CASAMENTO E EXATO sobre `nome_normalizado`, nunca fuzzy — a razao esta
+    escrita naquela funcao.
+
+    DESEMPATE POR CHAVE quando duas series tem o mesmo `n`: sem ele a ordem
+    dependeria da ordem de leitura do arquivo, e o console reembaralharia
+    sozinho a cada arranque.
+    """
+    alvos = {nome_normalizado(nome) for nome in watchlist}
+
+    marcadas: list[SerieNoConsole] = []
+    demais: list[SerieNoConsole] = []
+    for chave in modelo.series():
+        nome = modelo.nome_exibido_de(chave)
+        linha = SerieNoConsole(
+            chave=chave,
+            nome_exibido=nome,
+            n=modelo.contagem_de(chave),
+            na_watchlist=nome_normalizado(nome) in alvos,
+        )
+        (marcadas if linha.na_watchlist else demais).append(linha)
+
+    def por_evidencia(linha: SerieNoConsole) -> tuple[int, str]:
+        return (-linha.n, linha.chave)
+
+    marcadas.sort(key=por_evidencia)
+    demais.sort(key=por_evidencia)
+    # A watchlist INTEIRA, e so o rabo por evidencia e cortado. Um item marcado
+    # que sumisse por corte seria a watchlist virando porta de saida.
+    return marcadas + demais[:SERIES_NO_TOPO]
