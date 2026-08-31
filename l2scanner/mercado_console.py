@@ -39,6 +39,14 @@ from datetime import datetime
 from fractions import Fraction
 
 from . import console
+from .mercado_analise import (
+    descrever_a_tendencia,
+    mediana_dos_unitarios,
+    menor_pedido_visivel,
+    ordenar_para_o_console,
+    recencia_do_preco,
+    tendencia,
+)
 
 # Os SETE contadores publicos do `LeitorDePagina`, com o rotulo que o usuario le.
 # A ordem e a da leitura humana: primeiro as duas metades que julgam a sessao,
@@ -229,6 +237,190 @@ def transicao_do_painel(aberto: bool) -> str:
         "o painel do mercado esta FECHADO - nada a ler, e isto e normal. "
         "Abra o World Exchange na aba de negociacao para o modo coletar."
     )
+
+
+# ---------------------------------------------------------------------------
+# "VALE QUANTO AGORA?" - a resposta que o usuario abre o programa para ver
+# ---------------------------------------------------------------------------
+
+# A marca da watchlist, escrita UMA vez. Ela e o que distingue "eu pedi para
+# olhar isto" de "isto apareceu muito", e as duas coisas sao razoes DIFERENTES
+# de uma serie estar no topo.
+MARCA_DA_WATCHLIST = "[watchlist]"
+
+# O aviso que sai UMA vez no cabecalho quando o `Relogio` nao tem ancora.
+#
+# SEM ELE, "ha 12 min" PODE ESTAR TRES HORAS ERRADO. Num dual boot o relogio do
+# Windows volta com o fuso do outro sistema, e o `Relogio` existe exatamente
+# para corrigir isso - mas quando ele nao consegue ancorar, ele degrada para a
+# hora crua e AVISA. Um carimbo exibido sem repetir esse aviso aqui seria um
+# numero preciso e errado, que e o modo de falha desta fase inteira.
+AVISO_DO_RELOGIO_SEM_ANCORA = (
+    "ATENCAO: o relogio nao tem ancora - as horas abaixo vem do Windows e "
+    "podem estar erradas."
+)
+
+# De quantos em quantos segundos a secao repinta.
+#
+# ELA NAO SAI POR TICK, E ISSO E DECISAO. A `linha_ao_vivo` e a que responde "o
+# modo esta vivo?" e por isso repinta a 1 Hz; esta responde "vale quanto?", e a
+# resposta so muda quando uma serie ganha observacao nova - o que, pelo censo,
+# acontece a cada dezenas de segundos no melhor caso. Repintar um bloco de
+# dezenas de linhas por segundo afogaria a linha ao vivo que o LEIT-04 exige.
+#
+# SESSENTA E ESCOLHA, E NAO MEDICAO, pela mesma disciplina dos pisos de
+# `mercado_analise`.
+SEGUNDOS_ENTRE_SECOES = 60.0
+
+
+def _recencia_em_duas_formas(quando: datetime, agora: datetime) -> str:
+    """`ha 8 h (31/08 10:00)` - as DUAS formas, sempre juntas.
+
+    A RELATIVA E O QUE O OLHO LE ("ha 8 h" responde na hora se o numero ainda
+    vale). A ABSOLUTA E O QUE SOBREVIVE A COPIAR A LINHA para o WhatsApp: um
+    "ha 8 h" colado num grupo as 23h nao diz mais nada no dia seguinte.
+
+    Carimbo no FUTURO sai como "agora mesmo" em vez de um relativo negativo: o
+    CSV e editado a mao e uma data adiante e entrada possivel, e "ha -3 h" seria
+    um numero que nao quer dizer nada.
+    """
+    segundos = (agora - quando).total_seconds()
+    absoluta = quando.strftime("%d/%m %H:%M")
+    if segundos < 60:
+        return f"agora mesmo ({absoluta})"
+    if segundos < 3600:
+        return f"ha {int(segundos // 60)} min ({absoluta})"
+    if segundos < 86400:
+        return f"ha {int(segundos // 3600)} h ({absoluta})"
+    return f"ha {int(segundos // 86400)} dias ({absoluta})"
+
+
+def _linha_do_menor(observacoes, agora: datetime) -> str:
+    """O menor pedido visivel: total E quantidade juntos, `n` e carimbo DELE.
+
+    O ROTULO E `menor pedido visivel`, E ESSA E A PALAVRA DO REQUISITO. A razao
+    e honestidade: o scanner ve OFERTAS no quadro, nao transacoes concluidas.
+    Ninguem comprou por este valor - alguem PEDIU este valor. Ha teste prendendo
+    as expressoes proibidas, sobre o texto devolvido E sobre o fonte deste
+    modulo; o teste e a rede, e esta linha e a razao de a rede existir.
+
+    O TOTAL NUNCA SAI SEM A QUANTIDADE AO LADO. Um total solto e sem
+    significado, porque um lote de 100 custa mais que um de 1 sem que nenhum dos
+    dois seja mais caro - e foi assim que a leitura de `4,50` para um item de
+    `1.480,00` virou um pitfall nomeado na pesquisa.
+
+    O CARIMBO E O DAQUELA OFERTA, e nunca `recencia_do_preco` (que e o
+    `max(primeira_vez)` da SERIE). Exibir um minimo de manha ao lado da recencia
+    de agora e a mentira plausivel que este projeto inteiro combate.
+    """
+    menor = menor_pedido_visivel(observacoes)
+    if menor.total_em_centesimos is None:
+        return (
+            f"    menor pedido visivel: sem evidencia - "
+            f"{menor.evidencia.n} de {menor.evidencia.piso} ofertas distintas"
+        )
+    unidades = "unidade" if menor.quantidade == 1 else "unidades"
+    return (
+        f"    menor pedido visivel: "
+        f"{formatar_centesimos(menor.total_em_centesimos)} por "
+        f"{menor.quantidade} {unidades} = "
+        f"{formatar_unitario_derivado(menor.unitario)} | "
+        f"n={menor.evidencia.n} | "
+        f"{_recencia_em_duas_formas(menor.primeira_vez, agora)}"
+    )
+
+
+def _linha_da_mediana(observacoes, agora: datetime) -> str:
+    """A mediana com `n` e a recencia da SERIE, ou o que FALTA para existir.
+
+    ABAIXO DO PISO O TEXTO DIZ O QUE FALTA, e nao um numero. Uma mediana de duas
+    observacoes e um numero que engana - a contagem atual e a necessaria valem
+    mais para o usuario que um valor que ele nao pode usar.
+
+    AQUI a recencia e a do PRECO (`max(primeira_vez)` do `observacoes.csv`): "a
+    oferta mais nova que eu vi desta serie". Ela NAO e o `ultima_vez` do
+    catalogo, que diz quando o ITEM foi visto em qualquer valor e pode ser de
+    agora mesmo sobre uma leitura de tres dias atras. Sao dois fatos diferentes
+    com nomes parecidos, e este modulo so conhece o primeiro.
+    """
+    mediana = mediana_dos_unitarios(observacoes)
+    if mediana.unitario is None:
+        return (
+            f"    mediana: sem evidencia - {mediana.evidencia.n} de "
+            f"{mediana.evidencia.piso} ofertas distintas, faltam "
+            f"{mediana.evidencia.faltam}"
+        )
+    quando = recencia_do_preco(observacoes)
+    carimbo = (
+        f" | oferta mais nova {_recencia_em_duas_formas(quando, agora)}"
+        if quando is not None
+        else ""
+    )
+    return (
+        f"    mediana: {formatar_unitario_derivado(mediana.unitario)} | "
+        f"n={mediana.evidencia.n}{carimbo}"
+    )
+
+
+def secao_do_vale_quanto(
+    modelo,
+    watchlist,
+    agora: datetime,
+    *,
+    relogio_confiavel: bool = True,
+) -> str:
+    """A resposta a "vale quanto agora?", em texto puro. DEVOLVE, nao imprime.
+
+    TRES LINHAS POR SERIE - menor pedido visivel, mediana e tendencia - e cada
+    numero viaja com a evidencia COLADA: a contagem de ofertas distintas e o
+    carimbo. Estatistica sem `n` e sem data e adivinhacao com cara de numero, e
+    a unica defesa contra isso e o `n` nao ser opcional em lugar nenhum.
+
+    O QUE ELA NAO MOSTRA, E POR QUE: o `residuo_do_cruzamento`. A guarda de
+    cruzamento esta DESLIGADA por medicao (02-02), entao o residuo e observacao
+    e nao veredito. Ele ja esta em coluna propria no CSV, para o usuario olhar
+    no Sheets com calma; imprimir aqui um numero que o proprio projeto declarou
+    nao-decidivel seria convidar a interpretacao errada.
+
+    A ORDEM VEM DE `ordenar_para_o_console`, que promove a watchlist sem
+    esconder o resto - a divergencia deliberada com a letra do criterio 3 do
+    ROADMAP esta escrita LA, junto da decisao.
+
+    `agora` E `relogio_confiavel` ENTRAM POR PARAMETRO, os dois: este modulo
+    nao chama o relogio do sistema, pela mesma disciplina que `mercado_analise`
+    ja segue. Quem os tem e o laco, que segura o `Relogio`.
+    """
+    linhas = [
+        console.moldurar("VALE QUANTO AGORA?", agora.strftime("%H:%M")),
+        "",
+    ]
+    if not relogio_confiavel:
+        linhas += [f"  {AVISO_DO_RELOGIO_SEM_ANCORA}", ""]
+
+    series = ordenar_para_o_console(modelo, watchlist)
+    if not series:
+        linhas.append(
+            "  Nenhuma observacao ainda. Abra o World Exchange na aba de "
+            "negociacao e deixe o painel aberto."
+        )
+        return "\n".join(linhas)
+
+    for serie in series:
+        marca = f" {MARCA_DA_WATCHLIST}" if serie.na_watchlist else ""
+        observacoes = modelo.observacoes_de(serie.chave)
+        linhas += [
+            f"  {serie.nome_exibido}{marca}",
+            _linha_do_menor(observacoes, agora),
+            _linha_da_mediana(observacoes, agora),
+            # A TENDENCIA SAI COM O TAMANHO DA JANELA SEMPRE JUNTO, e a unidade
+            # e "ofertas distintas". As duas coisas moram em
+            # `descrever_a_tendencia`, que ja e a unica frase de tendencia do
+            # projeto: montar a frase aqui seria a segunda, e uma delas
+            # esqueceria o `n` um dia.
+            f"    {descrever_a_tendencia(tendencia(observacoes))}",
+            "",
+        ]
+    return "\n".join(linhas)
 
 
 def resumo_da_sessao(leitor, contagem, motivos, orcamento) -> str:

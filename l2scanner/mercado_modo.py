@@ -61,14 +61,18 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from . import mercado_registro, ocr
+from .agenda import AgendaInvalida
+from .config import ler_watchlist_do_mercado
 from .frames import Regiao
 from .mercado_analise import ModeloDeMercado
 from .mercado_console import (
+    SEGUNDOS_ENTRE_SECOES,
     OrcamentoDoTick,
     acumular_motivos,
     destaque_ao_vivo,
     linha_ao_vivo,
     resumo_da_sessao,
+    secao_do_vale_quanto,
     transicao_do_painel,
 )
 from .mercado_pagina import (
@@ -209,6 +213,7 @@ def laco_do_mercado(
     relogio=None,
     pasta=None,
     ticks_maximos=None,
+    watchlist=None,
 ):
     """Le o World Exchange ate o usuario mandar parar. Devolve o codigo de saida.
 
@@ -341,6 +346,23 @@ def laco_do_mercado(
         )
         modelo = ModeloDeMercado.de_observacoes([])
 
+    # A WATCHLIST E FILTRO DE DESTAQUE, E NAO O PRODUTO - e por isso um
+    # `config.toml` quebrado NAO derruba a coleta. `ler_watchlist_do_mercado`
+    # LEVANTA de proposito para TOML invalido e para tipo errado (T-04-11),
+    # porque do lado de quem edita o arquivo a recusa alta e o certo; aqui,
+    # deixar esse `raise` escapar mataria o modo `--mercado` inteiro por causa
+    # de uma virgula, e o que o usuario perderia seria a COLETA da noite.
+    if watchlist is None:
+        try:
+            watchlist = ler_watchlist_do_mercado()
+        except AgendaInvalida as erro:
+            log.error("A watchlist do mercado nao foi lida: %s", erro)
+            log.error(
+                "A COLETA CONTINUA NORMAL - a watchlist so promove series no "
+                "console, e sem ela o topo sai por evidencia."
+            )
+            watchlist = []
+
     if relogio is None:
         relogio = principal.montar_relogio(args)
 
@@ -392,6 +414,34 @@ def laco_do_mercado(
     # silencio.
     painel_aberto_antes = None
     ticks_com_painel_antes = leitor.ticks_com_painel_aberto
+
+    def desenhar_a_analise() -> None:
+        """A secao "vale quanto agora", com o carimbo e a confianca do RELOGIO.
+
+        `relogio.confiavel` viaja junto de proposito: sem ancora a hora e a crua
+        do Windows, e num dual boot ela pode estar horas errada. Um carimbo
+        exibido sem esse aviso seria um numero preciso e errado.
+        """
+        log.info(
+            "\n%s",
+            secao_do_vale_quanto(
+                modelo,
+                watchlist,
+                relogio.agora(),
+                relogio_confiavel=relogio.confiavel,
+            ),
+        )
+
+    # ELA SAI JA NO ARRANQUE, ANTES DO PRIMEIRO TICK: o usuario abre o programa
+    # para perguntar "vale quanto agora?", e a resposta ja existe no disco da
+    # sessao passada. Esperar o primeiro tick faria um modo com meses de
+    # historico gravado parecer vazio no segundo em que ele abre.
+    desenhar_a_analise()
+    # E DEPOIS POR INTERVALO, NUNCA POR TICK. A `linha_ao_vivo` e a que responde
+    # "o modo esta vivo?" e repinta a 1 Hz; esta responde "vale quanto?", e a
+    # resposta so muda quando uma serie ganha observacao nova. O precedente e
+    # `desenhar_status` do laco principal, que tambem sai por intervalo.
+    proxima_secao = time.monotonic() + SEGUNDOS_ENTRE_SECOES
 
     # ------------------------------------------------------------------
     # 4. O TICK.
@@ -519,6 +569,10 @@ def laco_do_mercado(
                     paginas_desde_a_gravacao = 0
 
                 log.info("%s", linha_ao_vivo(leitor, contagem, ultimo_item))
+
+            if time.monotonic() >= proxima_secao:
+                desenhar_a_analise()
+                proxima_secao = time.monotonic() + SEGUNDOS_ENTRE_SECOES
 
             # A MESMA CONTA SERVE A DUAS COISAS: compensar a deriva da cadencia
             # e alimentar o orcamento auto-medido. Medir por fora seria um
