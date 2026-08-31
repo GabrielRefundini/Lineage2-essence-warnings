@@ -48,7 +48,11 @@ from .loot import Designacao, nick_para_o_aviso
 from .notificador import Categoria
 from .presenca import fechar_e_narrar
 from .rastreador import Evento
-from .respawn import anunciar_janelas, chave_do_nascimento
+from .respawn import (
+    anunciar_janelas,
+    anunciar_nascimento,
+    chave_do_nascimento,
+)
 from .visao import EstadoDaLinha, Observacao, extrair
 
 log = logging.getLogger("l2scanner")
@@ -91,7 +95,22 @@ class ResultadoDoTick:
     #
     # O BOSS ENTRA NO PAR porque um tick pode entregar mais de um aviso: com
     # dois avisos, a origem sozinha nao diz mais de quem ela e.
+    #
+    # DESDE A FASE 3 ELE SIGNIFICA O QUE FOI ANUNCIADO, e nao o que foi
+    # detectado. Nao e mudanca de contrato — o comentario acima ja dizia
+    # "EMITIDOS neste tick" — e o que foi detectado e CALADO passou a ter campo
+    # proprio logo abaixo.
     avisos_de_boss: list = field(default_factory=list)
+
+    # As deteccoes de nascimento que este tick CALOU, como pares
+    # `(boss, origem)`, porque o boss ja tinha sido anunciado neste episodio.
+    #
+    # ELE EXISTE PARA O SILENCIO DEIXAR RASTRO (T-03-05). Sem este campo e sem
+    # a linha de log que o acompanha, o unico sintoma de uma supressao errada
+    # seria o silencio — e ninguem percebe um alerta que nao chegou. Esse e
+    # exatamente o modo de falha que a Fase 3 esta tentando NAO introduzir
+    # enquanto conserta o oposto, entao ele nasce observavel.
+    nascimentos_calados: list = field(default_factory=list)
 
     # As ANCORAS de nascimento que ESTE tick gravou, como pares
     # `(boss, origem)`. Estruturado e nao texto, no mesmo molde de
@@ -366,12 +385,19 @@ class Sessao:
             frame.extras.get("tiat_chat"), frame.extras.get("tiat_alvo"), agora
         )
         for aviso in avisos:
-            resultado.avisos_de_boss.append((aviso.boss, aviso.origem))
-            # Nascimento e alvo novo sao urgentes e devem atravessar o silencio
-            # de TvT: um boss nascendo durante o Prime e exatamente a
-            # informacao que ninguem quer perder.
-            self._despachar(aviso.texto, Categoria.SEMPRE, resultado=resultado)
-
+            # PRIMEIRO A ANCORA, SEMPRE, FORA DE QUALQUER CONDICAO LIGADA AO
+            # ANUNCIO. Isto e D-27: a ancoragem nao muda de comportamento nesta
+            # fase, e continua acontecendo inclusive quando o anuncio e calado.
+            #
+            # A ORDEM NAO E ESTETICA. A chave do episodio e calculada a partir
+            # das ancoras que estao EM DISCO, e a ancora desta deteccao precisa
+            # estar la antes. Invertida, a PRIMEIRA deteccao de um episodio
+            # cairia no caminho do episodio vazio, as duas instancias — ticando
+            # em minutos diferentes — produziriam duas chaves e duas mensagens,
+            # e o defeito de campo voltaria inteiro. Com uma instancia so, a
+            # ordem e indiferente e todo o resto continuaria verde; por isso o
+            # portao de `tests/test_anuncio_unico.py` afirma a POSICAO por AST.
+            #
             # ESTE E O UNICO SITIO DE ESCRITA DE ANCORA DO PROJETO, e a
             # assimetria com os avisos de janela e o ponto que precisa ficar
             # escrito. ANCORAR exige pixels, e so o laco principal tem pixels;
@@ -387,10 +413,35 @@ class Sessao:
             # criatura que ja estava viva as 14h30, e a conta reinicia. Foi
             # escolha por COBERTURA, com o preco apresentado; a mitigacao e
             # D-16 — a mensagem cita que a origem foi o alvo, e quem le julga.
+            # O que a Fase 3 mudou foi o ANUNCIO, e nao esta escrita.
             if self.registro.registrar_nascimento(
                 chave_do_nascimento(aviso.boss, agora, aviso.origem)
             ):
                 resultado.ancoras_gravadas.append((aviso.boss, aviso.origem))
+
+            # DEPOIS O ANUNCIO, e a decisao inteira mora em
+            # `respawn.anunciar_nascimento` pela mesma razao que a decisao da
+            # janela mora em `anunciar_janelas`: uma copia aqui divergiria da
+            # de la no primeiro ajuste.
+            if not anunciar_nascimento(
+                self.registro, aviso.boss, agora, self.regras_de_respawn
+            ):
+                resultado.nascimentos_calados.append(
+                    (aviso.boss, aviso.origem)
+                )
+                log.info(
+                    "%s calado: este nascimento ja foi anunciado neste "
+                    "episodio (origem desta deteccao: %s)",
+                    aviso.boss,
+                    aviso.origem.value,
+                )
+                continue
+
+            resultado.avisos_de_boss.append((aviso.boss, aviso.origem))
+            # Nascimento e alvo novo sao urgentes e devem atravessar o silencio
+            # de TvT: um boss nascendo durante o Prime e exatamente a
+            # informacao que ninguem quer perder.
+            self._despachar(aviso.texto, Categoria.SEMPRE, resultado=resultado)
 
     def _processar_janelas(self, agora: datetime, resultado: ResultadoDoTick) -> None:
         """As janelas de respawn que venceram. Sempre categoria SEMPRE.

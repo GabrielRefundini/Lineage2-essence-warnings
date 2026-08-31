@@ -1546,6 +1546,19 @@ class TestPodaAlcancaTodosOsPrefixos:
         assert agenda.PREFIXO_NASCIMENTO in agenda._PREFIXOS_CONHECIDOS
         assert agenda.PREFIXO_NASCIMENTO not in agenda._PREFIXOS_SEM_DATA
 
+    def test_o_prefixo_do_anuncio_esta_no_balde_dos_podaveis(self):
+        """O gemeo do teste acima, e o que ele impede e pior que uma mentira.
+
+        Se `PREFIXO_ANUNCIO` caisse em `_PREFIXOS_SEM_DATA`, um marcador de
+        silencio criado uma vez calaria aquele boss PARA SEMPRE. O sintoma
+        seria um scanner que roda, loga, preve janela e nunca mais anuncia um
+        nascimento — sem erro, sem log, sem nada (T-03-03). A ancora velha
+        MENTE e alguem acaba percebendo a previsao errada; o anuncio velho
+        EMUDECE, e ninguem percebe um alerta que nao chegou.
+        """
+        assert agenda.PREFIXO_ANUNCIO in agenda._PREFIXOS_CONHECIDOS
+        assert agenda.PREFIXO_ANUNCIO not in agenda._PREFIXOS_SEM_DATA
+
     def test_os_dois_baldes_de_prefixo_nao_se_sobrepoem(self):
         """Um prefixo nos dois seria a poda contradizendo a decisao.
 

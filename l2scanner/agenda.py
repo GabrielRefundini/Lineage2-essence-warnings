@@ -120,10 +120,12 @@ def apelido_do_evento(nome: str) -> str:
 
     UM SO APELIDO PARA TODOS OS USOS, e isto nao e arrumacao. A mesma linha
     estava escrita duas vezes — em `Aviso.chave` e em `chave_da_ocorrencia` — e
-    agora tem um terceiro consumidor, o marcador de evento calado, e um quarto,
+    agora tem um terceiro consumidor, o marcador de evento calado, um quarto,
     o `respawn.py` da janela de boss (`chave_do_nascimento` e
-    `AvisoDeJanela.chave`). Quatro copias da mesma expressao divergem no
-    primeiro ajuste, e a divergencia aqui e invisivel: o gate procuraria
+    `AvisoDeJanela.chave`), e um quinto, o marcador de anuncio de nascimento
+    (`respawn.chave_do_anuncio`, Fase 3 do `tiat`). Cinco copias da mesma
+    expressao divergem no primeiro ajuste, e a divergencia aqui e invisivel: o
+    gate procuraria
     `soloboss` enquanto a agenda escreve `solo-boss`, ninguem levantaria
     excecao nenhuma, e o boss simplesmente continuaria falando depois de o
     usuario o ter desligado.
@@ -390,6 +392,29 @@ PREFIXO_EVENTO_CALADO = "evento_calado_"
 # unico dos dois baldes em que "nao expira" seria esquecimento e nao decisao.
 PREFIXO_NASCIMENTO = "nascimento_"
 
+# Prefixo do marcador de ANUNCIO de nascimento — a prova duravel de que a
+# mensagem "o boss nasceu" JA SAIU no grupo, para ela nao sair de novo.
+#
+# A FORMA COMPLETA E `anuncio_<YYYY-MM-DD>_<boss-slug>-<HHMM>`, com a data e a
+# hora do INICIO DO EPISODIO e nao do instante da deteccao (D-28). Um episodio
+# e um nascimento e TODAS as deteccoes dele; a semantica inteira mora em
+# `respawn.py` (`inicio_do_episodio` e `chave_do_anuncio`), como a semantica da
+# ancora ja mora la. Este modulo continua sem importar nada do pacote.
+#
+# ENTRA EM `_PREFIXOS_CONHECIDOS`, e o balde e a decisao de seguranca deste
+# prefixo. Ele TEM data, e precisa ter: um marcador de silencio imortal e um
+# boss que nunca mais e anunciado. E a mesma familia de defeito descrita acima
+# em `PREFIXO_NASCIMENTO`, so que na direcao oposta e pior — a ancora velha
+# MENTE, e alguem acaba percebendo a previsao errada; o anuncio velho EMUDECE,
+# e o unico sintoma e um scanner que roda, loga, preve janela e nunca mais
+# avisa um nascimento. Sem erro, sem log, sem nada (T-03-03).
+#
+# `_PREFIXOS_SEM_DATA` FOI CONSIDERADO E RECUSADO. Aquele balde e da
+# imortalidade DELIBERADA do evento calado, que e uma decisao do usuario. Este
+# silencio nao e decisao de ninguem: e a consequencia mecanica de uma mensagem
+# ja enviada, e tem que expirar junto com a relevancia dela.
+PREFIXO_ANUNCIO = "anuncio_"
+
 # Todo namespace que a poda sabe desmontar.
 #
 # CONSERTA UM DEFEITO REAL: ate esta fase a poda retirava UM prefixo
@@ -409,6 +434,7 @@ _PREFIXOS_CONHECIDOS = (
     PREFIXO_PRESENCA,
     PREFIXO_FECHADO,
     PREFIXO_NASCIMENTO,
+    PREFIXO_ANUNCIO,
 )
 
 # O SEGUNDO destino possivel de um prefixo: os que NAO tem data e nao expiram
@@ -594,6 +620,44 @@ class RegistroEmDisco:
             for nome in self.enviados()
             if nome.startswith(PREFIXO_NASCIMENTO)
         }
+
+    # -- o anuncio de nascimento ja feito ------------------------------------
+
+    def registrar_anuncio(self, chave: str) -> bool:
+        """Grava que o nascimento JA FOI ANUNCIADO. True se ESTE processo deve
+        falar.
+
+        A `chave` e OPACA: este metodo nao conhece boss nenhum, nao sabe o que
+        e um episodio e nunca parseia o que recebe. A semantica inteira mora em
+        `respawn.chave_do_anuncio`, exatamente como a da ancora.
+
+        POR QUE ELE EXISTE, MEDIDO EM CAMPO. 2026-08-30, 21:59 as 22:02: o
+        usuario recebeu SEIS mensagens para um unico Tiat South. Tres do chat
+        as 21:59 e tres do alvo entre 22:01 e 22:02, com as duas instancias
+        dele rodando (confirmado por `Win32_Process`). O aviso de nascimento
+        era o UNICO alerta do projeto que chamava o despacho direto, sem passar
+        por `marcar` — a agenda passa, a janela de respawn passa, ele nao.
+
+        HERDA DE `marcar` AS DUAS PROPRIEDADES, e nao reimplementa nenhuma:
+
+        - **Em `--dry-run` devolve True sem encostar no disco.** Uma simulacao
+          repete a mensagem no console a cada volta, e isso e o produto inteiro
+          do modo — sem queimar o marcador de quem vai mesmo falar no grupo.
+        - **Entre as duas instancias do usuario, exatamente uma cria o
+          arquivo.** Mesmo `O_CREAT|O_EXCL`; nenhuma corrida nova.
+
+        NAO EXISTE UM `anuncios()`, E A AUSENCIA E DELIBERADA. `cancelar` tem
+        `cancelados` e `registrar_nascimento` tem `nascimentos`, entao a
+        simetria vai fazer alguem querer completar o par. Nao complete. Nao ha
+        caso de uso legitimo para enumerar anuncios ja feitos, e o unico uso
+        imaginavel — "conferir antes de falar" — e exatamente o read-then-write
+        que a docstring de `marcar` proibe por escrito. O sintoma dele nao e a
+        mensagem repetida que este metodo veio consertar: e a mensagem
+        PERDIDA, porque as duas instancias se veriam livres para calar achando
+        que a outra falou, e cada uma ficaria verde sozinha. A decisao de
+        despachar tem que SER esta chamada.
+        """
+        return self.marcar(PREFIXO_ANUNCIO + chave)
 
     # -- eventos calados por comando ----------------------------------------
 

@@ -26,6 +26,17 @@ O NOME DO MODULO. `janela.py` foi recusado: `--janela`, `JanelaDeSilencio` e
 terceiro sentido no mesmo pacote seria ambiguidade permanente. `respawn` e a
 palavra que o proprio `config.toml` do usuario ja usa (`respawn_horas_min`).
 
+A PALAVRA `EPISODIO`, e por que ela e uma palavra nova. Um EPISODIO e um
+nascimento e TODAS as deteccoes dele — as do chat, as do alvo, as das duas
+instancias do usuario, espalhadas por minutos. O campo mediu isso em
+2026-08-30: tres deteccoes de chat as 21:59 e tres de alvo entre 22:01 e 22:02,
+para um unico Tiat South, seis mensagens no grupo. A nocao precisava de nome
+proprio e nao pode reusar nenhum dos que ja existem aqui: `janela` ja significa
+a JANELA DO WINDOWS e a JANELA DE RESPAWN, e `ciclo` ja significa o par
+abre/limite. Um quarto sentido para uma palavra existente seria ambiguidade
+permanente — a mesma razao escrita acima para este modulo nao se chamar
+`janela.py`.
+
 A DIRECAO DE IMPORTACAO E `respawn -> {agenda, bosses}`, e nenhum dos dois
 importa `respawn`. Um ciclo aqui nao degradaria nada: mataria os tres modulos
 com `ImportError` no arranque.
@@ -86,6 +97,24 @@ _PESO_DA_ORIGEM = {
     OrigemDoAviso.CHAT: 1,
     OrigemDoAviso.CHAT_E_ALVO: 2,
 }
+
+
+# QUANTO A JANELA DO EPISODIO E MAIS CURTA QUE O MINIMO DO SERVIDOR.
+#
+# A janela do episodio e `respawn_horas_min - MARGEM_DO_EPISODIO`, e a direcao
+# do erro e deliberada. Longa demais, dois nascimentos distintos caem no mesmo
+# episodio e o segundo e CALADO — a party nao recebe nada e nao tem como saber
+# que deixou de receber. Curta demais, uma remarcacao tardia de alvo abre um
+# episodio novo e sai UMA mensagem repetida, que o usuario le e ignora em dois
+# segundos. O falso negativo silencioso e o erro caro, entao a margem vai para
+# o lado CURTO (T-03-01).
+#
+# Cinco minutos porque a ancora e gravada com resolucao de MINUTO (`<HHMM>`), e
+# o truncamento pode encurtar a distancia aparente entre duas ancoras em ate 59
+# segundos. Cinco e folga confortavel sobre esse limite e ainda deixa 5h55 de
+# cobertura de remarcacao para o Tiat — muito alem de qualquer remarcacao
+# plausivel, ja que o boss precisa estar vivo para ser alvejado.
+MARGEM_DO_EPISODIO = timedelta(minutes=5)
 
 
 @dataclass(frozen=True)
@@ -205,6 +234,145 @@ def ancoras_mais_recentes(chaves: Iterable[str]) -> dict[str, Ancora]:
 
 def _ordem(ancora: Ancora) -> tuple[datetime, int]:
     return (ancora.instante, _PESO_DA_ORIGEM[ancora.origem])
+
+
+# ---------------------------------------------------------------------------
+# O EPISODIO — um nascimento, uma mensagem.
+# ---------------------------------------------------------------------------
+
+
+def ancoras_do_boss(chaves: Iterable[str], apelido: str) -> list[Ancora]:
+    """Todas as ancoras de UM boss, e nao so a que vale.
+
+    E a irma pobre de `ancoras_mais_recentes` e existe separada por ser o unico
+    pedaco reusavel entre a PREVISAO e o ANUNCIO — e porque um teste consegue
+    afirma-la sozinha. A diferenca com a irma e o ponto inteiro: aquela reduz a
+    UMA ancora por boss, e esta preserva todas, porque o episodio precisa da
+    MAIS ANTIGA e a previsao precisa da mais recente.
+
+    Chaves tortas somem em silencio, por `ancora_de_chave`.
+    """
+    achadas = []
+    for chave in chaves:
+        ancora = ancora_de_chave(chave)
+        if ancora is not None and ancora.boss == apelido:
+            achadas.append(ancora)
+    return achadas
+
+
+def inicio_do_episodio(
+    ancoras: Iterable[Ancora],
+    agora: datetime,
+    horas_min: float,
+    margem: timedelta = MARGEM_DO_EPISODIO,
+) -> datetime | None:
+    """O instante da ancora MAIS ANTIGA do episodio corrente, ou `None`.
+
+    POR QUE A MAIS ANTIGA, E NAO QUALQUER OUTRA (D-28). A chave do marcador de
+    anuncio precisa ser a MESMA string em todas as deteccoes de um nascimento,
+    senao cada deteccao ganha o proprio marcador e o `O_CREAT|O_EXCL` nao
+    impede nada. As candidatas obvias falham:
+
+    - **O instante da deteccao**: a instancia que ticou as 21:59 e a que ticou
+      as 22:00 produzem chaves diferentes. Duas mensagens.
+    - **A ancora que esta deteccao acabou de escrever**: uma remarcacao de alvo
+      escreve ancora nova (D-15), logo chave nova. Uma mensagem por remarcacao,
+      que e o defeito de campo intacto.
+    - **`ancoras_mais_recentes`**: mesmo problema. Ela existe para a PREVISAO,
+      onde reancorar e o comportamento DESEJADO (JANE-04 / D-20); reusa-la aqui
+      importaria o comportamento errado.
+
+    A mais antiga e estavel por construcao: ancoras so sao escritas no
+    presente, entao a mais antiga de um episodio nunca muda depois que o
+    episodio comeca. As duas instancias, lendo a mesma pasta, calculam a mesma
+    string — inclusive a que perdeu a corrida do `O_CREAT|O_EXCL` da propria
+    ancora, porque o arquivo da vencedora ja esta la.
+
+    O LIMITE INFERIOR E ESTRITO (`>`), E NAO FROUXO. Dois nascimentos
+    consecutivos distam no MINIMO `horas_min`: a regra do servidor conta a
+    partir da MORTE, e a morte e sempre depois do nascimento, entao
+    `nascimento2 - nascimento1 >= horas_min` sempre. Com o limite frouxo, dois
+    nascimentos exatamente no minimo cairiam no mesmo episodio e o segundo
+    seria calado — a supressao virando perda, que e T-03-01.
+
+    O `max(timedelta(0), ...)` protege um `[[boss]]` com `respawn_horas_min`
+    menor que a margem: o episodio vira degenerado e o boss volta a ser
+    anunciado a cada deteccao. E o comportamento de hoje, ruidoso e nao mudo —
+    de novo o lado certo do erro.
+    """
+    janela = max(timedelta(0), timedelta(hours=horas_min) - margem)
+    piso = agora - janela
+    candidatos = [a.instante for a in ancoras if piso < a.instante <= agora]
+    return min(candidatos) if candidatos else None
+
+
+def chave_do_anuncio(apelido: str, instante: datetime) -> str:
+    """A identidade duravel do anuncio de um episodio, SEM o prefixo (D-28).
+
+    Forma: `<YYYY-MM-DD>_<boss-slug>-<HHMM>`, com a data e a hora do INICIO DO
+    EPISODIO. Quem poe o prefixo e `RegistroEmDisco.registrar_anuncio`,
+    exatamente como `cancelar` e `registrar_nascimento` poem os deles.
+
+    A DATA VEM PRIMEIRO PORQUE A PODA A LE DAI. `agenda.podar` retira qualquer
+    prefixo conhecido e entao le `YYYY-MM-DD` do inicio do que sobra; sem a
+    data na frente o marcador nasceria imortal, e um marcador de silencio
+    imortal e um boss que nunca mais e anunciado (T-03-03).
+
+    A UNICA COLISAO CONCEBIVEL, e por que ela nao acontece: a raiz
+    `<data>_<apelido>-<HHMM>` e a mesma de `Aviso.chave` e de
+    `AvisoDeJanela.chave`. Mas aquelas duas nunca tem prefixo e sempre tem
+    sufixo de tipo (`_agora`, `_abre`, `_limite`), e esta sempre tem prefixo e
+    nunca tem sufixo. Os conjuntos de NOMES DE ARQUIVO sao disjuntos por
+    construcao.
+    """
+    return (
+        f"{instante.date().isoformat()}"
+        f"_{apelido}-{instante.hour:02d}{instante.minute:02d}"
+    )
+
+
+def anunciar_nascimento(
+    registro, boss: str, agora: datetime, regras: Iterable[Boss]
+) -> bool:
+    """True se ESTE processo deve anunciar o nascimento. Irma de
+    `anunciar_janelas`.
+
+    O `registrar_anuncio` E A DECISAO, E NAO HA CHECAGEM ANTERIOR NENHUMA AQUI.
+    A leitura de `registro.nascimentos()` PARECE uma, e nao e: ela nao pergunta
+    se o aviso ja saiu — ela CALCULA A CHAVE. A distincao e sutil e um leitor
+    apressado vai confundi-la com o padrao proibido, entao fica escrita: esta
+    funcao nao pode passar a ler `registro.enviados()`, nem um `anuncios()` que
+    de proposito nao existe. Ai sim seria o read-then-write que a docstring de
+    `RegistroEmDisco.marcar` proibe, e o sintoma seria um aviso PERDIDO e nao
+    duplicado — as duas instancias se veriam livres para calar achando que a
+    outra falou, e cada uma ficaria verde sozinha. O portao de
+    `tests/test_anuncio_unico.py` afirma isso por AST.
+
+    SEM A REGRA DO `[[boss]]`, ANUNCIA. Nao ha como saber o tamanho do episodio
+    sem `respawn_horas_min`, e a escolha e a mesma que `marcar` ja faz no
+    `except OSError`: preferir o duplicado ao perdido. A party consegue ignorar
+    uma repeticao, mas nao consegue adivinhar um nascimento que ninguem
+    anunciou. Na pratica o caso nao acontece — o vigia e construido da MESMA
+    lista que vira `regras_de_respawn` — e a linha existe para o dia em que
+    essa premissa mudar sem ninguem notar.
+
+    EPISODIO VAZIO USA `agora`, E ESSE E O CAMINHO DO `--dry-run`. Em simulacao
+    `registrar_nascimento` nao escreveu nada, entao nao ha ancora para ler; a
+    consequencia (N voltas, N mensagens no console) e a mesma ja aceita em
+    `tests/test_janela_no_relogio.py::TestOModoDeSimulacaoNaJanela`, e pela
+    mesma razao: o produto inteiro do `--dry-run` e a mensagem aparecer.
+    """
+    apelido = apelido_do_evento(boss)
+
+    regra = next((r for r in regras if r.nome == boss), None)
+    if regra is None:
+        return registro.registrar_anuncio(chave_do_anuncio(apelido, agora))
+
+    ancoras = ancoras_do_boss(registro.nascimentos(), apelido)
+    instante = inicio_do_episodio(ancoras, agora, regra.respawn_horas_min)
+    return registro.registrar_anuncio(
+        chave_do_anuncio(apelido, instante or agora)
+    )
 
 
 @dataclass(frozen=True)
