@@ -74,6 +74,76 @@ TEXTO_LIMPO = (
     "Please avoid entering instance Korzis O' Kaus"
 )
 
+# AS OITO LEITURAS DE 2026-08-31: A PRIMEIRA MEDICAO CONTRA UM BANNER DE VERDADE
+# ==============================================================================
+#
+# Tudo que estava acima veio de UMA fixture recortada de um screenshot. Estas
+# oito vieram do jogo, com o servidor entrando em manutencao as ~18:20 e o
+# banner na tela por quase uma hora. O scanner NAO anunciou nada, e a docstring
+# do modulo ja avisava por que isso podia acontecer: "OCR na FONTE DO JOGO nunca
+# foi provada".
+#
+# Sao QUATRO RODADAS de `--testar-manutencao --janela`, cada uma com as duas
+# escalas de producao lendo os MESMOS pixels. Os recortes estao em
+# `logs/banner-manutencao-1759{08,54}.png` e `-1816{08,10}.png`. A faixa ja e a
+# corrigida (`banner_manutencao` = (0,110) 735x325); a derivada da party window
+# pegava so a ultima linha.
+#
+# O QUE ELAS PROVAM, e cada numero abaixo esta cobrado por um teste:
+#
+#   1. O `M` de Maintence NUNCA sobrevive. Sai `aintence`, sai `aiptence`, ou a
+#      palavra some inteira. Em 8 de 8 a raiz exata `mainten` esta AUSENTE.
+#   2. `avoid entering instance` aparece em 8 de 8, limpo em 7.
+#   3. A escala 2x acertou o tempo em 1 de 4 rodadas; a 3x em 4 de 4. As tres
+#      falhas da 2x foram ABSTENCAO (`minutes` saiu com vogal trocada, e a
+#      guarda estrutural calou), NUNCA um numero errado.
+#
+# Sao texto: rodam sem OCR, sem jogo e sem rede, no Python da suite.
+CAMPO_1_2X = (
+    "11 Servergqaiptenceatl JJ »20 minåtes 27 seconds "
+    "4—vvaÅZidentering instance Welazkez Mostarda"
+)
+CAMPO_1_3X = (
+    "11 Server 20 minutes 27 seconds "
+    "Please avoid entering instance Welazkez Mostarda"
+)
+CAMPO_2_2X = (
+    "13 04 minütes 13 seconds "
+    "Please avoid entering instance Welazkez Mosta rda"
+)
+CAMPO_2_3X = (
+    "13 04 minutes 13 seconds "
+    "Please avoid entering instance Welazkez Mostarda"
+)
+CAMPO_3_2X = (
+    "13 04 minutes 12 seconds "
+    "Please avoid entering instance Welazkez Mostarda"
+)
+CAMPO_3_3X = (
+    "13 Server \"aintencea2J 04 minutes 12 seconds "
+    "Please avoid entering instance Welazkez Mostarda"
+)
+CAMPO_4_2X = (
+    "13 04 minåtes 11 seconds "
+    "'Please avoid entering instance Welazkez Mosta rda Farcran"
+)
+CAMPO_4_3X = (
+    "13 Server \"aintencea,QJ 04 minutes 11 seconds "
+    "Please avoid entering instance Welazkez Mostarda Farcran"
+)
+
+# (rotulo, texto, duracao que `interpretar_banner` tem que devolver)
+CAMPO_31_08 = [
+    ("rodada 1 / 2x", CAMPO_1_2X, None),
+    ("rodada 1 / 3x", CAMPO_1_3X, timedelta(minutes=20, seconds=27)),
+    ("rodada 2 / 2x", CAMPO_2_2X, None),
+    ("rodada 2 / 3x", CAMPO_2_3X, timedelta(minutes=4, seconds=13)),
+    ("rodada 3 / 2x", CAMPO_3_2X, timedelta(minutes=4, seconds=12)),
+    ("rodada 3 / 3x", CAMPO_3_3X, timedelta(minutes=4, seconds=12)),
+    ("rodada 4 / 2x", CAMPO_4_2X, None),
+    ("rodada 4 / 3x", CAMPO_4_3X, timedelta(minutes=4, seconds=11)),
+]
+
 HOJE = datetime(2026, 8, 25, 14, 0, 0)
 
 
@@ -560,6 +630,274 @@ class TestCruzamentoDeEscalas:
         juntas = " ".join(mensagens)
         assert self.DISCORDANTE in juntas
         assert TEXTO_LIMPO in juntas
+
+
+class TestBannerRealDe31De08:
+    """A PRIMEIRA leitura de campo, e o defeito que ela reprovou.
+
+    Ate 2026-08-31 a porta 1 exigia a raiz exata `mainten`, e o argumento
+    escrito era que ela e o token mais RARO da tela. O raciocinio continua
+    certo; o TOKEN e que estava errado. Nas oito leituras reais a raiz aparece
+    ZERO vezes, entao a porta 1 nunca fechava e o scanner atravessou uma hora
+    de banner na tela em silencio.
+    """
+
+    @pytest.mark.parametrize("rotulo,texto,_esperado", CAMPO_31_08)
+    def test_a_raiz_exata_mainten_esta_ausente_nas_oito(self, rotulo, texto, _esperado):
+        """O defeito, afirmado antes do conserto. 8 de 8.
+
+        Este teste nao cobra o conserto: ele cobra a MEDICAO em que o conserto
+        se apoia. Se um dia o motor de OCR passar a entregar o `M`, e este
+        teste ficar vermelho, a razao escrita na porta 1 caiu junto e o proximo
+        a mexer precisa saber disso.
+        """
+        assert "mainten" not in texto.lower(), rotulo
+
+    @pytest.mark.parametrize("rotulo,texto,_esperado", CAMPO_31_08)
+    def test_as_oito_leituras_reais_fecham_a_porta_1(self, rotulo, texto, _esperado):
+        """O CONSERTO. Volte a porta 1 para `mainten` exato e as oito caem.
+
+        E o teste que faltava em 24/08: o spike leu um banner sintetico, este
+        le o banner que o servidor mostrou de verdade.
+        """
+        assert eh_banner_de_manutencao(texto) is True, rotulo
+
+    @pytest.mark.parametrize("rotulo,texto,esperado", CAMPO_31_08)
+    def test_a_duracao_de_cada_uma_das_oito(self, rotulo, texto, esperado):
+        """As tres abstencoes da 2x sao ESPERADAS, e nao um segundo defeito.
+
+        `minåtes` e `minütes` derrubam a captura do numero de minutos, e a
+        guarda estrutural (D-b) manda CALAR em vez de cair para "entao e so os
+        segundos". Devolver 27 ou 13 segundos aqui seria o bug de 40min26s de
+        volta, com outra roupa.
+        """
+        assert interpretar_banner(texto) == esperado, rotulo
+
+    def test_a_semelhanca_reconhece_a_palavra_com_o_M_comido(self):
+        """A porta 1, ramo da PALAVRA. Cai se alguem voltar ao `in` exato.
+
+        Medido com `difflib.SequenceMatcher` contra `maintence`/`maintenance`:
+        `aintence` da 0,941 e passa; `aiptence` da 0,824 e NAO passa, porque
+        `main entrance` da 0,833 e nenhum corte escalar separa os dois. O
+        `aiptence` e recuperado pelo outro ramo, o da ancora.
+        """
+        from l2scanner.manutencao import parece_palavra_de_manutencao
+
+        assert parece_palavra_de_manutencao('13 Server "aintencea2J 04 minutes') is True
+        assert parece_palavra_de_manutencao("Server Maintence 40 minutes") is True
+        assert parece_palavra_de_manutencao("Server Maintenance 40 minutes") is True
+
+        # A colisao medida, e por isso o corte esta acima dela.
+        assert parece_palavra_de_manutencao("visit the main entrance") is False
+        assert parece_palavra_de_manutencao("Korzis: bora upar? Kaus ta on") is False
+
+    def test_a_ancora_sozinha_nao_basta_e_isso_e_deliberado(self):
+        """`avoid entering instance` sem contagem NAO e o banner.
+
+        Ela e o sinal mais confiavel (8 de 8, limpo em 7) e mesmo assim nao
+        pode abrir a porta sozinha: o jogo diz essa frase, e uma manutencao
+        inventada custa uma mensagem falsa no grupo. Ancora E contagem.
+        """
+        assert eh_banner_de_manutencao("Please avoid entering instance") is False
+        assert eh_banner_de_manutencao(
+            "Please avoid entering instance 04 minutes 12 seconds"
+        ) is True
+
+
+class TestConsensoComAbstencao:
+    """A porta 3 continua de pe, com a REGRA trocada: abstencao nao e discordancia.
+
+    Medido em 31/08: em 4 rodadas as duas escalas NUNCA produziram numeros
+    diferentes. O que aconteceu em 3 delas foi a 2x se abster. A regra antiga
+    ("as duas precisam produzir a mesma duracao") tratava abstencao como
+    discordancia e jogava fora 3 das 4 leituras boas.
+    """
+
+    def test_a_rodada_real_de_31_08_teria_anunciado(self):
+        """O incidente inteiro, com os textos que o motor leu de verdade.
+
+        Antes do conserto: nada sai. Este e o teste que responde "por que o
+        scanner ficou calado enquanto o banner estava na tela".
+        """
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+
+        leitor.texto = CAMPO_1_2X  # a 2x se absteve
+        leitor.texto_de_conferencia = CAMPO_1_3X  # a 3x leu 20:27
+        assert vigia.avaliar(obter, HOJE) == [], "uma leitura so nunca anuncia"
+
+        saiu = vigia.avaliar(obter, HOJE + timedelta(seconds=5))
+
+        assert [a.tipo for a in saiu] == [TipoDeAvisoDeManutencao.ANUNCIADA]
+        esperado = HOJE + timedelta(minutes=20, seconds=27)
+        assert abs((vigia.momento - esperado).total_seconds()) <= 6
+        assert "20 minutos e 27 segundos" in saiu[0].texto
+
+    def test_o_bloco_das_18h16_ancora_com_as_duas_formas_de_leitura(self):
+        """Rodada 2 (so a conferencia) e rodada 3 (as duas) se somam.
+
+        As duas formas alimentam o MESMO consenso temporal, que continua
+        exigindo duas leituras concordantes para ancorar.
+        """
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+
+        leitor.texto = CAMPO_2_2X
+        leitor.texto_de_conferencia = CAMPO_2_3X
+        assert vigia.avaliar(obter, HOJE) == []
+
+        leitor.texto = CAMPO_3_2X
+        leitor.texto_de_conferencia = CAMPO_3_3X
+        saiu = vigia.avaliar(obter, HOJE + timedelta(seconds=5))
+
+        assert [a.tipo for a in saiu] == [
+            TipoDeAvisoDeManutencao.ANUNCIADA,
+            TipoDeAvisoDeManutencao.FALTAM5,
+        ]
+
+    def test_a_escala_de_deteccao_sozinha_nunca_ancora(self):
+        """O outro lado da regra, e ele NAO foi afrouxado.
+
+        Medido: a 3x acertou 4 de 4 e a 2x 1 de 4. Quem le sozinha tem de ser a
+        de conferencia. Perder a leitura da 2x solitaria custa uma cadencia,
+        5 s; ancorar na escala medida como pior custa a farm da party.
+        """
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+
+        leitor.texto = CAMPO_3_2X  # a barata leu 04:12
+        leitor.texto_de_conferencia = CAMPO_2_2X  # a cara se absteve
+
+        assert rodar(vigia, obter, HOJE, segundos=60) == []
+        assert vigia.momento is None
+
+    def test_duas_duracoes_diferentes_seguem_recusadas(self):
+        """D-d intacto: contradicao continua sendo contradicao.
+
+        E a forma do erro que criou esta guarda (cor lendo 26 s contra cinza
+        lendo 40min26s). Trocar a regra do consenso nao podia comprar a leitura
+        de campo ao preco de reabrir esta porta.
+        """
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+
+        leitor.texto = CAMPO_1_3X  # 20:27
+        leitor.texto_de_conferencia = CAMPO_3_3X  # 04:12
+
+        assert rodar(vigia, obter, HOJE, segundos=60) == []
+        assert vigia.momento is None
+
+    def test_a_abstencao_das_duas_nao_ancora_e_vai_para_o_log(self, caplog):
+        """Banner na tela e nenhuma duracao: o estado mais perigoso, nunca mudo."""
+        import logging
+
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+        leitor.texto = CAMPO_2_2X
+        leitor.texto_de_conferencia = CAMPO_4_2X
+
+        with caplog.at_level(logging.WARNING, logger="l2scanner.manutencao"):
+            assert vigia.avaliar(obter, HOJE) == []
+
+        juntas = " ".join(r.getMessage() for r in caplog.records)
+        assert CAMPO_2_2X in juntas and CAMPO_4_2X in juntas
+        assert vigia.momento is None
+
+
+class TestVeredito:
+    """O diagnostico nao pode mentir sobre o proprio diagnostico.
+
+    Medido em 31/08, rodada 1: as duas escalas leram texto IDENTICO, as duas
+    deram `eh_banner=False, interpretar=None`, e o `--testar-manutencao`
+    imprimiu "As duas escalas DISCORDAM". Elas concordavam. O usuario foi
+    mandado conferir a faixa por causa de uma frase errada.
+    """
+
+    def test_duas_leituras_identicas_e_ilegiveis_nao_sao_discordancia(self):
+        from l2scanner.manutencao import MotivoDoVeredito, julgar_as_duas_escalas
+
+        v = julgar_as_duas_escalas(CAMPO_2_2X, CAMPO_2_2X)
+
+        assert v.motivo is MotivoDoVeredito.ILEGIVEL
+        assert v.anunciaria is False
+        assert "DISCORD" not in v.explicacao.upper()
+        assert "CONTRADI" not in v.explicacao.upper()
+
+    def test_a_contradicao_de_verdade_continua_sendo_nomeada(self):
+        from l2scanner.manutencao import MotivoDoVeredito, julgar_as_duas_escalas
+
+        v = julgar_as_duas_escalas(CAMPO_1_3X, CAMPO_3_3X)
+
+        assert v.motivo is MotivoDoVeredito.CONTRADICAO
+        assert v.anunciaria is False
+        assert v.duracao is None
+
+    def test_o_veredito_diz_qual_escala_leu_sozinha(self):
+        from l2scanner.manutencao import MotivoDoVeredito, julgar_as_duas_escalas
+
+        so_conferencia = julgar_as_duas_escalas(CAMPO_1_2X, CAMPO_1_3X)
+        assert so_conferencia.motivo is MotivoDoVeredito.SO_A_CONFERENCIA
+        assert so_conferencia.anunciaria is True
+        assert so_conferencia.duracao == timedelta(minutes=20, seconds=27)
+
+        so_deteccao = julgar_as_duas_escalas(CAMPO_3_2X, CAMPO_2_2X)
+        assert so_deteccao.motivo is MotivoDoVeredito.SO_A_DETECCAO
+        assert so_deteccao.anunciaria is False
+
+    def test_sem_banner_na_barata_a_cara_nem_conta(self):
+        """D-e dentro do veredito: em producao a conferencia nem roda.
+
+        Se o veredito ignorasse essa ordem, o `--testar-manutencao` diria
+        "anunciaria" para um caso que em producao nunca chega a ser lido.
+        """
+        from l2scanner.manutencao import MotivoDoVeredito, julgar_as_duas_escalas
+
+        v = julgar_as_duas_escalas("Korzis: bora upar?", CAMPO_1_3X)
+
+        assert v.motivo is MotivoDoVeredito.SEM_BANNER
+        assert v.anunciaria is False
+
+    def test_as_escalas_que_concordam_devolvem_a_leitura_da_conferencia(self):
+        from l2scanner.manutencao import MotivoDoVeredito, julgar_as_duas_escalas
+
+        v = julgar_as_duas_escalas(CAMPO_3_2X, CAMPO_3_3X)
+
+        assert v.motivo is MotivoDoVeredito.ACORDO
+        assert v.anunciaria is True
+        assert v.duracao == timedelta(minutes=4, seconds=12)
+
+    def test_nenhuma_explicacao_tem_travessao(self):
+        """Elas saem no console e no log, e o console do usuario e cp1252."""
+        from l2scanner.manutencao import MotivoDoVeredito, julgar_as_duas_escalas
+
+        for a, b in (
+            (CAMPO_1_2X, CAMPO_1_3X),
+            (CAMPO_3_2X, CAMPO_2_2X),
+            (CAMPO_1_3X, CAMPO_3_3X),
+            (CAMPO_2_2X, CAMPO_2_2X),
+            (CAMPO_3_2X, CAMPO_3_3X),
+            ("Korzis: bora upar?", None),
+        ):
+            v = julgar_as_duas_escalas(a, b)
+            assert "—" not in v.explicacao
+            assert "–" not in v.explicacao
+            assert isinstance(v.motivo, MotivoDoVeredito)
+
+    def test_o_testar_manutencao_usa_o_veredito_de_producao(self):
+        """O defeito era o diagnostico ter LOGICA PROPRIA e ela divergir.
+
+        A prova estrutural e mais barata que subir captura e OCR num teste, e
+        pega exatamente a reincidencia: alguem reescrevendo o veredito a mao
+        dentro do comando.
+        """
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        fonte = inspect.getsource(principal.comando_testar_manutencao)
+
+        assert "julgar_as_duas_escalas" in fonte
+        assert "DISCORDAM" not in fonte
 
 
 class TestAncoraSobreviveACegueira:
