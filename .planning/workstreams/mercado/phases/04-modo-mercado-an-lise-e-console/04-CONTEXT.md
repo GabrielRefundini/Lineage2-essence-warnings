@@ -65,8 +65,12 @@ comentado — o usuário nunca o preencheu, e a Fase 2 tornou isso irrelevante p
 ### O console (LEIT-04)
 
 - **Texto simples, sem dependência nova.** O `CLAUDE.md` recomenda `rich`, mas **ele não está
-  instalado** e o projeto tem doutrina de zero-install (`uv run` + `.bat`, sem ritual). O
-  FIRE-01 varre o venv instalado. Um console de texto entrega o requisito inteiro.
+  instalado** e o projeto tem doutrina de zero-install (`uv run` + `.bat`, sem ritual). Um
+  console de texto entrega o requisito inteiro.
+  **CORRIGIDO 2026-08-31 pela pesquisa:** a primeira redação dizia que o FIRE-01 barraria o
+  `rich`. **Não barraria** — a banlist do FIRE-01 é só de SÍNTESE DE INPUT (`pyautogui`,
+  `pynput`, `keyboard`…). A decisão continua de pé pela doutrina de zero-install; a
+  justificativa é que estava errada, e um número/argumento que caiu precisa dizer que caiu.
 - **Repinta na cadência de captura (1 Hz)** — a mesma do resto do scanner.
 - **Mostra ao vivo:** páginas lidas e perdidas, e o último item reconhecido.
 - **O resumo final conta AS DUAS METADES** — "li 7, perdi 3". Nunca só a metade boa: a Fase 2
