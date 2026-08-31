@@ -189,6 +189,33 @@ class Comando(Enum):
     DESATIVAR_SOLO_BOSS = "desativar_solo_boss"
     ATIVAR_SOLO_BOSS = "ativar_solo_boss"
 
+    # A IRMA FINA DO PAR ACIMA: desliga so a maquinaria de MONTAR GRUPO do Solo
+    # Boss, e deixa o boss falando.
+    #
+    # O QUE CAI: a chamada "Quem vai?", o `/entrar`, o `/sair`, o fechamento da
+    # lista quando o boss nasce, e a designacao de loot (`/loot-<nick>` e a
+    # linha `Loot:` do aviso).
+    #
+    # O QUE NAO CAI, E E O PONTO INTEIRO: o lembrete de antecedencia. A party
+    # parou de fazer Solo Boss em grupo e o usuario quer continuar sabendo que
+    # o boss vai nascer. Tambem nao cai o HISTORICO de loot — `/pegou`,
+    # `/corrigir` e `/<nick>` continuam inteiros, porque desligar a lista nao
+    # e apagar o passado.
+    #
+    # NAO HA PRECEDENCIA ENTRE ESTE PAR E O DE CIMA, e por isso sao dois pares
+    # e nao um estado de tres valores. O `/desativarsoloboss` e um martelo
+    # maior NA CHAMADA (cala os tres tipos de aviso), mas nao alcanca o
+    # `/entrar`, nem o fechamento, nem a designacao. Nenhum dos dois contem o
+    # outro, e um "desliguei tudo" unico esconderia metade — alem de deixar o
+    # usuario sem saber qual comando religa o que.
+    #
+    # E OS DOIS TAMBEM FICAM FORA DE `COMANDOS_DE_MEMBRO`, pela razao do par
+    # acima e com uma agravante propria: um party-mate podia desligar a lista
+    # de presenca de todos os OUTROS, e o sintoma do lado deles seria uma
+    # chamada que simplesmente parou de chegar.
+    DESATIVAR_LISTA = "desativar_lista"
+    ATIVAR_LISTA = "ativar_lista"
+
     # O UNICO comando que nao muda estado nenhum, e o unico cujo conteudo e
     # DERIVADO dos outros: ele le a tabela `_AJUDA` e devolve o que os demais
     # membros deste enum dizem sobre si mesmos. Por isso ele e o unico que
@@ -268,6 +295,33 @@ _VOCABULARIO: dict[str, Comando] = {
     "desativarboss": Comando.DESATIVAR_SOLO_BOSS,
     "ativarsoloboss": Comando.ATIVAR_SOLO_BOSS,
     "ativarboss": Comando.ATIVAR_SOLO_BOSS,
+    # O par da LISTA, e aqui o segundo nome NAO E ABREVIACAO — e SINONIMO. A
+    # diferenca importa: `desativarboss` nasceu porque `desativarsoloboss` tem
+    # 17 caracteres e a mao erra no meio do farm; `desativarlista` ja tem 14 e
+    # nao precisa encolher. O risco aqui e outro, e e a PALAVRA — quem pensa
+    # "presenca" em vez de "lista" digitaria uma forma que morre no `continue`
+    # do laco de autorizacao, SEM resposta de recusa nenhuma, e o sintoma do
+    # lado de quem digitou e o bot ter caido.
+    #
+    # AUDITORIA DE COLISAO com `_NICK_VALIDO` ([A-Za-z0-9]{2,16}), feita como o
+    # comentario do topo deste dicionario manda:
+    #
+    #   desativarlista     14 letras  casa  -> "DesativarLista" perde o /<nick>
+    #   ativarlista        11 letras  casa  -> "AtivarLista" perde o /<nick>
+    #   ativarpresenca     14 letras  casa  -> "AtivarPresenca" perde o /<nick>
+    #   desativarpresenca  17 letras  NAO casa (o teto e 16) -> preco zero
+    #
+    # Preco aceito e documentado, o mesmo ja pago por `desativarboss`. Nenhuma
+    # delas colide com o roster real.
+    #
+    # `lista` E `presenca` SOZINHOS NAO ENTRAM, e a ausencia e deliberada em
+    # dobro: e a mesma disciplina do D-02 (comando sem argumento nao mexe em
+    # estado duravel) e "Lista" e nome de personagem plausivel demais para
+    # queimar.
+    "desativarlista": Comando.DESATIVAR_LISTA,
+    "desativarpresenca": Comando.DESATIVAR_LISTA,
+    "ativarlista": Comando.ATIVAR_LISTA,
+    "ativarpresenca": Comando.ATIVAR_LISTA,
     "help": Comando.AJUDA,
     "ajuda": Comando.AJUDA,
     "comandos": Comando.AJUDA,
@@ -342,6 +396,27 @@ _AJUDA: dict[Comando, LinhaDeAjuda] = {
         "/ativarsoloboss",
         "Volto a chamar e a lembrar do Solo Boss",
         ("/ativarboss",),
+    ),
+    # Logo depois do par de cima porque a ordem de insercao E a ordem da
+    # resposta, e os dois pares tem que ser lidos JUNTOS: escolher o errado e o
+    # unico jeito de o usuario desligar coisa diferente da que queria.
+    #
+    # A descricao diz que o lembrete CONTINUA, e essa e a informacao inteira.
+    # Quem le a ajuda precisa saber o recorte antes de digitar — descobrir
+    # depois, pela presenca de um aviso que achava que tinha desligado (ou pela
+    # ausencia de um que achava que tinha mantido), e descobrir tarde.
+    Comando.DESATIVAR_LISTA: LinhaDeAjuda(
+        "Silencio",
+        "/desativarlista",
+        "Paro de perguntar quem vai no Solo Boss: sem chamada, sem /entrar e "
+        "sem designar loot. O lembrete de 10 minutos CONTINUA chegando",
+        ("/desativarpresenca",),
+    ),
+    Comando.ATIVAR_LISTA: LinhaDeAjuda(
+        "Silencio",
+        "/ativarlista",
+        "Volto a perguntar quem vai e a aceitar /entrar e /sair",
+        ("/ativarpresenca",),
     ),
     # A familia Presenca vem ANTES de "Loot do Solo Boss" porque essa e a ordem
     # do ciclo do boss: primeiro a party diz quem vai, so depois se decide de

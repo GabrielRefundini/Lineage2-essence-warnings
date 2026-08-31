@@ -191,6 +191,20 @@ class TestInterpretar:
             # gate ja sao genericos por evento; a SUPERFICIE nao e.
             Comando.DESATIVAR_SOLO_BOSS,
             Comando.ATIVAR_SOLO_BOSS,
+            # E desligar/religar so a LISTA DE PRESENCA do Solo Boss. Mesma
+            # natureza do par acima — muda o que o GRUPO INTEIRO recebe por
+            # tempo indeterminado —, com um recorte mais fino: cai a chamada
+            # "Quem vai?", o /entrar, o /sair, o fechamento da lista e a
+            # designacao de loot, e o lembrete de 10 minutos CONTINUA saindo.
+            #
+            # SAO QUATRO E NAO DOIS, e o par novo nao e redundante com o de
+            # cima: nenhuma das duas chaves contem a outra. O
+            # /desativarsoloboss cala mais avisos; este alcanca superficies que
+            # aquele nao toca. Um comando so, fundindo as duas, esconderia
+            # metade do estado e deixaria o usuario sem saber qual religa o
+            # que.
+            Comando.DESATIVAR_LISTA,
+            Comando.ATIVAR_LISTA,
         }
 
     def test_as_formas_do_desligamento_do_boss(self):

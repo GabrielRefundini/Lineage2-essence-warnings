@@ -1543,6 +1543,14 @@ class TestDestinoDosComandosAntigos:
         # outros e indistinguivel do bot ter caido.
         (".desativarsoloboss", ".desativarsoloboss", True),
         (".ativarsoloboss", ".ativarsoloboss", True),
+        # E o par da LISTA DE PRESENCA, que entrou pela MESMA pinca: o tripwire
+        # abaixo deriva a cobertura de `set(Comando)`, os dois nascem fora de
+        # `COMANDOS_DE_MEMBRO`, e por isso caem em `antigos` e cobram linha
+        # aqui. Mesmo contrato de destino do par acima, e pela mesma razao:
+        # muda o que o GRUPO INTEIRO recebe daqui pra frente — a chamada "Quem
+        # vai?" para de sair e o /entrar de todos passa a ser recusado.
+        (".desativarlista", ".desativarlista", True),
+        (".ativarlista", ".ativarlista", True),
     ]
 
     def _loot(self, tmp_path):

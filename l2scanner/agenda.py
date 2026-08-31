@@ -197,6 +197,7 @@ def avisos_devidos(
     ja_enviados: set[str],
     tolerancia_minutos: int = TOLERANCIA_MINUTOS,
     eventos_calados: frozenset[str] | set[str] = frozenset(),
+    listas_desligadas: frozenset[str] | set[str] = frozenset(),
 ) -> list[Aviso]:
     """Quais avisos venceram agora e ainda nao sairam.
 
@@ -221,8 +222,24 @@ def avisos_devidos(
        `.pegou`) e a lista de presenca. O usuario pediu para calar avisos, nao
        para o boss deixar de existir.
 
-    Default VAZIO: toda chamada que nao conhece este parametro se comporta byte
-    a byte como antes.
+    `listas_desligadas` sao APELIDOS de evento cuja LISTA DE PRESENCA o usuario
+    desligou, e ele NAO e um segundo `eventos_calados` — os dois gates moram em
+    lacos diferentes de proposito:
+
+    - `eventos_calados` mora no laco de EVENTO, antes dos candidatos nascerem,
+      e por isso alcanca os TRES tipos. E o martelo grande.
+    - `listas_desligadas` mora no laco de TIPO, condicionado a
+      `TipoDeAviso.CHAMADA`, e alcanca UM. O ramo do `ANTES` nao consulta esta
+      variavel, e e por isso que a antecedencia NAO PODE cair por acidente:
+      nao existe caminho de codigo que a leve ate ela.
+
+    Essa ultima frase e o recurso inteiro. O usuario parou de fazer Solo Boss
+    em party e quer continuar sabendo que o boss vai nascer; um gate posto no
+    laco de evento levaria o lembrete de 10 minutos junto com a chamada, e ele
+    perderia o boss achando que o scanner vigia.
+
+    Default VAZIO nos dois: toda chamada que nao conhece estes parametros se
+    comporta byte a byte como antes.
     """
     devidos: list[Aviso] = []
     tolerancia = timedelta(minutes=tolerancia_minutos)
@@ -253,6 +270,21 @@ def avisos_devidos(
                     if evento.chamar_minutos_antes <= 0 and tipo is TipoDeAviso.CHAMADA:
                         # Chamada desligada: e o default, e e o que mantem
                         # todo evento que nao pediu exatamente como estava.
+                        continue
+                    if (
+                        tipo is TipoDeAviso.CHAMADA
+                        and apelido_do_evento(evento.nome) in listas_desligadas
+                    ):
+                        # A MESMA mudez de cima, por outra fonte: aquela e
+                        # "chamada desligada pelo config", esta e "chamada
+                        # desligada por comando". As duas ficam coladas para
+                        # serem lidas juntas — quem for depurar uma chamada que
+                        # nao saiu tem os dois motivos a mesma altura da tela.
+                        #
+                        # E NOTE ONDE ESTE `continue` MORA: dentro do laco de
+                        # TIPO e amarrado a CHAMADA. O `ANTES` passa por aqui e
+                        # nao le esta variavel — o lembrete de 10 minutos
+                        # continua saindo, que e o pedido inteiro desta chave.
                         continue
                     if evento.avisar_minutos_antes <= 0 and tipo is TipoDeAviso.ANTES:
                         # Antecedencia zero: o aviso "antes" coincidiria com o
@@ -321,15 +353,18 @@ def texto_do_aviso(aviso: Aviso, loot: str | None = None) -> str:
             texto += f" Loot: {loot}."
         return texto
     if aviso.tipo is TipoDeAviso.CHAMADA:
-        # "no PRIVADO" nao e gentileza: a ponte Baileys desta conta vem com
-        # ingestao de grupo desligada (medido 2026-08-24 — os 11 grupos nao
-        # entregam entrada, so as conversas 1-a-1). Uma chamada que nao diz
-        # onde responder colhe resposta num lugar que o bot nunca le.
-        return (
-            f"{aviso.evento} as {hora}. Quem vai? "
-            f"Mande /entrar no PRIVADO do bot para entrar na lista, "
-            f"ou /sair para sair. Aqui no grupo o bot nao le comando."
-        )
+        # A PALAVRA "privado" DENTRO DO PARENTESES NAO E ENFEITE, e ela e a
+        # unica sobrevivente de um paragrafo inteiro: a ponte Baileys desta
+        # conta vem com ingestao de grupo desligada (medido 2026-08-24 — os 11
+        # grupos nao entregam entrada, so as conversas 1-a-1). Uma chamada que
+        # nao diz onde responder colhe resposta num lugar que o bot nunca le, e
+        # quem respondeu conclui que o scanner morreu.
+        #
+        # A FORMA ENCOLHEU, O FATO NAO. A frase longa tinha 149 caracteres e
+        # saia 12 vezes por dia no mesmo grupo; a curta ainda carrega os dois
+        # comandos e a palavra que importa. Se alguem for reescrever isto de
+        # novo, e "privado" que nao pode cair.
+        return f"{aviso.evento} as {hora}. Quem vai? (/entrar /sair no privado)"
     return f"{aviso.evento} comecou agora, as {hora}."
 
 
@@ -363,6 +398,29 @@ PREFIXO_FECHADO = "fechado_"
 # imortalidade sai de graca, mas ela e DELIBERADA — ver o teste
 # `test_a_poda_nao_expira_o_desligamento`.
 PREFIXO_EVENTO_CALADO = "evento_calado_"
+
+# Prefixo do marcador de LISTA DE PRESENCA DESLIGADA:
+# `lista_desligada_<apelido-do-evento>`. Um por evento, e o SEGUNDO morador do
+# balde sem data — o irmao fino do `PREFIXO_EVENTO_CALADO` logo acima.
+#
+# SAO DA MESMA FAMILIA, E POR ISSO MORAM NO MESMO BALDE: os dois guardam uma
+# DECISAO do usuario, e nao um fato datado. Todo o resto desta pasta responde
+# "isto aconteceu no dia tal" e deve morrer com a relevancia; estes dois
+# respondem "eu quero assim", e quem desfaz e um comando, nunca o calendario.
+#
+# A AUSENCIA DA DATA E A FUNCIONALIDADE. `podar` roda no construtor, ou seja a
+# cada arranque do scanner: um marcador datado aqui religaria a lista de
+# presenca sozinho depois de `DIAS_DE_MARCADOR`, sem ninguem mandar e sem nada
+# dizer — a party voltaria a receber a chamada "Quem vai?" tres dias depois de
+# o usuario a ter desligado. Por isso ele entra em `_PREFIXOS_SEM_DATA` e
+# NUNCA em `_PREFIXOS_CONHECIDOS`.
+#
+# O QUE ELE GATEIA E MAIS FINO QUE O DO IRMAO, e a diferenca e o recurso
+# inteiro: `evento_calado_` cala os TRES tipos de aviso; este so para de
+# MONTAR GRUPO — a chamada, o `/entrar`/`/sair`, o fechamento da lista e a
+# designacao de loot. O lembrete de antecedencia continua saindo, que e
+# exatamente o que o usuario pediu ao desligar a lista.
+PREFIXO_LISTA_DESLIGADA = "lista_desligada_"
 
 # Prefixo da ANCORA de nascimento de boss — o instante em que um boss nasceu,
 # gravado como arquivo VAZIO para a contagem de respawn nao morar em memoria.
@@ -451,7 +509,7 @@ _PREFIXOS_CONHECIDOS = (
 # escolher um deles por escrito, e continua quebrando o teste enquanto nao
 # escolher. O que mudou nao foi a exigencia — foi so passarem a existir duas
 # respostas certas em vez de uma.
-_PREFIXOS_SEM_DATA = (PREFIXO_EVENTO_CALADO,)
+_PREFIXOS_SEM_DATA = (PREFIXO_EVENTO_CALADO, PREFIXO_LISTA_DESLIGADA)
 
 
 class RegistroEmDisco:
@@ -741,6 +799,74 @@ class RegistroEmDisco:
             if not nome.startswith(PREFIXO_EVENTO_CALADO):
                 continue
             apelido = nome[len(PREFIXO_EVENTO_CALADO) :]
+            if apelido:
+                achados.add(apelido)
+        return frozenset(achados)
+
+    # -- a lista de presenca desligada por comando --------------------------
+
+    def desligar_lista(self, nome: str) -> str:
+        """Desliga a maquinaria de MONTAR GRUPO de um evento. Tri-estado.
+
+        Espelha `calar_evento` linha a linha — mesmo `O_CREAT|O_EXCL`, mesmo
+        tri-estado, mesma razao de ser marcador e nao JSON (ver a docstring de
+        la, que nao se repete aqui). O QUE MUDA E O ALCANCE, e so ele: aquele
+        cala os tres tipos de aviso; este para a chamada "Quem vai?", o
+        `/entrar`, o `/sair`, o fechamento da lista e a designacao de loot, e
+        deixa o lembrete de antecedencia passando.
+
+        A LEITURA VAZIA SIGNIFICA "LISTA LIGADA", ou seja A CHAMADA SAI — e
+        essa continua sendo a direcao segura, pela lei escrita no `marcar`:
+        preferir o duplicado ao perdido. Uma chamada a mais e ruido que a party
+        ignora; uma chamada a menos e uma party que nunca foi consultada.
+        """
+        alvo = self._pasta / (PREFIXO_LISTA_DESLIGADA + apelido_do_evento(nome))
+        try:
+            descritor = os.open(alvo, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return "ja_estava"
+        except OSError:
+            return "falhou"
+        os.close(descritor)
+        return "desligada"
+
+    def religar_lista(self, nome: str) -> str:
+        """Religa a lista de presenca de um evento. O tri-estado simetrico.
+
+        `OSError` vira "falhou" e nao "ja_estava" pela mesma razao do
+        `voltar_a_avisar`: o marcador continuaria em disco, a lista continuaria
+        desligada, e a unica pessoa capaz de notar teria acabado de ler que a
+        lista voltou. Ela so descobriria no proximo boss, pela chamada que nao
+        chegou.
+        """
+        alvo = self._pasta / (PREFIXO_LISTA_DESLIGADA + apelido_do_evento(nome))
+        try:
+            alvo.unlink()
+        except FileNotFoundError:
+            return "ja_estava"
+        except OSError:
+            return "falhou"
+        return "religada"
+
+    def listas_desligadas(self) -> frozenset[str]:
+        """Os apelidos dos eventos cuja lista de presenca foi desligada.
+
+        Conjunto SEPARADO do `eventos_calados`, e nao um sub-estado dele: as
+        duas chaves nao sao aninhadas e cada uma e desfeita por um comando
+        diferente. Fundi-las faria o `/status` mentir sobre qual comando
+        religa o que.
+
+        Leitura defensiva pela mesma porta de sempre — `enviados()` engole
+        `OSError` devolvendo vazio —, e o `if apelido` descarta um
+        `lista_desligada_` truncado pelo mesmo motivo escrito em
+        `eventos_calados`: a pasta e compartilhada, e nome malformado que caia
+        nela e PULADO, nunca levantado.
+        """
+        achados = set()
+        for nome in self.enviados():
+            if not nome.startswith(PREFIXO_LISTA_DESLIGADA):
+                continue
+            apelido = nome[len(PREFIXO_LISTA_DESLIGADA) :]
             if apelido:
                 achados.add(apelido)
         return frozenset(achados)
@@ -1070,10 +1196,19 @@ def texto_de_cancelamento(nome: str, inicio: datetime, rolando: bool) -> str:
 NOME_DO_SOLO_BOSS = "Solo Boss"
 
 
-def nomes_calados(
-    eventos: list[EventoAgendado], calados: frozenset[str] | set[str]
+def nomes_dos_eventos(
+    eventos: list[EventoAgendado], apelidos: frozenset[str] | set[str]
 ) -> list[str]:
-    """Os eventos desligados, com o nome COMO O USUARIO ESCREVEU.
+    """Os eventos de um conjunto de apelidos, com o nome COMO O USUARIO ESCREVEU.
+
+    CHAMAVA-SE `nomes_calados`, E O NOME PASSOU A MENTIR. A funcao mapeia
+    apelidos -> nomes conforme o config.toml e NUNCA soube por que um apelido
+    estava no conjunto; enquanto havia um namespace so (o `evento_calado_`) o
+    nome antigo era verdadeiro por coincidencia. Com o segundo namespace — a
+    lista de presenca desligada — a segunda chamada passaria a dizer "calados"
+    sobre eventos que estao falando normalmente. Uma COPIA da mesma expressao
+    com outro nome era a alternativa, e ela e exatamente o defeito que a
+    docstring de `apelido_do_evento` documenta ter custado caro.
 
     O disco guarda `solo-boss` e o config.toml diz `Solo Boss`. Mesma
     disciplina do D-10 na lista de presenca: o apelido e detalhe de
@@ -1087,7 +1222,7 @@ def nomes_calados(
     Na ordem da agenda, que e a ordem do config.toml: mesma fonte, mesma
     sequencia, sem uma segunda opiniao sobre o que vem antes.
     """
-    return [e.nome for e in eventos if apelido_do_evento(e.nome) in calados]
+    return [e.nome for e in eventos if apelido_do_evento(e.nome) in apelidos]
 
 
 def _o_que_o_evento_anuncia(evento: EventoAgendado) -> tuple[str, ...]:
@@ -1204,4 +1339,116 @@ def responder_silenciamento(
     return (
         f"{quem} reativou os avisos do {nome}: "
         f"volto a mandar {_lista_em_prosa(avisos, ' e ')}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Desligar e religar so a LISTA DE PRESENCA de um evento, por comando
+# ---------------------------------------------------------------------------
+
+
+def responder_lista_de_presenca(
+    registro: RegistroEmDisco,
+    eventos: list[EventoAgendado],
+    nome: str,
+    desligar: bool,
+    quem: str,
+) -> str:
+    """Desliga (ou religa) so a maquinaria de MONTAR GRUPO, e diz o que fez.
+
+    A IRMA FINA DE `responder_silenciamento`, e a diferenca e o recurso: aquele
+    cala o evento inteiro; este para de perguntar quem vai e DEIXA O LEMBRETE
+    DE ANTECEDENCIA PASSANDO. A party parou de fazer Solo Boss em grupo e o
+    usuario quer continuar sabendo que o boss vai nascer.
+
+    QUATRO SUPERFICIES CALAM E SO ELAS: a chamada, o `/entrar`/`/sair`, o
+    fechamento da lista e a designacao de loot. O historico (`/pegou`,
+    `/corrigir`, `/<nick>`) fica inteiro por decisao explicita do usuario —
+    desligar a lista nao encosta na pasta `.loot/`.
+
+    RECUSA EVENTO FORA DA AGENDA E EVENTO SEM CHAMADA, pela mesma razao que
+    `responder_silenciamento` ja escreve: um marcador gravado para um evento
+    que nao tem lista nao gateia nada e nao aparece no `/status`, e o bot
+    responderia "desliguei" enquanto as duas superficies concordavam em nao
+    mostrar nada. A segunda recusa NOMEIA O CAMPO e nao o evento, seguindo
+    `_sem_chamada_na_agenda`: e o campo que o usuario tem que escrever.
+
+    E ELA CONSULTA `eventos_calados()`, QUE E O ESTADO DA OUTRA CHAVE. A frase
+    que faz esta funcionalidade valer e "o lembrete de N minutos CONTINUA
+    chegando" — e ela e FALSA se o boss estiver calado pelo
+    `/desativarsoloboss`. Prometer um aviso que nao vai chegar e o pior defeito
+    possivel aqui: o usuario desligaria a lista tranquilo e perderia o boss.
+    """
+    evento = next((e for e in eventos if e.nome == nome), None)
+    if evento is None:
+        return (
+            f"Nao achei {nome} na agenda do config.toml — nao ha lista de "
+            f"presenca desse evento para desligar nem para religar."
+        )
+
+    if evento.chamar_minutos_antes <= 0:
+        return (
+            f"O {nome} nao tem lista de presenca — falta chamar_minutos_antes "
+            f"no [[evento]] do config.toml. Nao ha o que desligar."
+        )
+
+    if desligar:
+        desfecho = registro.desligar_lista(nome)
+        if desfecho == "ja_estava":
+            return (
+                f"A lista de presenca do {nome} ja estava desligada. "
+                f"Mande /ativarlista quando quiser a chamada de volta."
+            )
+        if desfecho == "falhou":
+            # A escrita nao aconteceu, entao a unica resposta honesta e que
+            # NADA mudou. Anunciar um estado que o disco nao guardou faria o
+            # usuario parar de esperar a chamada que vai continuar saindo.
+            return (
+                f"Nao consegui gravar o desligamento da lista do {nome} — o "
+                f"disco recusou. A chamada CONTINUA saindo e o /entrar "
+                f"continua anotando; mande /desativarlista de novo."
+            )
+
+        # OS MINUTOS SAEM DO `EventoAgendado`, NUNCA DE UM LITERAL — mesma lei
+        # do `_o_que_o_evento_anuncia`. Um "10" escrito a mao passaria a mentir
+        # no dia em que o usuario editasse `avisar_minutos_antes`, e mentir
+        # sobre o unico aviso que sobrou e pior do que nao explicar nada.
+        minutos = evento.avisar_minutos_antes
+        if apelido_do_evento(nome) in registro.eventos_calados():
+            # O boss ja esta calado pela OUTRA chave: a promessa do lembrete
+            # seria falsa. Diz a verdade e aponta o comando certo — mandar
+            # `/ativarlista` aqui nao traria o lembrete de volta.
+            lembrete = (
+                f"O lembrete de {minutos} minutos antes tambem nao esta "
+                f"saindo, mas por outro motivo: os avisos do {nome} estao "
+                f"desativados. Mande /ativarsoloboss se quiser o lembrete de "
+                f"volta."
+            )
+        else:
+            lembrete = f"O lembrete de {minutos} minutos antes CONTINUA chegando,"
+
+        return (
+            f"{quem} desligou a lista de presenca do {nome}: paro de perguntar "
+            f"quem vai, /entrar e /sair param de anotar, a lista nao fecha "
+            f"mais quando o boss nasce e /loot-<nick> para de designar. "
+            f"{lembrete} e o historico de loot (/pegou, /corrigir, /<nick>) "
+            f"continua inteiro. Isto nao volta sozinho, nem reiniciando o "
+            f"scanner: mande /ativarlista."
+        )
+
+    desfecho = registro.religar_lista(nome)
+    if desfecho == "ja_estava":
+        return f"A lista de presenca do {nome} ja estava ligada. Nao mudei nada."
+    if desfecho == "falhou":
+        # A direcao perigosa, e por isso ela e dita em voz alta: o marcador
+        # continua em disco e a lista continua desligada. Quem leu isto e a
+        # unica pessoa capaz de perceber.
+        return (
+            f"Nao consegui apagar o desligamento da lista do {nome} — o disco "
+            f"recusou. A lista CONTINUA desligada; mande /ativarlista de novo."
+        )
+    return (
+        f"{quem} religou a lista de presenca do {nome}: volto a perguntar quem "
+        f"vai, /entrar e /sair voltam a anotar, a lista fecha quando o boss "
+        f"nasce e /loot-<nick> volta a designar."
     )

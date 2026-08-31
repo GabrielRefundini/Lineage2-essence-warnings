@@ -847,17 +847,33 @@ def horarios_do_solo_boss(eventos: list[EventoAgendado]) -> list[str]:
     return [f"{h:02d}:{m:02d}" for h, m in sorted(evento.horarios)]
 
 
-def nick_para_o_aviso(aviso: Aviso, designacao: Designacao | None) -> str | None:
+def nick_para_o_aviso(
+    aviso: Aviso, designacao: Designacao | None, lista_desligada: bool = False
+) -> str | None:
     """O nome que entra no aviso de antecedencia, ou None.
 
-    Tres condicoes, todas obrigatorias:
+    Quatro condicoes, todas obrigatorias:
 
     - aviso de ANTES: so a antecedencia carrega o loot, por decisao do
       usuario (o Solo Boss nem tem aviso de AGORA);
     - evento e o Solo Boss: TvT e Prime jamais ganham a linha;
     - MESMO alvo: a comparacao e o que impede a designacao das 10:00 de
-      vazar para o aviso do boss das 12:00 quando ninguem consumiu a tempo.
+      vazar para o aviso do boss das 12:00 quando ninguem consumiu a tempo;
+    - lista de presenca LIGADA: designar loot e parte de montar grupo, e com
+      a lista desligada o usuario pediu para parar de montar grupo.
+
+    O QUARTO ENTRA POR PARAMETRO, E ISSO E DE PROPOSITO. A funcao e pura e
+    continua pura: quem sabe se a lista esta desligada e o chamador, que ja tem
+    o `RegistroEmDisco` na mao. Um `bool` e nao o conjunto de apelidos porque a
+    pergunta aqui e sobre UM aviso — e receber o conjunto convidaria o chamador
+    a passar o frozenset cru, que fica truthy sempre que a lista de QUALQUER
+    evento estiver desligada e sumiria com a linha `Loot:` do TvT junto.
+
+    O aviso NAO CALA por causa disto: ele so perde a cauda `Loot: <nick>`. O
+    lembrete de antecedencia continua saindo inteiro, que e o pedido da chave.
     """
+    if lista_desligada:
+        return None
     if designacao is None:
         return None
     if aviso.tipo is not TipoDeAviso.ANTES:
@@ -893,6 +909,7 @@ def responder_designacao(
     agora: datetime,
     nick: str,
     presenca=None,
+    lista_desligada: bool = False,
 ) -> str:
     """Obedece o `.loot-<nick>`: grava a designacao e confirma o horario.
 
@@ -910,6 +927,22 @@ def responder_designacao(
     A autoridade e o usuario, e nao o registro: um bloqueio aqui viraria
     obstaculo no pior momento possivel, quando alguem chegou sem avisar e a
     party precisa designar com o boss nascendo.
+
+    `lista_desligada` E A UNICA RECUSA DESTA FUNCAO, e ela nao contradiz o
+    paragrafo acima: ali a autoridade do usuario vence o REGISTRO (quem nao deu
+    `/entrar` pode ser designado assim mesmo); aqui quem mandou parar de montar
+    grupo foi o proprio usuario, por comando. Recusar e obedecer.
+
+    E ELA RECUSA ANTES DO `registro.designar`, entao nada e gravado. Uma recusa
+    que gravasse deixaria uma designacao que o usuario nao consegue mais ver —
+    o aviso de antecedencia parou de mostrar a linha `Loot:`.
+
+    O QUE NAO E TOCADO, POR DECISAO DO USUARIO (D3): `responder_cancelamento`,
+    `responder_consulta`, `responder_correcao`, `responder_atribuicao` e
+    `consumir` ficam INTACTOS. Desligar a lista nao encosta no historico.
+    `/loot-` (cancelar) em especial continua livre de proposito — bloquear a
+    unica forma de apagar uma designacao existente encalharia estado invisivel,
+    e cancelar so remove: nao ha estrago a conter.
     """
     evento = next((e for e in eventos if eh_solo_boss(e.nome)), None)
     proximo = proxima_ocorrencia(agora, [evento]) if evento is not None else None
@@ -920,6 +953,15 @@ def responder_designacao(
         )
 
     nome_do_evento, alvo = proximo
+
+    if lista_desligada:
+        return (
+            f"A lista de presenca do {nome_do_evento} esta desligada, entao "
+            f"nao estou designando loot — nada foi gravado. O historico "
+            f"continua: /pegou, /corrigir e /<nick> respondem normalmente. "
+            f"Para voltar a designar, o dono manda /ativarlista."
+        )
+
     anterior = registro.designacao()
     registro.designar(nick, alvo, agora)
 

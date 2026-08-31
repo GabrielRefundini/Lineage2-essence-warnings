@@ -45,7 +45,7 @@ from l2scanner.agenda import (
     TipoDeAviso,
     apelido_do_evento,
     avisos_devidos,
-    nomes_calados,
+    nomes_dos_eventos,
     responder_silenciamento,
 )
 from l2scanner.config import ler_agenda
@@ -487,15 +487,15 @@ class TestOStatusRevela:
         RegistroEmDisco(tmp_path).calar_evento("Solo Boss")
         assert "Solo Boss" in self._status(tmp_path, calar=False)
 
-    def test_nomes_calados_devolve_o_nome_COMO_CONFIGURADO(self):
+    def test_nomes_dos_eventos_devolve_o_nome_COMO_CONFIGURADO(self):
         """O disco guarda `solo-boss`; o usuario escreveu `Solo Boss`.
 
         Mesma disciplina do D-10 na lista de presenca: o slug e detalhe de
         armazenamento e nunca pode vazar para a tela de ninguem.
         """
-        assert nomes_calados([SOLO_BOSS, TVT], frozenset({SLUG})) == ["Solo Boss"]
-        assert nomes_calados([SOLO_BOSS], frozenset()) == []
-        assert nomes_calados([TVT], frozenset({SLUG})) == []
+        assert nomes_dos_eventos([SOLO_BOSS, TVT], frozenset({SLUG})) == ["Solo Boss"]
+        assert nomes_dos_eventos([SOLO_BOSS], frozenset()) == []
+        assert nomes_dos_eventos([TVT], frozenset({SLUG})) == []
 
 
 class TestApelidoDoEvento:
