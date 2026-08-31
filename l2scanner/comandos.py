@@ -58,6 +58,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import NamedTuple
 
+# A gramatica do batismo vem do `batismo` e nao e reescrita aqui, no mesmo
+# precedente do `interpretar_pegou` logo ao lado: uma gramatica so, que valida
+# na interpretacao e le no responder.
+from .batismo import interpretar_batismo
 from .loot import NICK_VALIDO, apelido, interpretar_pegou
 
 # O prefixo OFICIAL, e o unico que aparece em TEXTO: ajuda, respostas, README,
@@ -238,6 +242,32 @@ class Comando(Enum):
     # Filtrar por boss custaria uma sintaxe nova para escolher entre os DOIS
     # itens que a lista tem hoje, e a resposta inteira cabe numa tela.
     JANELA = "janela"
+
+    # Dar NOME a uma assinatura que o scanner aprendeu sozinho e PERGUNTOU
+    # quem era.
+    #
+    # E O TERCEIRO COMANDO QUE ESCREVE ESTADO DURAVEL QUE NUNCA E PODADO,
+    # depois de `LOOT_CORRIGIR` e `LOOT_ATRIBUIR`, e o dano de um nome errado e
+    # da MESMA familia do deles: corrupcao duravel e dificil de notar, num
+    # acervo sem comando de esquecer e sem backup. O sintoma nao e um erro nem
+    # uma linha no log — e a party socorrendo a pessoa errada, com a mensagem
+    # parecendo perfeitamente normal.
+    #
+    # POR ISSO ELE FICA FORA DE `COMANDOS_DE_MEMBRO` (decisao 2 do ROADMAP, ja
+    # travada), e ele fica de fora SOZINHO: aquele conjunto e LISTA DE
+    # INCLUSAO, entao um comando destrutivo novo NASCE fora do alcance e
+    # ninguem precisou lembrar de excluir nada. `/entrar` e `/sair` alcancam o
+    # `[[membro]]` porque sao baratos e so falam do proprio remetente; batizar
+    # nao e nenhum dos dois.
+    #
+    # E ELE NAO ENTRA NO `_VOCABULARIO`: tem ARGUMENTO, entao quem o reconhece
+    # e `interpretar_dinamico`, como `.loot-<nick>`, `.corrigir-<nick>` e
+    # `.pegou <hora> <nick>`.
+    #
+    # O ALVO E A CHAVE DE CONTEUDO DA ASSINATURA, E NUNCA UMA LINHA (D-03). A
+    # party se reorganiza entre a pergunta e a resposta, e resolver por posicao
+    # batizaria a pessoa errada em silencio.
+    BATIZAR = "batizar"
 
     # O UNICO comando que nao muda estado nenhum, e o unico cujo conteudo e
     # DERIVADO dos outros: ele le a tabela `_AJUDA` e devolve o que os demais
@@ -546,6 +576,22 @@ _AJUDA: dict[Comando, LinhaDeAjuda] = {
         "Loot do Solo Boss",
         "/pegou <hora> <nick>",
         "Registra loot de um boss que ja passou (ex.: 18:00 Korzis)",
+    ),
+    # A familia "Identidade" nasce DEPOIS de "Loot do Solo Boss" e ANTES de
+    # "Ajuda", e a ordem de insercao E a ordem da resposta. Ela e a menos
+    # digitada da lista — o batismo acontece uma vez por pessoa, para sempre —
+    # entao ela nao pode empurrar para baixo o que se usa todo dia.
+    #
+    # A DESCRICAO PRECISA DIZER DE ONDE VEM O APELIDO. Sem isso o usuario le a
+    # ajuda e nao sabe o que digitar no primeiro argumento, que e a unica coisa
+    # nao obvia deste comando: ele nao e um nick, nao e um numero de linha, e
+    # nao esta em lugar nenhum a nao ser na pergunta que o scanner mandou.
+    Comando.BATIZAR: LinhaDeAjuda(
+        "Identidade",
+        "/batizar <apelido> <nick>",
+        "Dou nome a alguem que eu aprendi sozinho. O apelido e o codigo de "
+        "digitos que eu cito na pergunta",
+        ("/nomear <apelido> <nick>",),
     ),
     Comando.AJUDA: LinhaDeAjuda(
         "Ajuda", "/help", "Esta lista", ("/ajuda", "/comandos")
@@ -1090,6 +1136,53 @@ def interpretar_dinamico(
         # `_NICK_VALIDO` casa a palavra "pegou" e um personagem homonimo
         # transformaria o comando numa consulta dele.
         return None
+
+    # `/batizar <apelido> <nick>` e `/batizar-<apelido> <nick>`, mais as duas
+    # formas irmas com `nomear`. Dar nome a uma assinatura que o scanner
+    # aprendeu sozinho e PERGUNTOU quem era.
+    #
+    # A GRAMATICA MORA NO `batismo.py`, E NAO AQUI. Precedente exato do
+    # `.pegou`, com a razao que ja esta escrita nele: uma gramatica so, que
+    # valida na interpretacao e le no responder. Duas divergiriam no primeiro
+    # ajuste e o comando passaria a aceitar o que nao executa.
+    #
+    # UM LACO PARA AS QUATRO FORMAS, E NAO QUATRO RAMOS. As duas palavras sao
+    # SINONIMOS exatos — nenhuma e abreviacao da outra e nenhuma alcanca nada
+    # que a outra nao alcance —, entao dois ramos copiados divergiriam no
+    # primeiro ajuste, que e a mesma falha que a gramatica unica acima evita.
+    # Cada palavra continua tendo as duas formas (hifen e espaco), porque
+    # tratar so o hifen foi exatamente o erro que fez `.loot cancelar`
+    # DESIGNAR um personagem chamado "cancelar".
+    #
+    # AUDITORIA DE COLISAO com `_NICK_VALIDO` ([A-Za-z0-9]{2,16}), feita como o
+    # comentario do topo do `_VOCABULARIO` manda:
+    #
+    #   batizar   7 letras   casa  -> "Batizar" perde o /<nick>
+    #   nomear    6 letras   casa  -> "Nomear"  perde o /<nick>
+    #
+    # Nenhuma das duas colide com o roster real (Mostarda, Titander, Pirulito,
+    # Welazkez) e nenhuma e nome de personagem plausivel. Preco aceito e
+    # documentado, o mesmo ja pago por `desativarboss`.
+    #
+    # ESTES RAMOS FICAM ANTES do `.{nick}`, que continua sendo o ultimo.
+    for _palavra_do_batismo in ("batizar", "nomear"):
+        if crua.lower().startswith(f"{_palavra_do_batismo}-"):
+            argumento = " ".join(
+                [crua[len(_palavra_do_batismo) + 1 :], *palavras[1:]]
+            ).strip()
+            if interpretar_batismo(argumento) is not None:
+                return (Comando.BATIZAR, argumento)
+            return None
+        if crua.lower() == _palavra_do_batismo:
+            argumento = " ".join(palavras[1:])
+            if interpretar_batismo(argumento) is not None:
+                return (Comando.BATIZAR, argumento)
+            # O `return None` NAO e redundancia, pela mesma razao do
+            # `.corrigir` e do `.pegou` acima: sem ele o fluxo cai no ramo de
+            # consulta logo abaixo, onde `_NICK_VALIDO` casa as palavras
+            # "batizar" e "nomear", e um personagem homonimo transformaria o
+            # comando numa consulta dele.
+            return None
 
     # `.{nick}` sozinho: o portao por nick conhecido e decisao do usuario —
     # sem ele o scanner responderia a qualquer `.palavra` do grupo.

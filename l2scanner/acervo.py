@@ -64,6 +64,29 @@ PREFIXO_ASSINATURA = "assinatura_"
 SUFIXO_ASSINATURA = ".json"
 PREFIXO_NOME = "nome_"
 
+# O irmao que diz "ja perguntei quem e esta pessoa" (D-04, Fase 3).
+#
+# ELE MORA NESTA PASTA, e as tres razoes ja foram pagas:
+#
+# - ela NAO E PODADA. O `.agenda/` poda em 3 dias, e uma pergunta que ficasse
+#   quatro dias sem resposta voltaria a ser feita para sempre, a cada quatro
+#   dias, sobre a mesma pessoa;
+# - ela e COMPARTILHADA pelas duas instancias do usuario (Yazalaque e
+#   Faerlina), entao o `O_CREAT|O_EXCL` decide a corrida e exatamente UMA
+#   pergunta sai;
+# - ela e a mesma pasta que ja guarda a COISA PERGUNTADA. Um marcador em
+#   qualquer outro lugar seria um segundo estado sobre o acervo, capaz de
+#   discordar dele.
+PREFIXO_PERGUNTA = "perguntado_"
+
+# O sufixo do arquivo temporario do `nomear`, dentro da MESMA pasta.
+#
+# Mesma pasta porque `os.replace` so e atomico dentro da mesma unidade; e com
+# sufixo proprio porque `NOME_VALIDO` para em 16 caracteres alfanumericos e
+# nunca produz um nome que termine em ".novo", entao o temporario nao pode
+# colidir com um arquivo de nome de verdade.
+SUFIXO_TEMPORARIO = ".novo"
+
 # Uma chave e 64 digitos hex, e NADA MAIS.
 #
 # Usado sempre com `fullmatch`, e e o que torna travessia de caminho
@@ -156,10 +179,13 @@ class Identidades:
 class AcervoDeIdentidades:
     """As assinaturas em disco, uma por arquivo, na pasta compartilhada.
 
-    Dois tipos de arquivo convivem na pasta, cada um com prefixo proprio:
+    TRES tipos de arquivo convivem na pasta, cada um com prefixo proprio:
 
     - `assinatura_<64 hex>.json` — o conteudo da mascara, SEM o nome.
     - `nome_<64 hex>` — texto puro utf-8 com o nick. Escrito so no batismo.
+    - `perguntado_<64 hex>` — VAZIO. A existencia dele E a decisao "ja
+      perguntei quem e esta pessoa" (D-04, Fase 3), no molde do `.loot/`, onde
+      a identidade e o NOME do arquivo e nao o conteudo.
 
     Um arquivo por entrada, no molde do `.loot/`: `O_CREAT|O_EXCL` resolve a
     corrida das duas instancias de graca, e nao ha ler-modificar-escrever para
@@ -168,8 +194,48 @@ class AcervoDeIdentidades:
     NAO tem poda, de proposito.
     """
 
-    def __init__(self, pasta: Path) -> None:
+    def __init__(self, pasta: Path, simulando: bool = False) -> None:
+        """`simulando` e o `--dry-run`, e ele NAO e enfeite.
+
+        O INCIDENTE QUE ELE EXISTE PARA NAO REPETIR. Em 2026-08-26 19:30 uma
+        simulacao disputou com o scanner de verdade a chave do aviso de TvT na
+        `.agenda/` compartilhada e por milissegundos nao o apagou. O conserto
+        foi `agenda.RegistroEmDisco(simulando=...)`, e a promessa que a frase
+        do `--dry-run` faz hoje ("nada e gravado em .agenda/") so e verdade por
+        causa dele.
+
+        AQUI O ESTRAGO SERIA PIOR, e por isso o parametro nasce junto com o
+        marcador. Em `--dry-run` o `montar_despachante` devolve um `Despachante`
+        de CONSOLE — real, vivo —, entao a simulacao PERGUNTA de verdade. Sem
+        este parametro ela gravaria `perguntado_<chave>` na `.identidades/`
+        COMPARTILHADA e apagaria PARA SEMPRE a pergunta do scanner de verdade:
+        o modo que existe para nao ter efeito colateral seria o unico capaz de
+        queimar a unica pergunta que cada assinatura tem. O marcador nao tem
+        desfazer, e nao ha comando de esquecer no v1.
+
+        ELE ENTRA NA CONSTRUCAO, E NUNCA PERTO DE CADA CHAMADA. Um `if dry_run`
+        em cada ponto de uso resolveria os dois de hoje e garantiria que o
+        terceiro nascesse errado — a razao ja escrita na `agenda`.
+
+        E ELE AFETA SO O `marcar_pergunta`, E NAO O `gravar`. A assimetria
+        parece esquecimento e nao e: `gravar` e IDEMPOTENTE POR CONTEUDO — a
+        entrada que a simulacao escreve e byte a byte a que o scanner de
+        verdade escreveria, e o `O_EXCL` faz a segunda receber `ja_existia`.
+        Um marcador de pergunta e um recurso DE UMA VEZ SO, e consumi-lo nao
+        tem desfazer. Mudar o comportamento do `gravar` esta fora do escopo
+        desta fase: e comportamento da Fase 2, com teste verde.
+
+        O EFEITO COLATERAL CONHECIDO, escrito aqui para ninguem "consertar" o
+        que esta certo: uma entrada CRIADA por um `--dry-run` existe em disco
+        de verdade. Quando o scanner real aprender a mesma pessoa,
+        `acervo.gravar` devolve `ja_existia`, e o gatilho do aprendizado so
+        pergunta em `criado` — entao ele NAO pergunta naquele tick. Quem salva
+        a pergunta e a varredura do proximo arranque, que olha as anonimas sem
+        marcador e nao se importa com qual processo as gravou. Coberto por
+        caso, e nao um bug para alguem consertar fazendo `ja_existia` perguntar.
+        """
         self._pasta = pasta
+        self._simulando = simulando
         self._pasta.mkdir(parents=True, exist_ok=True)
 
     # -- escrita ------------------------------------------------------------
@@ -247,6 +313,113 @@ class AcervoDeIdentidades:
 
         return "criado"
 
+    def marcar_pergunta(self, chave: str) -> bool:
+        """True se ESTE processo deve perguntar quem e esta assinatura (D-04).
+
+        O MARCADOR E A DECISAO, E NUNCA UMA CHECAGEM ANTERIOR. Ler "ja existe?"
+        e depois escrever perde a corrida entre as duas instancias do usuario e
+        produz DUAS perguntas para a mesma pessoa. Aqui a criacao com
+        `O_CREAT|O_EXCL` E a pergunta "posso?", respondida pelo kernel, no
+        mesmo desenho de `agenda.RegistroEmDisco.marcar` e de
+        `respawn.anunciar_nascimento`.
+
+        O arquivo e VAZIO, no molde do `.loot/`: a identidade E o nome do
+        arquivo. Nao ha corpo para escrever, entao nao ha escrita entre o
+        `open` e o `close` que possa falhar pela metade — a diferenca em
+        relacao ao `gravar` logo acima.
+
+        A ASSIMETRIA DO `OSError` E O CONTRARIO DA AGENDA, e o projeto passa a
+        ter os dois lados da mesma moeda:
+
+        | Recurso                          | `OSError` ao marcar | Por que |
+        |----------------------------------|---------------------|---------|
+        | `agenda.RegistroEmDisco.marcar`  | True (manda assim mesmo) | aviso duplicado vence aviso perdido; a party ignora uma repeticao mas nao adivinha um TvT que ninguem anunciou |
+        | `acervo.marcar_pergunta`         | **False** (nao manda) | uma pergunta perdida e recuperavel pelo proximo arranque; uma pergunta repetida repete A CADA TICK, para sempre, porque o marcador nunca chega ao disco |
+
+        Dito por extenso, que e como D-05 esta escrito: uma pergunta perdida
+        custa uma pessoa que continua como "Membro 4" ate o proximo
+        aprendizado, e a varredura do proximo arranque tenta de novo. Uma
+        pergunta REPETIDA custa o spam no grupo que o usuario ja reclamou uma
+        vez neste projeto, e pode repetir para sempre. Perdido e recuperavel;
+        laco infinito de mensagem no grupo nao e.
+
+        `CHAVE_VALIDA` aqui e a mesma trava estrutural do `nomear`: um nome de
+        arquivo que nao seja hex puro nunca vira caminho.
+        """
+        if not CHAVE_VALIDA.fullmatch(chave):
+            return False
+
+        if self._simulando:
+            # Sem encostar no disco: o produto inteiro do modo simulacao e o
+            # TEXTO da pergunta impresso no console, e ele nao precisa de
+            # marcador nenhum para existir.
+            return True
+
+        alvo = self._pasta / f"{PREFIXO_PERGUNTA}{chave}"
+        try:
+            descritor = os.open(alvo, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            # Alguem ja perguntou: este processo, uma sessao anterior, ou a
+            # outra instancia. As tres respostas sao a mesma.
+            return False
+        except OSError:
+            return False
+
+        try:
+            os.close(descritor)
+        except OSError:
+            # O arquivo E VAZIO, entao o `O_EXCL` ja cumpriu o contrato: a
+            # entrada existe na pasta e a proxima chamada vai receber
+            # `FileExistsError`. Ao contrario do `gravar`, aqui um `close` que
+            # levanta nao deixa nada pela metade — nao havia bytes esperando.
+            pass
+        return True
+
+    def nomear(self, chave: str, nome: str) -> str:
+        """Da nome a uma assinatura. Tri-estado: nomeado | invalido | falhou.
+
+        D-06: cria ou TROCA o conteudo do irmao `nome_<chave>`, e a assinatura
+        NAO e tocada — por isso a chave nao muda quando o nome chega ou e
+        corrigido, e por isso a correcao do BATI-05 e a MESMA operacao do
+        batismo, e nao um caminho segundo que divergiria no primeiro ajuste.
+
+        A VALIDACAO E ESTRUTURAL, E NAO REDUNDANTE. A string vem de uma
+        mensagem de WhatsApp. O batismo ja resolve o apelido contra as chaves
+        PRESENTES na pasta, mas `CHAVE_VALIDA` no ESCRITOR e o que torna
+        travessia de caminho impossivel POR CONSTRUCAO — o mesmo argumento que
+        a Fase 1 escreveu para o lado da leitura. Duas travas na mesma porta e
+        o desenho, e nao desperdicio: a de cima depende de quem chama estar
+        certo, a de baixo nao depende de ninguem.
+
+        ESCRITA POR TEMPORARIO MAIS `os.replace`, E NAO `write_text` DIRETO. A
+        correcao de um nome REESCREVE um arquivo que ja existe, e um
+        `write_text` que morre no meio deixa o nome pela metade. `_nome_de` ja
+        devolve `""` para qualquer coisa que nao seja um nick limpo, entao o
+        pior caso ja seria silencio e nao nome errado — mas `os.replace` e
+        atomico dentro da mesma unidade tambem no Windows, e comprar
+        atomicidade por uma linha num acervo sem backup e barato.
+        """
+        if not CHAVE_VALIDA.fullmatch(chave) or not NOME_VALIDO.fullmatch(nome):
+            return "invalido"
+
+        alvo = self._pasta / f"{PREFIXO_NOME}{chave}"
+        temporario = self._pasta / f"{PREFIXO_NOME}{chave}{SUFIXO_TEMPORARIO}"
+        try:
+            temporario.write_text(nome, encoding="utf-8")
+            os.replace(temporario, alvo)
+        except OSError:
+            # Nao deixar o temporario para tras: ele nao e lido por ninguem
+            # (`_chave_do_nome` exige o prefixo de assinatura, e `_nome_de` le
+            # o nome exato do irmao), mas lixo acumulado numa pasta que nunca e
+            # podada e lixo para sempre.
+            try:
+                temporario.unlink()
+            except OSError:
+                pass
+            return "falhou"
+
+        return "nomeado"
+
     # -- leitura ------------------------------------------------------------
 
     def chaves(self) -> list[str]:
@@ -267,6 +440,33 @@ class AcervoDeIdentidades:
         arranques — com o jogo e a tela exatamente iguais.
         """
         return [assinatura for _, assinatura in self._entradas()]
+
+    def nomeados(self) -> dict[str, str]:
+        """`{chave: nome}` das entradas que TEM nome valido.
+
+        DERIVADO de `_entradas()`, e nunca um indice guardado. Um mapa em disco
+        ao lado dos arquivos seria um segundo estado capaz de discordar deles,
+        e a discordancia apareceria justamente no batismo — o momento em que
+        errar significa dar o nome de uma pessoa para a assinatura de outra. E
+        o mesmo argumento que faz o apelido de D-02 ser derivado.
+        """
+        return {
+            chave: assinatura.nome
+            for chave, assinatura in self._entradas()
+            if assinatura.nome
+        }
+
+    def anonimas(self) -> list[str]:
+        """As chaves das entradas SEM nome, na mesma ordem de `chaves()`.
+
+        E o insumo da varredura de arranque, que e o unico caminho capaz de
+        alcancar uma entrada que ja estava no disco quando o scanner subiu — o
+        gatilho do aprendizado nunca a ve, porque `Casamento.nome` de uma
+        entrada anonima e a string VAZIA e nao `None`.
+        """
+        return [
+            chave for chave, assinatura in self._entradas() if not assinatura.nome
+        ]
 
     def _entradas(self) -> list[tuple[str, Assinatura]]:
         """Os pares (chave, assinatura) que sobreviveram a conferencia.

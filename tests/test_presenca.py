@@ -1288,6 +1288,21 @@ class TestSemRelogioProprio:
     acervo e IRREVERSIVEL — nao ha comando de esquecer no v1. Ou seja, a
     divergencia entre o replay e o campo nao seria um teste instavel, seria uma
     entrada permanente que ninguem consegue reproduzir para investigar.
+
+    `batismo.py` entrou na Fase 3 do workstream `identidade`, e ele tambem
+    entra ANTES de ter uma linha de logica de tempo — a antecipacao E a
+    decisao, igual a de `acervo.py` e a de `aprendiz.py`. D-04 fecha a
+    repeticao POR CONSTRUCAO: um marcador `perguntado_<chave>` criado com
+    `O_CREAT|O_EXCL` numa pasta que nunca e podada, e uma pergunta por
+    assinatura para sempre.
+
+    O relogio e exatamente o jeito de reabrir aquela porta por dentro. Um
+    `datetime.now()` que aparecesse aqui para "so perguntar de novo depois de
+    24 horas" nao seria lido como uma mudanca de politica: seria lido como uma
+    conveniencia, e o desfecho e a enxurrada de perguntas no grupo que T-03-06
+    existe para impedir — num grupo cujo dono ja desligou `avisar_no_horario`
+    do Solo Boss por volume. O modulo ja cumpre a regra hoje; adotar agora
+    custa uma linha.
     """
 
     MODULOS = (
@@ -1298,6 +1313,7 @@ class TestSemRelogioProprio:
         "respawn.py",
         "acervo.py",
         "aprendiz.py",
+        "batismo.py",
     )
 
     @staticmethod
@@ -1551,6 +1567,23 @@ class TestDestinoDosComandosAntigos:
         # vai?" para de sair e o /entrar de todos passa a ser recusado.
         (".desativarlista", ".desativarlista", True),
         (".ativarlista", ".ativarlista", True),
+        # E o batismo, que entrou pela MESMA pinca dos dois pares acima: o
+        # tripwire abaixo deriva a cobertura de `set(Comando)`, `BATIZAR` nasce
+        # fora de `COMANDOS_DE_MEMBRO`, e por isso cai em `antigos` e cobra
+        # linha aqui.
+        #
+        # O QUE ESTA LINHA COBRE E O RAMO SEM ACERVO, e a escolha e deliberada.
+        # `despachos_de` nao constroi acervo nenhum — ele e o helper dos
+        # comandos que nao dependem de identidade —, entao o que passa por aqui
+        # e a RECUSA "nao consigo mexer nas identidades agora". Ela e uma
+        # resposta pessoal a quem digitou, exatamente como a do `/loot` sem
+        # registro, e por isso `eco_no_grupo=False`.
+        #
+        # O caminho FELIZ do batismo (que ECOA no grupo, porque a pergunta foi
+        # publica) e provado em `tests/test_batismo.py`, com acervo de verdade
+        # em `tmp_path` — aqui ele nao caberia sem arrastar meia fase para
+        # dentro de uma tabela de destinos.
+        (".batizar <apelido> <nick>", "/batizar 0123ab Mostarda", False),
     ]
 
     def _loot(self, tmp_path):

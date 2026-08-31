@@ -42,13 +42,28 @@ from l2scanner.loot import apelido
 #
 # "Presenca" entra ANTES de "Loot do Solo Boss" porque essa e a ordem do ciclo
 # do boss: primeiro a party diz quem vai, so depois se decide de quem e o loot.
+#
+# "Identidade" entra DEPOIS de "Loot do Solo Boss" e ANTES de "Ajuda": ela e a
+# familia mais nova e a menos usada no meio do farm — o batismo acontece uma
+# vez por pessoa, para sempre — entao ela nao pode empurrar para baixo o que se
+# digita todo dia.
 _FAMILIAS_ESPERADAS = (
     "Vigilancia",
     "Silencio",
     "Presenca",
     "Loot do Solo Boss",
+    "Identidade",
     "Ajuda",
 )
+
+# O apelido de assinatura que as provas derivadas da tabela `_AJUDA` usam para
+# substituir o `<apelido>` anunciado pelo `/batizar`.
+#
+# ELE E HEX E NAO UM NOME, e isso e o ponto: `<apelido>` e `<nick>` sao dois
+# placeholders com CHARSETS diferentes, e substituir os dois pela mesma coisa
+# faria as provas de ponta a ponta lerem uma sintaxe que o parser recusa — ou
+# seja, elas passariam por acidente, sem nunca chegar ao comando.
+_APELIDO_DE_EXEMPLO = "0123ab"
 
 
 
@@ -220,6 +235,23 @@ class TestInterpretar:
             # de boss exigiria editar codigo. Ver `_VOCABULARIO`, onde `tiat`
             # mora ao lado de `janela`, `boss` e `respawn`.
             Comando.JANELA,
+            # E dar NOME a uma assinatura que o scanner aprendeu sozinho.
+            # Crescimento DE PROPOSITO, e o TERCEIRO comando que escreve estado
+            # duravel que nunca e podado, depois de `LOOT_CORRIGIR` e
+            # `LOOT_ATRIBUIR`.
+            #
+            # O dano de um nome errado e da MESMA familia deles: corrupcao
+            # duravel e dificil de notar, num acervo sem comando de esquecer e
+            # sem backup, e o sintoma nao e um erro — e a party socorrendo a
+            # pessoa errada. Por isso ele nasce FORA de `COMANDOS_DE_MEMBRO`
+            # (decisao 2 do ROADMAP), e nasce sozinho: o conjunto e LISTA DE
+            # INCLUSAO, entao ninguem precisou lembrar de exclui-lo.
+            #
+            # O ALVO E A CHAVE DE CONTEUDO, E NUNCA UMA LINHA (D-03). Nao ha
+            # sintaxe que alcance uma posicao: `/batizar 3 Mostarda` e recusado
+            # como apelido desconhecido, porque "3" e so um prefixo hex que nao
+            # casa chave nenhuma.
+            Comando.BATIZAR,
         }
 
     def test_as_formas_do_desligamento_do_boss(self):
@@ -346,8 +378,10 @@ class TestAjuda:
         """
         conhecidos = frozenset({apelido("J4guar")})
         for esperado, linha in _AJUDA.items():
-            texto = linha.sintaxe.replace("<nick>", "J4guar").replace(
-                "<hora>", "18:00"
+            texto = (
+                linha.sintaxe.replace("<nick>", "J4guar")
+                .replace("<hora>", "18:00")
+                .replace("<apelido>", _APELIDO_DE_EXEMPLO)
             )
             achados = comandos_novos(
                 [self._mensagem(texto)],
@@ -426,8 +460,10 @@ class TestAjuda:
         conhecidos = frozenset({apelido("J4guar")})
         for esperado, linha in _AJUDA.items():
             for forma in linha.apelidos:
-                texto = forma.replace("<nick>", "J4guar").replace(
-                    "<hora>", "18:00"
+                texto = (
+                    forma.replace("<nick>", "J4guar")
+                    .replace("<hora>", "18:00")
+                    .replace("<apelido>", _APELIDO_DE_EXEMPLO)
                 )
                 achados = comandos_novos(
                     [self._mensagem(texto)],
@@ -1753,9 +1789,18 @@ class TestFronteiraDeAutorizacao:
 
         Sai da tabela `_AJUDA` e nao de um literal aqui: assim a prova usa
         exatamente o que o bot ensina, e nao uma segunda opiniao do teste.
+
+        O `<apelido>` entrou junto com o `/batizar`. Sem ele a sintaxe montada
+        aqui seria `/batizar <apelido> J4guar`, que o parser recusa por
+        charset: o teste da fronteira continuaria VERDE afirmando que o
+        party-mate nao alcanca o comando, quando na verdade ninguem alcancaria
+        — uma prova vazia com cara de fronteira.
         """
-        return _AJUDA[comando].sintaxe.replace("<nick>", "J4guar").replace(
-            "<hora>", "18:00"
+        return (
+            _AJUDA[comando]
+            .sintaxe.replace("<nick>", "J4guar")
+            .replace("<hora>", "18:00")
+            .replace("<apelido>", _APELIDO_DE_EXEMPLO)
         )
 
     def _achados(self, telefone: str | None, comando: Comando, **extra):

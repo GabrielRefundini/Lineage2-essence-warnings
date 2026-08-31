@@ -25,6 +25,11 @@ from pathlib import Path  # noqa: E402
 
 from .acervo import AcervoDeIdentidades, carregar_identidades  # noqa: E402
 from .aprendiz import AjustesDoAprendiz, Aprendiz, ToleranciaAlemDoTeto  # noqa: E402
+from .batismo import (  # noqa: E402
+    montar_pergunta,
+    pendentes_do_acervo,
+    responder_batismo,
+)
 from .calibracao import (  # noqa: E402
     Calibracao,
     CalibracaoInvalida,
@@ -213,9 +218,21 @@ def montar_despachante(args: argparse.Namespace) -> Despachante | None:
         # — do jeito que estava, quem lesse isto acharia seguro rodar um
         # --dry-run ao lado do scanner de verdade, que e exatamente o que
         # quase apagou o aviso de TvT das 19:30 em 2026-08-26.
+        # A LINHA DA `.identidades/` DIZ O QUE O `simulando` DE FATO GARANTE, e
+        # nao mais do que isso.
+        #
+        # A tentacao e escrever que nada e gravado tambem la, e isso e FALSO: o
+        # `Aprendiz` roda em `--dry-run` e `acervo.gravar` escreve
+        # `assinatura_*` na pasta compartilhada. Essa frase reintroduziria
+        # exatamente a promessa mentirosa que este bloco existe para consertar.
+        #
+        # O que o `simulando` garante e outra coisa, e ela e a que importa:
+        # nenhuma PERGUNTA e queimada. O marcador `perguntado_*` nao e criado,
+        # entao a simulacao nao rouba a unica pergunta que cada assinatura tem.
         log.info(
             "Modo simulacao: alertas so no console. Nada e enviado e nada e "
-            "gravado em .agenda/, entao da para rodar junto com o scanner de "
+            "gravado em .agenda/, e nenhuma pergunta de identidade e queimada "
+            "em .identidades/, entao da para rodar junto com o scanner de "
             "verdade."
         )
         return Despachante(NotificadorDeConsole(), ao_falhar=avisar_falha)
@@ -1032,8 +1049,27 @@ def atender_comandos(
     rastreador=None,
     loot=None,
     bosses=(),
+    acervo=None,
+    assinaturas_vivas=None,
 ) -> None:
     """Le, obedece e confirma. Nunca levanta.
+
+    `acervo` E `assinaturas_vivas` SAO O BATISMO, e chegam com o mesmo registro
+    de comentario que o `bosses` ja tem: os defaults existem so para os testes
+    antigos continuarem medindo o que mediam, e em producao os DOIS lacos
+    passam o acervo.
+
+    OS DOIS, E NAO SO O PRINCIPAL. O marcador `comando_<id>` da `.agenda/` e
+    COMPARTILHADO: exatamente uma instancia obedece cada comando. Se o laco da
+    agenda receber a mensagem primeiro e nao tiver acervo, ele consome o
+    marcador, responde "nao consigo mexer nas identidades agora" e o batismo do
+    usuario e PERDIDO. Logica certa ligada num caminho so e a familia de
+    defeito que este projeto ja pagou duas vezes.
+
+    `assinaturas_vivas` e `None` no laco da agenda, e a ausencia e honesta: la
+    nao existe lista viva nem rastreador porque nao existe tela. O disco e
+    escrito do mesmo jeito, e o nome vale a partir do proximo arranque do
+    scanner (T-03-07).
 
     `bosses` E A LISTA DO `config.toml`, e ela chega dos DOIS lacos. O default
     vazio existe so para os testes antigos que nao passam nada continuarem
@@ -1233,6 +1269,44 @@ def atender_comandos(
             else:
                 resposta = responder_consulta(loot, pedido.argumento, agora)
             # Pergunta pessoal, mesmo racional do .status.
+            avisar_o_grupo = False
+        elif pedido.comando is Comando.BATIZAR:
+            if acervo is None:
+                resposta = "Nao consigo mexer nas identidades agora."
+            else:
+                batismo = responder_batismo(
+                    acervo,
+                    pedido.argumento,
+                    assinaturas_vivas=assinaturas_vivas,
+                    # O TERCEIRO ELO (D-08). Sem o snapshot, um nick batizado
+                    # que TAMBEM esteja em `cal.nomes` continua sendo
+                    # emprestado por POSICAO para qualquer linha nao
+                    # reconhecida — dois nomes iguais na tela, e um deles
+                    # mentira. `None` no laco da agenda, onde nao ha
+                    # rastreador porque nao ha tela.
+                    nomes_reservados=(
+                        rastreador.nomes_reservados
+                        if rastreador is not None
+                        else None
+                    ),
+                )
+                resposta = RespostaDePresenca(
+                    privado=batismo.privado, grupo=batismo.grupo
+                )
+            # A ATRIBUICAO E OBRIGATORIA MESMO SENDO INERTE NO CAMINHO FELIZ.
+            #
+            # Ali este ramo devolve `RespostaDePresenca` e o `isinstance` do
+            # bloco de despacho curto-circuita antes de a flag ser lida —
+            # exatamente a "coincidencia que nada no codigo preserva" que o
+            # comentario do topo deste laco descreve. No ramo sem acervo ele
+            # devolve `str`, e ai a flag e lida de verdade: uma recusa privada
+            # nao pode vazar para o grupo.
+            #
+            # `False` porque a recusa e entre quem digitou e o scanner. O eco
+            # no grupo do caminho feliz vem da redacao PROPRIA de
+            # `RespostaDoBatismo.grupo`, e nao desta flag: a pergunta foi
+            # publica, entao a confirmacao fecha o circuito onde ele foi
+            # aberto, com um texto curto e diferente.
             avisar_o_grupo = False
         elif pedido.comando is Comando.JOIN:
             # `pedido.nick` pode ser None — e o DONO que nao se declarou
@@ -1663,6 +1737,25 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
     # `RegistroEmDisco.marcar` e o incidente de 2026-08-26 19:30.
     registro = RegistroEmDisco(PASTA_AGENDA, simulando=args.dry_run)
     registro_de_loot = RegistroDeLoot(PASTA_LOOT)
+    # O ACERVO ENTRA NESTE LACO SO PARA A RESPOSTA, e nunca para a pergunta.
+    #
+    # O marcador `comando_<id>` da `.agenda/` e COMPARTILHADO: exatamente uma
+    # instancia obedece cada comando. Se este laco receber o `/batizar`
+    # primeiro e nao tiver acervo, ele consome o marcador, responde "nao
+    # consigo mexer nas identidades agora" e o batismo do usuario e PERDIDO.
+    # Logica certa ligada num caminho so e a familia de defeito que este
+    # projeto ja pagou duas vezes.
+    #
+    # `--so-agenda` NAO VARRE O ACERVO, e a ausencia e deliberada: este e o
+    # modo de quem esta com o jogo FECHADO, e uma pergunta "quem e a pessoa da
+    # linha 4" chegando com ninguem na frente do jogo convida uma resposta
+    # sobre alguem que nao da para ver. O que os dois lacos precisam
+    # compartilhar e a RESPOSTA, e ela esta ligada nos dois.
+    #
+    # `simulando` aqui pela mesma razao do `RegistroEmDisco` logo acima: um
+    # `--so-agenda --dry-run` rodando ao lado do scanner de verdade nao pode
+    # queimar as perguntas dele.
+    acervo = AcervoDeIdentidades(PASTA_IDENTIDADES, simulando=args.dry_run)
     silencio = ControleDoSilencio(eventos, registro)
     leitor = montar_leitor_de_comandos(args)
     # Este e o modo de quem NAO esta com o jogo aberto: aqui o relogio e
@@ -1699,6 +1792,11 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
                 # que e justamente o modo de quem esta com o jogo FECHADO — o
                 # publico inteiro deste comando.
                 bosses=bosses,
+                # O BATISMO, so a metade da RESPOSTA. `assinaturas_vivas` fica
+                # de fora porque aqui nao existe lista viva nem rastreador:
+                # nao existe tela. O disco e escrito do mesmo jeito, e o nome
+                # vale a partir do proximo arranque do scanner (T-03-07).
+                acervo=acervo,
             )
             encerrou = silencio.atualizar(agora)
             if encerrou:
@@ -2155,7 +2253,11 @@ def laco_principal(
     # pode passar a ser. Escrever o acervo de volta no arquivo que o
     # `calibrar.bat` reescreve desfaria pelo lado de dentro a unica razao de a
     # pasta ser propria.
-    acervo = AcervoDeIdentidades(PASTA_IDENTIDADES)
+    # `simulando` entra AQUI, na construcao, e nao perto de cada uso — mesma
+    # disciplina do `RegistroEmDisco` logo abaixo, e pela mesma razao: um
+    # `if dry_run` em cada ponto de chamada resolveria os de hoje e garantiria
+    # que o proximo nascesse errado.
+    acervo = AcervoDeIdentidades(PASTA_IDENTIDADES, simulando=args.dry_run)
     identidades = carregar_identidades(list(cal.assinaturas), acervo)
     cal.assinaturas = identidades.assinaturas
     log.info("%s", identidades.resumo)
@@ -2251,6 +2353,46 @@ def laco_principal(
     if despachante and not args.sem_aviso_de_inicio:
         despachante.despachar(f"Scanner ativo — monitorando {nomes}.")
 
+    # A VARREDURA DE ARRANQUE (BATI-01), e ela e o que faz esta fase valer para
+    # o que JA ESTA EM DISCO.
+    #
+    # POR QUE ELA NAO E REDUNDANTE COM O GATILHO DO APRENDIZADO. Uma entrada
+    # anonima que ja estava no acervo entra em `cal.assinaturas` na carga logo
+    # acima, e no proximo `extrair` a linha dela casa ~1.000 contra ela mesma.
+    # `Casamento.nome` de uma entrada anonima e a string VAZIA e nao `None`, e
+    # `_candidatas_para_aprender` exige `is None` — entao ela NUNCA vira
+    # candidata, o `Aprendiz` nunca a ve, e nenhum `Aprendizado` nasce. Sem
+    # esta varredura, as duas pessoas que a Fase 2 aprendeu em campo ficariam
+    # "Membro N" para sempre.
+    #
+    # Ela e tambem a rede de seguranca de toda pergunta que se perdeu: uma
+    # entrada criada por um `--dry-run`, uma pergunta cortada por falha de
+    # disco, uma sessao que subiu sem `.env`. A varredura olha as anonimas SEM
+    # marcador e nao se importa com qual processo as gravou.
+    #
+    # A POSICAO IMPORTA: depois do `despachante.iniciar()`, para haver para
+    # onde mandar, e depois do aperto de mao, para o grupo ler primeiro que o
+    # scanner subiu.
+    #
+    # O `if despachante` E A TRAVA DE D-05 ESTENDIDA, e ele nao e um detalhe.
+    # `montar_pergunta` MARCA. Chama-la sem despachante queimaria o marcador de
+    # uma pergunta que nao vai para lugar nenhum, e o marcador e PARA SEMPRE: a
+    # pessoa ficaria "Membro N" ate alguem apagar um arquivo a mao. Quem roda
+    # sem `.env` e sem `--dry-run` simplesmente ainda nao perguntou, e vai
+    # perguntar no dia em que configurar a entrega.
+    if despachante is not None:
+        pergunta = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+        if pergunta:
+            log.info(
+                "Ha assinatura sem nome no acervo. Perguntando quem e, uma "
+                "vez so por assinatura."
+            )
+            # `Categoria.SEMPRE` pela mesma razao do gatilho do aprendizado: o
+            # marcador ja foi queimado dentro de `montar_pergunta`, entao uma
+            # mensagem cortada pelo silencio de TvT seria uma pergunta perdida
+            # para sempre.
+            despachante.despachar(pergunta, Categoria.SEMPRE)
+
     # A SESSAO carrega o que antes eram variaveis locais deste laco. Movidas
     # para um objeto, elas viram construiveis num teste — e e por isso que
     # `tick()` pode ser exercitado com frames fabricados, sem jogo nenhum.
@@ -2290,6 +2432,11 @@ def laco_principal(
         # o recebe e nao o le — ver o tripwire de arquitetura em
         # `tests/test_aprendiz.py`.
         aprendiz=aprendiz,
+        # A MESMA instancia de acervo que a carga, o aprendiz e a varredura de
+        # arranque usam. Ela entra so para a `Sessao` poder PERGUNTAR quem e a
+        # pessoa que o aprendiz acabou de gravar (BATI-01); `sessao.py` fala
+        # com o `batismo` e nunca com o `acervo`.
+        acervo=acervo,
     )
 
     ultimo_status = 0.0
@@ -2345,6 +2492,12 @@ def laco_principal(
                 # portao de AST afirma a FORMA (uma variavel, nao um literal) e
                 # nao o nome, exatamente por isso.
                 bosses=regras_de_respawn,
+                # O BATISMO. A MESMA instancia que a carga, o aprendiz e a
+                # varredura usam, e a MESMA lista viva que o `extrair` le —
+                # e por isso que o nome vale no proximo tick, sem reiniciar
+                # (D-08).
+                acervo=acervo,
+                assinaturas_vivas=cal.assinaturas,
             )
 
             resultado = sessao.tick(frame, momento)
