@@ -5,16 +5,16 @@ milestone_name: )
 current_phase: 2
 current_phase_name: Leitura de pagina
 status: verifying
-stopped_at: Completed 02-05-PLAN.md — Fase 2 completa (8 de 8 planos)
-last_updated: "2026-08-31T01:35:32.135Z"
+stopped_at: Completed 03-01-PLAN.md — mercado_registro.py inteiro, 95 testes verdes
+last_updated: "2026-08-31T03:55:08.951Z"
 last_activity: 2026-08-31
 last_activity_desc: "Fase 2 plano 06: a TERCEIRA leitura de numero (a coluna do unitario) entrou em ler_linha e esta provada por contagem (2/2 em f010, 4/4 em f005); a guarda de cruzamento foi construida e ficou DESLIGADA pela rota REPROVADA do 02-02, degradada para observacao com a refutacao escrita no fonte"
-state_head: 151d6f04a8a790fb4077c6a4c9cf6352b6fef10a
+state_head: b26301f2988aaaef25292ada0dafa9df42420c40
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 16
+  completed_plans: 14
   percent: 25
 ---
 
@@ -89,6 +89,8 @@ Progress: [███░░░░░░░] 25%
 - [Phase 2]: [Phase 02] O congelamento de captura roda ANTES da busca do painel, e a janela anterior e guardada por COPIA. A ordem: captura congelada e propriedade da CAPTURA e nao da pagina, e procurar o painel em pixels mortos produziria um voto 'aberto' convincente. A copia: um backend que reusa o proprio buffer produziria congelamento ETERNO sobre captura viva — o falso positivo exato que o detector existe para nao produzir, invertido.
 - [Phase 2]: [Phase 02] A regra que decide se uma chave ausente desliga a leitura: mercado_minimo_de_linhas_comparadas ENTRA em _calibrado e mercado_folga_de_cola_do_glifo NAO. A ausencia da folga degrada para MAIS SEGURO (a celula com run largo cai fechada); a ausencia do piso degrada para o ACORDO TRIVIAL, que aceita como lida uma pagina em que quase nada atravessou. So a primeira pode sobreviver sem a chave.
 - [Phase 2]: [Phase 02] REFUTADO por medicao no 02-05: 'linhas descartadas' NAO e sinonimo de 'linhas cobertas'. A gravacao scroll-transicao, escrita por mim como controle 'sem oclusao', descarta 6,30 linhas por frame contra 3,62 da gravacao de tooltip deliberado e 0,74 da de alvo-sobreposto. Durante a rolagem o fundo alternado esta em transicao e a sonda o le nao-uniforme: recusa legitima e fail-closed, mas nao oclusao. O teste falso saiu; as taxas medidas entraram no relatorio.
+- [Phase 2]: [Phase 3] D-17 virou codigo: arquivo de observacoes que NAO termina em quebra de linha e CONTRATO QUEBRADO — a feature desliga alto, NADA e lido, e nenhum byte do arquivo do usuario e tocado. Medido: 5 de 5 cortes byte a byte recusados, contra 3 de 5 da contagem de campos. As duas saidas alternativas (truncar a cauda; completa-la com \n) estao refutadas por escrito no fonte e presas por AST
+- [Phase 2]: [Phase 3] UM NUMERO QUE CAIU: o criterio de aceitacao 'cv2 e numpy ausentes de sys.modules apos importar mercado_registro' e IMPOSSIVEL — mercado_catalogo SOZINHO ja os traz, via .config -> .visao. Como importar dele e must-have da fase, as duas exigencias se contradiziam. Substituido pelo que mede a mesma intencao: o registro acrescenta EXATAMENTE UM modulo ao processo, e mercado_leitura fica fora de sys.modules
 
 ### Blockers
 
@@ -127,6 +129,7 @@ só a mão dele fecha, e nenhuma bloqueia a Fase 3:**
    casamento é por `ndarray.tobytes()`, então um pixel de diferença derrubaria toda linha. O
    que falta é o motor rodando DENTRO do laço, com o jogo aberto. Ninguém constrói
    `LeitorDePagina` em produção ainda; isso nasce na Fase 4.
+
 2. **O congelamento provocado.** `frames_congelados = 0` em todo o censo, porque não existe
    gravação de captura travada. Minimizar a janela ou pausar a captura por 3+ ticks, e
    conferir que o aviso alto sai e nenhuma página nova é aceita.
@@ -138,11 +141,13 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 
 - **PARAR antes de arquivar o milestone.** `audit-milestone` é leitura e pode rodar;
   `complete-milestone` e `cleanup` ficam para ele.
+
 - **Outro agente trabalha no workstream `tiat` NESTA MESMA ÁRVORE, em paralelo.** Executores
   do mercado rodam em **worktree isolado** sempre que a task não precisar de `recordings/`
   nem do `calibration.json` (ambos gitignored, só no checkout principal). A Fase 3 não
   precisa — os testes dela usam `tmp_path`. **NUNCA usar `git commit --amend`**: hoje um
   amend caiu sobre commit alheio e precisou de `git reset --soft` para reparar.
+
 - **Não abrir pergunta ao usuário.** Decisão recomendada é tomada e REGISTRADA com a razão.
 - Contexto do orquestrador quase cheio: delegar, não explorar.
 
@@ -187,9 +192,9 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 
 ## Session Continuity
 
-**Last session:** 2026-08-31T01:35:06.471Z
+**Last session:** 2026-08-31T03:55:08.711Z
 
-**Stopped At:** Completed 02-05-PLAN.md — Fase 2 completa (8 de 8 planos)
+**Stopped At:** Completed 03-01-PLAN.md — mercado_registro.py inteiro, 95 testes verdes
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -206,3 +211,4 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 | Phase 02 P08 | 95 min | 2 tasks | 14 files |
 | Phase 02 P07 | 1h 8m | 2 tasks | 10 files |
 | Phase 02 P05 | 105 min | 3 tasks | 7 files |
+| Phase 03 P01 | 18min | 3 tasks | 2 files |
