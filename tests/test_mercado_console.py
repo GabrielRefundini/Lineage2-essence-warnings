@@ -529,6 +529,55 @@ class TestASecaoNaoQuebraEMarcaAWatchlist:
         )
         assert texto.index("Item Raro") < texto.index("Dragon Belt")
 
+    def test_o_console_NAO_USA_o_ultima_vez_do_catalogo(self) -> None:
+        """T-04-14: a recencia do ITEM exibida como recencia do PRECO.
+
+        O `ultima_vez` do `catalogo-de-nomes.csv` diz quando o item foi visto
+        pela ultima vez em QUALQUER valor, e pode ser de agora mesmo sobre uma
+        leitura de tres dias atras. A recencia que o ANAL-01 pede e a do PRECO,
+        `max(primeira_vez)` do `observacoes.csv`.
+
+        CORRECAO DE CRITERIO, DITA EM VOZ ALTA. O plano pedia
+        `grep -n "ultima_vez" l2scanner/mercado_console.py` sem ocorrencia. Esse
+        criterio, ao pe da letra, e INSATISFAZIVEL junto com a decisao que o
+        plano 04-02 ja travou POR TESTE
+        (`test_a_docstring_NOMEIA_a_outra_recencia_para_ninguem_confundir`):
+        la a docstring de `recencia_do_preco` e OBRIGADA a citar `ultima_vez`,
+        justamente para ninguem trocar um pelo outro. Apagar a mesma prosa deste
+        modulo para satisfazer o grep tiraria o aviso do lugar onde ele protege,
+        e deixaria o proximo leitor sem saber que existem duas recencias.
+
+        A PROVA AQUI E SOBRE O CODIGO EXECUTAVEL, com docstrings e comentarios
+        arrancados pelo AST -- estritamente mais forte que a varredura de texto,
+        que reprova a documentacao e nao distingue um USO de uma MENCAO. E a
+        mesma tecnica que `tests/test_mercado_firewall_de_fase.py` ja estabeleceu
+        nesta arvore para exatamente esta classe de problema.
+        """
+        arvore = ast.parse(inspect.getsource(mercado_console))
+        for no in list(ast.walk(arvore)):
+            corpo = getattr(no, "body", None)
+            if not isinstance(corpo, list) or not corpo:
+                continue
+            primeiro = corpo[0]
+            if (
+                isinstance(primeiro, ast.Expr)
+                and isinstance(primeiro.value, ast.Constant)
+                and isinstance(primeiro.value.value, str)
+            ):
+                corpo.pop(0)
+        codigo = ast.unparse(arvore)
+
+        assert "ultima_vez" not in codigo, (
+            "o console USA o `ultima_vez` do catalogo; a recencia do ANAL-01 e "
+            "`max(primeira_vez)` do observacoes.csv"
+        )
+        # O controle: a mencao em PROSA continua la, e e ela que impede a
+        # confusao. Um teste que so afirmasse a ausencia no codigo ficaria
+        # verde tambem se alguem apagasse o aviso inteiro.
+        assert "ultima_vez" in inspect.getsource(mercado_console), (
+            "o aviso que NOMEIA a outra recencia sumiu do modulo"
+        )
+
     def test_o_residuo_do_cruzamento_NAO_aparece(self) -> None:
         """A guarda de cruzamento esta DESLIGADA por medicao: o residuo e
         observacao e nao veredito, e ja esta no CSV para o usuario olhar no
