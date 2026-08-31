@@ -180,10 +180,27 @@ class LeitoraContadora:
     def __init__(self, texto, marcador: list) -> None:
         self._texto = texto
         self._marcador = marcador
+        # `id()` so e identidade ENQUANTO O OBJETO VIVE. O recorte de cada linha
+        # e transitorio: assim que a linha termina de ser processada ele e
+        # liberado, e o CPython reaproveita aquele mesmo endereco no recorte da
+        # linha seguinte. Sem esta lista, recortes DIFERENTES apareciam com o
+        # mesmo `id` e o `set()` la embaixo os fundia num so — medido nesta
+        # fixtura: um unico `id` chegou a carregar QUATRO conteudos distintos, e
+        # `len(set(vistos_2x))` deu 4, 5 ou 6 para as MESMAS seis chamadas,
+        # conforme o layout do heap. Foi assim que o estabilizador do 02-05
+        # (efcd73a), que nao encostou neste arquivo, derrubou este teste: ele
+        # mexeu na alocacao, nao na leitura.
+        #
+        # Segurar uma referencia forte a cada recorte impede a reciclagem e
+        # devolve a `id()` o significado que as afirmacoes sempre presumiram.
+        # Nenhuma afirmacao muda por causa disto — e o teste fica mais forte,
+        # porque `set()` so sabia ENCOLHER a contagem.
+        self._vivos: list = []
         self.chamadas = 0
 
     def __call__(self, pixels) -> str | None:
         self.chamadas += 1
+        self._vivos.append(pixels)
         self._marcador.append(id(pixels) if pixels is not None else None)
         if callable(self._texto):
             return self._texto(pixels)
