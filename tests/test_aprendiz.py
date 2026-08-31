@@ -68,7 +68,7 @@ from l2scanner.identidade import (
     mascara_de_texto,
 )
 from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
-from l2scanner.sessao import Sessao
+from l2scanner.sessao import ResultadoDoTick, Sessao
 from l2scanner.visao import EstadoDaLinha, LeituraDeLinha, Observacao, _recorte_do_nome, extrair
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -913,4 +913,388 @@ class TestDistanciaDeHamming:
                 np.zeros((4, 4), dtype=np.uint8), np.zeros((4, 5), dtype=np.uint8)
             )
             is None
+        )
+
+
+# ---------------------------------------------------------------------------
+# A INSTABILIDADE E RECUSADA E NAO MEDIADA, E A RECUSA DIZ QUANTO MEDIU (D-07)
+# ---------------------------------------------------------------------------
+
+
+def mascara_de(px: np.ndarray, cal: Calibracao, indice: int) -> np.ndarray:
+    return mascara_de_texto(_recorte_do_nome(px, cal, indice))
+
+
+def com_nome_perturbado(
+    px: np.ndarray, cal: Calibracao, indice: int, celulas: int
+) -> np.ndarray:
+    """O MESMO frame com um numero CONHECIDO de celulas acesas a mais no nome.
+
+    A perturbacao e MEDIDA e nao suposta: acende celulas que estavam APAGADAS na
+    mascara, uma a uma, na ordem em que aparecem. Um caso que perturbasse "um
+    pouco" e depois afirmasse o desfecho estaria provando outra coisa. E o mesmo
+    idioma de `quase_igual` em `tests/test_acervo.py`, que vira bits
+    deterministicamente para poder citar a tabela medida.
+    """
+    regiao = cal.regiao_do_nome(indice)
+    apagadas = np.argwhere(mascara_de(px, cal, indice) == 0)
+    assert len(apagadas) >= celulas, "a mascara nao tem celulas apagadas que cheguem"
+
+    copia = px.copy()
+    for y, x in apagadas[:celulas]:
+        copia[regiao.topo + y, regiao.esquerda + x] = (255, 255, 255)
+    return copia
+
+
+def mascaras_com_distancia(base: np.ndarray, celulas: int) -> np.ndarray:
+    """Uma copia da mascara a EXATAMENTE `celulas` de distancia de Hamming."""
+    copia = base.copy()
+    achatada = copia.reshape(-1)
+    achatada[:celulas] ^= 1
+    assert distancia_de_hamming(base, copia) == celulas
+    return copia
+
+
+def mascara_cheia(pixels_acesos: int = 40) -> np.ndarray:
+    """Uma mascara sintetica com texto suficiente para passar o portao."""
+    m = np.zeros((20, 100), dtype=np.uint8)
+    m[10, :pixels_acesos] = 1
+    return m
+
+
+class TestAInstabilidadeERecusada:
+    """Criterio 2 (APRE-02): instabilidade e recusada, e nao mediada.
+
+    Uma assinatura media de duas leituras diferentes e uma assinatura de
+    ninguem, e ela fica no acervo para sempre.
+    """
+
+    def test_o_recorte_que_muda_a_cada_leitura_nao_grava_nada(self, tmp_path):
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+
+        base = mascara_cheia()
+        for volta in range(15):
+            mascara = base.copy()
+            mascara.reshape(-1)[volta * 3 : volta * 3 + 3] ^= 1
+            aprendiz.observar((Candidata(indice=0, mascara=mascara, confianca=0.1),))
+
+        assert assinaturas_gravadas(pasta) == []
+
+    def test_alternar_estavel_e_mudada_nunca_grava(self, tmp_path):
+        """A sequencia REINICIA, e nao acumula."""
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=3)
+
+        base = mascara_cheia()
+        outra = mascaras_com_distancia(base, 6)
+        for volta in range(30):
+            mascara = base if volta % 2 == 0 else outra
+            aprendiz.observar((Candidata(indice=0, mascara=mascara, confianca=0.1),))
+
+        assert assinaturas_gravadas(pasta) == [], (
+            "alternar duas leituras nunca chega a N; se gravou, a sequencia "
+            "esta ACUMULANDO em vez de reiniciar"
+        )
+
+    def test_a_instabilidade_nao_e_mediada(self, tmp_path):
+        """O que fica gravado bate BIT A BIT com as N leituras estaveis.
+
+        Nem media, nem mediana, nem mistura das anteriores.
+        """
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=3)
+
+        instavel = mascara_cheia()
+        for volta in range(6):
+            mascara = instavel.copy()
+            mascara.reshape(-1)[volta * 4 : volta * 4 + 4] ^= 1
+            aprendiz.observar((Candidata(indice=0, mascara=mascara, confianca=0.1),))
+        assert assinaturas_gravadas(pasta) == []
+
+        estavel = mascaras_com_distancia(mascara_cheia(), 30)
+        for _ in range(3):
+            aprendiz.observar((Candidata(indice=0, mascara=estavel, confianca=0.1),))
+
+        gravadas = AcervoDeIdentidades(pasta).assinaturas()
+        assert len(gravadas) == 1
+        assert np.array_equal(gravadas[0].mascara, estavel), (
+            "a entrada tem de ser a mascara das leituras ESTAVEIS, e nao uma "
+            "media das instaveis que vieram antes"
+        )
+
+    def test_forma_diferente_nao_vira_distancia_inventada(self, tmp_path):
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+
+        aprendiz.observar(
+            (Candidata(indice=0, mascara=mascara_cheia(), confianca=0.1),)
+        )
+
+        outra_forma = np.zeros((30, 100), dtype=np.uint8)
+        outra_forma[10, :40] = 1
+        saida = aprendiz.observar(
+            (Candidata(indice=0, mascara=outra_forma, confianca=0.1),)
+        )
+
+        assert len(saida.recusas) == 1
+        assert saida.recusas[0].distancia is None
+        assert saida.recusas[0].indice == 0
+
+
+class TestOConteudoMandaENaoOIndice:
+    """D-08, nas duas direcoes. Uma delas sozinha nao prova a regra."""
+
+    def test_a_mesma_pessoa_trocando_de_linha_continua_somando(self, tmp_path):
+        """A party window compacta quando alguem sai.
+
+        Um contador por indice perderia a sequencia inteira nessa hora, e a
+        pessoa nunca seria aprendida.
+        """
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+
+        mascara = mascara_cheia()
+        for indice in (0, 2, 1, 3, 2):
+            aprendiz.observar(
+                (Candidata(indice=indice, mascara=mascara, confianca=0.1),)
+            )
+
+        assert len(assinaturas_gravadas(pasta)) == 1, (
+            "a mesma pessoa passou por quatro posicoes e a sequencia e por "
+            "CONTEUDO: ela tem de somar do mesmo jeito"
+        )
+
+    def test_duas_pessoas_na_mesma_linha_nunca_somam(self, tmp_path):
+        """A metade cara da regra.
+
+        Um contador por indice gravaria aqui, e o que ele gravaria seria uma
+        assinatura de ninguem.
+        """
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=4)
+
+        uma = mascara_cheia()
+        outra = mascaras_com_distancia(mascara_cheia(), 20)
+        for volta in range(12):
+            aprendiz.observar(
+                (
+                    Candidata(
+                        indice=2,
+                        mascara=uma if volta % 2 == 0 else outra,
+                        confianca=0.1,
+                    ),
+                )
+            )
+
+        assert assinaturas_gravadas(pasta) == [], (
+            "duas pessoas alternando na linha 2 nao sao uma sequencia. Um "
+            "contador por INDICE teria gravado, e a entrada seria a mascara de "
+            "ninguem"
+        )
+
+
+class TestATolerancia:
+    """A tolerancia e um LIMITE, e nao uma sugestao."""
+
+    def test_com_tres_toleradas_uma_diferenca_de_duas_soma(self, tmp_path):
+        aprendiz, pasta = montar_aprendiz(
+            tmp_path, leituras_para_aprender=4, celulas_toleradas=3
+        )
+
+        base = mascara_cheia()
+        perto = mascaras_com_distancia(base, 2)
+        for volta in range(4):
+            aprendiz.observar(
+                (
+                    Candidata(
+                        indice=0,
+                        mascara=base if volta % 2 == 0 else perto,
+                        confianca=0.1,
+                    ),
+                )
+            )
+
+        assert len(assinaturas_gravadas(pasta)) == 1
+
+    def test_com_tres_toleradas_uma_diferenca_de_quatro_nao_soma(self, tmp_path):
+        aprendiz, pasta = montar_aprendiz(
+            tmp_path, leituras_para_aprender=4, celulas_toleradas=3
+        )
+
+        base = mascara_cheia()
+        longe = mascaras_com_distancia(base, 4)
+        for volta in range(12):
+            aprendiz.observar(
+                (
+                    Candidata(
+                        indice=0,
+                        mascara=base if volta % 2 == 0 else longe,
+                        confianca=0.1,
+                    ),
+                )
+            )
+
+        assert assinaturas_gravadas(pasta) == []
+
+    def test_a_ancora_e_a_referencia_e_a_deriva_nao_passa_por_baixo(self, tmp_path):
+        """Deriva de 2 celulas POR LEITURA, com tolerancia 3.
+
+        Cada leitura fica a 2 celulas da ANTERIOR, mas a quinta fica a 8 da
+        PRIMEIRA. Comparar com a leitura anterior aceitaria a sequencia inteira
+        e gravaria uma assinatura longe da primeira; comparar com a ANCORA
+        recusa. Este caso afirma qual das duas o codigo faz.
+        """
+        aprendiz, pasta = montar_aprendiz(
+            tmp_path, leituras_para_aprender=5, celulas_toleradas=3
+        )
+
+        ancora = mascara_cheia()
+        leituras = [mascaras_com_distancia(ancora, 2 * passo) for passo in range(5)]
+        assert distancia_de_hamming(leituras[0], leituras[4]) == 8
+        assert distancia_de_hamming(leituras[3], leituras[4]) == 2, (
+            "premissa: cada leitura esta a 2 celulas da anterior"
+        )
+
+        for mascara in leituras:
+            aprendiz.observar((Candidata(indice=0, mascara=mascara, confianca=0.1),))
+
+        assert assinaturas_gravadas(pasta) == [], (
+            "a referencia e a ANCORA: comparar com a leitura anterior deixaria "
+            "a deriva somar N celulas ao longo da sequencia"
+        )
+
+
+class TestARecusaDizQuantoMediu:
+    """D-07, a peca que substitui uma ferramenta de spike.
+
+    Sem este numero, o desfecho de um `celulas_toleradas` errado e a feature
+    simplesmente NAO ACONTECER, em silencio, sem nada no log dizendo por que.
+    """
+
+    CELULAS = 5
+
+    def test_a_recusa_chega_ao_resultado_do_tick_com_a_distancia_medida(
+        self, tmp_path, pixels, tres_conhecidas
+    ):
+        cal = tres_conhecidas
+        outro = com_nome_perturbado(pixels, cal, LINHA_ALVO, self.CELULAS)
+        assert (
+            distancia_de_hamming(
+                mascara_de(pixels, cal, LINHA_ALVO),
+                mascara_de(outro, cal, LINHA_ALVO),
+            )
+            == self.CELULAS
+        ), "a perturbacao e MEDIDA antes de o desfecho ser afirmado"
+
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        sessao = montar_sessao(cal, tmp_path, aprendiz=aprendiz)
+
+        rodar(sessao, pixels, 1)
+        resultado = rodar(sessao, outro, 1, inicio=1)
+
+        assert len(resultado.recusas_de_aprendizado) == 1
+        recusa = resultado.recusas_de_aprendizado[0]
+        assert recusa.indice == LINHA_ALVO
+        assert recusa.distancia == self.CELULAS
+        assert recusa.tolerado == 0
+
+    def test_o_mesmo_numero_sai_no_scanner_log_e_diz_o_que_fazer(
+        self, tmp_path, pixels, tres_conhecidas, caplog
+    ):
+        """Um campo estruturado que so o teste ve nao ajuda o usuario.
+
+        O `scanner.log` da primeira sessao real e o unico lugar onde o numero
+        alcanca quem escolhe a tolerancia.
+        """
+        cal = tres_conhecidas
+        outro = com_nome_perturbado(pixels, cal, LINHA_ALVO, self.CELULAS)
+
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        sessao = montar_sessao(cal, tmp_path, aprendiz=aprendiz)
+
+        with caplog.at_level(logging.DEBUG, logger="l2scanner"):
+            rodar(sessao, pixels, 1)
+            rodar(sessao, outro, 1, inicio=1)
+
+        texto = "\n".join(r.getMessage() for r in caplog.records)
+        assert str(self.CELULAS) in texto
+        assert "celulas_toleradas" in texto, (
+            "a mensagem tem de dizer QUAL chave do config.toml mexer"
+        )
+        assert "identidade" in texto
+        assert "—" not in texto, "travessao quebra o console cp1252"
+
+    def test_trezentas_recusas_nao_viram_trezentas_linhas_de_resumo(
+        self, tmp_path, calibracao, caplog
+    ):
+        """T-02-10: uma linha por segundo no log e a outra forma de nao ser lido.
+
+        A emissao e por MUDANCA do retrato, e nao a cada K recusas: qualquer K
+        seria um numero inventado, e este plano nao pode acrescentar um. Por
+        mudanca ela e auto-limitada: assim que as distancias convergem, ela cala
+        sozinha.
+        """
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        sessao = montar_sessao(calibracao, tmp_path, aprendiz=aprendiz)
+
+        uma = mascara_cheia()
+        outra = mascaras_com_distancia(mascara_cheia(), 7)
+        obs_a = _observacao_fabricada(
+            [
+                LeituraDeLinha(
+                    indice=0, estado=EstadoDaLinha.COM_MEMBRO, hp=1.0, mp=1.0
+                )
+            ],
+            {0: uma},
+        )
+        obs_b = _observacao_fabricada(
+            [
+                LeituraDeLinha(
+                    indice=0, estado=EstadoDaLinha.COM_MEMBRO, hp=1.0, mp=1.0
+                )
+            ],
+            {0: outra},
+        )
+
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            for volta in range(300):
+                sessao._aprender(
+                    obs_a if volta % 2 == 0 else obs_b, ResultadoDoTick()
+                )
+
+        resumos = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno >= logging.INFO and "celulas_toleradas" in r.getMessage()
+        ]
+        assert 0 < len(resumos) <= 3, (
+            f"o resumo tem de calar quando o retrato para de mudar. Saiu "
+            f"{len(resumos)} vez(es)"
+        )
+
+    def test_o_retrato_acumula_a_faixa_das_distancias(self, tmp_path):
+        """Minimo, maximo e MEDIANA. A mediana existe por causa do outlier.
+
+        Um unico frame com algo claro passando por cima do nome esticaria o
+        maximo e faria o usuario escolher uma tolerancia grande demais.
+        """
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=99)
+
+        base = mascara_cheia()
+        aprendiz.observar((Candidata(indice=0, mascara=base, confianca=0.1),))
+        for celulas in (4, 2, 40):
+            aprendiz.observar(
+                (
+                    Candidata(
+                        indice=0,
+                        mascara=mascaras_com_distancia(base, celulas),
+                        confianca=0.1,
+                    ),
+                )
+            )
+            aprendiz.observar((Candidata(indice=0, mascara=base, confianca=0.1),))
+
+        retrato = aprendiz.retrato()
+        assert retrato.recusas == 6, (
+            "cada troca de mascara e uma recusa, nos dois sentidos"
+        )
+        assert retrato.menor == 2
+        assert retrato.maior == 40
+        assert retrato.mediana is not None and retrato.mediana < 40, (
+            "a mediana existe justamente para o outlier nao mandar sozinho"
         )
