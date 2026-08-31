@@ -704,6 +704,23 @@ class TestAsQuatroFrases:
         assert texto.startswith("Tiat North:")
         assert "14:30 de 30/08" in texto
 
+    @pytest.mark.parametrize("texto", as_quatro_frases())
+    def test_TODA_frase_diz_que_a_conta_parte_do_NASCIMENTO(self, texto):
+        """As QUATRO, e nao tres.
+
+        A frase de `alvo` + `LIMITE` era a unica sem esta clausula, e era
+        justamente a que mais precisava dela: ela junta as DUAS fontes de
+        atraso da previsao. A ressalva do alvo cobre uma (o boss podia estar
+        de pe ha horas quando foi alvejado); a clausula da morte cobre a outra
+        (o tempo em que ele ficou vivo depois do nascimento nunca entrou na
+        conta). Sem a segunda, quem le atribui o adiantamento inteiro ao alvo
+        e conclui que um aviso ancorado no chat seria exato — e nao seria.
+
+        Este teste existe porque a uniformizacao sem guarda dura ate o
+        primeiro que achar a frase comprida.
+        """
+        assert "parte do nascimento e nao da morte" in texto
+
 
 class TestOsNumerosVemDoConfigENaoDoCodigo:
     """Um boss novo no `config.toml` tem que produzir a frase com as horas

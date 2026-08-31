@@ -588,10 +588,21 @@ def texto_da_janela(aviso: AvisoDeJanela) -> str:
             f"nao da morte, entao o tempo em que o boss ficou vivo ainda nao "
             f"entrou nela."
         )
+    # A CLAUSULA DA MORTE ENTRA AQUI TAMBEM, e a razao e que esta era a UNICA
+    # das quatro frases sem ela. As outras tres dizem "a conta parte do
+    # nascimento e nao da morte"; esta dizia so a ressalva do alvo.
+    #
+    # E justamente a frase que mais precisa: ela junta as DUAS fontes de atraso
+    # da previsao. A ressalva do alvo cobre uma (o boss podia estar de pe ha
+    # horas quando foi alvejado) e a clausula da morte cobre a outra (o tempo
+    # em que ele ficou vivo depois do nascimento nunca entrou na conta). Sem a
+    # segunda, quem le atribui o adiantamento inteiro ao alvo e conclui que um
+    # aviso ancorado no chat seria exato — e nao seria.
     return (
         f"{aviso.boss}: passaram as {horas} {desde}.{ressalva} "
         f"Esse era o limite otimista da conta, e dele para a frente ele pode "
-        f"nascer a qualquer momento."
+        f"nascer a qualquer momento: a conta parte do nascimento e nao da "
+        f"morte, entao o tempo em que o boss ficou vivo ainda nao entrou nela."
     )
 
 
