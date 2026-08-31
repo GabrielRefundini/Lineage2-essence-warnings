@@ -107,9 +107,13 @@ ser estavel entre reinicios, independente da POSICAO da linha (posicao e lugar, 
 pessoa) e independente do NOME (o nome chega depois e pode ser corrigido — BATI-05). E
 essa chave que a Fase 3 vai pinar.
 
-**FECHADA no 01-CONTEXT.md e implementada nos planos**: a chave e o `sha256` do CONTEUDO
-da assinatura (material `altura x largura : bits`, hex inteiro), num arquivo por entrada
-em `.identidades/`, com o nome no irmao `nome_<hash>`.
+**FECHADA. O 01-CONTEXT.md decidiu a forma; o usuario travou o formato exato em
+2026-08-31 (D-06).** A chave e o `sha256` COMPLETO — 64 digitos hex, sem truncar — do
+CONTEUDO da assinatura, sobre o material `altura x largura : bits`. As dimensoes entram
+porque `packbits` de uma mascara 2x8 e de uma 4x4 produzem os mesmos bytes. Nao se trunca
+porque uma colisao aqui nao e um erro: e "Korzis morreu" quando morreu o Kaus. Um arquivo
+por entrada em `.identidades/`, com o nome no irmao `nome_<hash>`. Decisao de mao unica e
+ja atravessada: os planos a implementam, nao a perguntam.
 
 **Plans:** 2 plans
 
