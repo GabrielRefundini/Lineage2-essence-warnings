@@ -408,7 +408,7 @@ def _dono_do_nome(
     return None
 
 
-def _recusa_de_nome_ocupado(nick: str, dono: str) -> str:
+def _recusa_de_nome_ocupado(nick: str, gravado: str, dono: str) -> str:
     """A recusa de BATI-04, e ela e a DOCUMENTACAO de duas dividas herdadas.
 
     AS DUAS FRASES DO MEIO NAO SAO ENFEITE, e apaga-las reabre as duas dividas
@@ -431,24 +431,38 @@ def _recusa_de_nome_ocupado(nick: str, dono: str) -> str:
       procurar por essa saida; uma recusa que so dissesse "esse nome ja e de
       outra" seria um beco sem saida.
 
+    O NOME CITADO E O **GRAVADO**, E NUNCA O DIGITADO. Quem digita `mostarda`
+    e recusado por causa de uma entrada que se chama `Mostarda`; escrever
+    "o nome mostarda ja e da assinatura X" seria falso sobre o disco e mandaria
+    o usuario procurar por uma grafia que nao esta la — no recurso inteiro que
+    existe para nao mentir. Quando as duas grafias diferem, a razao vai junto:
+    sem ela o usuario le duas strings diferentes e conclui que o scanner esta
+    quebrado.
+
     Sem acento e SEM TRAVESSAO: o texto passa por `cp1252` a caminho do
     WhatsApp.
     """
     curto = apelido_da_chave(dono)
-    return "\n".join(
-        [
-            f"Nao batizei ninguem: o nome {nick} ja e da assinatura {curto}. "
-            "Nada mudou, nem numa entrada nem na outra.",
-            "Se as duas forem a mesma pessoa, eu aprendi o rosto dela duas "
-            "vezes. Nesse caso a segunda pode ficar sem nome sem problema "
-            "nenhum: assinatura sem nome continua sendo reconhecida e nunca "
-            "vira sujeito de alerta.",
-            f"Para o nome {nick} ficar livre aqui, batize a {curto} com outro "
-            "nome. Essa e a unica saida: nao existe comando de esquecer uma "
-            "assinatura.",
-            f"Exemplo: /batizar {curto} Fulano",
-        ]
-    )
+    linhas = [
+        f"Nao batizei ninguem: o nome {gravado} ja e da assinatura {curto}. "
+        "Nada mudou, nem numa entrada nem na outra.",
+    ]
+    if nick != gravado:
+        linhas.append(
+            f"Para mim {nick} e {gravado} sao o mesmo nome, a caixa nao conta: "
+            "dois alertas que so diferem na caixa ninguem consegue distinguir."
+        )
+    linhas += [
+        "Se as duas forem a mesma pessoa, eu aprendi o rosto dela duas vezes. "
+        "Nesse caso a segunda pode ficar sem nome sem problema nenhum: "
+        "assinatura sem nome continua sendo reconhecida e nunca vira sujeito "
+        "de alerta.",
+        f"Para o nome {gravado} ficar livre aqui, batize a {curto} com outro "
+        "nome. Essa e a unica saida: nao existe comando de esquecer uma "
+        "assinatura.",
+        f"Exemplo: /batizar {curto} Fulano",
+    ]
+    return "\n".join(linhas)
 
 
 def _recusa_ambigua(apelido: str, resolucao: Resolucao) -> str:
@@ -509,7 +523,9 @@ def responder_batismo(
     # `acervo.nomear`. Recusar depois de escrever seria escrever.
     dono = _dono_do_nome(nomeados, nick, chave)
     if dono is not None:
-        return RespostaDoBatismo(privado=_recusa_de_nome_ocupado(nick, dono))
+        return RespostaDoBatismo(
+            privado=_recusa_de_nome_ocupado(nick, nomeados[dono], dono)
+        )
 
     nome_anterior = nomeados.get(chave, "")
 

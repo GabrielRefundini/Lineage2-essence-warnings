@@ -2687,6 +2687,37 @@ class TestONomeQueJaEDeOutraPessoa:
         assert apelido_da_chave(chave_a) in texto
         assert retrato_da_pasta(tmp_path) == antes
 
+    def test_a_recusa_cita_o_nome_COMO_ESTA_GRAVADO_e_nao_como_foi_digitado(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A recusa nao pode descrever um estado que nao existe.
+
+        Quem digita `mostarda` recebe uma recusa sobre a entrada que se chama
+        `Mostarda`. Dizer "o nome mostarda ja e da assinatura 0dcf6f" seria
+        falso sobre o disco, e mandaria o usuario procurar por uma grafia que
+        nao esta la — no recurso inteiro que existe para nao mentir.
+
+        E a razao da recusa precisa aparecer, porque sem ela o usuario le duas
+        strings diferentes e conclui que o scanner esta quebrado.
+        """
+        chave_a, chave_b = duas_entradas(
+            tmp_path, pixels, calibracao, nome_de_a="Mostarda"
+        )
+
+        texto = responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_b)} mostarda",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+        ).textos[0]
+
+        assert "o nome Mostarda ja e" in texto, (
+            f"a recusa citou a grafia DIGITADA e nao a GRAVADA: {texto}"
+        )
+        assert "a caixa nao conta" in texto, (
+            "a recusa mostra duas grafias diferentes e nao diz por que elas "
+            "sao o mesmo nome"
+        )
+
     def test_rebatizar_a_PROPRIA_entrada_em_outra_caixa_e_ACEITO(
         self, tmp_path, pixels, calibracao
     ):
