@@ -20,7 +20,12 @@ Requisitos do milestone v1-mercado. Cada um mapeia para uma fase do roadmap.
 ### Detecção
 
 - [x] **DETC-01**: "World Exchange aberto" detectado por âncora/template positivo, e o sinal é compartilhado com a lógica de oclusão do detector de morte — um sinal, dois consumidores, nunca duplicado
-- [x] **DETC-02**: Modo `--mercado` separado — vigiar mercado não degrada nem compete com o modo party (o usuário roda duas instâncias; uma terceira invocação é normal)
+- [ ] **DETC-02**: Modo `--mercado` separado — vigiar mercado não degrada nem compete com o modo party (o usuário roda duas instâncias; uma terceira invocação é normal)
+  > **Código pronto; portão de campo ABERTO.** A metade provável por código está provada e é a metade fácil: sem acoplamento ao `rastreador`/`visao`, tripwire de import nas duas direções, nenhuma escrita no `calibration.json`, throttle só do lado do mercado, `.bat` próprio. A metade que o requisito **literalmente afirma** — "não degrada nem compete" — nunca foi observada: contenção entre processos é propriedade do SISTEMA (CPU, GPU, sessões WGC, agendador do Windows), e o próprio `tests/test_mercado_firewall_de_fase.py` diz por escrito que nenhum teste automatizado a alcança. A rodada de campo de 31/08 durou ~40 s de painel (~106 ticks), não os 10 min do portão, e as duas partys não rodaram em paralelo.
+  >
+  > **Fecha assim:** abrir as DUAS instâncias de party (`vigiar-party.bat`) e o `vigiar-mercado.bat` juntos por 10 minutos com o jogo aberto, conferindo no Gerenciador de Tarefas que a CPU dos três está estável, que não aparece borda amarela em nenhuma das partys, e que nenhum alerta de morte falso sai.
+  >
+  > Marcar Complete antes disso transformaria uma afirmação não testada em fato assentado — a classe de erro que este projeto inteiro combate. Revertido em 2026-08-31 pela verificação da Fase 4.
 
 ### Leitura
 
@@ -166,7 +171,7 @@ Preenchida na criação do roadmap (2026-08-27).
 | FUND-02 | Phase 1 | Complete |
 | FUND-03 | Phase 1 | Complete |
 | DETC-01 | Phase 1 | Complete |
-| DETC-02 | Phase 4 | Complete |
+| DETC-02 | Phase 4 | Pending (portao de campo aberto; codigo pronto no 04-01) |
 | LEIT-01 | Phase 2 | Complete |
 | LEIT-02 | Phase 2 | Complete |
 | LEIT-03 | Phase 2 | Complete |
@@ -185,7 +190,14 @@ Preenchida na criação do roadmap (2026-08-27).
 - v1 requirements: 18 total (a contagem "16" da definição inicial estava errada — a recontagem na criação do roadmap deu 17; LEIT-05 entrou em 2026-08-29)
 - Mapped to phases: 18
 - Unmapped: 0 ✓
+- **Complete: 17. Pending: 1 (DETC-02, portão de campo aberto).** A contagem fica separada de propósito: "18 mapeados" não é "18 fechados", e somar os dois num número só é exatamente como um portão aberto vira concluído sem ninguém decidir isso.
+
+**ANAL-04 fica Complete, e a diferença importa.** Lá o código está integralmente
+provado por execução e o silêncio em produção é o design declarado ("sem
+`[[receita]]`, a margem simplesmente NÃO APARECE"). O que falta é um passo de
+ACEITAÇÃO do usuário — escrever uma receita real —, não uma lacuna de
+verificação. DETC-02 é o caso oposto: falta a observação em si.
 
 ---
 *Requirements defined: 2026-08-27*
-*Last updated: 2026-08-27 after roadmap creation (traceability filled)*
+*Last updated: 2026-08-31 — DETC-02 revertido de Complete para Pending (portão de campo aberto), pela verificação da Fase 4*
