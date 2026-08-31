@@ -131,6 +131,21 @@ só a mão dele fecha, e nenhuma bloqueia a Fase 3:**
    gravação de captura travada. Minimizar a janela ou pausar a captura por 3+ ticks, e
    conferir que o aviso alto sai e nenhuma página nova é aceita.
 
+### Corrida autônoma em curso — 2026-08-31 (madrugada)
+
+O usuário foi dormir e autorizou execução autônoma das **Fases 3 e 4** do `v1-mercado`,
+tomando as decisões recomendadas. Regras que valem até ele voltar:
+
+- **PARAR antes de arquivar o milestone.** `audit-milestone` é leitura e pode rodar;
+  `complete-milestone` e `cleanup` ficam para ele.
+- **Outro agente trabalha no workstream `tiat` NESTA MESMA ÁRVORE, em paralelo.** Executores
+  do mercado rodam em **worktree isolado** sempre que a task não precisar de `recordings/`
+  nem do `calibration.json` (ambos gitignored, só no checkout principal). A Fase 3 não
+  precisa — os testes dela usam `tmp_path`. **NUNCA usar `git commit --amend`**: hoje um
+  amend caiu sobre commit alheio e precisou de `git reset --soft` para reparar.
+- **Não abrir pergunta ao usuário.** Decisão recomendada é tomada e REGISTRADA com a razão.
+- Contexto do orquestrador quase cheio: delegar, não explorar.
+
 ### Todos
 
 - [ ] ~~**DEFINIR A `[mercado] watchlist` no `config.toml`**~~ — **DEIXOU DE SER BLOQUEIO
