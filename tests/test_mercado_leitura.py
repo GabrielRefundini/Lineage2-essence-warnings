@@ -1077,18 +1077,45 @@ class TestARecusaEPorLinhaNuncaPorPagina:
         assert len(leitura.descartadas) > 0
 
     def test_a_linha_descartada_NAO_entra_no_estabilizador(self, cal) -> None:
-        """A descartada nunca chega a `PaginaAceita`, e agora isso se ve.
+        """A descartada nunca chega a `PaginaAceita`, e isso se ve pelo POSITIVO.
+
+        A HISTORIA DESTE TESTE, EM TRES ONDAS, PORQUE ELA EXPLICA A FORMA:
 
         Ate o 02-07 esta fixtura nao produzia leitura nenhuma — as dez linhas
         caiam — e a afirmacao so podia ser feita pela NEGATIVA (`is None`), que
         e verdadeira tambem quando o estabilizador esta simplesmente quebrado.
         Com o piso proprio da Quantity, MEDIDO em 161, as duas linhas
-        descobertas atravessam, a pagina e aceita no segundo frame, e o teste
-        passa a afirmar pelo POSITIVO: a pagina aceita contem exatamente as
-        descobertas, e NENHUMA das oito cobertas por tooltip.
+        descobertas passaram a atravessar e o teste virou afirmacao positiva.
+
+        **O 02-05 mudou a resposta de novo, e de proposito.** O piso de posicoes
+        comparadas (`mercado_minimo_de_linhas_comparadas`, gravado em 7) recusa
+        esta pagina com o piso de PRODUCAO — e esta CERTO em recusar: 2 linhas
+        lidas de 10 e precisamente a "pagina praticamente nao lida" que
+        T-02-26 descreve, e aceita-la seria o acordo trivial. O piso NAO foi
+        afrouxado para salvar o teste; ele foi tornado EXPLICITO aqui, derivado
+        das linhas que a propria fixtura entrega, para que a afirmacao continue
+        sendo sobre a linha DESCARTADA e nao sobre o piso.
+
+        A recusa pelo piso com o valor de producao tem teste proprio, e ele fica
+        em `tests/test_mercado_pagina.py`, onde o piso mora.
         """
-        leitor, _b, _c, _v2, _v3 = montar_leitor(
+        import copy
+
+        medidor, _b, _c, _v2, _v3 = montar_leitor(
             cal, "Common Fafurion Doll", "Common Fafurion Doll"
+        )
+        medidor.observar(ler_fixtura(JANELA_TOOLTIP))
+        descobertas = len(medidor.ultima_leitura.linhas)
+        assert descobertas < int(cal.mercado_minimo_de_linhas_comparadas), (
+            "esta fixtura deixou de ser o caso 'quase toda coberta'; sem isso o "
+            "teste nao esta mais afirmando o que diz afirmar"
+        )
+
+        com_piso_explicito = copy.deepcopy(cal)
+        com_piso_explicito.mercado_minimo_de_linhas_comparadas = descobertas
+
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            com_piso_explicito, "Common Fafurion Doll", "Common Fafurion Doll"
         )
         assert leitor.observar(ler_fixtura(JANELA_TOOLTIP)) is None
         pagina = leitor.observar(ler_fixtura(JANELA_TOOLTIP))

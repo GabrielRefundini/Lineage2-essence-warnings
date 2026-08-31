@@ -26,15 +26,41 @@ recorte. Isso e o que permite a suite rodar no Python GLOBAL, que nao tem as
 bindings WinRT — e, mais importante, e o que permite CONTAR as chamadas e provar
 que as duas foram feitas.
 
-O ACORDO ENTRE DOIS FRAMES (LEIT-03), NA VERSAO MINIMA DESTA ONDA
-------------------------------------------------------------------
-`observar` guarda a TUPLA PARSEADA das linhas aceitas e so devolve
-`PaginaAceita` quando o frame seguinte produz a mesma tupla. A linha DESCARTADA
-nao entra na comparacao (D-15): ela nao conta como desacordo, senao uma tooltip
-passageira impediria para sempre o acordo de uma pagina parada.
+O ACORDO ENTRE DOIS FRAMES (LEIT-03)
+-------------------------------------
+`observar` guarda a leitura anterior e so devolve `PaginaAceita` quando o frame
+seguinte produz a MESMA TUPLA PARSEADA nas posicoes aceitas em AMBOS. A linha
+DESCARTADA nao entra na comparacao (D-15): ela nao conta como desacordo, senao
+uma tooltip passageira impediria para sempre o acordo de uma pagina parada.
 
-O detector de captura CONGELADA (tres janelas bit-identicas) e o minimo de
-linhas comparadas (`mercado_minimo_de_linhas_comparadas`) chegam no 02-05.
+Isso abre um buraco que tem fechadura propria: se sobrarem POUCAS posicoes, um
+acordo trivial aceitaria uma pagina praticamente nao lida (T-02-26). Por isso o
+minimo de posicoes comparadas e LIDO do `calibration.json`, e a chave ausente
+DESLIGA a leitura em vez de valer zero.
+
+O CONGELAMENTO OLHA A JANELA INTEIRA, E ISSO CONTRADIZ A LEITURA INGENUA
+------------------------------------------------------------------------
+D-19, e ele e MEDIDO: a secao 9 do spike provou que o painel e BIT-ESTAVEL — o
+mundo atras mudou completamente e o retangulo da ancora nao mudou um bit. Grade
+identica entre frames e o caso NORMAL de uma pagina parada, e usa-la como sinal
+de congelamento daria falso alarme o tempo todo. O que se mexe e o MUNDO ATRAS
+do painel; entao a comparacao e sobre a JANELA INTEIRA, e tres janelas
+consecutivas bit-identicas sao captura congelada.
+
+A CADENCIA, MEDIDA E NAO SUPOSTA
+---------------------------------
+A busca do painel usa a memoria da ultima posicao com rebusca a cada 5 s,
+reusando `RastreioDoPainel` e o precedente `SEGUNDOS_ENTRE_BUSCAS_DO_DIALOGO`
+(`captura_janela.py:43`); medido, a varredura custa ~45 ms numa janela de
+1720x1392 e em 255 frames houve so 34 posicoes distintas. A leitura roda a 1 Hz,
+igual ao resto do scanner, e o orcamento do pior tick foi medido em ~110 ms de
+1000 ms.
+
+NADA AQUI TOCA `rastreador.py` NEM O GATE DE BRILHO DA BARRA PROPRIA
+---------------------------------------------------------------------
+Acoplar o sinal de mercado ao detector de morte e precisamente a manobra que
+causou o incidente das 27 mortes falsas. O consumidor de oclusao e DETC-02, na
+Fase 4, e ha tripwire de arquitetura em `tests/test_mercado_27x.py`.
 """
 
 from __future__ import annotations
@@ -56,6 +82,76 @@ from .mercado_visao import RastreioDoPainel, cabecalho_de_calibracao
 
 log = logging.getLogger(__name__)
 
+# TRES janelas consecutivas bit-identicas sao captura congelada (D-19).
+#
+# POR QUE TRES E NAO DUAS: duas janelas iguais acontecem de verdade quando nada
+# se mexe atras do painel por um tick — o jogo pausado no alt-tab, por exemplo.
+# Tres seguidas a 1 Hz sao tres segundos de tela literalmente identica, incluindo
+# o mundo do jogo, e isso nao e um estado que um cliente vivo produz.
+JANELAS_IGUAIS_PARA_CONGELAR = 3
+
+
+def tupla_comparavel(linha: LinhaLida) -> tuple:
+    """O que de uma linha entra na comparacao entre dois frames (D-18).
+
+    A chave da serie, o total em centesimos e a quantidade — NUNCA pixels, ja
+    travado por LEIT-03.
+
+    O `nome_exibido` fica de FORA porque o OCR pode oscilar um caractere sem
+    mudar a serie, e a serie e o que a Fase 3 grava. O `serie_nova` fica de fora
+    porque ele e verdadeiro no primeiro frame e falso no segundo POR
+    CONSTRUCAO: inclui-lo tornaria o acordo IMPOSSIVEL. O
+    `residuo_do_cruzamento` fica de fora porque ele e OBSERVACAO da Fase 2 sobre
+    a propria leitura, e nao dado da linha — dois frames podem discordar nele
+    sem discordar do que a tela diz.
+
+    O INDICE tambem fica de fora, e por um motivo diferente dos outros: ele nao
+    e conteudo, e ENDERECO. Ele e a chave pela qual as duas leituras se alinham,
+    e por isso vive fora da tupla que se compara.
+    """
+    return (
+        linha.chave_da_serie,
+        linha.total_em_centesimos,
+        linha.quantidade,
+    )
+
+
+def posicoes_comparaveis(
+    anterior: "LeituraDaPagina", atual: "LeituraDaPagina"
+) -> list[int]:
+    """As posicoes aceitas em AMBOS os frames, em ordem. A leitura fiel de D-15.
+
+    A linha DESCARTADA num dos frames fica FORA da comparacao e nao conta como
+    desacordo. Quando a linha 3 cai no frame A e passa no frame B, as duas
+    listas tem TAMANHOS diferentes — e comparar as listas inteiras faria uma
+    tooltip passageira impedir para sempre o acordo de uma pagina parada.
+
+    E a INTERSECAO, e nunca a uniao: uma posicao que so um dos frames leu nao
+    tem contra o que ser conferida, e conta-la seria contar uma leitura unica
+    como se duas a tivessem confirmado.
+    """
+    de_antes = {linha.indice for linha in anterior.linhas}
+    de_agora = {linha.indice for linha in atual.linhas}
+    return sorted(de_antes & de_agora)
+
+
+def paginas_concordam(
+    anterior: "LeituraDaPagina", atual: "LeituraDaPagina"
+) -> bool:
+    """As duas leituras dizem o MESMO nas posicoes aceitas em ambas?
+
+    Ela NAO julga se ha material suficiente — esse e o piso de
+    `mercado_minimo_de_linhas_comparadas`, e ele mora no chamador de proposito.
+    Misturar os dois aqui faria "concordam" devolver False para uma pagina que
+    concorda de verdade mas em poucas linhas, e o motivo da recusa se perderia.
+    """
+    de_antes = {linha.indice: tupla_comparavel(linha) for linha in anterior.linhas}
+    de_agora = {linha.indice: tupla_comparavel(linha) for linha in atual.linhas}
+    return all(
+        de_antes[indice] == de_agora[indice]
+        for indice in posicoes_comparaveis(anterior, atual)
+    )
+
 
 @dataclass(frozen=True)
 class LeituraDaPagina:
@@ -72,24 +168,14 @@ class LeituraDaPagina:
     motivos: tuple[str, ...] = ()
     vazias: tuple[int, ...] = ()
 
-    def assinatura(self) -> tuple:
-        """A TUPLA PARSEADA que o estabilizador compara entre dois frames.
+    def inteiramente_vazia(self) -> bool:
+        """Nenhuma linha lida E nenhuma descartada: a pagina nao tinha conteudo.
 
-        So o que foi LIDO entra: indice, chave da serie, total e quantidade. O
-        `nome_exibido` fica de fora porque o OCR pode oscilar um caractere sem
-        mudar a serie — e a serie e o que a Fase 3 grava. O `serie_nova` fica de
-        fora porque ele e verdadeiro no primeiro frame e falso no segundo POR
-        CONSTRUCAO: inclui-lo tornaria o acordo impossivel.
+        Ela nao e aceita e NAO conta como perda — nao houve o que perder. Uma
+        pagina com zero lidas mas com descartes e outra coisa: ali havia
+        conteudo e uma peneira o pegou, e isso E perda.
         """
-        return tuple(
-            (
-                linha.indice,
-                linha.chave_da_serie,
-                linha.total_em_centesimos,
-                linha.quantidade,
-            )
-            for linha in self.linhas
-        )
+        return not self.linhas and not self.descartadas
 
 
 @dataclass(frozen=True)
@@ -194,10 +280,45 @@ class LeitorDePagina:
             )
             self._molde_do_cabecalho = None
 
-        self._anterior: tuple | None = None
+        # O PISO DE POSICOES COMPARADAS (T-02-26). Ele NAO se escolhe aqui: foi
+        # MEDIDO pela varredura de oclusao do 02-02 sobre a MESMA grandeza que
+        # esta comparacao julga — o tamanho da INTERSECAO entre as posicoes
+        # sobreviventes de dois frames vizinhos, e nao a contagem por frame
+        # isolado (essa superestimaria, porque a intersecao e sempre menor ou
+        # igual ao minimo dos dois).
+        #
+        # Chave nula DESLIGA a leitura, e por isso ela entra em `_calibrado`.
+        # Um piso ausente valeria ZERO, e zero e o acordo trivial de volta:
+        # duas paginas em que tudo foi descartado "concordam" por falta de
+        # material.
+        self._minimo_comparado = cal.mercado_minimo_de_linhas_comparadas
+
+        self._anterior: LeituraDaPagina | None = None
         self._ultima_leitura: LeituraDaPagina | None = None
         self._layout_ja_recusado = False
         self._falta_ja_avisada = False
+
+        # A JANELA ANTERIOR e a corrida de iguais, para o congelamento.
+        # Guardamos UM frame e um contador — e por isso `np.array_equal` (0,89
+        # ms medido) basta e sha256 (3,70 ms) ou blake2b (6,81 ms) so custariam
+        # de 4 a 15 vezes mais sem comprar nada. Hash paga por lembrar de
+        # MUITOS frames; a regra aqui pede lembrar de UM.
+        self._janela_anterior: np.ndarray | None = None
+        self._janelas_iguais_seguidas = 0
+        self._congelamento_ja_avisado = False
+
+        # OS CONTADORES PUBLICOS, no padrao de `RastreioDoPainel.varreduras`:
+        # eles deixam o teste afirmar comportamento sem relogio, e sao a
+        # superficie que LEIT-04 (Fase 4) vai exibir como "li 7, perdi 3".
+        # ESTA FASE PRODUZ O NUMERO E NAO DESENHA CONSOLE.
+        self.paginas_lidas = 0
+        self.paginas_perdidas = 0
+        self.paginas_vazias = 0
+        self.paginas_de_outro_layout = 0
+        self.ticks_com_painel_aberto = 0
+        self.frames_congelados = 0
+        self.linhas_descartadas = 0
+        self.ultimo_motivo_de_perda: str | None = None
 
     @property
     def ultima_leitura(self) -> LeituraDaPagina | None:
@@ -211,10 +332,30 @@ class LeitorDePagina:
         return self._ultima_leitura
 
     def observar(self, janela: np.ndarray) -> PaginaAceita | None:
-        """Um tick. `None` enquanto nao houver DOIS frames concordando."""
+        """Um tick. `None` enquanto nao houver DOIS frames concordando.
+
+        A ORDEM DOS PORTOES E O DESENHO:
+
+        1. calibrado?           nao -> feature OFF, com aviso
+        2. captura congelada?   sim -> aviso alto, nenhuma pagina
+        3. painel aberto?       nao -> nada (e a memoria do anterior morre)
+        4. layout calibrado?    nao -> recusa alta, nenhuma linha lida
+        5. le a pagina, e so entao compara com o frame anterior
+
+        O CONGELAMENTO VEM ANTES DA BUSCA DO PAINEL de proposito: captura
+        congelada e propriedade da CAPTURA, e nao da pagina. Procurar o painel
+        num frame que sabemos ser repetido gastaria a varredura e — pior —
+        produziria um voto "aberto" perfeitamente convincente sobre pixels
+        mortos.
+        """
         self._ultima_leitura = None
 
         if not self._calibrado():
+            self._anterior = None
+            self._esquecer_a_janela()
+            return None
+
+        if self._captura_congelada(janela):
             self._anterior = None
             return None
 
@@ -226,25 +367,131 @@ class LeitorDePagina:
             self._anterior = None
             return None
 
+        self.ticks_com_painel_aberto += 1
+
         origem = self._rastreio.origem
         if not self._layout_confere(janela, origem):
+            self.paginas_de_outro_layout += 1
             self._anterior = None
             return None
 
         leitura = self._ler_a_pagina(janela, origem)
         self._ultima_leitura = leitura
+        self.linhas_descartadas += len(leitura.descartadas)
 
-        assinatura = leitura.assinatura()
-        anterior, self._anterior = self._anterior, assinatura
-        if not assinatura or anterior != assinatura:
+        anterior, self._anterior = self._anterior, leitura
+
+        if leitura.inteiramente_vazia():
+            # Nao ha o que perder: a pagina nao tinha conteudo. Ela nao e aceita
+            # e nao conta como perda — contar aqui faria o fim de uma pagina
+            # curta parecer falha de leitura.
+            self.paginas_vazias += 1
+            return None
+
+        motivo = self._por_que_nao_aceitar(anterior, leitura)
+        if motivo is not None:
+            self.paginas_perdidas += 1
+            self.ultimo_motivo_de_perda = motivo
+            log.debug("pagina PERDIDA: %s", motivo)
             return None
 
         self._gravar_no_catalogo(leitura.linhas)
+        self.paginas_lidas += 1
         return PaginaAceita(
             linhas=leitura.linhas,
             descartadas=leitura.descartadas,
             motivos=leitura.motivos,
         )
+
+    # -- o congelamento de captura -----------------------------------------
+
+    def _captura_congelada(self, janela: np.ndarray) -> bool:
+        """Tres janelas consecutivas bit-identicas (D-19).
+
+        `np.array_equal` responde False para formas diferentes sem levantar,
+        o que importa de verdade: o usuario redimensiona a janela do jogo e o
+        tick seguinte chega com outra forma. Um `==` elemento a elemento
+        levantaria aqui dentro, no meio do tick.
+        """
+        anterior = self._janela_anterior
+        # A JANELA E GUARDADA POR COPIA, e isso nao e zelo: um backend de
+        # captura que REUSE o proprio buffer entre frames faria a comparacao dar
+        # sempre igual se guardassemos a referencia — um congelamento eterno
+        # sobre uma captura perfeitamente viva, que e o falso positivo exato que
+        # este detector existe para nao produzir, invertido. O custo e um
+        # memcpy de ~7,2 MB, o mesmo que ja se paga para capturar.
+        self._janela_anterior = janela.copy()
+
+        if anterior is not None and np.array_equal(anterior, janela):
+            self._janelas_iguais_seguidas += 1
+        else:
+            self._janelas_iguais_seguidas = 1
+            if self._congelamento_ja_avisado:
+                log.warning(
+                    "A captura VOLTOU a mudar — a leitura de mercado "
+                    "recomecou."
+                )
+            self._congelamento_ja_avisado = False
+
+        if self._janelas_iguais_seguidas < JANELAS_IGUAIS_PARA_CONGELAR:
+            return False
+
+        self.frames_congelados += 1
+        if not self._congelamento_ja_avisado:
+            # LATCH, igual ao portao de layout: congelamento e um ESTADO, e nao
+            # um evento. Uma linha de log por tick, para sempre, nao acrescenta
+            # forense nenhuma — so afoga o resto do log.
+            log.warning(
+                "CAPTURA CONGELADA: %d janelas consecutivas bit-identicas. "
+                "Nenhuma pagina do mercado sera aceita ate a janela mudar. A "
+                "comparacao e sobre a JANELA INTEIRA e nao sobre a grade — "
+                "medido, o painel e bit-estavel e grade parada e o caso NORMAL "
+                "de uma pagina que ninguem rolou; o que se mexe e o mundo atras "
+                "do painel. Se o jogo esta vivo na tela e esta mensagem "
+                "persiste, quem parou foi a captura.",
+                self._janelas_iguais_seguidas,
+            )
+        self._congelamento_ja_avisado = True
+        return True
+
+    def _esquecer_a_janela(self) -> None:
+        self._janela_anterior = None
+        self._janelas_iguais_seguidas = 0
+
+    # -- o acordo entre dois frames ----------------------------------------
+
+    def _por_que_nao_aceitar(
+        self, anterior: LeituraDaPagina | None, atual: LeituraDaPagina
+    ) -> str | None:
+        """`None` quando a pagina pode ser aceita; o motivo quando nao.
+
+        Devolver o MOTIVO em vez de um booleano e o que permite ao console da
+        Fase 4 dizer por que perdeu, e ao log guardar forense do que aconteceu
+        naquele tick. "Perdi 3" sem motivo e indistinguivel de um bug.
+        """
+        if anterior is None:
+            return (
+                "primeiro frame com esta pagina: nao ha leitura anterior para "
+                "comparar. Um frame sozinho nunca vira pagina aceita (LEIT-03)"
+            )
+
+        posicoes = posicoes_comparaveis(anterior, atual)
+        minimo = int(self._minimo_comparado)
+        if len(posicoes) < minimo:
+            return (
+                f"so {len(posicoes)} posicoes foram aceitas nos DOIS frames, "
+                f"abaixo do minimo de {minimo} "
+                f"(mercado_minimo_de_linhas_comparadas). Aceitar aqui seria o "
+                f"acordo trivial: poucas linhas concordando sobre uma pagina "
+                f"praticamente nao lida"
+            )
+
+        if not paginas_concordam(anterior, atual):
+            return (
+                f"os dois frames DISCORDAM em pelo menos uma das {len(posicoes)} "
+                f"posicoes comparadas. O frame novo vira a nova referencia"
+            )
+        return None
 
     # -- o portao de layout ------------------------------------------------
 
@@ -481,6 +728,16 @@ class LeitorDePagina:
                 (
                     "mercado_limiar_de_brilho_da_quantidade",
                     self._valor_minimo_da_quantidade,
+                ),
+                # A DECIMA PRIMEIRA, do 02-05: o piso de posicoes comparadas.
+                # Ela ENTRA aqui, ao contrario da folga de cola, porque a
+                # ausencia dela NAO degrada para mais seguro — degrada para o
+                # ACORDO TRIVIAL (T-02-26), que aceita como lida uma pagina em
+                # que quase nada atravessou. Feature OFF e o unico default
+                # seguro para uma chave assim.
+                (
+                    "mercado_minimo_de_linhas_comparadas",
+                    self._minimo_comparado,
                 ),
             )
             if valor is None or (hasattr(valor, "__len__") and len(valor) == 0)

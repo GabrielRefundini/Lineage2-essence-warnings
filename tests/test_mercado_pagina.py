@@ -714,37 +714,68 @@ class TestOMinimoDePosicoesComparadas:
         assert barata.chamadas == conferencia.chamadas == 0
         assert "mercado_minimo_de_linhas_comparadas" in caplog.text
 
-    def test_um_piso_ALTO_DEMAIS_recusa_a_pagina_que_de_outro_modo_passaria(
+    def test_a_pagina_QUASE_TODA_COBERTA_e_recusada_pelo_piso_GRAVADO(
         self, cal
     ) -> None:
-        """O ramo e DERIVADO: a mesma pagina, so o piso muda.
+        """O caso vivo, com o piso que a maquina do usuario tem de verdade.
 
-        Nenhum numero e escolhido pelo teste — ele compara o valor gravado com
-        um piso maior que a pagina inteira e cobra a diferenca de veredito.
+        A janela de tooltip le 2 linhas e descarta 8. Duas leituras dela
+        concordam TRIVIALMENTE nas 2 posicoes que sobraram — e e exatamente
+        essa a pagina que T-02-26 descreve: praticamente nao lida, e "acordada"
+        por falta de material. O piso gravado (7) a recusa.
+
+        Nenhum numero e escolhido aqui: o piso vem da fixtura, que e copia
+        verbatim da producao, e a contagem de linhas vem da propria leitura.
         """
         leitor, _b, _c = montar_leitor(cal)
-        assert leitor.observar(ler_fixtura(JANELA_F005)) is None
-        assert leitor.observar(ler_fixtura(JANELA_F005_REPETIDA)) is not None
+        janela = ler_fixtura(JANELA_TOOLTIP)
+        leitor.observar(janela)
+        aceitas_em_ambos = len(leitor.ultima_leitura.linhas)
+        assert aceitas_em_ambos < int(cal.mercado_minimo_de_linhas_comparadas)
 
-        exigente = copy.deepcopy(cal)
-        exigente.mercado_minimo_de_linhas_comparadas = int(
-            cal.mercado_grade["linhas_por_pagina"]
+        assert leitor.observar(janela.copy()) is None
+        assert leitor.paginas_perdidas >= 1
+
+    def test_o_MESMO_par_passa_quando_o_piso_cabe_nele(self, cal) -> None:
+        """O ramo e DERIVADO: a mesma pagina, so o piso muda.
+
+        Sem este par, o teste acima seria compativel com "a pagina de tooltip
+        nunca e aceita por outro motivo qualquer".
+        """
+        frouxa = copy.deepcopy(cal)
+        janela = ler_fixtura(JANELA_TOOLTIP)
+
+        leitor, _b, _c = montar_leitor(cal)
+        leitor.observar(janela)
+        frouxa.mercado_minimo_de_linhas_comparadas = len(
+            leitor.ultima_leitura.linhas
         )
-        duro, _b, _c = montar_leitor(exigente)
-        duro.observar(ler_fixtura(JANELA_F005))
-        assert duro.observar(ler_fixtura(JANELA_F005_REPETIDA)) is None
-        assert duro.paginas_perdidas >= 1
+
+        solto, _b, _c = montar_leitor(frouxa)
+        solto.observar(janela)
+        assert solto.observar(janela.copy()) is not None
+        assert solto.paginas_lidas == 1
 
     def test_a_pagina_recusada_pelo_minimo_reporta_o_MOTIVO(self, cal) -> None:
-        exigente = copy.deepcopy(cal)
-        exigente.mercado_minimo_de_linhas_comparadas = int(
-            cal.mercado_grade["linhas_por_pagina"]
-        )
-        leitor, _b, _c = montar_leitor(exigente)
-        leitor.observar(ler_fixtura(JANELA_F005))
-        leitor.observar(ler_fixtura(JANELA_F005_REPETIDA))
+        leitor, _b, _c = montar_leitor(cal)
+        janela = ler_fixtura(JANELA_TOOLTIP)
+        leitor.observar(janela)
+        leitor.observar(janela.copy())
         assert leitor.ultimo_motivo_de_perda is not None
         assert "minimo" in leitor.ultimo_motivo_de_perda.lower()
+        assert "mercado_minimo_de_linhas_comparadas" in (
+            leitor.ultimo_motivo_de_perda
+        )
+
+    def test_a_pagina_INTEIRAMENTE_VAZIA_nao_e_lida_nem_perdida(self) -> None:
+        """Nao houve o que perder. Predicado puro, sem pixels.
+
+        Uma pagina com ZERO lidas mas COM descartes e outra coisa: ali havia
+        conteudo e uma peneira o pegou, e isso E perda.
+        """
+        assert _leitura_falsa({}).inteiramente_vazia() is True
+        assert _leitura_falsa({}, descartadas=(0,)).inteiramente_vazia() is False
+        assert _leitura_falsa({0: (1, 1)}).inteiramente_vazia() is False
 
     def test_o_piso_da_fixtura_e_copia_VERBATIM_da_producao(self, cal) -> None:
         valor = cal.mercado_minimo_de_linhas_comparadas
