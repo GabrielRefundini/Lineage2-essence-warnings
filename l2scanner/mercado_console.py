@@ -36,6 +36,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
+from fractions import Fraction
 
 from . import console
 
@@ -145,6 +146,72 @@ def linha_ao_vivo(leitor, contagem, ultimo_item) -> str:
         f"gravadas {contagem.observacoes} | "
         f"ultimo item: {ultimo_item if ultimo_item else '(nenhum ainda)'}"
     )
+
+
+# ---------------------------------------------------------------------------
+# OS NUMEROS, ESCRITOS DE UM JEITO SO
+# ---------------------------------------------------------------------------
+
+
+def formatar_centesimos(centesimos: int) -> str:
+    """Centesimos inteiros -> `1.480,00`, no formato que o jogo mostra.
+
+    O CSV guarda INTEIRO em centesimos de proposito (Fase 3): ponto flutuante
+    para dinheiro e a fonte classica de um centavo que aparece do nada. A
+    conversao para virgula acontece SO aqui, na formatacao, e nunca antes de
+    comparar.
+    """
+    inteiro, resto = divmod(int(centesimos), 100)
+    return f"{inteiro:,}".replace(",", ".") + f",{resto:02d}"
+
+
+def formatar_unitario_derivado(unitario: Fraction) -> str:
+    """O unitario com a MARCA DE DERIVADO colada, e o arredondamento so aqui.
+
+    ELE NAO ESTA NO CSV, E ISSO E DECISAO (D-02): o que o jogo exibe e derivacao
+    ARREDONDADA a duas casas, e reconstruir o total a partir dela devolve um
+    numero que nunca existiu na tela - medido, `40,00` por 48 unidades aparece
+    como `0,83`, e `0,83 x 48 = 39,84`. A Fase 3 guarda o que a tela AFIRMA.
+
+    A MARCA `(derivado)` NO TEXTO E O QUE IMPEDE ALGUEM DE TRATA-LO COMO DADO
+    GRAVADO. Sem ela, alguem copia a linha para o WhatsApp e o numero derivado
+    vira "o que o scanner leu", que e falso.
+
+    O arredondamento acontece SO nesta funcao, sobre a `Fraction` exata: a
+    comparacao entre ofertas ja aconteceu, e ela aconteceu sem perder um bit.
+    """
+    return f"{formatar_centesimos(round(unitario))} por unidade (derivado)"
+
+
+def destaque_ao_vivo(nome: str, destaque, agora: datetime) -> str:
+    """O bloco que aparece NA HORA quando uma leitura entra abaixo da mediana.
+
+    ANAL-02, e ele so existe acima do piso da mediana - quem decide isso e
+    `ModeloDeMercado.veredito_do_destaque`, que devolve `sem destaque` quando
+    nao ha mediana que sustente um veredito. Esta funcao so desenha o que ja foi
+    julgado.
+
+    A MEDIANA DE REFERENCIA E O `n` VEM JUNTO, e nao como enfeite: "esta barata"
+    sem dizer barata EM RELACAO A QUE e uma opiniao com cara de medicao, e o
+    usuario nao teria como discordar. Com os dois numeros na tela ele discorda
+    em um segundo.
+
+    `console.moldurar` E NAO UMA REGUA DE CARACTERES MONTADA A MAO: a geometria
+    da moldura ja e uma so no projeto, e um bloco desalinhado ao lado dos
+    outros pareceria outro programa.
+
+    `agora` ENTRA POR PARAMETRO e vem do `Relogio`, nunca de `datetime.now()`:
+    num dual boot a hora crua do Windows esta errada, e o `Relogio` existe
+    exatamente para corrigir isso.
+    """
+    linha = (
+        f"{nome} ABAIXO DA MEDIANA: "
+        f"{formatar_unitario_derivado(destaque.unitario_da_linha)}, "
+        f"contra mediana de "
+        f"{formatar_unitario_derivado(destaque.mediana_de_referencia)} "
+        f"com n={destaque.evidencia.n}"
+    )
+    return "\n" + console.moldurar(linha, agora.strftime("%H:%M"))
 
 
 def transicao_do_painel(aberto: bool) -> str:

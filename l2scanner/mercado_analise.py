@@ -79,6 +79,10 @@ if TYPE_CHECKING:  # pragma: no cover - so o verificador de tipos passa aqui
     from .mercado_registro import ObservacaoLida
 
 __all__ = [
+    "ABAIXO_DA_MEDIANA",
+    "ACIMA_DA_MEDIANA",
+    "SEM_DESTAQUE",
+    "Destaque",
     "Evidencia",
     "MedianaDosUnitarios",
     "MenorPedidoVisivel",
@@ -483,6 +487,41 @@ def descrever_a_tendencia(resultado: Tendencia) -> str:
 
 
 # ===========================================================================
+# O DESTAQUE DA LINHA LIDA AGORA (ANAL-02)
+# ===========================================================================
+
+# OS TRES ESTADOS SAO TRES, E NAO DOIS MAIS `None`. "Sem destaque" nao e a
+# ausencia de resposta: e a resposta "nao ha mediana que sustente um veredito
+# sobre esta serie". Um `None` mudo obrigaria quem desenha a adivinhar se o
+# item era caro, barato ou desconhecido — e as tres coisas se escrevem
+# diferente na tela.
+ABAIXO_DA_MEDIANA = "abaixo da mediana"
+ACIMA_DA_MEDIANA = "acima da mediana"
+SEM_DESTAQUE = "sem destaque"
+
+
+@dataclass(frozen=True)
+class Destaque:
+    """O veredito sobre a linha lida AGORA, contra a historia de ANTES dela.
+
+    `mediana_de_referencia` viaja JUNTO do veredito de proposito: sem ela o
+    console diria "esta barata" sem dizer barata em relacao a que, e o usuario
+    nao teria como discordar. E ela e a mediana de ANTES deste tick — ver
+    `ModeloDeMercado.veredito_do_destaque`.
+    """
+
+    estado: str
+    unitario_da_linha: Fraction | None
+    mediana_de_referencia: Fraction | None
+    evidencia: Evidencia
+
+    @property
+    def abaixo(self) -> bool:
+        """O unico estado que o console pinta. Os outros dois so passam."""
+        return self.estado == ABAIXO_DA_MEDIANA
+
+
+# ===========================================================================
 # O MODELO EM MEMORIA — a historia agrupada por serie
 # ===========================================================================
 
@@ -560,6 +599,67 @@ class ModeloDeMercado:
         """
         self._por_serie.setdefault(observacao.chave_da_serie, []).append(
             observacao
+        )
+
+    def veredito_do_destaque(self, linha) -> Destaque:
+        """A linha lida AGORA contra a mediana da serie COMO ELA ESTA. ANAL-02.
+
+        **A MEDIANA E A DE ANTES DESTE TICK, E ESSA E A REGRA INTEIRA.** Quem
+        chama tem de perguntar aqui ANTES de gravar a linha e ANTES de chamar
+        `acrescentar`. Se as linhas do tick ja tiverem entrado no modelo, o item
+        se compara consigo mesmo: uma oferta muito barata puxa a propria mediana
+        para baixo e o destaque encolhe ate virar ruido. A ordem esta fixada e
+        comentada no laco (`mercado_modo.laco_do_mercado`), porque e o tipo de
+        ordem que um refactor futuro desfaz sem perceber.
+
+        **ABAIXO DO PISO DA MEDIANA O VEREDITO E `SEM_DESTAQUE`**, e nao
+        "acima" nem "abaixo". Destacar contra uma mediana de duas observacoes
+        seria pintar de vermelho um numero inventado — a mesma objecao que faz
+        `mediana_dos_unitarios` devolver o que FALTA em vez de um numero.
+
+        **EMPATE NAO E DESTAQUE.** `unitario == mediana` sai como
+        `ACIMA_DA_MEDIANA`, porque o que o ANAL-02 promete e "abaixo da mediana
+        historica" e um empate nao esta abaixo de nada.
+
+        `linha` e lida POR NOME (`chave_da_serie`, `total_em_centesimos`,
+        `quantidade`), no molde do resto do modulo: serve tanto a `LinhaLida` da
+        Fase 2 quanto a `ObservacaoLida` da Fase 3, e o modulo continua sem
+        arrastar a cadeia de visao.
+
+        QUANTIDADE NAO POSITIVA SAI SEM DESTAQUE, e nao levanta. A grade e
+        leitura de TELA: `quantidade=0` e leitura possivel, e um
+        `ZeroDivisionError` aqui derrubaria o modo no meio do farm por causa de
+        uma celula mal lida.
+        """
+        observacoes = self._por_serie.get(linha.chave_da_serie, ())
+        mediana = mediana_dos_unitarios(observacoes)
+        if mediana.unitario is None:
+            return Destaque(
+                estado=SEM_DESTAQUE,
+                unitario_da_linha=None,
+                mediana_de_referencia=None,
+                evidencia=mediana.evidencia,
+            )
+
+        try:
+            desta_linha = unitario(linha.total_em_centesimos, linha.quantidade)
+        except ValueError:
+            return Destaque(
+                estado=SEM_DESTAQUE,
+                unitario_da_linha=None,
+                mediana_de_referencia=mediana.unitario,
+                evidencia=mediana.evidencia,
+            )
+
+        return Destaque(
+            estado=(
+                ABAIXO_DA_MEDIANA
+                if desta_linha < mediana.unitario
+                else ACIMA_DA_MEDIANA
+            ),
+            unitario_da_linha=desta_linha,
+            mediana_de_referencia=mediana.unitario,
+            evidencia=mediana.evidencia,
         )
 
 

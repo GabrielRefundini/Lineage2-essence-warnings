@@ -60,11 +60,13 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 
-from . import ocr
+from . import mercado_registro, ocr
 from .frames import Regiao
+from .mercado_analise import ModeloDeMercado
 from .mercado_console import (
     OrcamentoDoTick,
     acumular_motivos,
+    destaque_ao_vivo,
     linha_ao_vivo,
     resumo_da_sessao,
     transicao_do_painel,
@@ -307,6 +309,38 @@ def laco_do_mercado(
             ]
         )
 
+    # A CARGA DO MODELO E UNICA, E ACONTECE AQUI, NO ARRANQUE.
+    #
+    # NAO RELEIA O CSV A 1 Hz. Duas razoes, e a segunda e a grave: releitura por
+    # tick seria trabalho puro sobre milhares de linhas, e abriria CORRIDA com o
+    # usuario editando o arquivo no Sheets no meio da sessao - o `.mercado/` e
+    # feito para ele abrir. O contrato do arquivo ja e "lido no arranque"
+    # (`RegistroDeObservacoes.carregar` monta o indice de dedup uma vez, e so);
+    # a analise segue o MESMO contrato, e a partir daqui a historia cresce por
+    # `acrescentar`, uma observacao aceita de cada vez.
+    #
+    # A CHAMADA E PELO MODULO (`mercado_registro.observacoes_do_arquivo`) e nao
+    # por um nome importado: e o que permite ao teste envolver a funcao num
+    # contador e AFIRMAR "uma vez", em vez de confiar na leitura do fonte.
+    try:
+        modelo = ModeloDeMercado.de_observacoes(
+            mercado_registro.observacoes_do_arquivo(registro.arquivo)
+        )
+    except (mercado_registro.ContratoDoArquivoQuebrado, OSError) as erro:
+        # DEGRADA A ANALISE, E NAO O MODO. Aqui, ao contrario dos portoes de
+        # arranque acima, a montagem que falha degrada - e a assimetria e
+        # deliberada. O produto do modo e COLETAR; a analise e uma LEITURA do
+        # que ja foi coletado, e recusar a subir por causa dela desligaria a
+        # coleta por causa da vista. As duas mensagens seguem o padrao da casa:
+        # o que quebrou, e o que continua funcionando.
+        log.error("Nao consegui ler o historico para a analise: %s", erro)
+        log.error(
+            "A COLETA CONTINUA NORMAL - o modo segue gravando em %s. O que "
+            "fica de fora e so a secao de analise do console.",
+            registro.arquivo,
+        )
+        modelo = ModeloDeMercado.de_observacoes([])
+
     if relogio is None:
         relogio = principal.montar_relogio(args)
 
@@ -408,15 +442,68 @@ def laco_do_mercado(
                 agora = relogio.agora()
                 for linha in pagina.linhas:
                     contagem.series.add(linha.chave_da_serie)
-                    # O CATALOGO PRIMEIRO, e a ordem nao e arbitraria: a Fase 3
-                    # LE a chave que a Fase 2 produziu, e uma observacao gravada
-                    # sobre uma chave que nao esta no catalogo e uma linha do CSV
-                    # que ninguem consegue nomear depois.
+
+                    # ---------------------------------------------------------
+                    # PASSO 1 - O DESTAQUE, CONTRA O MODELO COMO ELE ESTA.
+                    #
+                    # ESTA CHAMADA VEM ANTES DE QUALQUER ESCRITA, E A ORDEM E O
+                    # CORACAO DO ANAL-02. Se as linhas deste tick ja tiverem
+                    # entrado no modelo, o item se compara CONSIGO MESMO: uma
+                    # oferta muito barata puxa a propria mediana para baixo, o
+                    # veredito encolhe, e o destaque vira ruido - exatamente a
+                    # informacao que o requisito existe para dar.
+                    #
+                    # E o tipo de ordem que um refactor futuro desfaz sem
+                    # perceber ("por que julgar antes de gravar?"), e por isso a
+                    # razao esta escrita aqui e nao so no teste.
+                    # ---------------------------------------------------------
+                    destaque = modelo.veredito_do_destaque(linha)
+                    if destaque.abaixo:
+                        # SO O `abaixo` SAI NO LOG. "Acima da mediana" e o caso
+                        # comum e imprimi-lo afogaria o unico que o usuario quer
+                        # ver; "sem destaque" nao e um fato sobre o preco, e sim
+                        # sobre a evidencia, e ele ja aparece na secao de
+                        # analise com o que FALTA escrito por extenso.
+                        log.info(
+                            "%s",
+                            destaque_ao_vivo(
+                                linha.nome_exibido, destaque, agora
+                            ),
+                        )
+
+                    # PASSO 2 - O CATALOGO. A ordem contra o registro nao e
+                    # arbitraria: a Fase 3 LE a chave que a Fase 2 produziu, e
+                    # uma observacao gravada sobre uma chave que nao esta no
+                    # catalogo e uma linha do CSV que ninguem consegue nomear
+                    # depois.
                     catalogo.registrar(
                         linha.chave_da_serie, linha.nome_exibido, agora
                     )
+
+                    # PASSO 3 - O REGISTRO, e PASSO 4 - o modelo, SO quando o
+                    # passo 3 devolveu `True`. `registrar` devolve `False` para
+                    # duplicada E para registro desligado; acrescentar fora
+                    # desse portao faria a mesma oferta contar duas vezes no
+                    # `n`, e o `n` e o numero que esta fase existe para nao
+                    # mentir.
                     if registro.registrar(linha, agora):
                         contagem.observacoes += 1
+                        # A observacao montada AQUI e campo a campo a mesma que
+                        # `campos_da_observacao` acabou de escrever no CSV, com
+                        # o MESMO `agora`: a historia em memoria e o arquivo
+                        # concordam por construcao, e nao por coincidencia.
+                        modelo.acrescentar(
+                            mercado_registro.ObservacaoLida(
+                                chave_da_serie=linha.chave_da_serie,
+                                nome_exibido=linha.nome_exibido,
+                                primeira_vez=agora,
+                                total_em_centesimos=linha.total_em_centesimos,
+                                quantidade=linha.quantidade,
+                                residuo_do_cruzamento=(
+                                    linha.residuo_do_cruzamento
+                                ),
+                            )
+                        )
                     elif registro.ligado:
                         contagem.duplicadas += 1
                     else:
