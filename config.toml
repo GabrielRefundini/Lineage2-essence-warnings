@@ -300,11 +300,12 @@ simulacao = true
 # quem as usa e a Fase 2, que vai prever a janela do proximo nascimento.
 # Estao aqui agora para voce nao ter que editar este arquivo duas vezes.
 #
-# A regra do servidor para o Tiat HOJE: 6 horas fixas, mais 0 a 4 horas
+# A regra do servidor para o Tiat: 8 horas fixas, mais 0 a 2 horas
 # aleatorias, contadas a partir da MORTE.
 #
-# O servidor ANUNCIOU a mudanca para 8 horas fixas, mas ela SO ENTRA no
-# proximo reset/manutencao. Ate la, 8 aqui e um numero que ainda nao existe.
+# EM VIGOR desde a manutencao de 31/08/2026, confirmada pelo usuario. Antes
+# dela eram 6 horas fixas mais ate 4 aleatorias, e os intervalos medidos
+# naquele regime foram 6.13h, 7.83h, 8.08h e 8.10h.
 #
 # MEDIDO EM CAMPO EM 31/08, e por isso este comentario existe: com 8 aqui, o
 # scanner ficou MUDO em dois nascimentos de verdade. A janela anti-repeticao
@@ -314,20 +315,22 @@ simulacao = true
 # podia ser 8, porque a conta parte da MORTE e a morte vem depois do
 # nascimento, entao nascimento-a-nascimento nunca fica abaixo do minimo.
 #
-# Quando a mudanca entrar, troque os dois `respawn_horas_min` para 8 e
-# CONFIRA os intervalos de novo antes de confiar.
+# CONFIRA os intervalos medidos depois de alguns nascimentos no regime novo:
+# se aparecer um intervalo nascimento-a-nascimento MENOR que 8 horas, entao o
+# minimo real nao e 8, e este numero esta errado de novo. Foi assim que o
+# valor anterior foi desmascarado.
 #
 # SEM NENHUM BLOCO, o scanner sobe normalmente e so avisa no console que a
 # vigilancia de boss esta desligada.
 
 [[boss]]
 nome = "Tiat North"
-respawn_horas_min = 6
+respawn_horas_min = 8
 respawn_horas_max = 10
 
 [[boss]]
 nome = "Tiat South"
-respawn_horas_min = 6
+respawn_horas_min = 8
 respawn_horas_max = 10
 
 # ---------------------------------------------------------------------------
