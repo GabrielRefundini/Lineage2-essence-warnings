@@ -686,6 +686,27 @@ class LeitorDePagina:
         motivos: list[str] = []
         vazias: list[int] = []
 
+        # O CATALOGO PROVISORIO DA PAGINA. Uma pagina de mercado tem VARIAS
+        # ofertas do mesmo item, e sem esta copia a serie que a linha 0 cria e
+        # invisivel para a linha 1 da MESMA passada: `_gravar_no_catalogo` so
+        # roda depois da pagina inteira, e ate la todas as linhas resolveriam
+        # contra o mesmo catalogo antigo. Foi assim que a sessao de 2026-08-31
+        # 17:05 gravou `+4 Hunter's Stockings` e `+4 Hunter's St«kings` como
+        # duas series com `primeira_vez` byte a byte identico — o preco de um
+        # item repartido em duas chaves, e o `n` da mediana pela metade, calado.
+        #
+        # E A MESMA MECANICA QUE `_ler_o_nome` JA USA UM NIVEL ABAIXO (a 3x abre
+        # uma entrada provisoria e a 2x resolve contra ela), levantada para o
+        # nivel da pagina — nao um mecanismo novo.
+        #
+        # A COPIA E O QUE PRESERVA A GARANTIA DE DOIS FRAMES. Mutar
+        # `self._catalogo` aqui seria mais curto e estaria ERRADO: a serie
+        # nasceria de uma pagina que o frame seguinte ainda pode desmentir, e
+        # serie no catalogo e irreversivel para o CSV da Fase 3. A provisoria
+        # morre com a pagina recusada; quem promove continua sendo
+        # `_gravar_no_catalogo`, e so depois do acordo entre os dois frames.
+        catalogo_da_pagina = dict(self._catalogo)
+
         ox, oy = origem
         gx = ox + int(self._grade["dx"])
         gy = oy + int(self._grade["dy"])
@@ -722,7 +743,7 @@ class LeitorDePagina:
                 sonda=self._sonda,
                 limiar_de_dispersao=self._limiar_de_dispersao,
                 tolerancia_do_cruzamento=self._tolerancia_do_cruzamento,
-                catalogo=self._catalogo,
+                catalogo=catalogo_da_pagina,
                 corte_de_similaridade=float(self._corte),
                 piso_de_similaridade=float(self._piso_de_similaridade),
                 ler_texto=self._ler_texto,
@@ -741,6 +762,8 @@ class LeitorDePagina:
                 motivos.append(resultado.motivo)
                 continue
             linhas.append(resultado)
+            # A serie desta linha ja vale para as linhas ABAIXO dela.
+            _acrescentar_serie(catalogo_da_pagina, resultado)
 
         return LeituraDaPagina(
             linhas=tuple(linhas),
@@ -790,13 +813,7 @@ class LeitorDePagina:
         do ponto de vista do CSV que a Fase 3 escreve.
         """
         for linha in linhas:
-            if linha.chave_da_serie in self._catalogo:
-                continue
-            self._catalogo[linha.chave_da_serie] = EntradaDoCatalogo(
-                chave=linha.chave_da_serie,
-                nome=linha.nome_exibido,
-                assinatura=_assinatura_da_chave(linha.chave_da_serie),
-            )
+            _acrescentar_serie(self._catalogo, linha)
 
     # -- o portao de carga -------------------------------------------------
 
@@ -846,3 +863,28 @@ def _assinatura_da_chave(chave: str) -> str:
     """A assinatura de digitos que `chave_da_serie` anexou depois do `#`."""
     _corpo, _sep, assinatura = chave.rpartition("#")
     return assinatura
+
+
+def _acrescentar_serie(
+    catalogo: dict[str, EntradaDoCatalogo], linha: LinhaLida
+) -> None:
+    """A serie desta linha entra no catalogo, se ela ainda nao estiver la.
+
+    ELA E COMPARTILHADA POR DOIS CHAMADORES DE PROPOSITO, e a razao e o defeito
+    que ela conserta: o catalogo PROVISORIO da pagina (`_ler_a_pagina`) e o
+    catalogo do LEITOR (`_gravar_no_catalogo`) tem de acrescentar serie do MESMO
+    jeito. Duas copias parecidas divergiriam — bastaria uma delas passar a
+    derivar a assinatura do nome em vez da chave para as duas discordarem sobre
+    a identidade da mesma linha, e a discordancia so apareceria em producao.
+
+    O `nome_exibido` da PRIMEIRA linha e o que fica: quem chega depois agrupou
+    nela, entao a serie ja tem rotulo. Sobrescrever faria o rotulo depender de
+    qual oferta a grade calhou de listar por ultimo.
+    """
+    if linha.chave_da_serie in catalogo:
+        return
+    catalogo[linha.chave_da_serie] = EntradaDoCatalogo(
+        chave=linha.chave_da_serie,
+        nome=linha.nome_exibido,
+        assinatura=_assinatura_da_chave(linha.chave_da_serie),
+    )

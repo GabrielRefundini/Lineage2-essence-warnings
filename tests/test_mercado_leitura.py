@@ -212,6 +212,42 @@ class LeitoraContadora:
         return self._texto
 
 
+class LeitoraPorLinhaDaPagina:
+    """Uma leitora falsa que responde por INDICE DE LINHA da grade.
+
+    Ela existe porque toda a suite de pagina injeta um nome CONSTANTE para todas
+    as linhas, e com todas as linhas lendo a MESMA string todas derivam a MESMA
+    chave — o que torna ESTRUTURALMENTE invisivel qualquer defeito que separe
+    duas linhas da mesma pagina. Uma pagina de mercado real tem varias ofertas do
+    mesmo item, e e exatamente ai que a serie duplicou na sessao de 17:05.
+
+    O INDICE VEM DA ORDEM DAS CHAMADAS, E NAO DO CONTEUDO DO RECORTE. Derivar do
+    conteudo seria o natural, mas os dois frames da mesma pagina NAO sao
+    byte-identicos — medido nas fixturas, 499.599 pixels diferentes, porque as
+    ofertas se mexem entre capturas. A ordem, essa e firme: `_ler_o_nome` chama a
+    escala barata e depois a de conferencia, nessa ordem, uma vez cada, por
+    linha. Dai o `// 2`.
+
+    `reiniciar()` e CHAMADO PELO TESTE entre os dois frames, e nao adivinhado
+    aqui: o leitor nao avisa quando comeca uma pagina nova, e um reset por
+    heuristica (contar ate `linhas_por_pagina`) mentiria na pagina curta, onde o
+    laco para na primeira linha vazia.
+    """
+
+    def __init__(self, nomes: dict[int, str], padrao: str) -> None:
+        self._nomes = nomes
+        self._padrao = padrao
+        self.chamadas = 0
+
+    def reiniciar(self) -> None:
+        self.chamadas = 0
+
+    def __call__(self, _pixels) -> str:
+        linha = self.chamadas // 2
+        self.chamadas += 1
+        return self._nomes.get(linha, self._padrao)
+
+
 def montar_leitor(cal, nome_2x, nome_3x, catalogo=None):
     """Um `LeitorDePagina` com as duas leitoras CONTADORAS e catalogo proprio."""
     vistos_2x: list = []
@@ -755,6 +791,72 @@ class TestOTracerPontaAPonta:
         terceira = leitor.ultima_leitura.linhas[0]
         assert terceira.serie_nova is False
         assert terceira.chave_da_serie == primeira.chave_da_serie
+
+    def test_duas_ofertas_do_MESMO_item_na_MESMA_pagina_viram_UMA_serie(
+        self, cal
+    ) -> None:
+        """O catalogo tem de estar VIVO dentro da pagina, e nao so entre paginas.
+
+        O INCIDENTE, sessao real de 2026-08-31 17:05: uma unica pagina aceita
+        deixou `+4 Hunter's Stockings` e `+4 Hunter's St«kings` como DUAS
+        series. A prova de que foi uma pagina so esta no
+        `catalogo-de-nomes.csv`: as duas tem `primeira_vez == ultima_vez ==
+        17:05:48.609000`, byte a byte. Isso reparte o preco de um item entre
+        duas chaves e corta o `n` da mediana pela metade, em silencio.
+
+        O AGRUPAMENTO NAO ERA O CULPADO — ele foi medido nos dois sentidos e
+        junta o par com folga (similaridade 0,9268 contra o corte 0,8947, e as
+        duas assinaturas de digito sao `4`, entao a trava nao as separa). Quem
+        falhava era a FIACAO: `_ler_a_pagina` entregava a mesma referencia
+        `self._catalogo` para todas as linhas da grade, e quem escreve nele e
+        `_gravar_no_catalogo`, que so roda DEPOIS da pagina inteira. A serie que
+        a linha 0 criava era invisivel para a linha 1 da mesma passada.
+
+        O NOME CORROMPIDO E CONTEXTO, NAO O DEFEITO. O OCR le `Stockings` como
+        `St«kings` de forma sistematica na escala 3x; a conferencia entre
+        escalas so pega DISCORDANCIA, e quando as duas erram IGUAL a corrupcao
+        passa. Por isso as duas leitoras devolvem o mesmo texto aqui — e a
+        reproducao fiel. Com o agrupamento consultado com o estado certo, a
+        corrupcao e ABSORVIDA e o dado fica inteiro.
+
+        A LINHA 2 EM DIANTE FICA DE FORA DE PROPOSITO: ela prende o outro lado
+        do portao. Um "conserto" que fundisse tudo na primeira serie da pagina
+        tambem faria as duas primeiras linhas baterem, e passaria por aqui sem
+        esta afirmacao.
+        """
+        BOM = "+4 Hunter's Stockings"
+        CORROMPIDO = "+4 Hunter's St«kings"
+        OUTRO = "Common Fafurion Doll"
+
+        leitora = LeitoraPorLinhaDaPagina({0: BOM, 1: CORROMPIDO}, OUTRO)
+        catalogo: dict = {}
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, leitora, leitora, catalogo=catalogo
+        )
+
+        leitor.observar(ler_fixtura(JANELA_F005))
+        leitora.reiniciar()
+        pagina = leitor.observar(ler_fixtura(JANELA_F005_REPETIDA))
+        assert isinstance(pagina, PaginaAceita)
+
+        por_indice = {linha.indice: linha for linha in pagina.linhas}
+        assert {0, 1}.issubset(por_indice), "as duas linhas do item tem de passar"
+
+        assert por_indice[0].chave_da_serie == por_indice[1].chave_da_serie, (
+            "as duas ofertas do MESMO item na MESMA pagina cairam em series "
+            f"diferentes: {por_indice[0].chave_da_serie!r} e "
+            f"{por_indice[1].chave_da_serie!r}"
+        )
+        assert por_indice[1].serie_nova is False, (
+            "a segunda oferta agrupou na primeira, entao ela NAO e serie nova"
+        )
+
+        do_hunter = sorted(c for c in catalogo if "hunter" in c)
+        assert len(do_hunter) == 1, f"nasceram series demais: {do_hunter}"
+
+        # O outro lado do portao: a linha 2 e outro item e continua sozinha.
+        assert por_indice[2].chave_da_serie != por_indice[0].chave_da_serie
+        assert len(catalogo) == 2, f"o catalogo da pagina ficou {sorted(catalogo)}"
 
     def test_as_linhas_saem_na_ORDEM_da_grade(self, cal) -> None:
         leitor, _b, _c, _v2, _v3 = montar_leitor(
