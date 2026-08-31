@@ -60,9 +60,9 @@ evento sem sujeito". Ele cala em vez de mentir. O que sobra e o INCOMODO.
       pergunta e a resposta, e resolver por posicao batizaria a pessoa errada —
       que e exatamente a mentira plausivel que o `identidade.py` existe para
       impedir.
-- [ ] **BATI-04**: Batizar duas assinaturas com o mesmo nome e recusado,
+- [x] **BATI-04**: Batizar duas assinaturas com o mesmo nome e recusado,
       dizendo qual ja tem aquele nome.
-- [ ] **BATI-05**: Um batismo errado pode ser corrigido sem recalibrar.
+- [x] **BATI-05**: Um batismo errado pode ser corrigido sem recalibrar.
 
 ### Durabilidade (DURA)
 
@@ -114,8 +114,8 @@ Preenchida na criacao do roadmap em 2026-08-30.
 | BATI-01 | Phase 3 | Complete (03-01) |
 | BATI-02 | Phase 3 | Complete (03-01) |
 | BATI-03 | Phase 3 | Complete (03-01) |
-| BATI-04 | Phase 3 | Pending |
-| BATI-05 | Phase 3 | Pending |
+| BATI-04 | Phase 3 | Complete (03-02) |
+| BATI-05 | Phase 3 | Complete (03-02) |
 | DURA-01 | Phase 1 | Complete |
 | DURA-02 | Phase 1 | Complete |
 | DURA-03 | Phase 1 | Complete |

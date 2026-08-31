@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 30
+open_count: 31
 waived_count: 1
 fixed_count: 10
-total_count: 41
-last_updated: 2026-08-31T10:10:14.958Z
+total_count: 42
+last_updated: 2026-08-31T20:54:58.383Z
 ---
 
 # Broken Windows Ledger
@@ -56,6 +56,7 @@ last_updated: 2026-08-31T10:10:14.958Z
 | 39 | 4 | unrun-verify | .planning/workstreams/mercado/phases/04-modo-mercado-an-lise-e-console/04-02-SUMMARY.md |  | Os pisos de evidencia 1, 5 e 8 sao ESCOLHA e nao medicao: nenhum foi medido, e o observacoes.csv real nao existe nesta arvore. Conferencia humana pendente numa sessao de farm de verdade | open |  | 2026-08-31T06:39:41.505Z |  |
 | 40 | 4 | deviation | l2scanner/config.py | 791 | Criterio do 04-03 Task 1 REPROVA e a causa e PREEXISTENTE: 'calibrar_mercado not in getsource(config)' ja falhava em 9dcccbf por um comentario que a restricao 3 do plano proibe tocar. Substituido pelo que discrimina (imports lidos do AST), com o criterio literal rodado e reportado. | open |  | 2026-08-31T10:10:06.714Z |  |
 | 41 | 4 | deviation | l2scanner/mercado_console.py | 341 | Criterio do 04-03 Task 3 REPROVA: 'grep ultima_vez no mercado_console sem ocorrencia' e insatisfazivel junto do teste que o 04-02 travou exigindo ultima_vez na prosa de recencia_do_preco. A unica ocorrencia e a docstring que NOMEIA a outra recencia para ninguem confundir. Substituido pelo que discrimina: assercao sobre o codigo com docstrings arrancadas pelo AST, com controle negativo medido. | open |  | 2026-08-31T10:10:14.958Z |  |
+| 42 | 3 | deviation | l2scanner/batismo.py |  | Batizar com um nome que ja e de uma assinatura CALIBRADA e aceito: a comparacao de D-07 olha so acervo.nomeados(). Desfecho seguro (carregar_identidades descarta a entrada do acervo pela regra do nome), mas nao coberto por caso e nao decidido para esta fase. | open |  | 2026-08-31T20:54:58.383Z |  |
 
 ````json
 [
@@ -549,6 +550,18 @@ last_updated: 2026-08-31T10:10:14.958Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-31T10:10:14.958Z",
+    "resolved_at": null
+  },
+  {
+    "id": 42,
+    "kind": "deviation",
+    "phase": "3",
+    "file": "l2scanner/batismo.py",
+    "line": null,
+    "description": "Batizar com um nome que ja e de uma assinatura CALIBRADA e aceito: a comparacao de D-07 olha so acervo.nomeados(). Desfecho seguro (carregar_identidades descarta a entrada do acervo pela regra do nome), mas nao coberto por caso e nao decidido para esta fase.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T20:54:58.383Z",
     "resolved_at": null
   }
 ]
