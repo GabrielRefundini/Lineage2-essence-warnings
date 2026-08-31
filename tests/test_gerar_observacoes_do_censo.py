@@ -25,6 +25,8 @@ import ast
 import csv
 import importlib.util
 import inspect
+import logging
+import os
 import sys
 from pathlib import Path
 
@@ -388,3 +390,258 @@ class TestAsCosturasDoModulo:
         principal = (RAIZ / "l2scanner" / "__main__.py").read_text(encoding="utf-8")
         assert '"--mercado"' not in principal
         assert "gerar_observacoes_do_censo" not in principal
+
+
+# ===========================================================================
+# TASK 2 — AS GUARDAS DA SAIDA E O CAMINHO DE FALHA
+# ===========================================================================
+
+
+@pytest.fixture()
+def censo_vazio(tmp_path):
+    """As 8 pastas do censo, VAZIAS — a fiacao minima para `main` chegar longe.
+
+    Sem imagem nenhuma: estes testes provam as GUARDAS, e uma guarda que so
+    dispara depois de dez minutos de varredura nao seria guarda.
+    """
+    gravacoes = tmp_path / "recordings"
+    for nome in ferramenta.GRAVACOES_DO_CENSO:
+        (gravacoes / nome).mkdir(parents=True)
+    return gravacoes
+
+
+@pytest.fixture()
+def ocr_fingido(monkeypatch):
+    """O motor de OCR nao e o assunto destes testes, e nao vem de clone limpo."""
+    monkeypatch.setattr(ferramenta.ocr, "disponivel", lambda: True)
+
+
+@pytest.fixture()
+def sem_instalar_log(monkeypatch):
+    """`configurar_log` de verdade acrescenta manipuladores ao logger do projeto
+    a cada chamada, e escreve em `logs/scanner.log`. Nestes testes ele e um
+    no-op; que ele E CHAMADO, e em que ordem, tem teste proprio."""
+    monkeypatch.setattr(ferramenta, "configurar_log", lambda verboso: None)
+
+
+def _grafias_do_mesmo_caminho(pasta: Path) -> dict[str, str]:
+    """As tres formas de escrever a MESMA pasta que o Windows aceita."""
+    return {
+        "separador-trocado": str(pasta).replace(os.sep, "/"),
+        "caixa-trocada": str(pasta).upper(),
+        "com-dotdot": str(pasta.parent / "outra" / ".." / pasta.name),
+    }
+
+
+class TestAGuardaDaSaida:
+    """A pasta de producao e recusada por caminho RESOLVIDO, nunca por texto."""
+
+    @pytest.mark.parametrize(
+        "grafia",
+        ["separador-trocado", "caixa-trocada", "com-dotdot"],
+    )
+    def test_a_pasta_de_PRODUCAO_e_recusada_em_qualquer_grafia(
+        self, grafia, tmp_path, monkeypatch, capsys
+    ) -> None:
+        """No Windows a mesma pasta chega escrita de tres jeitos.
+
+        Uma comparacao de STRING aprovaria dois deles — e uma linha derivada de
+        replay carrega o carimbo de agora sobre um preco visto dias atras. O
+        registro de producao e dado acumulado e sem desfazer.
+
+        A caixa trocada e um fato do WINDOWS: em sistema de arquivos sensivel a
+        caixa `.MERCADO` E outra pasta, e afirmar a recusa la seria afirmar uma
+        mentira. Por isso `os.path.normcase`, que e no-op fora do Windows.
+        """
+        if grafia == "caixa-trocada" and os.name != "nt":
+            pytest.skip("caixa insensivel e fato do Windows, nao do POSIX")
+
+        producao = tmp_path / ".mercado"
+        monkeypatch.setattr(ferramenta, "PASTA_DO_MERCADO", producao)
+
+        codigo = ferramenta.main(
+            [
+                "--gravacoes",
+                str(tmp_path),
+                "--saida",
+                _grafias_do_mesmo_caminho(producao)[grafia],
+            ]
+        )
+
+        assert codigo != 0
+        assert not producao.exists(), "a guarda tem de vir ANTES de qualquer mkdir"
+        saiu = capsys.readouterr().out
+        assert "RECUSADA" in saiu
+        assert "carimbo" in saiu, "a mensagem diz a razao inteira, nao so 'recusado'"
+
+    def test_uma_saida_DENTRO_da_pasta_de_producao_tambem_e_recusada(
+        self, tmp_path, monkeypatch, capsys
+    ) -> None:
+        """Uma subpasta de `.mercado/` continua sendo a pasta do usuario.
+
+        Recusar so a raiz deixaria `--saida .mercado/rascunho` passar, e o
+        proximo arranque do registro leria aquela pasta como se fosse dela.
+        """
+        producao = tmp_path / ".mercado"
+        monkeypatch.setattr(ferramenta, "PASTA_DO_MERCADO", producao)
+
+        codigo = ferramenta.main(
+            [
+                "--gravacoes",
+                str(tmp_path),
+                "--saida",
+                str(producao / "rascunho"),
+            ]
+        )
+
+        assert codigo != 0
+        assert not producao.exists()
+        assert "RECUSADA" in capsys.readouterr().out
+
+    def test_a_pasta_de_producao_REAL_e_recusada(self, capsys) -> None:
+        """Sem monkeypatch nenhum: a `.mercado/` de verdade deste checkout.
+
+        Os testes acima usam uma producao fingida para poder afirmar que NADA
+        foi criado. Este afirma que o alvo de verdade tambem esta coberto — sem
+        ele, a guarda poderia estar comparando contra a constante errada.
+        """
+        from l2scanner.mercado_registro import PASTA_DO_MERCADO
+
+        assert ferramenta.razao_para_recusar_a_saida(PASTA_DO_MERCADO) is not None
+        assert (
+            ferramenta.razao_para_recusar_a_saida(PASTA_DO_MERCADO / "rascunho")
+            is not None
+        )
+        assert capsys.readouterr().out == "", "a guarda pura nao imprime"
+
+    def test_uma_pasta_de_rascunho_qualquer_NAO_e_recusada(self, tmp_path) -> None:
+        """A guarda que recusa tudo seria uma ferramenta que nao roda."""
+        assert ferramenta.razao_para_recusar_a_saida(tmp_path / "portao") is None
+
+
+class TestOCaminhoDeFalhaQueOUsuarioVE:
+    """PERS-03 pela unica porta que existe nesta fase: a ferramenta de bancada.
+
+    O mercado ainda nao tem chamador no scanner, entao "a feature desligou e os
+    alertas continuam" nao tem onde acontecer. O que da para ver e a outra
+    metade — o aviso alto, com o texto EXATO que a Fase 4 vai mostrar.
+    """
+
+    def test_um_ARQUIVO_ocupando_o_nome_da_saida_desliga_alto_sem_traceback(
+        self, tmp_path, censo_vazio, ocr_fingido, sem_instalar_log, caplog, capsys
+    ) -> None:
+        """O `mkdir` do construtor levanta `FileExistsError` (errno 17, medido).
+
+        Quem o defende e a montagem do 03-02. A ferramenta so precisa nao
+        atrapalhar: nada de traceback, e codigo diferente de zero.
+        """
+        ocupado = tmp_path / "portao-quebrado"
+        ocupado.write_text("nao sou uma pasta", encoding="utf-8")
+
+        with caplog.at_level(logging.ERROR, logger=LOGGER_DA_MONTAGEM):
+            codigo = ferramenta.main(
+                [
+                    "--gravacoes",
+                    str(censo_vazio),
+                    "--calibracao",
+                    str(CALIBRACAO_DE_FIXTURE),
+                    "--saida",
+                    str(ocupado),
+                ]
+            )
+
+        assert codigo != 0
+        erros = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.ERROR and r.name == LOGGER_DA_MONTAGEM
+        ]
+        assert erros, "sair calado faria o usuario achar que produziu dado"
+        assert "Traceback" not in capsys.readouterr().out
+
+    def test_o_aviso_e_o_TEXTO_DA_MONTAGEM_e_nao_um_texto_proprio(
+        self, tmp_path, censo_vazio, ocr_fingido, sem_instalar_log, caplog
+    ) -> None:
+        """A prova de que a ferramenta usa a montagem do 03-02.
+
+        Se ela tivesse texto proprio, o usuario veria aqui uma frase e na Fase 4
+        outra — e duas versoes da mesma frase e como elas divergem. A promessa
+        de que morte, saida e ressurreicao continuam so existe na montagem.
+        """
+        ocupado = tmp_path / "portao-quebrado"
+        ocupado.write_text("nao sou uma pasta", encoding="utf-8")
+
+        with caplog.at_level(logging.ERROR, logger=LOGGER_DA_MONTAGEM):
+            ferramenta.main(
+                [
+                    "--gravacoes",
+                    str(censo_vazio),
+                    "--calibracao",
+                    str(CALIBRACAO_DE_FIXTURE),
+                    "--saida",
+                    str(ocupado),
+                ]
+            )
+
+        mensagens = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno >= logging.ERROR and r.name == LOGGER_DA_MONTAGEM
+        ]
+        assert any(A_PROMESSA in m for m in mensagens), mensagens
+
+    def test_o_log_do_projeto_e_instalado_ANTES_de_montar_o_registro(
+        self, tmp_path, censo_vazio, ocr_fingido, monkeypatch
+    ) -> None:
+        """Sem isto o `log.error` da montagem nao teria manipulador nenhum.
+
+        E o criterio 5 da fase e literalmente "o usuario VE o aviso alto". A
+        metade console do D-13 so vale aqui se a instalacao vier primeiro.
+        """
+        ordem: list[str] = []
+        monkeypatch.setattr(
+            ferramenta, "configurar_log", lambda verboso: ordem.append("log")
+        )
+        monkeypatch.setattr(
+            ferramenta,
+            "montar_registro_de_mercado",
+            lambda pasta: ordem.append("montagem") or None,
+        )
+
+        codigo = ferramenta.main(
+            [
+                "--gravacoes",
+                str(censo_vazio),
+                "--calibracao",
+                str(CALIBRACAO_DE_FIXTURE),
+                "--saida",
+                str(tmp_path / "portao"),
+            ]
+        )
+
+        assert ordem == ["log", "montagem"], ordem
+        assert codigo != 0, "montagem que devolve None nao pode sair com 0"
+
+    def test_uma_varredura_SEM_OBSERVACAO_NENHUMA_sai_diferente_de_zero(
+        self, tmp_path, censo_vazio, ocr_fingido, sem_instalar_log, capsys
+    ) -> None:
+        """As 8 pastas existem e estao vazias: zero frames, zero observacoes.
+
+        Um arquivo so com cabecalho nao serve para o portao, e sair com 0
+        esconderia isso do usuario.
+        """
+        codigo = ferramenta.main(
+            [
+                "--gravacoes",
+                str(censo_vazio),
+                "--calibracao",
+                str(CALIBRACAO_DE_FIXTURE),
+                "--saida",
+                str(tmp_path / "portao"),
+            ]
+        )
+
+        assert codigo != 0
+        saiu = capsys.readouterr().out
+        assert "NENHUMA observacao" in saiu
+        assert "frames lidos" in saiu, "o relatorio sai mesmo quando nao houve dado"
