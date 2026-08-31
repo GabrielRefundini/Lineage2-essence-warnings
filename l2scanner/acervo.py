@@ -362,15 +362,81 @@ def carregar_identidades(
 ) -> Identidades:
     """Funde as assinaturas do `calibration.json` com as do acervo em disco.
 
-    AS CALIBRADAS ENTRAM PRIMEIRO, e isso e carregado. `identificar_linhas`
-    desempata por `-j`, entao no empate exato vence o indice MENOR: a
-    precedencia da calibracao fica estrutural, e nao escrita numa condicao que
-    alguem pode inverter sem perceber.
+    A REGRA, EM UMA LINHA: as calibradas entram PRIMEIRO e INTEIRAS; uma entrada
+    do acervo e descartada quando (a) a chave de conteudo dela ja aparece entre
+    as calibradas, ou (b) o nome dela nao e vazio e ja aparece entre os nomes
+    calibrados. Uma entrada anonima so passa por (a). NENHUMA calibrada e
+    descartada por nada.
+
+    POR QUE A CALIBRADA VENCE
+
+    `--nomes` e o usuario digitando o nome de proposito, olhando a party na
+    tela. O acervo (a partir da Fase 2) grava sozinho, por inferencia. Entre uma
+    afirmacao DELIBERADA e uma INFERIDA sobre a mesma pessoa, vence a
+    deliberada. E o criterio de aceite pede que quem prefere digitar continue
+    recebendo exatamente o reconhecimento de hoje, sem pagar nada por uma
+    feature que nem esta usando.
+
+    POR QUE A ORDEM E ESTRUTURAL, E NAO UMA CONDICAO
+
+    `identificar_linhas` escolhe o melhor par com `max((pontos[i][j], -i, -j))`,
+    entao no empate EXATO vence o indice MENOR. Pondo as calibradas na frente da
+    lista, a precedencia sai do algoritmo que ja existe. Uma condicao "se for
+    calibrada, prefira" seria uma SEGUNDA regra de precedencia, e duas regras
+    para a mesma coisa divergem na primeira vez que alguem mexer numa delas sem
+    lembrar da outra.
+
+    POR QUE A REGRA DO NOME EXISTE ALEM DA REGRA DA CHAVE
+
+    Porque a chave sozinha nao alcanca o caso que importa. Duas capturas da
+    MESMA pessoa, de frames diferentes, tem chaves diferentes — um pixel basta,
+    e a chave e o hash do conteudo inteiro (D-01/D-06). As duas pontuam perto de
+    1.000 na mesma linha. Medido nesta fixture, virando 8 bits da mascara: a
+    calibrada casa 1.000 e a copia 0.921, uma diferenca de 0.079. Isso fica
+    ABAIXO de `MARGEM_MINIMA_SOBRE_O_SEGUNDO = 0.12`, e `identificar_linhas`
+    devolve `Casamento(None, ...)`.
+
+    Ou seja, sem esta regra o desfecho nao seria neutro, seria o PIOR possivel:
+    acrescentar ao acervo uma pessoa que ja estava calibrada a faria PARAR de
+    ser reconhecida. A regra do nome fecha essa porta para todo mundo que ja tem
+    nome.
+
+    O nome precisa ser NAO VAZIO para a regra valer. Duas entradas anonimas tem
+    o mesmo "nome" — a string vazia — e sem essa condicao a segunda anonima
+    seria descartada por parecer duplicata da primeira: o acervo so conseguiria
+    guardar UMA pessoa sem nome no mundo inteiro.
+
+    O QUE FICA DE FORA, DITO EM VOZ ALTA
+
+    Uma entrada ANONIMA parecida com uma calibrada. Ela nao tem nome para
+    comparar e as chaves diferem, entao nenhuma das duas regras a pega: a linha
+    cai no SILENCIO pela margem. Aceito de proposito, por dois motivos.
+
+    E o unico desfecho SEGURO da familia — a linha cala em vez de mentir, que e
+    a garantia que o projeto mais preza; um nome errado manda a party socorrer a
+    pessoa errada. E ele nao e alcancavel pelo caminho normal: esta fase nunca
+    escreve, e a Fase 2 so grava depois de nao casar com nada ja gravado
+    (APRE-04), entao um quase-duplicado anonimo so nasce de uma entrada posta a
+    mao.
+
+    NAO ACRESCENTAR AQUI nenhuma comparacao de pixels, nenhum limiar novo e
+    nenhum "parecido o suficiente". A chave de conteudo E a comparacao (D-01);
+    um segundo criterio de igualdade criaria uma segunda definicao de "mesma
+    pessoa" dentro do mesmo modulo, e as duas discordariam exatamente nos casos
+    em que a resposta importa.
 
     Recebe `list[Assinatura]` e nao `Calibracao` de proposito — e o que mantem
     este modulo sem importar `calibracao`.
-
-    Deduplicacao entre as duas fontes NAO acontece aqui: ela e o plano 01-02.
-    Nesta fase a fusao e concatenacao com a ordem documentada.
     """
-    return Identidades(assinaturas=list(calibradas) + acervo.assinaturas())
+    fundidas = list(calibradas)
+    chaves_calibradas = {chave_da_assinatura(a) for a in fundidas}
+    nomes_calibrados = {a.nome for a in fundidas if a.nome}
+
+    for do_acervo in acervo.assinaturas():
+        if chave_da_assinatura(do_acervo) in chaves_calibradas:
+            continue
+        if do_acervo.nome and do_acervo.nome in nomes_calibrados:
+            continue
+        fundidas.append(do_acervo)
+
+    return Identidades(assinaturas=fundidas)
