@@ -73,6 +73,41 @@ previsao da proxima janela.
 - [ ] **OPER-03**: Tudo e demonstravel sem o jogo aberto e sem rede: o tempo
       entra por parametro e o texto do OCR entra por dado.
 
+### Unicidade do aviso (UNIC)
+
+Derivados em 2026-08-30 a partir do DEFEITO DE CAMPO da Fase 3: seis mensagens
+de WhatsApp para um unico nascimento de `Tiat South`, com as duas instancias do
+usuario rodando e ele remarcando o boss no alvo.
+
+Nao sao requisitos "novos" no sentido de funcionalidade nova. Sao a lacuna que
+RECO-05 deixou: ele pedia "chat e alvo no mesmo tick geram UM alerta", e
+ninguem escreveu "UM alerta por nascimento, entre instancias e entre reinicios".
+E por isso que nenhum teste pegou.
+
+- [ ] **UNIC-01**: O aviso de nascimento passa por um marcador duravel em
+      `.agenda/`. Duas instancias sobre a mesma pasta produzem UMA mensagem por
+      nascimento, e reiniciar qualquer uma delas nao reenvia. A decisao de
+      despachar E a chamada de `marcar`, nunca uma checagem anterior.
+- [ ] **UNIC-02**: O anuncio do CHAT nunca e calado pelo estado de deduplicacao
+      do ALVO — nem em memoria nem em disco. O anuncio do servidor e o unico
+      sinal que existe quando ninguem esta olhando a tela.
+- [ ] **UNIC-03**: O ALVO so anuncia se o chat nao anunciou aquele boss no
+      episodio corrente. Com o chat tendo falado, remarcar o boss vinte vezes
+      produz zero mensagem nova.
+- [ ] **UNIC-04**: Sem o chat ter falado (scanner fechado na hora do anuncio, ou
+      OCR falhou), o alvo anuncia — UMA vez. O fallback continua existindo.
+- [ ] **UNIC-05**: Depois de anunciado, o boss fica em silencio ate o proximo
+      nascimento voltar a ser POSSIVEL pela regra do `[[boss]]`, e nao mais que
+      isso. O que se perde e o mesmo boss nascer duas vezes dentro da mesma
+      janela, impossivel pela regra do servidor.
+- [ ] **UNIC-06**: A ancora continua sendo gravada como hoje, inclusive pelo
+      alvo e inclusive quando o anuncio e suprimido. D-15 e D-16 seguem valendo:
+      esta familia muda o ANUNCIO, nao a ancoragem.
+- [ ] **UNIC-07**: O prefixo novo entra em `_PREFIXOS_CONHECIDOS` e na poda, e o
+      guarda derivado por introspecao continua verde. Um marcador de silencio
+      imortal calaria aquele boss para sempre.
+- [ ] **UNIC-08**: Tudo demonstravel com o jogo fechado e sem rede.
+
 ## v2 Requirements
 
 - **MORT-01**: Comando `/morreu <boss>` (com horario opcional) para reancorar a
@@ -116,11 +151,26 @@ Preenchida na criacao do roadmap (2026-08-30). Ver `ROADMAP.md`.
 | JANE-06 | Phase 2 | Pending |
 | OPER-02 | Phase 2 | Pending |
 | OPER-03 | Phase 2 | Pending |
+| UNIC-01 | Phase 3 | Pending |
+| UNIC-02 | Phase 3 | Pending |
+| UNIC-03 | Phase 3 | Pending |
+| UNIC-04 | Phase 3 | Pending |
+| UNIC-05 | Phase 3 | Pending |
+| UNIC-06 | Phase 3 | Pending |
+| UNIC-07 | Phase 3 | Pending |
+| UNIC-08 | Phase 3 | Pending |
 
 **Coverage:**
-- v1 requirements: 18 total
-- Mapped to phases: 18
+- v1 requirements: 26 total (18 do roadmap original + 8 da Fase 3)
+- Mapped to phases: 26
 - Unmapped: 0
+
+**Nota sobre a familia UNIC:** ela nasceu depois de as Fases 1 e 2 terem sido
+verificadas e aprovadas, a partir de um defeito medido em campo. Os oito
+requisitos sao a escrita explicita de uma propriedade que o milestone assumia
+sem nunca ter afirmado: um nascimento produz um alerta, e nao um alerta por
+processo por deteccao. Ver `phases/03-*/03-CONTEXT.md` para as seis mensagens
+reais e as duas causas independentes.
 
 **Nota sobre OPER-02:** o requisito e da Fase 2 porque so ali ele existe
 inteiro — a metade "proxima janela prevista" depende da ancora. A metade

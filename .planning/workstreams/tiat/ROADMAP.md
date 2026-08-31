@@ -155,8 +155,9 @@ em D-18 no `02-01-PLAN.md` — os dois planos sao autonomos e nao tem nenhum gat
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Reconhecimento preciso e lista de bosses no config | 0/4 | Planned | - |
-| 2. Janela de respawn | 0/2 | Planned | - |
+| 1. Reconhecimento preciso e lista de bosses no config | 4/4 | Complete | 2026-08-30 |
+| 2. Janela de respawn | 2/2 | Complete | 2026-08-30 |
+| 3. Um aviso por nascimento, com o chat mandando no alvo | 0/2 | Planned | - |
 
 ## Coverage
 
@@ -180,8 +181,19 @@ em D-18 no `02-01-PLAN.md` — os dois planos sao autonomos e nao tem nenhum gat
 | JANE-06 | Phase 2 |
 | OPER-02 | Phase 2 |
 | OPER-03 | Phase 2 |
+| UNIC-01 | Phase 3 |
+| UNIC-02 | Phase 3 |
+| UNIC-03 | Phase 3 |
+| UNIC-04 | Phase 3 |
+| UNIC-05 | Phase 3 |
+| UNIC-06 | Phase 3 |
+| UNIC-07 | Phase 3 |
+| UNIC-08 | Phase 3 |
 
-**18 de 18 requisitos v1 mapeados. Nenhum órfão, nenhum duplicado.**
+**26 de 26 requisitos mapeados. Nenhum órfão, nenhum duplicado.** Os 18
+originais nas Fases 1 e 2; os 8 da família `UNIC-*` na Fase 3, derivados do
+defeito de campo de 2026-08-30 depois de as duas primeiras fases já terem
+passado na verificação.
 
 **Nota sobre OPER-02:** o requisito é da Fase 2 porque só ali ele existe inteiro (a metade "próxima janela prevista" depende da âncora). A metade "quais bosses estão sendo vigiados" é entregue na Fase 1 por VIGI-04, que já exige a linha de arranque — a Fase 2 completa a linha, não a cria.
 
@@ -205,7 +217,7 @@ Não negociáveis, aprendidas em 10 fases entregues:
 
 **Origem**: DEFEITO DE CAMPO em 2026-08-30. As fases 1 e 2 passaram na verificacao; este defeito so aparece com duas instancias reais e um humano remarcando o alvo. Seis mensagens para um nascimento.
 
-**Requirements**: derivar em /gsd-plan-phase (familia `UNIC-*`)
+**Requirements**: UNIC-01, UNIC-02, UNIC-03, UNIC-04, UNIC-05, UNIC-06, UNIC-07, UNIC-08
 
 **Success Criteria** (o que tem que ser VERDADE):
 
@@ -224,14 +236,25 @@ Não negociáveis, aprendidas em 10 fases entregues:
 - **"Nesta janela" precisa de dono.** O `respawn.py` ja monta ancoras e janelas por boss; reimplementar a nocao de janela num segundo lugar faria as duas divergirem no primeiro ajuste, exatamente como o codigo ja registra sobre os dois lacos.
 - **O rearme em memoria do `VigiaDeBosses` continua util** como primeiro filtro barato (evita bater no disco a cada tick), mas deixa de ser a garantia. Nao remova sem medir o custo em I/O.
 
-**Plans**: TBD
-**Requirements**: TBD
-**Depends on:** Phase 2
-**Plans:** 0 plans
+**Depends on:** Phase 2 (o marcador de anuncio deriva a nocao de "esta janela" das ancoras e das regras que a Fase 2 construiu, e mora no mesmo `respawn.py`)
+
+**Plans:** 2 plans (2 waves)
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 3 to break down)
+- [ ] 03-01-PLAN.md — Tracer: o aviso de nascimento passa a ter marcador duravel por EPISODIO (`anuncio_<data>_<slug>-<HHMM>`), a ancora fica antes e fora do `if`, e os portoes AST contra a supressao virar perda — wave 1
+- [ ] 03-02-PLAN.md — O rearme em memoria deixa de ser um estado unico por boss e passa a ser por CANAL: o anuncio do servidor nao pode mais ser engolido pelo alvo segurado (wave 2 — o teste ponta a ponta depende do marcador que nasce em `03-01`)
+
+**Nota de planejamento — as tres decisoes de discricao, resolvidas:** a chave do
+marcador e `anuncio_<YYYY-MM-DD>_<boss-slug>-<HHMM>` com o instante do **inicio do
+episodio** (D-28), e nao o da deteccao nem o da ancora mais recente — as duas
+alternativas obvias falham, e por que esta escrito em `03-01-PLAN.md`. "Nesta
+janela" e calculado em `respawn.py` (D-29), dono das ancoras desde a Fase 2, com a
+janela do episodio deliberadamente MAIS CURTA que `respawn_horas_min`: a direcao do
+erro e a mesma de R-02 — repetir e barato, calar e caro e invisivel. E o silencio e
+marcador PROPRIO (D-30), nunca derivado da ancora, porque a ancora e reescrita a
+cada remarcacao de alvo (D-15, que D-27 manda preservar) e um silencio derivado
+dela renasceria a cada retarget, que e metade do defeito de campo.
 
 ---
 *Roadmap criado: 2026-08-30*
