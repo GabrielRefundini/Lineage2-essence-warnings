@@ -938,6 +938,98 @@ class TestAsLinhasDePrevisaoDoConsole:
             for linha in linhas_de_previsao(ABRE_EM, [SOUTH, NORTH], so_north())
         ] == ["Tiat South", "Tiat North"]
 
+class TestARegraDaJanelaAleatoria:
+    """A linha diz a REGRA que produziu os dois horarios, e nao so os horarios.
+
+    O QUE FALTAVA, e o usuario pediu por escrito. A linha antiga dizia "a
+    janela abre em X e o limite otimista passa em Y" e deixava o leitor sem a
+    unica coisa que explica por que ha DOIS numeros em vez de um: o respawn e
+    uma parte fixa mais um sorteio. Sem a regra, quem le um intervalo inventa
+    sozinho a explicacao dele — e a explicacao mais natural ("o bot esta em
+    duvida entre dois horarios") e falsa.
+
+    OS DOIS NUMEROS SAO CALCULADOS, NUNCA ESCRITOS. A parte fixa e
+    `respawn_horas_min` e a aleatoria e a DIFERENCA entre os dois campos do
+    `[[boss]]`. O servidor ja trocou a regra uma vez — era 6h+2h, virou 8h+2h —
+    e um literal no fonte transformaria a proxima troca numa mentira que passa
+    em todos os testes.
+    """
+
+    def test_a_linha_com_ancora_diz_a_parte_fixa_e_a_parte_aleatoria(self):
+        linha = linhas_de_previsao(ABRE_EM, [NORTH], so_north())[0]
+
+        assert "6h fixas" in linha, "a linha nao diz a parte fixa da regra"
+        assert "2h aleatorias" in linha, (
+            "a linha nao diz a parte aleatoria, que e o que explica por que ha "
+            "dois horarios em vez de um"
+        )
+
+    def test_a_parte_aleatoria_e_a_DIFERENCA_e_nao_um_literal(self):
+        """Um boss com outra regra tem que produzir outros dois numeros.
+
+        A prova nao e "o texto contem 2h": e "o texto contem o que ESTE bloco
+        `[[boss]]` manda". Escrita so com o Tiat, um `2` cravado no fonte
+        passaria.
+        """
+        outro = Boss(nome="Orfen", respawn_horas_min=5, respawn_horas_max=9)
+        ancoras = ancoras_mais_recentes(
+            [chave_do_nascimento("Orfen", NASCIMENTO, OrigemDoAviso.CHAT)]
+        )
+
+        linha = linhas_de_previsao(ABRE_EM, [outro], ancoras)[0]
+
+        assert "5h fixas" in linha
+        assert "4h aleatorias" in linha, "a diferenca 9-5 nao virou a faixa"
+        assert "2h aleatorias" not in linha
+
+    def test_a_regra_do_config_de_hoje_sai_com_as_horas_de_hoje(self):
+        """O par que o `config.toml` do usuario tem HOJE: 8 e 10.
+
+        Escrito porque a regra do servidor mudou de 6h+2h para 8h+2h em campo,
+        e a parte FIXA e a que mudou. Uma prova so com 6/8 nao teria notado.
+        """
+        tiat = Boss(nome="Tiat South", respawn_horas_min=8, respawn_horas_max=10)
+        ancoras = ancoras_mais_recentes(
+            [chave_do_nascimento("Tiat South", NASCIMENTO, OrigemDoAviso.CHAT)]
+        )
+
+        linha = linhas_de_previsao(ABRE_EM, [tiat], ancoras)[0]
+
+        assert "8h fixas" in linha
+        assert "2h aleatorias" in linha
+
+    def test_um_boss_sem_faixa_NAO_inventa_sorteio(self):
+        """`max == min` e legal: `ler_bosses` so recusa `max` MENOR que `min`.
+
+        A frase generica sairia como "mais ate 0h aleatorias", que e pior que
+        nao dizer nada: ela anuncia um sorteio que nao existe e manda o leitor
+        procurar uma faixa de largura zero.
+        """
+        cravado = Boss(nome="Orfen", respawn_horas_min=7, respawn_horas_max=7)
+        ancoras = ancoras_mais_recentes(
+            [chave_do_nascimento("Orfen", NASCIMENTO, OrigemDoAviso.CHAT)]
+        )
+
+        linha = linhas_de_previsao(ABRE_EM, [cravado], ancoras)[0]
+
+        assert "aleatorias" not in linha
+        assert "0h" not in linha
+        assert "7h" in linha
+
+    def test_a_linha_SEM_ancora_continua_sem_a_regra(self):
+        """T-02-13 tem precedencia sobre a regra, pela razao de sempre.
+
+        A linha de quem nao tem ancora nao pode conter numero nenhum. Poderia
+        parecer inofensivo dizer a regra ali — ela nao afirma horario —, mas o
+        teste que a protege le DIGITOS, e afrouxa-lo para a regra caber abriria
+        exatamente a porta pela qual um horario inventado entraria depois.
+        """
+        linha = linhas_de_previsao(ABRE_EM, [SOUTH], {})[0]
+
+        assert "fixas" not in linha
+        assert "aleatorias" not in linha
+        assert not any(c.isdigit() for c in linha)
+
 
 # ---------------------------------------------------------------------------
 # O EPISODIO — a nocao que faz UM nascimento produzir UMA mensagem (Fase 3).
