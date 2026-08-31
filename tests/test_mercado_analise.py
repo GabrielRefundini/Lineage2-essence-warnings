@@ -16,12 +16,17 @@ cada uma apareceu. Toda a aritmetica exercitada aqui respeita isso.
 
 from __future__ import annotations
 
+import ast
+import inspect
 import logging
+import statistics
 from datetime import datetime
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
 
+from l2scanner import mercado_analise as analise
 from l2scanner.mercado_catalogo import SEPARADOR
 from l2scanner.mercado_registro import (
     ARQUIVO_DE_OBSERVACOES,
@@ -267,3 +272,229 @@ class TestAExtracaoEREFACTOR_PURO:
 
         campos = tuple(f.name for f in dataclasses.fields(ObservacaoLida))
         assert campos == COLUNAS
+
+
+# ===========================================================================
+# TASK 2 — o unitario exato, o menor pedido visivel, a mediana e as recencias
+# ===========================================================================
+
+
+def _oferta(
+    *,
+    chave: str = "common-aztac#0",
+    nome: str = "Common Aztac",
+    carimbo: datetime = AGORA,
+    total: int = 6200,
+    quantidade: int = 48,
+    residuo: int | None = 0,
+) -> ObservacaoLida:
+    """Uma oferta montada a mao — a analise nunca precisa de disco nem de frame."""
+    return ObservacaoLida(
+        chave_da_serie=chave,
+        nome_exibido=nome,
+        primeira_vez=carimbo,
+        total_em_centesimos=total,
+        quantidade=quantidade,
+        residuo_do_cruzamento=residuo,
+    )
+
+
+class TestOUnitarioEEXATO:
+    """`Fraction`, nunca `float` — o arredondamento so acontece ao formatar.
+
+    O D-02 recusou GUARDAR o unitario porque o que o jogo exibe e derivacao
+    arredondada: `40,00` por 48 unidades vira `0,83`, e `0,83 x 48 = 39,84`, um
+    numero que nunca existiu. Derivar na hora de comparar e outra coisa — desde
+    que nao se arredonde ANTES de comparar.
+    """
+
+    def test_o_unitario_e_Fraction_e_nao_float(self):
+        assert isinstance(analise.unitario(4000, 48), Fraction)
+        assert not isinstance(analise.unitario(4000, 48), float)
+
+    def test_o_unitario_multiplicado_de_volta_devolve_o_TOTAL_exato(self):
+        """A prova de que nao houve arredondamento: `0,83 x 48 = 39,84` e o
+        numero que nunca existiu; `Fraction(4000, 48) * 48` e `4000`."""
+        assert analise.unitario(4000, 48) * 48 == 4000
+
+    def test_quantidade_zero_ou_negativa_LEVANTA_com_o_motivo_em_texto(self):
+        """O CSV e editado a mao no Sheets: `quantidade` zero e entrada
+        possivel, e uma divisao por zero derrubaria o console inteiro."""
+        with pytest.raises(ValueError):
+            analise.unitario(4000, 0)
+        with pytest.raises(ValueError):
+            analise.unitario(4000, -1)
+
+
+class TestOMenorPedidoVisivel:
+    """A oferta de menor UNITARIO, com o carimbo DELA e os dois numeros juntos."""
+
+    def test_a_escolhida_e_a_de_menor_unitario_e_carrega_a_quantidade(self):
+        """O par literal do criterio do plano: `(6200, 48)` e `(4500, 100)`."""
+        ofertas = [_oferta(total=6200, quantidade=48), _oferta(total=4500, quantidade=100)]
+        r = analise.menor_pedido_visivel(ofertas)
+        assert r.unitario == min(
+            analise.unitario(o.total_em_centesimos, o.quantidade) for o in ofertas
+        )
+        assert r.total_em_centesimos == 4500
+        assert r.quantidade == 100
+
+    def test_o_MENOR_TOTAL_nao_e_o_menor_pedido_visivel(self):
+        """O par que DISCRIMINA as duas ordens, e sem ele o criterio do plano
+        nao provaria nada: `(1000, 1)` tem o menor TOTAL e o MAIOR unitario."""
+        barato_por_unidade = _oferta(total=4500, quantidade=100)  # 45 por unidade
+        total_menor = _oferta(total=1000, quantidade=1)  # 1000 por unidade
+        r = analise.menor_pedido_visivel([total_menor, barato_por_unidade])
+        assert r.total_em_centesimos == 4500
+        assert r.quantidade == 100
+
+    def test_o_carimbo_e_o_DAQUELA_oferta_e_nao_o_da_serie(self):
+        """Um minimo de terca-feira ao lado da recencia de hoje e a mentira
+        plausivel que este projeto inteiro combate."""
+        antiga = datetime(2026, 8, 25, 10, 0, 0)
+        nova = datetime(2026, 8, 30, 22, 0, 0)
+        ofertas = [
+            _oferta(total=4500, quantidade=100, carimbo=antiga),  # a mais barata
+            _oferta(total=9900, quantidade=100, carimbo=nova),
+        ]
+        r = analise.menor_pedido_visivel(ofertas)
+        assert r.primeira_vez == antiga
+        assert r.primeira_vez != analise.recencia_do_preco(ofertas)
+
+    def test_com_n_igual_a_UM_o_menor_EXISTE_e_vem_rotulado_com_n_1(self):
+        """`n=1` e um FATO OBSERVADO, nao uma estimativa. A honestidade esta no
+        rotulo, e o rotulo e obrigatorio."""
+        r = analise.menor_pedido_visivel([_oferta()])
+        assert r.evidencia.suficiente
+        assert r.evidencia.n == 1
+
+    def test_sem_oferta_nenhuma_o_resultado_diz_o_que_FALTA(self):
+        r = analise.menor_pedido_visivel([])
+        assert not r.evidencia.suficiente
+        assert r.evidencia.n == 0
+        assert r.evidencia.piso == analise.N_MINIMO_PARA_MENOR
+        assert r.evidencia.faltam == 1
+        assert r.total_em_centesimos is None
+
+
+class TestAMedianaDEVOLVE_VALOR_OBSERVADO:
+    """A PROVA CENTRAL: `median_low` contra `median`, com `n` par e acima do piso."""
+
+    def _seis_unitarios_distintos(self) -> list[ObservacaoLida]:
+        # quantidade fixa em 100 e totais em progressao: unitarios 10..60.
+        return [
+            _oferta(total=total, quantidade=100)
+            for total in (1000, 2000, 3000, 4000, 5000, 6000)
+        ]
+
+    def test_n_SEIS_par_e_acima_do_piso_devolve_valor_que_EXISTIU_na_tela(self):
+        """SEIS e a unica contagem que prova a escolha: PAR — onde
+        `statistics.median` inventa a media dos dois do meio, um valor que nunca
+        esteve na lista — e ACIMA do piso de cinco, onde a funcao pode devolver
+        numero. As duas assercoes juntas sao a prova; nenhuma delas sozinha e.
+        """
+        ofertas = self._seis_unitarios_distintos()
+        unitarios = [
+            analise.unitario(o.total_em_centesimos, o.quantidade) for o in ofertas
+        ]
+        assert len(unitarios) == 6
+        assert len(set(unitarios)) == 6
+
+        r = analise.mediana_dos_unitarios(ofertas)
+
+        assert r.unitario in unitarios
+        assert r.unitario != statistics.median(unitarios)
+
+    def test_a_mediana_carrega_o_n_da_evidencia(self):
+        r = analise.mediana_dos_unitarios(self._seis_unitarios_distintos())
+        assert r.evidencia.n == 6
+        assert r.evidencia.suficiente
+
+    def test_n_QUATRO_esta_abaixo_do_piso_e_informa_CINCO(self):
+        """O UNICO teste com `n=4` neste arquivo, e ele e sobre o PISO — nao
+        sobre a mediana. Com `N_MINIMO_PARA_MEDIANA = 5`, cobrar um VALOR de
+        mediana para `n=4` seria cobrar o impossivel."""
+        ofertas = [
+            _oferta(total=total, quantidade=100) for total in (1000, 2000, 3000, 4000)
+        ]
+        r = analise.mediana_dos_unitarios(ofertas)
+        assert not r.evidencia.suficiente
+        assert r.evidencia.n == 4
+        assert r.evidencia.piso == 5
+        assert r.evidencia.faltam == 1
+        assert r.unitario is None
+
+    def test_a_mediana_de_lista_vazia_nao_LEVANTA(self):
+        """`statistics.median([])` levanta `StatisticsError`. O piso pega antes."""
+        r = analise.mediana_dos_unitarios([])
+        assert not r.evidencia.suficiente
+        assert r.unitario is None
+
+
+class TestAsDUAS_RECENCIAS:
+    """A do PRECO e `max(primeira_vez)`. A outra e do catalogo, e nao e esta."""
+
+    def test_a_recencia_do_preco_e_o_MAXIMO_dos_carimbos(self):
+        antiga = datetime(2026, 8, 25, 10, 0, 0)
+        nova = datetime(2026, 8, 30, 22, 0, 0)
+        meio = datetime(2026, 8, 28, 12, 0, 0)
+        ofertas = [
+            _oferta(total=1000, carimbo=antiga),
+            _oferta(total=2000, carimbo=nova),
+            _oferta(total=3000, carimbo=meio),
+        ]
+        assert analise.recencia_do_preco(ofertas) == nova
+
+    def test_sem_oferta_nenhuma_a_recencia_e_None(self):
+        assert analise.recencia_do_preco([]) is None
+
+    def test_a_docstring_NOMEIA_a_outra_recencia_para_ninguem_confundir(self):
+        """O `ultima_vez` do catalogo diz quando o ITEM foi visto pela ultima
+        vez em qualquer preco, e pode ser de agora mesmo sobre um preco de tres
+        dias atras. Trocar um pelo outro e mentir com cara de numero."""
+        doc = analise.recencia_do_preco.__doc__ or ""
+        assert "ultima_vez" in doc
+        assert "catalogo" in doc.lower()
+
+
+class TestOsPisosSaoESCOLHA_E_NAO_MEDICAO:
+    """Nenhum piso desse tipo foi medido neste projeto, e o fonte diz isso."""
+
+    def test_os_valores_travados(self):
+        assert analise.N_MINIMO_PARA_MENOR == 1
+        assert analise.N_MINIMO_PARA_MEDIANA == 5
+
+    def test_o_modulo_DECLARA_por_escrito_que_os_pisos_sao_escolha(self):
+        doc = (analise.__doc__ or "").lower()
+        assert "escolha" in doc or "escolhid" in doc
+
+    def test_o_fonte_diz_que_os_numeros_MEDIDOS_do_projeto_sao_sobre_a_LEITURA(self):
+        """151 paginas lidas, 189 perdidas, 39 series, piso de 7 posicoes: sao
+        medicoes sobre a LEITURA e nao servem de substituto para estes pisos."""
+        fonte = inspect.getsource(analise)
+        assert "151" in fonte and "189" in fonte
+
+    def test_o_fonte_explica_por_que_os_pisos_NAO_moram_no_calibration_json(self):
+        fonte = inspect.getsource(analise).lower()
+        assert "calibration.json" in fonte
+
+
+class TestOModuloDeAnaliseEPURO:
+    """Sem disco, sem relogio, sem impressao — a suite roda no Python global."""
+
+    def test_nao_traz_o_modulo_de_sistema_nem_abre_arquivo_nem_imprime(self):
+        fonte = inspect.getsource(analise)
+        assert "import os" not in fonte
+        assert "open(" not in fonte
+        assert "print(" not in fonte
+
+    def test_o_carimbo_nunca_vem_de_dentro(self):
+        """A mesma disciplina do D-16 que `campos_da_observacao` ja segue: o
+        relogio entra por parametro, nunca de dentro do modulo."""
+        chamadas = {
+            no.func.attr
+            for no in ast.walk(ast.parse(inspect.getsource(analise)))
+            if isinstance(no, ast.Call) and isinstance(no.func, ast.Attribute)
+        }
+        assert "now" not in chamadas
+        assert "today" not in chamadas
