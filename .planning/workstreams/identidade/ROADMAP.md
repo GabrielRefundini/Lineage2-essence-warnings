@@ -147,7 +147,35 @@ calibracao e sem intervencao — e sem gravar a mesma pessoa duas vezes.
   5. Reproduzir a mesma gravacao duas vezes seguidas deixa o acervo com a mesma contagem
      da primeira vez. (APRE-01, APRE-04)
 
-**Plans**: TBD
+**As nove decisoes do 02-CONTEXT.md (D-01 a D-09) estao FECHADAS** e os planos as
+implementam sem as reabrir. Duas delas mudam o tamanho da fase e merecem estar aqui:
+
+- **D-02 e mais forte do que o APRE-04 pede.** "O casamento contra as ja gravadas vem
+  antes" nao pode significar apenas RODAR antes: tem de VETAR. `identificar_linhas`
+  devolve `Casamento(None, ...)` por dois motivos opostos — "nao conheco ninguem
+  parecido" (aprende) e "conheco DOIS parecidos demais" (cala). Aprender no segundo faz
+  a pessoa PARAR de ser reconhecida: medido na Fase 1, virando 8 celulas de uma mascara
+  de 2000, a original casa 1.000 e a copia 0.921, margem 0.079, abaixo dos 0.12 de
+  `MARGEM_MINIMA_SOBRE_O_SEGUNDO`.
+- **D-07 e requisito de plano, e nao "nice to have".** A recusa por instabilidade
+  registra a DISTANCIA MEDIDA em celulas. Sem ela, o desfecho de um `celulas_toleradas`
+  errado e a feature simplesmente nao acontecer, em silencio. Com ela, o modo de falha
+  da fase e AUTO-DIAGNOSTICO, e o D-07 substitui a ferramenta de spike que o CONTEXT
+  adiou.
+
+**Descoberta do planejamento que decide o tamanho do tracer:** gravar a assinatura NAO
+BASTA para a linha continuar calada. `Rastreador.assinaturas_configuradas` e calculado
+UMA VEZ no arranque, e numa instalacao sem assinatura nenhuma — que e onde esta fase
+mais importa — ele nasce `False`. Nesse estado `_rotular` cai em `nome_de(indice)` e a
+pessoa recem-aprendida como ANONIMA seria anunciada com o nome de OUTRA. O criterio 1
+exige as duas metades, entao o elo tem de ser ligado no instante do primeiro
+aprendizado.
+
+**Plans:** 2 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — a linha desconhecida vira UMA entrada sem nome e continua calada; instabilidade recusada com a distancia medida; o teto derivado da medida da Fase 1 (APRE-01, APRE-02)
+- [ ] 02-02-PLAN.md — aprender a mesma pessoa duas vezes nao acontece por nenhum dos quatro caminhos: ja reconhecida, falha por margem, sai e volta, reinicio e replay (APRE-04)
 
 ### Phase 3: Batismo pelo WhatsApp
 
@@ -188,8 +216,8 @@ do batismo os alertas daquela pessoa saem com o nome certo.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. O acervo e o silencio dele | 0/2 | Planned | - |
-| 2. Aprender sozinho | 0/? | Not started | - |
+| 1. O acervo e o silencio dele | 2/2 | Complete | 2026-08-31 |
+| 2. Aprender sozinho | 0/2 | Planned | - |
 | 3. Batismo pelo WhatsApp | 0/? | Not started | - |
 
 ## Coverage
