@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 24
+open_count: 25
 waived_count: 1
 fixed_count: 7
-total_count: 32
-last_updated: 2026-08-31T01:31:43.303Z
+total_count: 33
+last_updated: 2026-08-31T02:27:00.087Z
 ---
 
 # Broken Windows Ledger
@@ -47,6 +47,7 @@ last_updated: 2026-08-31T01:31:43.303Z
 | 30 | 2 | deviation | tests/test_mercado_replay.py |  | SUPOSICAO MINHA REFUTADA POR MEDICAO no 02-05: escrevi 20260828-063409-mercado-scroll-transicao como CONTROLE 'sem oclusao' num teste de relacao, e ela descarta MAIS linhas por frame (6,30 = 170/27) que a gravacao de tooltip deliberado (3,62 = 141/39) e que a de alvo-sobreposto (0,74 = 35/47). CAUSA: durante a rolagem o fundo alternado das linhas esta em transicao e a sonda o le nao-uniforme; a recusa e legitima e fail-closed, mas nao e oclusao. O teste NAO foi forcado a passar — a comparacao falsa saiu e as taxas medidas por gravacao entraram no relatorio do replay. Consequencia para quem for calibrar depois: 'linhas descartadas' NAO e sinonimo de 'linhas cobertas'. | open |  | 2026-08-31T01:31:40.889Z |  |
 | 31 | 2 | deviation | l2scanner/mercado_pagina.py |  | O piso de posicoes comparadas (mercado_minimo_de_linhas_comparadas = 7, T-02-26) e o MAIOR fator isolado de perda de pagina do censo: 136 das 189 perdas (72%) sao 'abaixo do minimo comparado', contra 34 de 'primeiro frame do par' e 19 de 'os dois frames discordam'. O rendimento medido da fase e li 151 / perdi 189 sobre 478 ticks com painel aberto. O piso NAO foi mexido — ele foi MEDIDO pelo 02-02 sobre a intersecao entre frames vizinhos, e baixa-lo reabriria o acordo trivial. Registrado porque e o unico numero desta fase que um humano poderia querer renegociar depois de ver o custo, e a renegociacao precisa de uma varredura nova e nao de um palpite. | open |  | 2026-08-31T01:31:42.203Z |  |
 | 32 | 2 | deviation | tests/test_mercado_leitura.py |  | Um teste do 02-07 (TestARecusaEPorLinhaNuncaPorPagina::test_a_linha_descartada_NAO_entra_no_estabilizador) teve a PREMISSA superada pelo piso do 02-05: ele afirmava que a pagina de tooltip e ACEITA no segundo frame, e com 2 linhas lidas de 10 ela e exatamente a pagina que T-02-26 recusa. O piso NAO foi afrouxado para salvar o teste — o teste passou a DERIVAR o piso das linhas que a propria fixtura entrega, com a historia das tres ondas escrita na docstring, e a recusa com o valor de PRODUCAO ganhou teste proprio em test_mercado_pagina.py. | open |  | 2026-08-31T01:31:43.303Z |  |
+| 33 | 02 | deviation | l2scanner/mercado_pagina.py |  | ACEITO PELO USUARIO 2026-08-30: numa captura travada UMA pagina e aceita antes do congelamento disparar. O acordo fecha com 2 frames identicos; JANELAS_IGUAIS_PARA_CONGELAR=3. No frame 2 a pagina e lida, concorda trivialmente e passa; so do frame 3 em diante nada mais passa. Contradiz a LETRA do criterio 3 da fase ('frames bit a bit identicos sao reportados como captura congelada, nao aceitos como acordo'), mas o dado daquela pagina e o ULTIMO FRAME VIVO — verdadeiro, so velho — e a Fase 3 dedupa por chave de conteudo, entao ela nao vira linha duplicada no CSV. A alternativa (baixar para 2) pagaria falso positivo: duas janelas identicas por coincidencia viram captura travada e perde-se pagina boa. Achado pelo gsd-verifier em 2026-08-30; o teste test_congelada_NENHUMA_pagina_e_aceita afirma aceitas[2:] e e silencioso sobre aceitas[1] | open |  | 2026-08-31T02:27:00.087Z |  |
 
 ````json
 [
@@ -432,6 +433,18 @@ last_updated: 2026-08-31T01:31:43.303Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-31T01:31:43.303Z",
+    "resolved_at": null
+  },
+  {
+    "id": 33,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "l2scanner/mercado_pagina.py",
+    "line": null,
+    "description": "ACEITO PELO USUARIO 2026-08-30: numa captura travada UMA pagina e aceita antes do congelamento disparar. O acordo fecha com 2 frames identicos; JANELAS_IGUAIS_PARA_CONGELAR=3. No frame 2 a pagina e lida, concorda trivialmente e passa; so do frame 3 em diante nada mais passa. Contradiz a LETRA do criterio 3 da fase ('frames bit a bit identicos sao reportados como captura congelada, nao aceitos como acordo'), mas o dado daquela pagina e o ULTIMO FRAME VIVO — verdadeiro, so velho — e a Fase 3 dedupa por chave de conteudo, entao ela nao vira linha duplicada no CSV. A alternativa (baixar para 2) pagaria falso positivo: duas janelas identicas por coincidencia viram captura travada e perde-se pagina boa. Achado pelo gsd-verifier em 2026-08-30; o teste test_congelada_NENHUMA_pagina_e_aceita afirma aceitas[2:] e e silencioso sobre aceitas[1]",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T02:27:00.087Z",
     "resolved_at": null
   }
 ]

@@ -110,6 +110,27 @@ Progress: [███░░░░░░░] 25%
 | 260829-rd9 | OCR de nomes de item entra no escopo: LEIT-01 reescrito, coluna do nome recortada (LEIT-05) | 2026-08-29 | dcab841 | [260829-rd9-ocr-de-nomes-de-item-entra-no-escopo-lei](./quick/260829-rd9-ocr-de-nomes-de-item-entra-no-escopo-lei/) |
 | 260830-apd | A calibracao de party para de apagar a de mercado: carrega o disco e preserva os 27 campos que nao sao dela | 2026-08-30 | 0c9038c | [260830-apd-party-calibration-nao-pode-apagar-a-cali](./quick/260830-apd-party-calibration-nao-pode-apagar-a-cali/) |
 
+### Verificação Diferida — Fase 2
+
+| Fase | Estado | Retomar |
+|------|--------|---------|
+| 2 | verification_deferred_human | `/gsd-verify-work 2 --ws mercado` |
+
+A Fase 2 fechou 8/8 planos e a verificação deu **`human_needed`, 2 de 3 critérios**. As duas
+decisões de PRODUTO foram tomadas pelo usuário em 2026-08-30 (a borda 2×3 do congelamento é
+aceitável; o rendimento 151/189 basta para a Fase 3 começar). **Sobram duas conferências que
+só a mão dele fecha, e nenhuma bloqueia a Fase 3:**
+
+1. **O OCR real dentro do tick.** O motor WinRT rodou de verdade na ferramenta de censo
+   (`tools/medir_agrupamento_de_nome.py` chama `ocr.ler_texto` com portão `ocr.disponivel()`),
+   e o replay prova que o recorte de produção é **byte-idêntico** ao que o motor leu — o
+   casamento é por `ndarray.tobytes()`, então um pixel de diferença derrubaria toda linha. O
+   que falta é o motor rodando DENTRO do laço, com o jogo aberto. Ninguém constrói
+   `LeitorDePagina` em produção ainda; isso nasce na Fase 4.
+2. **O congelamento provocado.** `frames_congelados = 0` em todo o censo, porque não existe
+   gravação de captura travada. Minimizar a janela ou pausar a captura por 3+ ticks, e
+   conferir que o aviso alto sai e nenhuma página nova é aceita.
+
 ### Todos
 
 - [ ] ~~**DEFINIR A `[mercado] watchlist` no `config.toml`**~~ — **DEIXOU DE SER BLOQUEIO
