@@ -311,18 +311,206 @@ class RegistroDeObservacoes:
             self._criar_com_cabecalho()
             return self.chaves
 
+        if not bruto:
+            # O UNICO caso que NAO passa pelo portao de contrato, e a razao e
+            # que nao ha dado a preservar: zero bytes nao tem byte do usuario
+            # para ser destruido. O que aconteceu ali foi uma CRIACAO
+            # interrompida, nao uma escrita perdida. Qualquer arquivo NAO vazio
+            # que nao case com o contrato — inclusive um que contenha so o
+            # cabecalho sem a quebra final — desliga a feature.
+            log.warning(
+                "O arquivo de observacoes %s tem ZERO BYTES: a criacao dele foi "
+                "interrompida. Escrevi o cabecalho e seguindo com o indice "
+                "VAZIO — nao havia dado nenhum ali para preservar.",
+                self.arquivo,
+            )
+            self._criar_com_cabecalho()
+            return self.chaves
+
+        self._conferir_o_terminador(bruto)
         linhas = list(csv.reader(io.StringIO(bruto, newline=""), delimiter=SEPARADOR))
+        self._conferir_o_cabecalho(linhas)
+        self._montar_o_indice(linhas)
+        return self.chaves
+
+    # -- o portao de contrato ----------------------------------------------
+
+    def _conferir_o_terminador(self, bruto: str) -> None:
+        """O achado central da pesquisa: sem quebra final, o arquivo e recusado.
+
+        A CONTAGEM DE CAMPOS NAO SERVE PARA ISTO, E ESTA MEDIDO. Sobre a linha
+        de seis colunas `k;nome;2026-08-30T14:03:21;6200;48;80\\r\\n`, cortada
+        byte a byte a partir do fim, os CINCO cortes deixam o arquivo sem quebra
+        de linha final — mas DOIS deles produzem seis campos todos parseaveis,
+        com `80` virando `8` e `48` virando `4`. Essa linha passaria pela
+        contagem, viraria observacao, e pior: viraria CHAVE DE DEDUP que
+        bloquearia a gravacao da observacao correta mais tarde. `'8'` e um
+        inteiro perfeitamente valido, entao a validacao por tipo tambem nao a
+        pega. So o terminador pega — 5 de 5.
+
+        A BICONDICIONAL QUE SUSTENTA O CRITERIO TAMBEM FOI MEDIDA:
+        `csv.writer.writerow` emite UMA unica chamada de escrita contendo a
+        linha E o terminador, logo **um registro esta completo se e somente se o
+        arquivo termina em quebra de linha**.
+
+        UM ARQUIVO QUE NAO TERMINA EM QUEBRA DE LINHA NAO E "UM ARQUIVO BOM COM
+        UMA LINHA RUIM NO FIM": e um arquivo cujo estado o programa nao consegue
+        afirmar. Por isso o tratamento e o MESMO do cabecalho divergente — a
+        feature desliga alto e um humano olha — e nao um tratamento proprio. E a
+        doutrina que a fase ja tem (D-12), aplicada na mesma funcao de arranque
+        e sobre o mesmo arquivo, e nao uma excecao inventada para este caso.
+
+        AS DUAS OUTRAS SAIDAS FORAM CONSIDERADAS E RECUSADAS, e um numero que
+        caiu precisa dizer que caiu:
+
+        (a) REMOVER A CAUDA DO DISCO (truncar ate a ultima quebra de linha).
+            Seria o programa apagando bytes do usuario num caminho de LEITURA. E
+            uma das duas hipoteses do proprio aviso e "linha boa, salva a mao
+            sem quebra final" — entao a saida apagaria dado BOM em metade dos
+            casos que ela existe para tratar. Contradiz o D-12, que recusa mexer
+            calado num arquivo que o usuario edita a mao e importa no Sheets.
+
+        (b) COMPLETAR A CAUDA COM UMA QUEBRA DE LINHA antes do proximo append.
+            E a PIOR das tres, porque preserva a linha possivelmente truncada E
+            A PROMOVE: na leitura seguinte ela termina em newline, passa nas
+            duas redes por linha, e vira observacao PERMANENTE. O `'80'` cortado
+            para `'8'` tem seis campos validos e viraria preco errado para
+            sempre — o defeito exato que esta fase existe para nao ter.
+
+        CUSTO ACEITO, E ELE E REAL: uma queda de energia de verdade desliga o
+        registro ate intervencao manual. Aceitavel porque a mensagem diz ao
+        usuario exatamente o que fazer para religar, e porque a alternativa e
+        preco errado gravado como bom.
+        """
+        if bruto.endswith("\n"):
+            return
+
+        cauda = bruto[bruto.rfind("\n") + 1 :]
+        mensagem = (
+            "MERCADO DESLIGADO — o arquivo de observacoes %s NAO TERMINA EM "
+            "QUEBRA DE LINHA, e por isso NADA foi lido dele. Duas hipoteses, e "
+            "o criterio nao consegue distinguir uma da outra: ou a ultima "
+            "gravacao foi INTERROMPIDA (queda de energia, ou disco cheio no "
+            "meio da escrita), ou o arquivo foi EDITADO A MAO e salvo sem a "
+            "quebra de linha final. A cauda crua e %r, e ela esta INTACTA no "
+            "disco: nenhum byte foi removido, reparado ou reescrito. O QUE "
+            "FAZER: abra o arquivo, olhe a ultima linha, complete-a ou "
+            "apague-a, e salve COM quebra de linha no fim — isso religa a "
+            "feature no proximo arranque. Enquanto isso, os alertas de party "
+            "(morte, saida e ressurreicao) seguem sendo detectados e entregues."
+        )
+        log.error(mensagem, self.arquivo, cauda)
+        raise ContratoDoArquivoQuebrado(mensagem % (self.arquivo, cauda))
+
+    def _conferir_o_cabecalho(self, linhas: list[list[str]]) -> None:
+        """A mesma forma do analog, com o `else` INVERTIDO (D-11, D-12).
+
+        Em `mercado_catalogo.py:478-481` o cabecalho e CONVENIENCIA para o olho
+        humano, e esta escrito la que "um arquivo sem ele ainda carrega". Aqui
+        ele e a IDENTIDADE do arquivo. A inversao tem motivo: migrar sozinho um
+        arquivo que o usuario edita a mao e importa no Sheets e exatamente como
+        se corrompe dado calado — o append escreveria valores nas colunas
+        erradas e ninguem veria, porque o arquivo continuaria abrindo.
+
+        Tres estados, e so tres: arquivo AUSENTE cria com cabecalho (tratado em
+        `carregar`); primeiro registro IDENTICO a `COLUNAS` depois de `strip`
+        segue; DIVERGENTE, ou ausente num arquivo nao-vazio, levanta.
+        """
+        encontrado = tuple(campo.strip() for campo in linhas[0]) if linhas else ()
+        if encontrado == COLUNAS:
+            return
+
+        mensagem = (
+            "MERCADO DESLIGADO — o cabecalho de %s nao e o que este programa "
+            "escreve, e por isso NADA foi lido dele. Esperava %r e encontrei "
+            "%r. NENHUM byte foi alterado: migrar sozinho um arquivo que voce "
+            "edita a mao e importa no Sheets e como se corrompe dado calado, "
+            "porque o append passaria a escrever valores nas colunas erradas e "
+            "o arquivo continuaria abrindo. O QUE FAZER: restaure a primeira "
+            "linha para o cabecalho esperado, ou renomeie o arquivo para o "
+            "programa criar um novo — qualquer um dos dois religa a feature no "
+            "proximo arranque. Enquanto isso, os alertas de party (morte, "
+            "saida e ressurreicao) seguem sendo detectados e entregues."
+        )
+        log.error(mensagem, self.arquivo, COLUNAS, encontrado)
+        raise ContratoDoArquivoQuebrado(
+            mensagem % (self.arquivo, COLUNAS, encontrado)
+        )
+
+    # -- as duas redes por linha -------------------------------------------
+
+    def _montar_o_indice(self, linhas: list[list[str]]) -> None:
+        """Passado o portao, uma linha ruim cai SOZINHA e nunca condena o
+        arquivo — o D-14 literal.
+
+        REDE 1, A CONTAGEM DE CAMPOS: e a rede que a decisao travada nomeia, e
+        ela continua valendo inteira. O que mudou foi o ALCANCE — ela nunca foi
+        capaz de julgar a cauda do arquivo, e agora nao precisa. O que ela pega
+        e a linha que o usuario quebrou editando no MEIO do arquivo.
+
+        REDE 2, A VALIDACAO POR TIPO de cada campo. As duas moram dentro de
+        `chave_dos_campos`, que devolve o motivo em texto para o aviso.
+        """
+        # numero da linha e nome exibido da PRIMEIRA vez que cada chave apareceu
+        origem: dict[tuple[str, int, int], tuple[int, str]] = {}
+
         for numero, campos in enumerate(linhas, start=1):
+            if numero == 1:
+                continue  # o cabecalho, ja conferido
             if not campos or all(not campo.strip() for campo in campos):
                 continue
-            if numero == 1:
-                continue
+
+            def recusar(motivo: str, numero: int = numero, campos=campos) -> None:
+                # O molde literal de `mercado_catalogo.py:498-506`: numero da
+                # linha, motivo em texto, conteudo cru em `%r`. A forense deste
+                # projeto acontece DEPOIS do farm, com o log na mao — sem o
+                # numero o usuario nao acha a linha para consertar no Sheets.
+                log.warning(
+                    "Observacoes, linha %d DESCARTADA (%s): %r. As demais "
+                    "linhas do arquivo carregaram normalmente — uma linha ruim "
+                    "nunca condena o arquivo inteiro.",
+                    numero,
+                    motivo,
+                    SEPARADOR.join(campos),
+                )
+
             try:
                 chave = chave_dos_campos(campos)
-            except ValueError:
+            except ValueError as erro:
+                recusar(str(erro))
                 continue
+
+            nome = campos[COLUNAS.index("nome_exibido")]
+            if chave in self.chaves:
+                primeira_linha, primeiro_nome = origem[chave]
+                if primeiro_nome != nome:
+                    # D-08: a chave E o conteudo, entao chave igual so pode
+                    # significar que o ROTULO oscilou no OCR. `error` e nao
+                    # `warning` porque isto e impossivel por construcao — mas a
+                    # feature NAO desliga: o arquivo esta legivel, o que esta
+                    # errado e uma etiqueta, e quem decide entre duas etiquetas
+                    # e o usuario no Sheets.
+                    log.error(
+                        "Observacoes: a linha %d e a linha %d tem a MESMA chave "
+                        "%r com nomes DIFERENTES (%r e %r). Isso e impossivel "
+                        "por construcao — a chave e derivada do conteudo — "
+                        "entao o que oscilou foi o rotulo do OCR. A primeira "
+                        "(linha %d, %r) foi mantida, que e tambem a mais "
+                        "antiga; NENHUMA das duas foi apagada do arquivo, e "
+                        "quem escolhe entre as duas etiquetas e voce, no "
+                        "Sheets. O registro continua LIGADO.",
+                        primeira_linha,
+                        numero,
+                        chave,
+                        primeiro_nome,
+                        nome,
+                        primeira_linha,
+                        primeiro_nome,
+                    )
+                continue
+
             self.chaves.add(chave)
-        return self.chaves
+            origem[chave] = (numero, nome)
 
     def _criar_com_cabecalho(self) -> None:
         """Escreve o cabecalho num arquivo AUSENTE. Unica escrita do arranque.
