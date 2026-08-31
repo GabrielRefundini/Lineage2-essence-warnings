@@ -52,6 +52,13 @@ from .agenda import (
 # `tests/test_aprendiz.py`). Declarar a candidata aqui obrigaria o aprendiz a
 # importar a sessao, e o ciclo fecharia no primeiro uso.
 from .aprendiz import Candidata
+# `sessao` fala com o `batismo`, e NUNCA com o `acervo` — o mesmo desenho que
+# ela ja tem com o `aprendiz`. O portao de
+# `tests/test_acervo.py::test_so_dois_modulos_conhecem_o_acervo` pergunta quem
+# IMPORTA o acervo, lido da arvore sintatica, e essa distincao e deliberada: a
+# sessao SEGURA um `AcervoDeIdentidades` que o `__main__` construiu, e nunca
+# constroi um.
+from .batismo import Pendente, montar_pergunta
 from .console import moldurar
 from .frames import Frame, SaudeDoFrame
 from .loot import Designacao, nick_para_o_aviso
@@ -196,6 +203,7 @@ class Sessao:
         regras_de_respawn=(),
         janela_do_episodio=JANELA_DO_EPISODIO,
         aprendiz=None,
+        acervo=None,
     ) -> None:
         self.cal = cal
         self.rastreador = rastreador
@@ -261,6 +269,16 @@ class Sessao:
         # que ja existe continua valida sem edicao, e sem ele o tick
         # simplesmente nao aprende nada e nada mais muda.
         self.aprendiz = aprendiz
+        # O `acervo.AcervoDeIdentidades`, so para PERGUNTAR quem e a pessoa que
+        # o aprendiz acabou de gravar (BATI-01). Default None pela mesma razao
+        # do `loot`, do `mercado`, do `bosses` e do `aprendiz`: toda construcao
+        # de `Sessao` que ja existe continua valida sem edicao, e sem ele o
+        # tick simplesmente nao pergunta nada.
+        #
+        # E A MESMA INSTANCIA que o `__main__` constroi e que a carga do
+        # arranque e o `Aprendiz` usam. Uma segunda seriam duas verdades sobre
+        # a mesma pasta.
+        self.acervo = acervo
         # Ja avisamos que o aprendiz explodiu? Uma vez por sessao, e so uma.
         #
         # Mesmo trilho dos dois vizinhos do mercado, e pela mesma razao: um
@@ -667,8 +685,14 @@ class Sessao:
         NUNCA LEVANTA, no precedente ja escrito para o mercado: uma falha aqui
         nao pode derrubar o farm, e tambem nao pode ficar muda para sempre.
 
-        NADA E DESPACHADO. Esta fase e CALADA por decisao de escopo: perguntar e
-        a Fase 3 inteira (BATI-01).
+        A FASE 3 CHEGOU, E ESTE METODO DEIXOU DE SER CALADO. O que passa a ser
+        despachado e UMA PERGUNTA por assinatura CRIADA: "quem e a pessoa da
+        linha N?", com o apelido para responder (BATI-01).
+
+        O QUE CONTINUA NAO SENDO DESPACHADO E NENHUM EVENTO NOVO. A pergunta
+        nao e evento de party — ninguem morreu, ninguem saiu, ninguem entrou —,
+        e por isso ela nao passa pelo rastreador nem vira `Evento`. Ela sai
+        pelo mesmo funil de `_despachar` que todo o resto usa, e so.
         """
         if self.aprendiz is None or not observacao.ui_visivel:
             return
@@ -760,6 +784,45 @@ class Sessao:
                     "nome delas. Isso vale para a party inteira, e nao so para "
                     "a linha aprendida."
                 )
+
+        # A PERGUNTA (BATI-01), e ela fica DEPOIS de tudo que ja estava aqui.
+        #
+        # A ordem e deliberada: o `log.info` do aprendizado e o `log.warning`
+        # da virada de regime continuam saindo antes, entao o `scanner.log`
+        # conta a historia na ordem em que ela aconteceu.
+        #
+        # SO `criado` PERGUNTA, e isso nao contradiz o `ja_existia` ser
+        # sucesso: `ja_existia` significa que a OUTRA instancia do usuario
+        # criou a entrada, e foi ELA que teve a chance de marcar. Perguntar
+        # tambem aqui seria correto pelo `O_EXCL` (o marcador decidiria de
+        # novo) e desnecessario — e a varredura de arranque ja e a rede que
+        # pega qualquer pergunta que nao saiu, inclusive a de uma entrada
+        # criada por um `--dry-run`.
+        #
+        # `self.despachante is not None` E A TRAVA DE D-05 ESTENDIDA, e ela nao
+        # e um detalhe: `montar_pergunta` MARCA. Chama-la sem despachante
+        # queimaria o marcador de uma pergunta que nao vai para lugar nenhum, e
+        # o marcador e PARA SEMPRE — a pessoa ficaria "Membro N" ate alguem
+        # apagar um arquivo a mao. Quem roda sem `.env` e sem `--dry-run`
+        # simplesmente ainda nao perguntou, e vai perguntar no dia em que
+        # configurar a entrega.
+        if self.acervo is not None and self.despachante is not None:
+            pendentes = [
+                Pendente(chave=aprendizado.chave, indice=aprendizado.indice)
+                for aprendizado in saida.aprendizados
+                if aprendizado.desfecho == "criado"
+            ]
+            pergunta = montar_pergunta(self.acervo, pendentes)
+            if pergunta:
+                # `Categoria.SEMPRE`, E A RAZAO PRECISA FICAR ESCRITA: o
+                # marcador de D-04 e de MAO UNICA. `Categoria.NORMAL` e cortada
+                # no transporte durante o silencio de TvT/Prime, e a mensagem
+                # cortada nem entra no outbox — a pergunta seria queimada e
+                # nunca enviada, sistematicamente, justamente durante o evento
+                # em que a party mais muda de gente. A varredura do proximo
+                # arranque salvaria o caso, mas depender dela seria transformar
+                # uma perda evitavel em rotina.
+                self._despachar(pergunta, Categoria.SEMPRE, resultado=resultado)
 
     def _registrar_recusas(self, recusas: list) -> None:
         """O auto-diagnostico de D-07, com a cadencia que nao foi inventada.

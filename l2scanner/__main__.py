@@ -25,6 +25,11 @@ from pathlib import Path  # noqa: E402
 
 from .acervo import AcervoDeIdentidades, carregar_identidades  # noqa: E402
 from .aprendiz import AjustesDoAprendiz, Aprendiz, ToleranciaAlemDoTeto  # noqa: E402
+from .batismo import (  # noqa: E402
+    montar_pergunta,
+    pendentes_do_acervo,
+    responder_batismo,
+)
 from .calibracao import (  # noqa: E402
     Calibracao,
     CalibracaoInvalida,
@@ -1032,8 +1037,27 @@ def atender_comandos(
     rastreador=None,
     loot=None,
     bosses=(),
+    acervo=None,
+    assinaturas_vivas=None,
 ) -> None:
     """Le, obedece e confirma. Nunca levanta.
+
+    `acervo` E `assinaturas_vivas` SAO O BATISMO, e chegam com o mesmo registro
+    de comentario que o `bosses` ja tem: os defaults existem so para os testes
+    antigos continuarem medindo o que mediam, e em producao os DOIS lacos
+    passam o acervo.
+
+    OS DOIS, E NAO SO O PRINCIPAL. O marcador `comando_<id>` da `.agenda/` e
+    COMPARTILHADO: exatamente uma instancia obedece cada comando. Se o laco da
+    agenda receber a mensagem primeiro e nao tiver acervo, ele consome o
+    marcador, responde "nao consigo mexer nas identidades agora" e o batismo do
+    usuario e PERDIDO. Logica certa ligada num caminho so e a familia de
+    defeito que este projeto ja pagou duas vezes.
+
+    `assinaturas_vivas` e `None` no laco da agenda, e a ausencia e honesta: la
+    nao existe lista viva nem rastreador porque nao existe tela. O disco e
+    escrito do mesmo jeito, e o nome vale a partir do proximo arranque do
+    scanner (T-03-07).
 
     `bosses` E A LISTA DO `config.toml`, e ela chega dos DOIS lacos. O default
     vazio existe so para os testes antigos que nao passam nada continuarem
@@ -1233,6 +1257,44 @@ def atender_comandos(
             else:
                 resposta = responder_consulta(loot, pedido.argumento, agora)
             # Pergunta pessoal, mesmo racional do .status.
+            avisar_o_grupo = False
+        elif pedido.comando is Comando.BATIZAR:
+            if acervo is None:
+                resposta = "Nao consigo mexer nas identidades agora."
+            else:
+                batismo = responder_batismo(
+                    acervo,
+                    pedido.argumento,
+                    assinaturas_vivas=assinaturas_vivas,
+                    # O TERCEIRO ELO (D-08). Sem o snapshot, um nick batizado
+                    # que TAMBEM esteja em `cal.nomes` continua sendo
+                    # emprestado por POSICAO para qualquer linha nao
+                    # reconhecida — dois nomes iguais na tela, e um deles
+                    # mentira. `None` no laco da agenda, onde nao ha
+                    # rastreador porque nao ha tela.
+                    nomes_reservados=(
+                        rastreador.nomes_reservados
+                        if rastreador is not None
+                        else None
+                    ),
+                )
+                resposta = RespostaDePresenca(
+                    privado=batismo.privado, grupo=batismo.grupo
+                )
+            # A ATRIBUICAO E OBRIGATORIA MESMO SENDO INERTE NO CAMINHO FELIZ.
+            #
+            # Ali este ramo devolve `RespostaDePresenca` e o `isinstance` do
+            # bloco de despacho curto-circuita antes de a flag ser lida —
+            # exatamente a "coincidencia que nada no codigo preserva" que o
+            # comentario do topo deste laco descreve. No ramo sem acervo ele
+            # devolve `str`, e ai a flag e lida de verdade: uma recusa privada
+            # nao pode vazar para o grupo.
+            #
+            # `False` porque a recusa e entre quem digitou e o scanner. O eco
+            # no grupo do caminho feliz vem da redacao PROPRIA de
+            # `RespostaDoBatismo.grupo`, e nao desta flag: a pergunta foi
+            # publica, entao a confirmacao fecha o circuito onde ele foi
+            # aberto, com um texto curto e diferente.
             avisar_o_grupo = False
         elif pedido.comando is Comando.JOIN:
             # `pedido.nick` pode ser None — e o DONO que nao se declarou

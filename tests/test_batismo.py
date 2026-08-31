@@ -146,10 +146,17 @@ def observar_frame(px: np.ndarray, cal: Calibracao):
 
 
 def retrato_da_pasta(pasta: Path) -> dict[str, bytes]:
-    """Todo arquivo da pasta com o conteudo, para comparar antes e depois."""
+    """Todo ARQUIVO da pasta com o conteudo, para comparar antes e depois.
+
+    So arquivos: varios casos apontam o acervo para o proprio `tmp_path`, e a
+    `.agenda/` da `Sessao` nasce ao lado. Um retrato que tentasse ler a pasta
+    irma estaria medindo o cenario do teste, e nao o acervo.
+    """
     if not pasta.exists():
         return {}
-    return {c.name: c.read_bytes() for c in sorted(pasta.iterdir())}
+    return {
+        c.name: c.read_bytes() for c in sorted(pasta.iterdir()) if c.is_file()
+    }
 
 
 class DespachanteQueGrava:
