@@ -94,10 +94,12 @@ from .loot import (  # noqa: E402
 from . import ocr  # noqa: E402
 from .frames import MssSource, Regiao, ReplaySource, SaudeDoFrame  # noqa: E402
 from .manutencao import (  # noqa: E402
+    CONSELHO_QUANDO_NAO_ANUNCIA,
     SEGUNDOS_ENTRE_LEITURAS,
     VigiaDeManutencao,
     eh_banner_de_manutencao,
     interpretar_banner,
+    julgar_as_duas_escalas,
 )
 from .gravador import Gravador  # noqa: E402
 from .notificador import (  # noqa: E402
@@ -1977,14 +1979,22 @@ def comando_teste_de_agenda(args: argparse.Namespace) -> int:
 def comando_testar_manutencao(args: argparse.Namespace, cal: Calibracao) -> int:
     """Mostra o que o OCR le no banner AGORA (D-13).
 
-    Esta ferramenta existe por causa de um risco declarado: a precisao do OCR
-    na FONTE DO JOGO nunca foi provada. O spike leu um banner sintetico, nao um
-    banner de verdade. So uma manutencao real prova o resto — e sem esta
-    ferramenta o usuario nao teria como conferir sozinho quando ela acontecer.
+    Esta ferramenta nasceu de um risco declarado: a precisao do OCR na FONTE
+    DO JOGO nunca tinha sido provada, porque o spike leu um banner sintetico.
+
+    O RISCO SE REALIZOU EM 31/08/2026, E FOI ESTA FERRAMENTA QUE MEDIU. Com o
+    servidor entrando em manutencao as ~18:20 e o banner na tela por quase uma
+    hora, quatro rodadas daqui produziram as oito leituras que estao hoje
+    fixadas em `tests/test_manutencao.py`. Elas mostraram que o `M` de
+    Maintence nunca sobrevive ao motor e que a porta 1 nunca fechava. Sem esta
+    ferramenta o defeito continuaria invisivel: de fora, o scanner parecia
+    estar funcionando.
 
     Por isso ela mostra as TRES coisas separadas: qual regiao usou, que pixels
     pegou (o PNG em disco) e o que o OCR e o parser entenderam. Quando algo
     falhar, essas tres respostas dizem QUAL das tres etapas falhou.
+
+    E o VEREDITO final nao e calculado aqui — ver o comentario ao lado dele.
     """
     regiao = cal.regiao_do_banner(na_janela=bool(args.janela))
     if regiao is None:
@@ -2082,18 +2092,25 @@ def comando_testar_manutencao(args: argparse.Namespace, cal: Calibracao) -> int:
 
         # A LINHA FINAL E O VEREDITO, e ela existe porque e a unica coisa que o
         # usuario precisa ler para saber se o recurso vai anunciar ou calar.
-        if duracao is not None and duracao == duracao_ampliada:
-            log.info("As duas escalas CONCORDAM — em producao isto anunciaria.")
+        #
+        # ELA VEM DE `julgar_as_duas_escalas`, A MESMA FUNCAO QUE O PRODUTO
+        # CHAMA. Aqui morava um `if` proprio, e ele DIVERGIU: em 31/08 as duas
+        # escalas leram texto IDENTICO, as duas devolveram None, e esta linha
+        # imprimiu "as duas escalas discordam". Elas concordavam, e o usuario
+        # foi mandado conferir uma faixa que ja estava certa. Um diagnostico
+        # com logica propria e um diagnostico que um dia mente.
+        veredito = julgar_as_duas_escalas(texto, ampliado)
+        if veredito.anunciaria:
+            log.info("%s Em producao isto ANUNCIARIA.", veredito.explicacao)
         else:
             log.warning(
-                "As duas escalas DISCORDAM — em producao isto NAO anunciaria. "
-                "Compare os dois textos acima: se so uma escala esta cortando o "
-                "banner, o conserto e a faixa (chave 'banner_manutencao' no "
-                "calibration.json); se as duas leem torto, e o motor."
+                "%s Em producao isto NAO anunciaria. %s",
+                veredito.explicacao,
+                CONSELHO_QUANDO_NAO_ANUNCIA,
             )
 
-        if duracao is not None:
-            momento = montar_relogio(args).agora() + duracao
+        if veredito.duracao is not None:
+            momento = montar_relogio(args).agora() + veredito.duracao
             log.info(
                 "Se isto fosse valendo, o servidor cairia as %s",
                 momento.strftime("%H:%M:%S"),

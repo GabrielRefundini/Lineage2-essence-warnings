@@ -16,6 +16,22 @@ O scanner atravessava esse anuncio inteiro sem ver. Quem esta AFK farmando
 perde o loot do chao, perde o buff e cai no meio de uma instance por falta de
 um aviso que estava escrito na tela o tempo todo.
 
+E ATRAVESSOU DE NOVO EM 2026-08-31, com este modulo ja pronto
+=============================================================
+Servidor em manutencao as ~18:20, banner na tela por quase uma hora, nenhuma
+mensagem no WhatsApp. A primeira leitura de um banner DE VERDADE reprovou duas
+coisas que ate ali eram so raciocinio: a porta 1 procurava a raiz `mainten`,
+que o motor de OCR nunca entrega (8 leituras, 8 ausencias), e a porta 3 exigia
+que as duas escalas produzissem a MESMA duracao, o que descartou 3 das 4
+leituras boas do dia. As duas razoes, com os numeros medidos, estao em
+`eh_banner_de_manutencao` e em `julgar_as_duas_escalas`; as oito strings estao
+fixadas em `tests/test_manutencao.py`.
+
+AS TRES PORTAS CONTINUAM SENDO TRES. O conserto trocou a REGRA de duas delas,
+nao o numero delas: uma manutencao inventada custa uma mensagem falsa no
+grupo, e uma manutencao perdida custa o loot, o buff e a instance. Os dois
+lados pesam, e nenhum dos dois foi trocado pelo outro.
+
 A DISCIPLINA DESTE MODULO, com o mesmo peso do proposito
 ========================================================
 
@@ -32,6 +48,7 @@ ja quebrou.
 
 from __future__ import annotations
 
+import difflib
 import logging
 import re
 from dataclasses import dataclass
@@ -61,7 +78,29 @@ ANTECEDENCIA = timedelta(minutes=5)
 FOLGA_APOS_A_MANUTENCAO = timedelta(minutes=10)
 
 # A raiz que cobre `maintence` (o typo do jogo) e `maintenance` de uma vez.
+# ELA NAO BASTA — ver `eh_banner_de_manutencao`. Continua aqui porque e o
+# CAMINHO RAPIDO: quando o OCR entrega a palavra inteira, nenhuma conta de
+# semelhanca precisa rodar.
 _RAIZ = "mainten"
+
+# As duas grafias inteiras, para a comparacao POR SEMELHANCA. O jogo escreve
+# `Maintence`; `Maintenance` esta aqui para o dia em que ele corrigir o typo.
+_GRAFIAS = ("maintence", "maintenance")
+
+# A ANCORA. Medida em 31/08 nas oito leituras reais: aparece em 8 de 8, e limpa
+# em 7. E o trecho mais confiavel do banner inteiro — mais que o titulo.
+_ANCORA = "avoid entering instance"
+
+# UM CORTE SO PARA OS DOIS RAMOS, e ele esta preso a uma colisao medida.
+# Ver a tabela em `eh_banner_de_manutencao`: `aintence` da 0,941, `aiptence` da
+# 0,824 e `main entrance` da 0,833. O corte tem de ficar ACIMA de 0,833, entao
+# 0,85. O `aiptence` fica de fora de proposito e e recuperado pela ancora.
+_CORTE_DA_SEMELHANCA = 0.85
+
+# Quanto a janela de comparacao pode encolher ou crescer em relacao ao alvo.
+# 2 caracteres cobrem o lixo que o OCR gruda nas bordas da palavra
+# (`Servergqaiptenceatl`, `"aintencea2J`) sem varrer a tela inteira.
+_FOLGA_DA_JANELA = 2
 
 # DOIS JOGOS DE PADROES, E A SEPARACAO E A CORRECAO INTEIRA.
 #
@@ -111,25 +150,6 @@ _TETO = timedelta(hours=24)
 _TROCAS = str.maketrans({"O": "0", "o": "0", "l": "1", "I": "1", "S": "5", "s": "5"})
 
 
-def eh_banner_de_manutencao(texto: str | None) -> bool:
-    """A primeira das TRES portas contra inventar uma manutencao.
-
-    As outras duas sao exigir uma duracao interpretavel (`interpretar_banner`)
-    e exigir o consenso de duas leituras (`VigiaDeManutencao`). Nenhuma delas
-    sozinha basta, e e por isso que sao tres.
-
-    A raiz `mainten` sozinha basta porque ela e o token mais RARO da tela: nem
-    o chat, nem um nome de personagem, nem o nome de um item a produzem por
-    acidente. Exigir tambem a palavra `server` seria PIOR, nao melhor — um
-    `5erver` mal lido pelo OCR derrubaria a deteccao inteira, e `server`
-    aparece em frases que nao sao o banner (`the server will restart in a few
-    minutes`, dos prints do usuario) sem trazer nenhum poder de discriminacao.
-    """
-    if not texto:
-        return False
-    return _RAIZ in texto.lower()
-
-
 def _normalizar_digitos(texto: str) -> str:
     """O/l/I/S viram digito SO em token que ja tem um digito de verdade.
 
@@ -142,6 +162,152 @@ def _normalizar_digitos(texto: str) -> str:
         token.translate(_TROCAS) if any(c.isdigit() for c in token) else token
         for token in texto.split()
     )
+
+
+def _semelhanca_maxima(alvo: str, texto: str) -> float:
+    """O melhor pedaco de `texto` que se parece com `alvo`, de 0,0 a 1,0.
+
+    JANELA DESLIZANTE, E NAO COMPARACAO POR TOKEN, porque o defeito que esta
+    funcao existe para vencer GRUDA palavras: o motor entregou
+    `Servergqaiptenceatl` e `"aintencea2J` como UM token so. Comparar token
+    contra token afogaria `aintence` no lixo colado nele.
+
+    A METRICA E `difflib.SequenceMatcher`, DA STDLIB, E NAO `rapidfuzz`.
+    Mesmo motivo ja registrado em `mercado_catalogo` (D-04): `rapidfuzz` NAO
+    esta instalado e NAO esta no `requirements.txt` deste projeto, e a arvore de
+    dependencias e guardada por `tests/test_firewall_escopo.py`. Sobre alvos de
+    9 a 23 caracteres as duas metricas dao praticamente o mesmo numero, e uma
+    dependencia nova para isso seria paga em risco sem nada em troca.
+
+    CUSTO MEDIDO: 3,4 ms para varrer um texto de ~100 caracteres contra as duas
+    grafias E a ancora. A cadencia e de 5 s e a passada de OCR que produz o
+    texto custa 23 ms, entao isto e ruido. E o caminho rapido de
+    `eh_banner_de_manutencao` nem chega aqui quando a palavra veio inteira.
+    """
+    alvo = alvo.lower()
+    texto = texto.lower()
+    tamanho = len(alvo)
+    melhor = 0.0
+    medidor = difflib.SequenceMatcher(autojunk=False)
+    medidor.set_seq1(alvo)
+    for largura in range(max(1, tamanho - _FOLGA_DA_JANELA), tamanho + _FOLGA_DA_JANELA + 1):
+        for inicio in range(0, max(1, len(texto) - largura + 1)):
+            medidor.set_seq2(texto[inicio : inicio + largura])
+            # Os dois limites SUPERIORES baratos do proprio difflib, na ordem
+            # de custo. E o que mantem a varredura em milissegundos.
+            if medidor.real_quick_ratio() <= melhor or medidor.quick_ratio() <= melhor:
+                continue
+            razao = medidor.ratio()
+            if razao > melhor:
+                melhor = razao
+    return melhor
+
+
+def parece_palavra_de_manutencao(texto: str | None) -> bool:
+    """`Maintence` mesmo com o OCR comendo letras. PUBLICA de proposito.
+
+    Ela e um dos DOIS ramos da porta 1 e tem uma medicao propria (a colisao com
+    `main entrance`), entao precisa poder ser cobrada sozinha por teste. Cobrar
+    so a porta inteira deixaria o ramo passar a valer por acidente, pela ancora.
+    """
+    if not texto:
+        return False
+    if _RAIZ in texto.lower():
+        return True  # caminho rapido: a palavra veio inteira
+    return any(
+        _semelhanca_maxima(grafia, texto) >= _CORTE_DA_SEMELHANCA
+        for grafia in _GRAFIAS
+    )
+
+
+def _tem_a_ancora(texto: str) -> bool:
+    """`avoid entering instance`, inteira ou embaralhada."""
+    if _ANCORA in texto.lower():
+        return True  # caminho rapido: 7 das 8 leituras de campo param aqui
+    return _semelhanca_maxima(_ANCORA, texto) >= _CORTE_DA_SEMELHANCA
+
+
+def _tem_contagem(texto: str) -> bool:
+    """Existe numero colado numa unidade de tempo neste texto?
+
+    Reusa as MESMAS capturas de `interpretar_banner` de proposito: se a porta 1
+    aceitasse uma forma de contagem que o parser nao entende, ela abriria a
+    porta para uma leitura que nunca vira aviso — barulho no log e nada mais.
+    """
+    normalizado = _normalizar_digitos(texto).lower()
+    return any(
+        padrao.search(normalizado) for padrao in (_HORAS, _MINUTOS, _SEGUNDOS)
+    )
+
+
+def eh_banner_de_manutencao(texto: str | None) -> bool:
+    """A primeira das TRES portas contra inventar uma manutencao.
+
+    As outras duas sao exigir uma duracao interpretavel (`interpretar_banner`)
+    e exigir consenso (`VigiaDeManutencao`). Nenhuma sozinha basta, e e por
+    isso que sao tres. Elas continuam sendo tres depois deste conserto.
+
+    A RAZAO ANTIGA CAIU EM CAMPO, ENTAO ELA FICA ESCRITA AQUI
+    =========================================================
+    Ate 31/08/2026 esta porta era `"mainten" in texto.lower()`, com o argumento
+    de que a raiz e o token mais RARO da tela. O raciocinio estava certo e o
+    TOKEN estava errado. Em 31/08 o servidor entrou em manutencao as ~18:20,
+    o banner ficou na tela por quase uma hora, o scanner nao anunciou NADA, e
+    quatro rodadas de `--testar-manutencao --janela` mediram por que:
+
+        escala  o que o motor leu, no trecho do titulo   contem `mainten`?
+        2x      `Servergqaiptenceatl`                    NAO
+        3x      `Server` (a palavra sumiu inteira)       NAO
+        2x      (a palavra sumiu inteira)                NAO
+        3x      (a palavra sumiu inteira)                NAO
+        2x      (a palavra sumiu inteira)                NAO
+        3x      `Server "aintencea2J`                    NAO
+        2x      (a palavra sumiu inteira)                NAO
+        3x      `Server "aintencea,QJ`                   NAO
+
+    O `M` maiusculo NUNCA sobreviveu: 8 leituras, 8 ausencias da raiz. A porta
+    1 nunca fechava, e as outras duas portas nem chegavam a ser consultadas.
+
+    DOIS RAMOS INDEPENDENTES, E CADA UM COBRE O QUE O OUTRO PERDE
+    =============================================================
+    RAMO A — a PALAVRA, por semelhanca (`parece_palavra_de_manutencao`).
+    Medido com `difflib` contra `maintence`/`maintenance`:
+
+        `aintence`       0,941  -> passa
+        `main entrance`  0,833  -> NAO passa
+        `aiptence`       0,824  -> NAO passa
+        `instance`       0,706  -> NAO passa
+
+    O corte e 0,85 porque tem de ficar ACIMA de 0,833. E NENHUM corte escalar
+    resolveria melhor: `aiptence` (0,824) esta ABAIXO de `main entrance`
+    (0,833), entao aceitar o embaralhado obrigaria a aceitar a colisao junto.
+    HONESTIDADE SOBRE A PROVENIENCIA: `aintence` e `aiptence` sao leituras
+    reais do jogo; `main entrance` e uma string ADVERSARIAL construida aqui, a
+    colisao mais proxima que consegui montar com texto plausivel de jogo. Ela
+    nao foi vista na tela, e mesmo assim manda no corte, porque o custo de uma
+    manutencao inventada e uma mensagem falsa no grupo.
+
+    RAMO B — a ANCORA `avoid entering instance` MAIS uma contagem.
+    Medida nas mesmas oito leituras: aparece em 8 de 8, limpa em 7, e na oitava
+    (`4—vvaÅZidentering instance`) da 0,889 por semelhanca. E o trecho mais
+    confiavel do banner inteiro, mais que o proprio titulo — e e ele que
+    recupera as leituras em que a palavra sumiu.
+
+    A CONTAGEM E OBRIGATORIA NESTE RAMO, e nao e detalhe: a frase sozinha JA
+    aparecia na lista de textos que NAO sao o banner
+    (`test_texto_que_nao_e_o_banner_nao_vira_nada`), porque o jogo a diz em
+    outros contextos. Ancora E contagem, nunca ancora sozinha.
+
+    O QUE NAO MUDOU, e continua valendo pelo mesmo motivo de antes: exigir a
+    palavra `server` seria PIOR, nao melhor. Um `5erver` mal lido derrubaria a
+    deteccao, e `server` aparece em frases que nao sao o banner (`the server
+    will restart in a few minutes`, dos prints do usuario).
+    """
+    if not texto:
+        return False
+    if parece_palavra_de_manutencao(texto):
+        return True
+    return _tem_a_ancora(texto) and _tem_contagem(texto)
 
 
 def interpretar_banner(texto: str | None) -> timedelta | None:
@@ -218,6 +384,159 @@ def interpretar_banner(texto: str | None) -> timedelta | None:
     if duracao > _TETO:
         return None  # leitura de lixo; melhor calar do que anunciar besteira
     return duracao
+
+
+class MotivoDoVeredito(Enum):
+    """Por que as duas escalas anunciariam, ou por que nao anunciariam.
+
+    NOMEAR CADA DESFECHO E O CONSERTO DE UM DEFEITO, nao enfeite. O
+    `--testar-manutencao` tinha logica propria para dar o veredito, e ela
+    divergiu: em 31/08 as duas escalas leram texto IDENTICO, as duas
+    devolveram None, e a ferramenta imprimiu "As duas escalas DISCORDAM". Elas
+    concordavam. O usuario foi mandado conferir a faixa por causa de uma frase
+    errada, num dia em que a faixa ja estava certa.
+    """
+
+    SEM_BANNER = "sem_banner"
+    ACORDO = "acordo"
+    SO_A_CONFERENCIA = "so_a_conferencia"
+    SO_A_DETECCAO = "so_a_deteccao"
+    CONTRADICAO = "contradicao"
+    ILEGIVEL = "ilegivel"
+
+
+# SEM TRAVESSAO E SEM ACENTO: estas frases saem no console do usuario, que e
+# cp1252, e tambem no log rotativo.
+_EXPLICACOES = {
+    MotivoDoVeredito.SEM_BANNER: (
+        "A escala de DETECCAO nao viu banner nenhum. Em producao a de "
+        "conferencia nem chega a rodar."
+    ),
+    MotivoDoVeredito.ACORDO: (
+        "As duas escalas leram a MESMA duracao. Em producao isto alimenta o "
+        "consenso temporal."
+    ),
+    MotivoDoVeredito.SO_A_CONFERENCIA: (
+        "So a escala de CONFERENCIA leu a duracao; a de deteccao se absteve. "
+        "Abstencao nao e desacordo, entao a leitura vale."
+    ),
+    MotivoDoVeredito.SO_A_DETECCAO: (
+        "So a escala de DETECCAO leu a duracao; a de conferencia se absteve. "
+        "A leitura NAO vale: a de conferencia e a que foi medida acertando."
+    ),
+    MotivoDoVeredito.CONTRADICAO: (
+        "As duas escalas leram duracoes DIFERENTES. Nada sera anunciado."
+    ),
+    MotivoDoVeredito.ILEGIVEL: (
+        "As duas escalas viram o banner e NENHUMA conseguiu ler a duracao. "
+        "Nada sera anunciado."
+    ),
+}
+
+# O conselho que acompanha todo veredito que nao anuncia. Uma frase so, e a
+# mesma no log e no console, porque as duas saidas respondem a mesma pergunta
+# do usuario: onde eu mexo agora.
+CONSELHO_QUANDO_NAO_ANUNCIA = (
+    "Compare os dois textos: se uma escala esta cortando o banner, o conserto "
+    "e a faixa (chave 'banner_manutencao' no calibration.json); se as duas "
+    "leem torto, e o motor de OCR."
+)
+
+
+@dataclass(frozen=True)
+class Veredito:
+    """O que as DUAS escalas decidem sobre UM frame. Estrutura, nunca texto.
+
+    `anunciaria` e derivado de `duracao` de proposito, e nao um campo proprio:
+    assim e IMPOSSIVEL existir um veredito que anuncia sem duracao, ou uma
+    duracao aprovada que nao anuncia.
+    """
+
+    motivo: MotivoDoVeredito
+    duracao: timedelta | None
+
+    @property
+    def anunciaria(self) -> bool:
+        return self.duracao is not None
+
+    @property
+    def explicacao(self) -> str:
+        return _EXPLICACOES[self.motivo]
+
+
+def julgar_as_duas_escalas(
+    deteccao: str | None,
+    conferencia: str | None,
+    tolerancia: timedelta = TOLERANCIA_DO_CONSENSO,
+) -> Veredito:
+    """A PORTA 3, primeira metade: as duas escalas sobre o MESMO frame.
+
+    Funcao PURA e publica, e as duas coisas por um motivo so: o
+    `--testar-manutencao` chama exatamente esta funcao, entao o diagnostico
+    nao tem como divergir do produto. Era essa divergencia que fazia a
+    ferramenta mentir.
+
+    A REGRA MUDOU EM 31/08, E O QUE MUDOU FOI A REGRA, NAO A PORTA
+    ===============================================================
+    ANTES: as duas escalas tinham de produzir a MESMA duracao. Medido nas
+    quatro rodadas de campo, com o banner na tela:
+
+        rodada   deteccao (2x)   conferencia (3x)   a regra antiga dizia
+        1        abstem          20 min 27 s        descarta
+        2        abstem          04 min 13 s        descarta
+        3        04 min 12 s     04 min 12 s        aceita
+        4        abstem          04 min 11 s        descarta
+
+    A 2x acertou 1 de 4; a 3x acertou 4 de 4. E as tres falhas da 2x foram
+    ABSTENCAO (`minutes` saiu com a vogal trocada e a guarda estrutural calou),
+    NUNCA um numero errado. As duas escalas nunca se contradisseram. A regra
+    antiga jogou fora tres leituras boas por uma discordancia que nao existia.
+
+    AGORA: ABSTENCAO NAO E DESACORDO. Quem nao leu nada nao contradisse nada.
+    Contradicao e uma coisa so, e continua barrada: duas duracoes DIFERENTES.
+
+    O QUE NAO FOI AFROUXADO, e o outro lado pesa igual
+    ===================================================
+    1. Quem le SOZINHA tem de ser a de CONFERENCIA. Medido: 4 de 4 contra
+       1 de 4. Perder uma leitura solitaria da escala pior custa uma cadencia,
+       5 s numa contagem de 40 minutos; ancorar nela custa a farm da party.
+    2. O CONSENSO TEMPORAL segue intocado. Nenhum caminho aqui ancora nada
+       sozinho: `_registrar` continua exigindo DUAS leituras concordantes.
+       O que este veredito produz e uma leitura, nunca uma ancora.
+    3. O caso que criou esta guarda (a passada em cor lendo 26 s contra a em
+       cinza lendo 40min26s) continua pego, porque sao duas duracoes
+       diferentes. E ele hoje esta coberto DUAS vezes: a guarda estrutural de
+       `interpretar_banner` transforma aquele texto em abstencao antes mesmo de
+       chegar aqui. Foi essa segunda cobertura que tornou seguro afrouxar a
+       primeira.
+
+    A ORDEM D-e VIVE AQUI TAMBEM: se a deteccao nao viu banner, o veredito e
+    SEM_BANNER sem sequer olhar a conferencia. Em producao a cara nem roda, e
+    um diagnostico que ignorasse isso diria "anunciaria" para um caso que
+    nunca chega a ser lido.
+    """
+    if not eh_banner_de_manutencao(deteccao):
+        return Veredito(MotivoDoVeredito.SEM_BANNER, None)
+
+    da_deteccao = interpretar_banner(deteccao)
+    da_conferencia = (
+        interpretar_banner(conferencia)
+        if eh_banner_de_manutencao(conferencia)
+        else None
+    )
+
+    if da_deteccao is not None and da_conferencia is not None:
+        if abs(da_deteccao - da_conferencia) > tolerancia:
+            return Veredito(MotivoDoVeredito.CONTRADICAO, None)
+        # Aprovado, VENCE A LEITURA DE CONFERENCIA. E a que pagamos para ter e
+        # a que as medicoes mostraram acertando.
+        return Veredito(MotivoDoVeredito.ACORDO, da_conferencia)
+
+    if da_conferencia is not None:
+        return Veredito(MotivoDoVeredito.SO_A_CONFERENCIA, da_conferencia)
+    if da_deteccao is not None:
+        return Veredito(MotivoDoVeredito.SO_A_DETECCAO, None)
+    return Veredito(MotivoDoVeredito.ILEGIVEL, None)
 
 
 def _plural(quantidade: int, singular: str, plural: str) -> str:
@@ -350,8 +669,12 @@ class VigiaDeManutencao:
     40 — e a party largaria o farm por nada.
 
     O CRUZAMENTO DE ESCALAS (D-d) e a segunda guarda, e ela e COMPLEMENTAR ao
-    consenso temporal — nunca substituta. Os dois pegam falhas de classes
-    diferentes, e guardar so um deixaria uma classe inteira descoberta:
+    consenso temporal — nunca substituta. A REGRA dele mudou em 31/08 e a
+    razao inteira, com os numeros de campo, esta em `julgar_as_duas_escalas`:
+    em resumo, ABSTENCAO DE UMA ESCALA NAO E DESACORDO (a regra antiga
+    descartava 3 de 4 leituras boas), e duas duracoes DIFERENTES continuam
+    barradas. Os dois cruzamentos pegam falhas de classes diferentes, e guardar
+    so um deixaria uma classe inteira descoberta:
 
     - Cruzar ESCALAS pega ERRO DE METODO: o motor lendo mal a MESMA imagem.
       Medido em duas imagens reais: em COR o motor erra (le `MO-mi u` e
@@ -362,6 +685,10 @@ class VigiaDeManutencao:
       metodo, com 5 s de intervalo, concordam no MESMO erro sistematico.
       Foi exatamente assim que "40 minutos e 26 segundos" viraria "26 segundos"
       com as duas leituras concordando.
+      HOJE esse mesmo texto vira ABSTENCAO antes de chegar aqui, porque a
+      guarda estrutural de `interpretar_banner` cala no lugar de cair para "so
+      os segundos". E essa cobertura dupla que torna seguro tratar abstencao e
+      contradicao de formas diferentes sem reabrir a porta.
     - Repetir no TEMPO pega ERRO DE FRAME: uma captura no meio do desenho do
       banner, um frame sujo, o jogo engasgando. O cruzamento de escalas e CEGO
       a isso, porque as duas escalas leem os MESMOS pixels.
@@ -464,7 +791,12 @@ class VigiaDeManutencao:
             return None
 
     def _ler_com_as_duas_escalas(self, pixels, agora: datetime):
-        """O acordo de D-d, dentro do tick. Devolve (implicado, duracao) ou None.
+        """O veredito de D-d, dentro do tick. Devolve (implicado, duracao) ou None.
+
+        A DECISAO NAO MORA AQUI, e isso e o conserto de 31/08: ela mora em
+        `julgar_as_duas_escalas`, que e pura e publica, e o `--testar-manutencao`
+        chama a MESMA funcao. Enquanto a ferramenta tinha logica propria ela
+        divergiu e passou a mentir sobre o proprio diagnostico.
 
         A ORDEM IMPORTA, mas NAO POR ORCAMENTO — e vale dizer, porque a razao
         antiga caiu. A passada de deteccao custa 23 ms e a de conferencia 31 ms
@@ -475,52 +807,63 @@ class VigiaDeManutencao:
         chao quando nao ha banner nenhum na tela.
 
         QUALQUER REPROVACAO DEVOLVE None SEM TOCAR EM `_candidata` NEM NA
-        ANCORA. Uma discordancia nao confirma e tambem nao destroi: se ela
+        ANCORA. Uma reprovacao nao confirma e tambem nao destroi: se ela
         zerasse a candidata, um unico frame ruim no meio de uma contagem de 40
         minutos adiaria o anuncio indefinidamente.
-
-        Aprovado, VENCE A LEITURA DE CONFERENCIA. E a que pagamos para ter, e e
-        a que as medicoes de 3x e 4x mostraram acertando.
         """
         barato = self._ler(self._ler_texto, pixels)
         if not eh_banner_de_manutencao(barato):
             return None  # D-e: a cara nem e tocada
 
         caro = self._ler(self._ler_texto_conferencia, pixels)
-        if not eh_banner_de_manutencao(caro):
-            self._registrar_desacordo(barato, caro)
+        veredito = julgar_as_duas_escalas(barato, caro, self._tolerancia)
+        self._registrar_veredito(veredito, barato, caro)
+        if not veredito.anunciaria:
             return None
 
-        duracao_barata = interpretar_banner(barato)
-        duracao_cara = interpretar_banner(caro)
-        if duracao_barata is None or duracao_cara is None:
-            self._registrar_desacordo(barato, caro)
-            return None
+        return agora + veredito.duracao, veredito.duracao
 
-        if not self._bate(agora + duracao_barata, agora + duracao_cara):
-            self._registrar_desacordo(barato, caro)
-            return None
+    def _registrar_veredito(
+        self, veredito: Veredito, barato: str | None, caro: str | None
+    ) -> None:
+        """O banner ESTA na tela: nada aqui pode ser silencioso.
 
-        return agora + duracao_cara, duracao_cara
+        DOIS NIVEIS, e a fronteira entre eles e "isto anuncia?":
 
-    def _registrar_desacordo(self, barato: str | None, caro: str | None) -> None:
-        """O banner ESTA na tela e nos NAO vamos anunciar — o estado mais
-        perigoso deste recurso, e por isso ele nunca pode ser silencioso.
+        - NAO anuncia -> `warning`. E o estado mais perigoso deste recurso: o
+          aviso estava escrito na tela e a party nao vai saber. Vai junto o
+          conselho de onde mexer, porque a pergunta seguinte do usuario e
+          sempre essa.
+        - Anuncia com UMA escala so -> `info`. Caminho novo de 31/08, aceito
+          com razao medida (a conferencia acertou 4 de 4), e mesmo assim o log
+          registra que a ancora nasceu de uma escala so. Se um dia ela nascer
+          errada, esta linha e a unica forma de descobrir por onde entrou.
+        - Anuncia com as duas de acordo -> silencio. E o caminho normal.
 
         Os DOIS textos crus, entre delimitadores visiveis, porque espaco em
         branco importa aqui: `40 minutes` e `40minutes` sao leituras
         diferentes. E o log rotativo (5 MB x 3) e a unica ferramenta de forense
-        pos-farm do projeto — sem estas duas linhas, "por que nao avisou" nao
-        tem resposta em lugar nenhum.
+        pos-farm do projeto — sem estas linhas, "por que nao avisou" nao tem
+        resposta em lugar nenhum.
 
         ESCOLHA DELIBERADA: NAO ha limitacao de repeticao. Durante uma contagem
         de 40 minutos isto pode render centenas de linhas, e sao exatamente as
-        linhas que o usuario vai precisar para decidir se o conserto e a faixa
-        (chave `banner_manutencao` no `calibration.json`) ou o motor de OCR.
+        linhas que o usuario vai precisar.
         """
+        if veredito.motivo is MotivoDoVeredito.ACORDO:
+            return
+        if veredito.anunciaria:
+            log.info(
+                "%s deteccao=>>>%s<<< conferencia=>>>%s<<<",
+                veredito.explicacao,
+                barato,
+                caro,
+            )
+            return
         log.warning(
-            "As duas escalas de OCR DISCORDAM sobre o banner — nada sera "
-            "anunciado. barata=>>>%s<<< conferencia=>>>%s<<<",
+            "%s %s deteccao=>>>%s<<< conferencia=>>>%s<<<",
+            veredito.explicacao,
+            CONSELHO_QUANDO_NAO_ANUNCIA,
             barato,
             caro,
         )
