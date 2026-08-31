@@ -2222,3 +2222,78 @@ class TestOAnuncioDoServidorNaoEEngolidoPeloAlvo(BaseDaMatrizDeAnuncio):
 
         assert ticks[2].nascimentos_calados == []
         assert [n for n in os.listdir(pasta) if "_chat" in n] == []
+
+
+class TestOIncidenteDe31DeAgostoComOConfigErrado(BaseDaMatrizDeAnuncio):
+    """A regressao do incidente de 2026-08-31, com o scanner inteiro em pe.
+
+    A metade pura mora em `tests/test_janela_do_episodio.py`. Este teste existe
+    porque so aqui o `respawn_horas_min = 8` ERRADO fica REALMENTE no lugar:
+    ele entra na `Sessao` como `regras_de_respawn`, continua mandando na
+    PREVISAO de janela, e o que se afirma e que ele nao manda mais no ANUNCIO.
+
+    Um conserto que so funciona com o config certo nao e conserto.
+    """
+
+    NORTH_ERRADO = Boss(
+        nome="Tiat North", respawn_horas_min=8, respawn_horas_max=10
+    )
+    SOUTH_ERRADO = Boss(
+        nome="Tiat South", respawn_horas_min=8, respawn_horas_max=10
+    )
+
+    def sessao(self, calibracao, tmp_path, pasta, pares, simulando=False):
+        return nova_sessao(
+            calibracao,
+            tmp_path,
+            registro=RegistroEmDisco(pasta, simulando=simulando),
+            bosses=self.vigia(pares),
+            regras_de_respawn=[self.NORTH_ERRADO, self.SOUTH_ERRADO],
+        )
+
+    def test_o_nascimento_a_sete_horas_e_meia_do_anterior_ANUNCIA(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """7.83 h foi a distancia real entre o nascimento das 06:22 e o das
+        14:12 de 31/08, e com a janela de 7h55 o segundo virou silencio."""
+        pasta = tmp_path / "agenda"
+        pares = [
+            (self.ANUNCIO_SOUTH, ""),
+            ("", ""),
+            ("", ""),
+            (self.ANUNCIO_SOUTH, ""),
+        ]
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+
+        for i in range(3):
+            s.tick(self.frame(frame_real), momento=self.quando(minutes=i))
+        r = s.tick(
+            self.frame(frame_real),
+            momento=self.quando(hours=7, minutes=50),
+        )
+
+        assert r.avisos_de_boss == [("Tiat South", OrigemDoAviso.CHAT)]
+        assert r.nascimentos_calados == []
+
+    def test_a_previsao_de_janela_CONTINUA_saindo_das_oito_horas_erradas(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """O outro lado do desacoplamento, e ele importa tanto quanto.
+
+        Errar `respawn_horas_min` tem de continuar custando o que sempre
+        custou: uma previsao no horario errado. O que nao pode mais e custar um
+        aviso APAGADO. Aqui o aviso de abertura sai as 8 horas do config
+        ERRADO, e nao as 6 da regra real do servidor.
+        """
+        pasta = tmp_path / "agenda"
+        pares = [(self.ANUNCIO_SOUTH, "")]
+        s = self.sessao(calibracao, tmp_path, pasta, pares)
+
+        s.tick(self.frame(frame_real), momento=self.quando())
+        seis = s.tick(self.frame(frame_real), momento=self.quando(hours=6))
+        oito = s.tick(self.frame(frame_real), momento=self.quando(hours=8))
+
+        assert seis.avisos_de_janela == []
+        assert [tipo for _boss, tipo in oito.avisos_de_janela] == [
+            TipoDeJanela.ABRE
+        ]
