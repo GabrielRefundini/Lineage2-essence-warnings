@@ -109,19 +109,19 @@ Preenchida na criacao do roadmap em 2026-08-30.
 |-------------|-------|--------|
 | APRE-01 | Phase 2 | Complete (02-01) |
 | APRE-02 | Phase 2 | Complete (02-01) |
-| APRE-03 | Phase 1 | Pending |
-| APRE-04 | Phase 2 | Pending |
+| APRE-03 | Phase 1 | Complete |
+| APRE-04 | Phase 2 | Complete |
 | BATI-01 | Phase 3 | Pending |
 | BATI-02 | Phase 3 | Pending |
 | BATI-03 | Phase 3 | Pending |
 | BATI-04 | Phase 3 | Pending |
 | BATI-05 | Phase 3 | Pending |
-| DURA-01 | Phase 1 | Pending |
-| DURA-02 | Phase 1 | Pending |
-| DURA-03 | Phase 1 | Pending |
-| DURA-04 | Phase 1 | Pending |
-| OPER-01 | Phase 1 | Pending |
-| OPER-02 | Phase 1 | Pending |
+| DURA-01 | Phase 1 | Complete |
+| DURA-02 | Phase 1 | Complete |
+| DURA-03 | Phase 1 | Complete |
+| DURA-04 | Phase 1 | Complete |
+| OPER-01 | Phase 1 | Complete |
+| OPER-02 | Phase 1 | Complete |
 | OPER-03 | Phase 3 | Pending |
 
 APRE-03 caiu na Fase 1 (e nao na 2) porque o que ele exige e o TIPO — uma

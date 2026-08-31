@@ -139,3 +139,63 @@ muda. O numero de campo vem da primeira sessao real, e o comentario do
 
 O plano 02-02: a prova exaustiva do ramo da MARGEM (D-02) e o T-02-18 da
 confianca registrada. `Aprendizado.confianca` ja viaja e ja sai no `log.info`.
+
+## Fase 2 entregue (2026-08-31)
+
+Uma linha ocupada que nao casa com ninguem conhecido deixa de ser misterio
+permanente: depois de 5 leituras estaveis o scanner grava a assinatura dela
+sozinho, sem nome, e continua calado. Os 5 criterios do ROADMAP verificados
+por mutacao do fonte, nao por leitura de teste.
+
+### A forma do defeito da Fase 1 voltou, e foi fechada aqui
+
+A Fase 1 destapou uma logica correta, testada, e nunca ligada em producao. A
+Fase 2 repetiu a FORMA: o verificador trocou `aprendiz=aprendiz` por
+`aprendiz=None` em `__main__.py` e a suite inteira — 3514 casos — ficou verde.
+A feature desligada em campo, e nada acusando. Idem para
+`cal.assinaturas = identidades.assinaturas` e para a passagem dos ajustes.
+
+As tres ligacoes agora tem guarda no molde do `TestNenhumRastreadorNasceMudo`,
+e cada uma foi provada matando a mutacao correspondente, uma por vez, contra a
+suite inteira. `LEITURAS_PARA_APRENDER = 5` tambem estava solto (trocar por 1
+deixava tudo verde) e agora esta preso junto com a DERIVACAO dele: e o mesmo
+numero da familia cara de `rastreador.Ajustes` (ressurreicao e saida custam 5;
+morte e entrada custam 3), porque gravar num acervo sem comando de esquecer e
+a direcao cara por definicao.
+
+### A fronteira que esta fase NAO fecha, dita em voz alta
+
+A pessoa que sai e volta correlacionando ABAIXO de 0.75 contra a propria
+entrada gravada vira mesmo uma SEGUNDA entrada. Nao ha conserto honesto sem
+medida de campo do drift entre sessoes, e essa medida nao existe: as duas
+capturas de party window versionadas sao BYTE A BYTE IDENTICAS, entao compara-las
+mede uma imagem consigo mesma, nunca ruido. O caso esta afirmado como conhecido
+e aceito (T-02-18), e o `log.info` do aprendizado passou a citar a confianca
+justamente para o primeiro caso real virar numero em vez de misterio.
+
+### Numeros medidos
+
+Mascara 20x100 (2000 celulas), 60 pixels de texto, nick `TioMad`:
+
+  - 12 celulas viradas -> correlacao 0.9075, ACIMA de 0.75, reconhecida
+  - 42 celulas viradas -> correlacao 0.7531, ACIMA, nenhuma chave nova
+  - 43 celulas viradas -> correlacao 0.7492, ABAIXO, SEGUNDA chave nasce
+
+Uma unica celula separa as duas metades. E o segundo numero que generaliza, e
+nao o primeiro: 43 celulas sao 2.15% da mascara mas 71.7% do SINAL DE TEXTO —
+num nick curto a fronteira chega muito antes. E o modelo de drift usado ACENDE
+celulas (60 -> 101 pixels), entao a tabela e um limite OTIMISTA: drift que
+apaga texto derruba a correlacao mais rapido.
+
+### Divida herdada pela Fase 3
+
+  - T-02-07: um recorte contaminado pontua 0.0, passa no veto e pode ser
+    aprendido. Na Fase 3 isso vira uma pergunta no WhatsApp pedindo ao usuario
+    que batize uma janela de navegador.
+  - T-02-18: uma entrada nunca respondida mais outra com confianca entre 0.70 e
+    0.75 no log = a mesma pessoa perguntada duas vezes.
+  - Armadilha: baixar `LIMIAR_DO_ORNAMENTO` abaixo de 0.75 reabre o caminho do
+    operador que hoje D-02 fecha.
+  - O criterio 5 (replay duas vezes) e NECESSARIO e NAO SUFICIENTE: sozinho ele
+    fica verde com D-03 desligado, porque o mesmo frame produz a mesma chave e
+    recebe `ja_existia`. Quem prende D-03 sao os casos de sair-e-voltar.

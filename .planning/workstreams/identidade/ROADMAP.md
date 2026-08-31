@@ -66,7 +66,7 @@ o batismo contra um armazenamento que muda de chave depois significaria reescrev
 ## Phases
 
 - [x] **Phase 1: O acervo e o silencio dele** - Onde a assinatura aprendida mora, como ela sobrevive a `calibrar.bat` e por que ela nao fala
-- [ ] **Phase 2: Aprender sozinho** - A linha que ninguem reconhece deixa de ser misterio permanente
+- [x] **Phase 2: Aprender sozinho** - A linha que ninguem reconhece deixa de ser misterio permanente
 - [ ] **Phase 3: Batismo pelo WhatsApp** - O usuario da nome, do celular, a assinatura que o scanner PERGUNTOU
 
 ## Phase Details
@@ -175,7 +175,7 @@ aprendizado.
 
 Plans:
 - [x] 02-01-PLAN.md — a linha desconhecida vira UMA entrada sem nome e continua calada; instabilidade recusada com a distancia medida; o teto derivado da medida da Fase 1 (APRE-01, APRE-02)
-- [ ] 02-02-PLAN.md — aprender a mesma pessoa duas vezes nao acontece por nenhum dos quatro caminhos: ja reconhecida, falha por margem, sai e volta, reinicio e replay (APRE-04)
+- [x] 02-02-PLAN.md — aprender a mesma pessoa duas vezes nao acontece por nenhum dos quatro caminhos: ja reconhecida, falha por margem, sai e volta, reinicio e replay (APRE-04)
 
 ### Phase 3: Batismo pelo WhatsApp
 
@@ -217,7 +217,7 @@ do batismo os alertas daquela pessoa saem com o nome certo.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. O acervo e o silencio dele | 2/2 | Complete | 2026-08-31 |
-| 2. Aprender sozinho | 1/2 | In progress | - |
+| 2. Aprender sozinho | 2/2 | Complete | 2026-08-31 |
 | 3. Batismo pelo WhatsApp | 0/? | Not started | - |
 
 ## Coverage
