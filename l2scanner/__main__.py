@@ -1979,14 +1979,22 @@ def comando_teste_de_agenda(args: argparse.Namespace) -> int:
 def comando_testar_manutencao(args: argparse.Namespace, cal: Calibracao) -> int:
     """Mostra o que o OCR le no banner AGORA (D-13).
 
-    Esta ferramenta existe por causa de um risco declarado: a precisao do OCR
-    na FONTE DO JOGO nunca foi provada. O spike leu um banner sintetico, nao um
-    banner de verdade. So uma manutencao real prova o resto — e sem esta
-    ferramenta o usuario nao teria como conferir sozinho quando ela acontecer.
+    Esta ferramenta nasceu de um risco declarado: a precisao do OCR na FONTE
+    DO JOGO nunca tinha sido provada, porque o spike leu um banner sintetico.
+
+    O RISCO SE REALIZOU EM 31/08/2026, E FOI ESTA FERRAMENTA QUE MEDIU. Com o
+    servidor entrando em manutencao as ~18:20 e o banner na tela por quase uma
+    hora, quatro rodadas daqui produziram as oito leituras que estao hoje
+    fixadas em `tests/test_manutencao.py`. Elas mostraram que o `M` de
+    Maintence nunca sobrevive ao motor e que a porta 1 nunca fechava. Sem esta
+    ferramenta o defeito continuaria invisivel: de fora, o scanner parecia
+    estar funcionando.
 
     Por isso ela mostra as TRES coisas separadas: qual regiao usou, que pixels
     pegou (o PNG em disco) e o que o OCR e o parser entenderam. Quando algo
     falhar, essas tres respostas dizem QUAL das tres etapas falhou.
+
+    E o VEREDITO final nao e calculado aqui — ver o comentario ao lado dele.
     """
     regiao = cal.regiao_do_banner(na_janela=bool(args.janela))
     if regiao is None:

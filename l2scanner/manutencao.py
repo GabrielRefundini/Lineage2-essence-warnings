@@ -16,6 +16,22 @@ O scanner atravessava esse anuncio inteiro sem ver. Quem esta AFK farmando
 perde o loot do chao, perde o buff e cai no meio de uma instance por falta de
 um aviso que estava escrito na tela o tempo todo.
 
+E ATRAVESSOU DE NOVO EM 2026-08-31, com este modulo ja pronto
+=============================================================
+Servidor em manutencao as ~18:20, banner na tela por quase uma hora, nenhuma
+mensagem no WhatsApp. A primeira leitura de um banner DE VERDADE reprovou duas
+coisas que ate ali eram so raciocinio: a porta 1 procurava a raiz `mainten`,
+que o motor de OCR nunca entrega (8 leituras, 8 ausencias), e a porta 3 exigia
+que as duas escalas produzissem a MESMA duracao, o que descartou 3 das 4
+leituras boas do dia. As duas razoes, com os numeros medidos, estao em
+`eh_banner_de_manutencao` e em `julgar_as_duas_escalas`; as oito strings estao
+fixadas em `tests/test_manutencao.py`.
+
+AS TRES PORTAS CONTINUAM SENDO TRES. O conserto trocou a REGRA de duas delas,
+nao o numero delas: uma manutencao inventada custa uma mensagem falsa no
+grupo, e uma manutencao perdida custa o loot, o buff e a instance. Os dois
+lados pesam, e nenhum dos dois foi trocado pelo outro.
+
 A DISCIPLINA DESTE MODULO, com o mesmo peso do proposito
 ========================================================
 
