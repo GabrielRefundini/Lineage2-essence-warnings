@@ -283,10 +283,10 @@ simulacao = true
 
 [[boss]]
 nome = "Tiat North"
-respawn_horas_min = 6
-respawn_horas_max = 8
+respawn_horas_min = 8
+respawn_horas_max = 10
 
 [[boss]]
 nome = "Tiat South"
-respawn_horas_min = 6
-respawn_horas_max = 8
+respawn_horas_min = 8
+respawn_horas_max = 10
