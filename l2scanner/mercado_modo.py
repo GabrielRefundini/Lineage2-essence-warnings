@@ -57,10 +57,18 @@ from __future__ import annotations
 import logging
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 
 from . import ocr
 from .frames import Regiao
+from .mercado_console import (
+    OrcamentoDoTick,
+    acumular_motivos,
+    linha_ao_vivo,
+    resumo_da_sessao,
+    transicao_do_painel,
+)
 from .mercado_pagina import (
     LeitorDePagina,
     pecas_de_calibracao_de_mercado_faltando,
@@ -159,6 +167,29 @@ def _modulo_do_arranque():
     return principal
 
 
+def _garantir_log(principal) -> None:
+    """Nenhuma mensagem deste modo pode sair sem manipulador.
+
+    `gerar_observacoes_do_censo.py:400` faz `configurar_log` antes da montagem
+    pela mesma razao: sem manipulador, o `log.error` que diz por que a feature
+    desligou nao chega ao console, e o criterio da fase e literalmente "o
+    usuario VE o aviso alto".
+
+    A CHAMADA E CONDICIONAL, e isto e uma correcao do plano. Por
+    `python -m l2scanner` o `main()` JA chamou `configurar_log(args.verboso)`
+    antes de chegar aqui; chamar de novo acrescentaria um segundo
+    `RotatingFileHandler` e um segundo `StreamHandler`, e toda linha da sessao
+    sairia DUAS vezes no console e DUAS vezes no arquivo. A guarda pergunta se
+    ja ha para onde a mensagem ir - na raiz (onde o `caplog` do pytest instala
+    o dele) ou no logger do arranque - e so configura quando nao ha.
+    """
+    if logging.getLogger().handlers:
+        return
+    if getattr(principal, "log", None) is not None and principal.log.handlers:
+        return
+    principal.configurar_log(False)
+
+
 def _recusar(mensagens: list[str]) -> int:
     """Recusa de arranque: as linhas em ERROR e o codigo 2. Nunca `raise`."""
     for mensagem in mensagens:
@@ -188,6 +219,7 @@ def laco_do_mercado(
     `ticks_maximos=None` significa laco infinito, que e o caso de producao.
     """
     principal = _modulo_do_arranque()
+    _garantir_log(principal)
 
     # ------------------------------------------------------------------
     # 1. OS PORTOES DE ARRANQUE. Recusam a SUBIR, nunca sobem degradado.
@@ -313,11 +345,19 @@ def laco_do_mercado(
     )
 
     contagem = Contagem()
+    motivos = Counter()
+    orcamento = OrcamentoDoTick(limite=float(args.intervalo))
     ultimo_item = None
     paginas_desde_a_gravacao = 0
     erros_seguidos = 0
     ticks = 0
     saida = 0
+    # O LATCH do painel, no precedente de `_layout_ja_recusado`. `None` e
+    # "ainda nao sei", e a primeira volta ja e transicao: o usuario precisa ver
+    # que o modo esta vivo e nao esta achando nada, o que e diferente de
+    # silencio.
+    painel_aberto_antes = None
+    ticks_com_painel_antes = leitor.ticks_com_painel_aberto
 
     # ------------------------------------------------------------------
     # 4. O TICK.
@@ -348,6 +388,22 @@ def laco_do_mercado(
             erros_seguidos = 0
             pagina = leitor.observar(frame.pixels)
 
+            # O ESTADO DO PAINEL SEM ESPIAR O LEITOR POR DENTRO: ele so
+            # incrementa `ticks_com_painel_aberto` quando o voto deu aberto,
+            # entao a diferenca entre duas voltas E a resposta. Perguntar por um
+            # atributo privado acoplaria este laco ao que o leitor existe para
+            # nao expor.
+            aberto_agora = leitor.ticks_com_painel_aberto > ticks_com_painel_antes
+            ticks_com_painel_antes = leitor.ticks_com_painel_aberto
+            if aberto_agora != painel_aberto_antes:
+                log.info("%s", transicao_do_painel(aberto_agora))
+                painel_aberto_antes = aberto_agora
+
+            # OS MOTIVOS SAO SOMADOS TODO TICK, e nao so quando a pagina e
+            # aceita: a leitura recusada e justamente a que carrega o motivo, e
+            # ler so as aceitas esconderia a metade perdida do LEIT-04.
+            acumular_motivos(motivos, leitor.ultima_leitura)
+
             if pagina is not None:
                 agora = relogio.agora()
                 for linha in pagina.linhas:
@@ -375,17 +431,18 @@ def laco_do_mercado(
                     catalogo.gravar()
                     paginas_desde_a_gravacao = 0
 
-                log.info(
-                    "paginas lidas %d | perdidas %d | ultimo item: %s",
-                    leitor.paginas_lidas,
-                    leitor.paginas_perdidas,
-                    ultimo_item or "(nenhum)",
-                )
+                log.info("%s", linha_ao_vivo(leitor, contagem, ultimo_item))
+
+            # A MESMA CONTA SERVE A DUAS COISAS: compensar a deriva da cadencia
+            # e alimentar o orcamento auto-medido. Medir por fora seria um
+            # segundo relogio para envelhecer em desacordo com o primeiro.
+            trabalhado = time.monotonic() - inicio
+            orcamento.registrar(trabalhado)
 
             # A CADENCIA COMPENSADA, e nunca `time.sleep(args.intervalo)` puro:
             # com ~110 ms de trabalho o tick viraria 1,11 s e o console mentiria
             # sobre a propria cadencia. Copiada de `__main__.laco_principal`.
-            dormir = float(args.intervalo) - (time.monotonic() - inicio)
+            dormir = float(args.intervalo) - trabalhado
             if dormir > 0:
                 time.sleep(dormir)
 
@@ -398,19 +455,7 @@ def laco_do_mercado(
         # reescreve o arquivo INTEIRO, entao por tick seria trabalho puro.
         catalogo.gravar()
         log.info(
-            "Resumo: %d paginas lidas, %d perdidas (%d ticks com o painel "
-            "aberto).",
-            leitor.paginas_lidas,
-            leitor.paginas_perdidas,
-            leitor.ticks_com_painel_aberto,
-        )
-        log.info(
-            "Gravei %d observacoes novas, descartei %d ja conhecidas, perdi "
-            "%d por registro desligado. %d series distintas nesta sessao.",
-            contagem.observacoes,
-            contagem.duplicadas,
-            contagem.perdidas,
-            len(contagem.series),
+            "\n%s", resumo_da_sessao(leitor, contagem, motivos, orcamento)
         )
         log.info("Arquivos: %s e %s", registro.arquivo, catalogo.arquivo)
 

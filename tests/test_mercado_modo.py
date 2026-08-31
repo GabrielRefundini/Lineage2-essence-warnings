@@ -480,12 +480,21 @@ class TestALinhaAoVivo:
         O residuo e observacao, nao veredito, e ele ja esta no CSV para o
         usuario olhar no Sheets. No repintar de 1 Hz ele so competiria por
         atencao com os dois numeros que julgam a sessao.
+
+        A AFIRMACAO E SOBRE O CODIGO, e nao sobre o fonte cru: a docstring da
+        funcao EXPLICA a ausencia, e a doutrina da casa e que um numero que caiu
+        precisa dizer que caiu. Um teste sobre o fonte cru proibiria a
+        explicacao, que e o oposto do que ele quer.
         """
+        import ast as _ast
         import inspect as _inspect
 
         from l2scanner.mercado_console import linha_ao_vivo
 
-        assert "residuo" not in _inspect.getsource(linha_ao_vivo)
+        arvore = _ast.parse(_inspect.getsource(linha_ao_vivo).lstrip())
+        funcao = arvore.body[0]
+        funcao.body = funcao.body[1:]  # fora a docstring
+        assert "residuo" not in _ast.unparse(funcao)
 
 
 class TestOResumoDaSessao:

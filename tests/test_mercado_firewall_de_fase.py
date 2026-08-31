@@ -82,9 +82,11 @@ REQUIREMENTS = RAIZ / "requirements.txt"
 # Os quatro modulos do lado da PARTY. O mercado nao pode conhecer nenhum.
 MODULOS_DA_PARTY = ("rastreador", "visao", "sessao", "presenca")
 
-# Os modulos que esta fase acrescenta. A lista cresce junto com a fase; o
-# `mercado_console` entra no 04-01 Task 3, com o desenho do console.
-MODULOS_DO_MERCADO_DESTA_FASE = ("l2scanner.mercado_modo",)
+# Os modulos que esta fase acrescenta. A lista cresce junto com a fase.
+MODULOS_DO_MERCADO_DESTA_FASE = (
+    "l2scanner.mercado_modo",
+    "l2scanner.mercado_console",
+)
 
 
 # ---------------------------------------------------------------------------
