@@ -1016,10 +1016,20 @@ class TestOConfigDoRepositorioProduzOAviso:
     def roster(self):
         return ler_bosses(RAIZ / "config.toml")
 
-    def test_o_arquivo_do_repositorio_tem_os_dois_tiat_com_6_e_8(self, roster):
+    def test_o_arquivo_do_repositorio_tem_os_dois_tiat_com_a_janela_LIDA(self, roster):
+        """O ESQUEMA, nunca o valor: a janela de respawn e DADO do servidor.
+
+        Este teste ja cravou `6` e `8` e ficou VERMELHO em 2026-08-30, quando o
+        servidor mudou a regra para 8+2 e o `config.toml` acompanhou (c4175da).
+        Cravar o numero aqui contradiz o VIGI-02, que existe para a regra de
+        respawn nao exigir deploy — o teste virava o deploy.
+        """
         assert [b.nome for b in roster] == ["Tiat North", "Tiat South"]
-        assert all(b.respawn_horas_min == 6 for b in roster)
-        assert all(b.respawn_horas_max == 8 for b in roster)
+        for boss in roster:
+            assert isinstance(boss.respawn_horas_min, (int, float))
+            assert isinstance(boss.respawn_horas_max, (int, float))
+            assert boss.respawn_horas_min > 0
+            assert boss.respawn_horas_min <= boss.respawn_horas_max
 
     def test_o_anuncio_produz_um_aviso_que_nomeia_o_boss(self, roster):
         v = vigia([ANUNCIO], [""], bosses=roster)
@@ -1128,18 +1138,24 @@ class TestOEsquemaDoBlocoBossEstaCompletoParaAFase2:
     def roster(self):
         return ler_bosses(RAIZ / "config.toml")
 
-    def test_os_dois_tiat_do_repositorio_tem_6_e_8(self, roster):
+    def test_os_dois_tiat_do_repositorio_tem_a_janela_LIDA(self, roster):
         """As horas sao LIDAS e IGNORADAS nesta fase; a Fase 2 as consome.
 
-        A regra do servidor: 6 horas fixas mais 0 a 2 aleatorias, contadas a
-        partir da MORTE.
+        E POR ISSO O TESTE NAO AFIRMA O VALOR. A regra e do servidor — fixa
+        mais um sorteio, contada a partir da MORTE — e ela MUDA: em 2026-08-30
+        passou de 6+2 para 8+2 e o `config.toml` acompanhou em `c4175da`, sem
+        uma linha de codigo. Este teste afirmava `== 6` e ficou vermelho por
+        fazer o certo do jeito errado: ele provava a regra do servidor em vez
+        de provar que ela e LIDA do arquivo.
         """
         por_nome = {b.nome: b for b in roster}
 
         assert set(por_nome) == {"Tiat North", "Tiat South"}
         for boss in por_nome.values():
-            assert boss.respawn_horas_min == 6
-            assert boss.respawn_horas_max == 8
+            assert boss.respawn_horas_min is not None
+            assert boss.respawn_horas_max is not None
+            assert boss.respawn_horas_min > 0
+            assert boss.respawn_horas_min <= boss.respawn_horas_max
 
     def test_o_cabecalho_documenta_os_tres_campos(self):
         """Um campo que existe e nao esta documentado e mentira por omissao.
