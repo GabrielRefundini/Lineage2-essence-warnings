@@ -3538,3 +3538,436 @@ class TestAInstanciaQueNaoObedeceuContinuaAnonimaECALA:
             "no proximo arranque a segunda instancia le a MESMA pasta e "
             "encontra o nome: e por isso que a degradacao e temporaria"
         )
+
+
+# ---------------------------------------------------------------------------
+# AS CINCO LIGACOES NOVAS QUE PODERIAM SUMIR EM SILENCIO
+# ---------------------------------------------------------------------------
+
+ELO_SESSAO_ACERVO = "a Sessao de producao recebe o acervo"
+ELO_COMANDOS_ACERVO = "atender_comandos recebe o acervo"
+ELO_COMANDOS_LISTA_VIVA = "atender_comandos recebe a lista viva"
+ELO_VARREDURA = "o arranque varre o acervo e pergunta"
+ELO_SIMULANDO = "toda construcao do acervo decide sobre simulando"
+
+ELOS_DO_BATISMO = (
+    ELO_SESSAO_ACERVO,
+    ELO_COMANDOS_ACERVO,
+    ELO_COMANDOS_LISTA_VIVA,
+    ELO_VARREDURA,
+    ELO_SIMULANDO,
+)
+
+
+def _alvo_da_chamada(no: ast.Call) -> str | None:
+    return getattr(no.func, "id", None) or getattr(no.func, "attr", None)
+
+
+def _acervos_ligados(arvore: ast.Module) -> set[str]:
+    """Os nomes locais que recebem o resultado de `AcervoDeIdentidades(...)`.
+
+    Sem isso, `acervo=None` satisfaria "passou o argumento" e deixaria o
+    defeito inteiro de pe: a chamada existe, o comando responde, e a resposta
+    e sempre "nao consigo mexer nas identidades agora".
+    """
+    ligados: set[str] = set()
+    for no in ast.walk(arvore):
+        if not isinstance(no, ast.Assign) or not isinstance(no.value, ast.Call):
+            continue
+        if _alvo_da_chamada(no.value) != "AcervoDeIdentidades":
+            continue
+        ligados |= {t.id for t in no.targets if isinstance(t, ast.Name)}
+    return ligados
+
+
+def _passado(no: ast.Call, nome: str) -> ast.expr | None:
+    return next((k.value for k in no.keywords if k.arg == nome), None)
+
+
+def _elos_do_batismo(
+    fonte: str, arquivo: str
+) -> tuple[dict[str, list[str]], list[str]]:
+    """Devolve (o que foi ACHADO por elo, as QUEIXAS) lendo a arvore sintatica.
+
+    AST E NUNCA `grep`, pela mesma razao dos dois portoes irmaos: as docstrings
+    deste projeto citam `acervo=`, `assinaturas_vivas=` e `simulando=` EM PROSA
+    ao explicar por que os elos existem, e uma busca textual acusaria justamente
+    a explicacao que sobrou depois de a linha sumir.
+
+    O IRMAO DE `tests/test_aprendiz.py` NAO FOI FUNDIDO COM ESTE de proposito:
+    os dois portoes guardam fases diferentes, e uma queixa de uma apareceria no
+    relatorio da outra.
+    """
+    arvore = ast.parse(fonte)
+    achados: dict[str, list[str]] = {elo: [] for elo in ELOS_DO_BATISMO}
+    queixas: list[str] = []
+    acervos = _acervos_ligados(arvore)
+    chamadas_de_comando: list[str] = []
+
+    for no in ast.walk(arvore):
+        if not isinstance(no, ast.Call):
+            continue
+        local = f"{arquivo}:{no.lineno}"
+        alvo = _alvo_da_chamada(no)
+
+        if alvo == "AcervoDeIdentidades":
+            # O MOLDE AQUI E O DO `Rastreador`, E NAO O DOS ELOS, e a forma e
+            # outra de proposito: a pergunta nao e "esta ligacao existe", e sim
+            # "toda chamada DECIDE sobre um argumento cujo default e
+            # silencioso". A resposta certa pode ser `False`, entao o portao
+            # exige a DECISAO e nunca um valor.
+            if not any(k.arg == "simulando" for k in no.keywords):
+                queixas.append(
+                    f"{local}: este `AcervoDeIdentidades(...)` nao decide sobre "
+                    "`simulando`. O default e False, que e o valor "
+                    "silenciosamente perigoso: um --dry-run que esqueca de "
+                    "passar queima o marcador de pergunta da instancia REAL, e "
+                    "o marcador nao tem desfazer"
+                )
+            else:
+                achados[ELO_SIMULANDO].append(local)
+
+        elif alvo == "Sessao":
+            passado = _passado(no, "acervo")
+            if passado is None:
+                queixas.append(
+                    f"{local}: esta `Sessao(...)` nao passa `acervo=`, entao o "
+                    "aprendizado nunca pergunta quem e a pessoa nova e a fase "
+                    "nasce muda em campo com a suite inteira verde"
+                )
+            elif not (isinstance(passado, ast.Name) and passado.id in acervos):
+                queixas.append(
+                    f"{local}: o `acervo=` desta `Sessao(...)` nao e um nome "
+                    "vindo de um `AcervoDeIdentidades(...)` deste modulo. "
+                    "`None` aqui desliga a pergunta inteira sem quebrar teste "
+                    "nenhum"
+                )
+            else:
+                achados[ELO_SESSAO_ACERVO].append(local)
+
+        elif alvo == "atender_comandos":
+            chamadas_de_comando.append(local)
+            passado = _passado(no, "acervo")
+            if passado is None:
+                queixas.append(
+                    f"{local}: este `atender_comandos(...)` nao passa "
+                    "`acervo=`. O marcador `comando_<id>` e COMPARTILHADO: se "
+                    "este laco receber a mensagem primeiro, ele consome o "
+                    "marcador, responde 'nao consigo mexer nas identidades "
+                    "agora' e o batismo do usuario e PERDIDO"
+                )
+            elif not (isinstance(passado, ast.Name) and passado.id in acervos):
+                queixas.append(
+                    f"{local}: o `acervo=` deste `atender_comandos(...)` nao e "
+                    "um nome vindo de um `AcervoDeIdentidades(...)`: a chamada "
+                    "existe e a resposta e sempre a recusa"
+                )
+            else:
+                achados[ELO_COMANDOS_ACERVO].append(local)
+
+            viva = _passado(no, "assinaturas_vivas")
+            if viva is not None and not isinstance(viva, ast.Constant):
+                achados[ELO_COMANDOS_LISTA_VIVA].append(local)
+
+    # A LISTA VIVA E UM ELO DE PRESENCA, e nao uma exigencia por chamada: o
+    # laco da agenda passa `None` com razao, porque la nao existe tela. O que
+    # nao pode e NENHUM dos lacos passar — ai D-08 morre em silencio e o nome
+    # so vale depois de reiniciar.
+    if chamadas_de_comando and not achados[ELO_COMANDOS_LISTA_VIVA]:
+        queixas.append(
+            f"{arquivo}: nenhuma das {len(chamadas_de_comando)} chamadas de "
+            "`atender_comandos(...)` passa `assinaturas_vivas=`. Sem ela o "
+            "nome so vale depois de reiniciar, e o usuario batiza de novo "
+            "achando que falhou (D-08)"
+        )
+
+    for no in ast.walk(arvore):
+        if not isinstance(no, ast.FunctionDef) or no.name != "laco_principal":
+            continue
+        varreduras = [
+            f"{arquivo}:{filho.lineno}"
+            for filho in ast.walk(no)
+            if isinstance(filho, ast.Call)
+            and _alvo_da_chamada(filho) == "montar_pergunta"
+        ]
+        if varreduras:
+            achados[ELO_VARREDURA].extend(varreduras)
+        else:
+            queixas.append(
+                f"{arquivo}:{no.lineno}: `laco_principal` nao chama "
+                "`montar_pergunta(...)`. Sem a varredura de arranque, as "
+                "entradas que JA estao no disco nunca sao perguntadas — e elas "
+                "sao as unicas que existem no acervo real do usuario"
+            )
+
+    return achados, queixas
+
+
+def _elos_do_batismo_em_producao() -> tuple[dict[str, list[str]], list[str]]:
+    achados: dict[str, list[str]] = {elo: [] for elo in ELOS_DO_BATISMO}
+    queixas: list[str] = []
+    for caminho in sorted((RAIZ / "l2scanner").glob("*.py")):
+        parcial, reclamou = _elos_do_batismo(
+            caminho.read_text(encoding="utf-8"), caminho.name
+        )
+        for elo, locais in parcial.items():
+            achados[elo].extend(locais)
+        queixas.extend(reclamou)
+    return achados, queixas
+
+
+# O fonte fabricado que CUMPRE as cinco regras, no formato dos lacos REAIS.
+#
+# Ele precisa ter os DOIS lacos, com as DUAS chamadas de `atender_comandos`,
+# para que a mutacao "so um dos lacos passa o acervo" seja plantavel. O
+# precedente e `TestFuncionaNosDoisLacos` de
+# `tests/test_janela_sob_demanda.py`: logica certa ligada num caminho so e a
+# familia de defeito que este projeto pagou duas vezes, e o usuario roda os
+# dois lacos.
+FONTE_QUE_CUMPRE = '''
+def laco_principal(args, cal):
+    acervo = AcervoDeIdentidades(PASTA_IDENTIDADES, simulando=args.dry_run)
+    identidades = carregar_identidades(list(cal.assinaturas), acervo)
+    cal.assinaturas = identidades.assinaturas
+    if despachante is not None:
+        pergunta = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+    sessao = Sessao(cal=cal, rastreador=rastreador, aprendiz=aprendiz, acervo=acervo)
+    while True:
+        atender_comandos(leitor, registro, eventos, despachante, agora, mono, rastreador, acervo=acervo, assinaturas_vivas=cal.assinaturas)
+
+
+def laco_da_agenda(args):
+    acervo = AcervoDeIdentidades(PASTA_IDENTIDADES, simulando=args.dry_run)
+    while True:
+        atender_comandos(leitor, registro, eventos, despachante, agora, mono, None, acervo=acervo)
+'''
+
+
+class TestNenhumaLigacaoDoBatismoSomeEmSilencio:
+    """Cinco linhas de `__main__.py` que a suite inteira nao defenderia.
+
+    ESTA E A TERCEIRA APLICACAO DO MESMO MOLDE NESTE PROJETO, e as duas
+    anteriores nasceram de defeitos de campo, e nao de teoria:
+
+    - **Fase 1**: `Rastreador.assinaturas_configuradas` tinha default `False` e
+      era atribuido em OITO lugares, todos em teste. O unico construtor de
+      producao nao passava o argumento. O silencio do `#linhaN` estava provado
+      na suite e DESLIGADO no jogo, desde que a identidade por imagem foi
+      escrita. Dai nasceu `tests/test_acervo.py::TestNenhumRastreadorNasceMudo`.
+    - **Fase 2**: tres linhas de `__main__.py` sem guarda nenhuma. A
+      verificacao arrancou `aprendiz=aprendiz` e os 3514 testes ficaram VERDES
+      — a feature inteira desligada em campo, e nada acusando. Dai nasceu
+      `tests/test_aprendiz.py::TestNenhumaLigacaoDoAprendizSomeEmSilencio`.
+
+    A Fase 3 acabou de criar CINCO lugares novos com exatamente essa forma, e
+    esta classe e o molde aplicado a eles. Cada elo tem uma mutacao plantada, e
+    cada caso afirma que a mutacao PEGOU antes de afirmar que o detector
+    reclamou: sem essa linha, um `replace` que nao casasse deixaria o caso
+    verde provando nada.
+
+    O QUE O PORTAO **NAO** CONSERTA, dito para ninguem esperar dele o que ele
+    nao da: ele nao muda default nenhum e nao impede que um TESTE construa sem
+    os argumentos. Tornar `simulando` obrigatorio quebraria os casos de
+    `tests/test_acervo.py` e `tests/test_aprendiz.py` que constroem
+    `AcervoDeIdentidades(tmp_path)`, e esta fase nao reescreve teste que passa.
+    Quem quiser o default continua podendo — mas em PRODUCAO tem de escrever a
+    escolha, e ai ela aparece no diff de alguem.
+    """
+
+    def test_as_cinco_ligacoes_estao_no_fonte_de_producao(self):
+        _, queixas = _elos_do_batismo_em_producao()
+        assert not queixas, "\n".join(queixas)
+
+    def test_o_portao_nao_passa_por_vacuidade(self):
+        """Um portao que nao acha nada passa sem provar nada.
+
+        Mesma assercao, pela mesma razao, das duas guardas anteriores. Se
+        `laco_principal` for renomeado, movido, ou o detector olhar para a
+        pasta errada, e AQUI que aparece — em vez de os cinco elos ficarem
+        verdes por ausencia. O preco desta licao ja foi pago pelo comando de
+        verificacao que "passava sem rodar nada" do plano 10-02.
+        """
+        achados, _ = _elos_do_batismo_em_producao()
+        vazios = [elo for elo, locais in achados.items() if not locais]
+        assert not vazios, (
+            "o detector nao encontrou NENHUMA ocorrencia destes elos em "
+            f"l2scanner/: {vazios}. O portao esta olhando para o lugar errado"
+        )
+
+    def test_o_detector_nao_acusa_o_fonte_que_cumpre(self):
+        """A outra metade: quem cumpriu a regra nao pode ser acusado."""
+        achados, queixas = _elos_do_batismo(FONTE_QUE_CUMPRE, "<fabricado>")
+        assert queixas == [], "\n".join(queixas)
+        assert all(achados.values()), achados
+
+    def test_o_detector_acusa_a_Sessao_sem_o_acervo(self):
+        """Sem ele o aprendizado nunca pergunta: a fase nasce muda em campo."""
+        envenenado = FONTE_QUE_CUMPRE.replace(
+            "aprendiz=aprendiz, acervo=acervo)", "aprendiz=aprendiz)"
+        )
+        assert envenenado != FONTE_QUE_CUMPRE, "a mutacao plantada nao pegou"
+        achados, queixas = _elos_do_batismo(envenenado, "<fabricado>")
+        assert queixas, "o detector nao acusaria uma `Sessao(...)` sem `acervo=`"
+        assert achados[ELO_SESSAO_ACERVO] == []
+
+    def test_o_detector_acusa_SO_UM_dos_lacos_passando_o_acervo(self):
+        """A mutacao mais provavel num diff de verdade, e a mais cara.
+
+        O marcador `comando_<id>` e compartilhado: se o laco da agenda receber
+        a mensagem primeiro e nao tiver acervo, ele CONSOME o marcador,
+        responde a recusa e o batismo do usuario e perdido. O laco principal
+        continua verde em qualquer teste que so olhe para ele.
+        """
+        envenenado = FONTE_QUE_CUMPRE.replace(
+            "mono, None, acervo=acervo)", "mono, None)"
+        )
+        assert envenenado != FONTE_QUE_CUMPRE, "a mutacao plantada nao pegou"
+        achados, queixas = _elos_do_batismo(envenenado, "<fabricado>")
+        assert queixas, (
+            "o detector nao acusaria um `atender_comandos(...)` sem `acervo=`"
+        )
+        assert len(achados[ELO_COMANDOS_ACERVO]) == 1, (
+            "o laco que ainda cumpre continua sendo achado; o portao acusa o "
+            "OUTRO"
+        )
+
+    def test_o_detector_acusa_o_acervo_trocado_por_None(self):
+        """Guarda contra o conserto preguicoso.
+
+        `acervo=None` satisfaria "passou o argumento" e deixaria o defeito
+        inteiro de pe: a chamada existe, o comando responde, e a resposta e
+        sempre "nao consigo mexer nas identidades agora".
+        """
+        envenenado = FONTE_QUE_CUMPRE.replace(
+            "mono, None, acervo=acervo)", "mono, None, acervo=None)"
+        )
+        assert envenenado != FONTE_QUE_CUMPRE, "a mutacao plantada nao pegou"
+        _, queixas = _elos_do_batismo(envenenado, "<fabricado>")
+        assert queixas, "o detector nao acusaria um `acervo=None` literal"
+
+    def test_o_detector_acusa_a_lista_viva_arrancada(self):
+        """Sem ela o nome so vale depois de reiniciar, e D-08 morre calado."""
+        envenenado = FONTE_QUE_CUMPRE.replace(
+            ", assinaturas_vivas=cal.assinaturas", ""
+        )
+        assert envenenado != FONTE_QUE_CUMPRE, "a mutacao plantada nao pegou"
+        achados, queixas = _elos_do_batismo(envenenado, "<fabricado>")
+        assert queixas, (
+            "o detector nao acusaria os dois lacos sem `assinaturas_vivas=`"
+        )
+        assert achados[ELO_COMANDOS_LISTA_VIVA] == []
+
+    def test_o_detector_acusa_a_varredura_de_arranque_arrancada(self):
+        """Sem ela a fase nao funciona no unico acervo real que existe.
+
+        As tres entradas anonimas do disco do usuario nunca produzem
+        `Aprendizado` nenhum: elas entram na lista viva, casam ~1.000 contra
+        elas mesmas, e `Casamento.nome` de uma anonima e a string VAZIA. So a
+        varredura as alcanca.
+        """
+        # O BLOCO INTEIRO, e nao so a linha de dentro: arrancar so a linha
+        # deixaria um `if` sem corpo, que nem compila. A mutacao realista num
+        # diff de verdade e a remocao do bloco.
+        envenenado = FONTE_QUE_CUMPRE.replace(
+            "    if despachante is not None:\n"
+            "        pergunta = montar_pergunta(acervo, pendentes_do_acervo(acervo))\n",
+            "",
+        )
+        assert envenenado != FONTE_QUE_CUMPRE, "a mutacao plantada nao pegou"
+        achados, queixas = _elos_do_batismo(envenenado, "<fabricado>")
+        assert queixas, (
+            "o detector nao acusaria um `laco_principal` que nao varre o acervo"
+        )
+        assert achados[ELO_VARREDURA] == []
+
+    def test_o_detector_acusa_o_acervo_construido_sem_simulando(self):
+        """O default e `False`, que e o valor silenciosamente perigoso.
+
+        Um `--dry-run` rodando ao lado do scanner de verdade gravaria
+        `perguntado_<chave>` na pasta COMPARTILHADA e apagaria para sempre a
+        pergunta da instancia real. O marcador nao tem desfazer, e nao ha
+        comando de esquecer no v1.
+        """
+        envenenado = FONTE_QUE_CUMPRE.replace(
+            "AcervoDeIdentidades(PASTA_IDENTIDADES, simulando=args.dry_run)",
+            "AcervoDeIdentidades(PASTA_IDENTIDADES)",
+            1,
+        )
+        assert envenenado != FONTE_QUE_CUMPRE, "a mutacao plantada nao pegou"
+        _, queixas = _elos_do_batismo(envenenado, "<fabricado>")
+        assert queixas, (
+            "o detector nao acusaria um `AcervoDeIdentidades(...)` que nao "
+            "decide sobre `simulando`"
+        )
+
+
+def _ramo_atribui_avisar_o_grupo(fonte: str, membro: str) -> bool:
+    """O ramo daquele comando ATRIBUI `avisar_o_grupo` no proprio corpo?
+
+    Le a estrutura, e nao o comportamento. O caso de comportamento passaria por
+    acidente se o comando ANTERIOR da mesma volta do laco tivesse deixado o
+    valor certo na variavel; so a atribuicao dentro do ramo impede a heranca
+    silenciosa de voltar num refactor.
+    """
+    for no in ast.walk(ast.parse(fonte)):
+        if not isinstance(no, ast.If):
+            continue
+        if membro not in ast.dump(no.test):
+            continue
+        atribuicoes = [
+            alvo.id
+            for filho in no.body
+            if isinstance(filho, ast.Assign)
+            for alvo in filho.targets
+            if isinstance(alvo, ast.Name)
+        ]
+        return "avisar_o_grupo" in atribuicoes
+    raise AssertionError(f"nao ha ramo para Comando.{membro} no fonte lido")
+
+
+RAMO_FABRICADO_SEM_A_FLAG = """
+def atender_comandos():
+    if pedido.comando is Comando.BATIZAR:
+        resposta = responder_batismo(acervo, pedido.argumento)
+"""
+
+
+class TestORamoDoBatismoAtribuiAvisarOGrupo:
+    """Copia direta do portao do `/tiat`, com `BATIZAR` no lugar de `JANELA`.
+
+    `avisar_o_grupo` e uma variavel de escopo de FUNCAO, atribuida dentro dos
+    ramos e lida no bloco de despacho. Um ramo que nao a atribua herda EM
+    SILENCIO o valor do comando ANTERIOR da mesma volta do laco, e o efeito e
+    resposta privada vazando para o grupo.
+
+    No caminho feliz do batismo a leitura nem acontece — o ramo devolve
+    `RespostaDePresenca` e o `isinstance` curto-circuita antes —, mas isso e
+    uma coincidencia que nada no codigo preserva, e o ramo SEM acervo devolve
+    `str`, onde a flag e lida de verdade.
+    """
+
+    def test_o_ramo_de_producao_atribui_a_flag(self):
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        assert _ramo_atribui_avisar_o_grupo(
+            inspect.getsource(principal.atender_comandos), "BATIZAR"
+        ), (
+            "o ramo do BATIZAR nao seta `avisar_o_grupo`: ele herdaria em "
+            "silencio o valor do comando anterior da mesma volta do laco, e "
+            "uma recusa privada vazaria para o grupo"
+        )
+
+    def test_o_detector_acusaria_um_ramo_fabricado_SEM_a_atribuicao(self):
+        """Senao o portao passaria por acidente. A outra metade obrigatoria."""
+        assert not _ramo_atribui_avisar_o_grupo(
+            RAMO_FABRICADO_SEM_A_FLAG, "BATIZAR"
+        )
+
+    def test_o_detector_falha_alto_quando_o_ramo_nao_existe(self):
+        """Um portao que nao acha o ramo passa sem provar nada."""
+        with pytest.raises(AssertionError):
+            _ramo_atribui_avisar_o_grupo(
+                RAMO_FABRICADO_SEM_A_FLAG, "COMANDO_QUE_NAO_EXISTE"
+            )
