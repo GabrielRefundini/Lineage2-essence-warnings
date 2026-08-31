@@ -107,7 +107,15 @@ ser estavel entre reinicios, independente da POSICAO da linha (posicao e lugar, 
 pessoa) e independente do NOME (o nome chega depois e pode ser corrigido — BATI-05). E
 essa chave que a Fase 3 vai pinar.
 
-**Plans**: TBD
+**FECHADA no 01-CONTEXT.md e implementada nos planos**: a chave e o `sha256` do CONTEUDO
+da assinatura (material `altura x largura : bits`, hex inteiro), num arquivo por entrada
+em `.identidades/`, com o nome no irmao `nome_<hash>`.
+
+**Plans:** 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — o acervo, o silencio de uma entrada sem nome, e o elo `assinaturas_configuradas` que hoje nao existe em producao (DURA-02, DURA-03, DURA-04, APRE-03, OPER-01)
+- [ ] 01-02-PLAN.md — a sobrevivencia a uma rodada real de `calibrar.bat` e a convivencia com `--nomes` (DURA-01, OPER-02)
 
 ### Phase 2: Aprender sozinho
 
@@ -176,7 +184,7 @@ do batismo os alertas daquela pessoa saem com o nome certo.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. O acervo e o silencio dele | 0/? | Not started | - |
+| 1. O acervo e o silencio dele | 0/2 | Planned | - |
 | 2. Aprender sozinho | 0/? | Not started | - |
 | 3. Batismo pelo WhatsApp | 0/? | Not started | - |
 
