@@ -56,6 +56,7 @@ from .config import (  # noqa: E402
     ler_agenda,
     ler_ajustes_do_aprendiz,
     ler_bosses,
+    ler_janela_do_episodio,
     ler_membros,
 )
 from .captura_janela import (  # noqa: E402
@@ -2062,6 +2063,13 @@ def laco_principal(
     # arquivo entre elas e o scanner subir vigiando um conjunto de bosses e
     # prevendo outro.
     regras_de_respawn = ler_bosses()
+    # A JANELA ANTI-REPETICAO DO ANUNCIO, conferida CONTRA a lista que acabou de
+    # ser lida, e nao contra uma releitura. Ela levanta `BossInvalido` quando o
+    # valor escrito engoliria o nascimento seguinte de algum boss, e `main()`
+    # ja trata e devolve 2 — a mesma recusa de arranque de um `[[boss]]` torto,
+    # e pela mesma razao: o modo de falha aqui e o scanner MUDO, e ninguem
+    # percebe um alerta que nao chegou.
+    janela_do_episodio = ler_janela_do_episodio(regras_de_respawn)
     vigia_bosses = montar_vigia_de_bosses(
         cal, na_janela=bool(args.janela), bosses=regras_de_respawn
     )
@@ -2264,6 +2272,10 @@ def laco_principal(
         # que continuar valendo quando o vigia esta `None` por falta de
         # calibracao ou de OCR.
         regras_de_respawn=regras_de_respawn,
+        # E A JANELA DO EPISODIO ENTRA SEPARADA DAS REGRAS, que e o conserto de
+        # 2026-08-31 visivel na fiacao: um `respawn_horas_min` errado pode
+        # atrasar a previsao ali de cima, e nao pode mais calar um nascimento.
+        janela_do_episodio=janela_do_episodio,
         # O sinal do mercado entra por AQUI e sai no console, e so. O
         # `rastreador` nao o recebe, nao o le e nao tem como: ver o tripwire de
         # arquitetura em `tests/test_mercado_27x.py`.

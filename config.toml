@@ -317,6 +317,43 @@ respawn_horas_min = 8
 respawn_horas_max = 10
 
 # ---------------------------------------------------------------------------
+# QUANTOS MINUTOS DE DETECCOES SAO O MESMO NASCIMENTO ([episodio])
+#
+# O scanner ve o MESMO nascimento varias vezes: a linha do servidor fica no
+# chat por minutos, o boss fica no seu alvo, voce desmarca e remarca. Sem uma
+# regra, cada uma dessas leituras viraria uma mensagem no grupo (em 30/08/2026
+# um unico nascimento rendeu SEIS). Este numero e a resposta: deteccoes do
+# mesmo boss dentro desta janela contam como UM nascimento e rendem UMA
+# mensagem.
+#
+# NAO E A MESMA COISA QUE `respawn_horas_min`, E ESSA SEPARACAO CUSTOU CARO.
+# Ate 31/08/2026 este valor era calculado a partir do respawn, e com 8 horas
+# escritas ali em cima a janela virou 7h55: o `Tiat North` que nasceu as 14:12
+# foi visto pelo scanner e NAO virou mensagem, porque caiu dentro da janela do
+# nascimento das 06:22. Agora sao dois numeros independentes. Errar o respawn
+# atrasa a previsao da janela; nao apaga mais um aviso.
+#
+# O PADRAO E 25 MINUTOS e voce provavelmente nunca precisa mexer nisto. Ele foi
+# MEDIDO nos arquivos de `.agenda/` em 31/08/2026: o maior intervalo entre a
+# primeira e a ultima deteccao de um mesmo nascimento foi de 12 minutos (9
+# deteccoes de `Tiat North` em 30/08, das 22:17 as 22:29), e 25 e o dobro
+# disso com um minuto de sobra.
+#
+# SE VOCE AUMENTAR MUITO, O SCANNER FICA MUDO. O programa RECUSA subir com um
+# valor maior ou igual ao menor `respawn_horas_min` dos blocos acima, e diz
+# qual boss e qual numero: acima desse teto a janela engole o nascimento
+# SEGUINTE, que e exatamente o defeito de 31/08.
+#
+# SE VOCE DIMINUIR MUITO, VOLTA O SPAM. Abaixo de uns 15 minutos as deteccoes
+# de um mesmo nascimento comecam a se separar e voce recebe a mesma noticia
+# duas ou tres vezes.
+#
+# A LINHA ESTA COMENTADA porque o padrao ja vale. Descomente so para mudar.
+#
+# [episodio]
+# minutos = 25
+
+# ---------------------------------------------------------------------------
 # MARGEM DE CRAFT — quanto sobra entre o produto e os componentes
 #
 # SEM NENHUM BLOCO AQUI A MARGEM SIMPLESMENTE NAO APARECE. Nao e erro e nao e

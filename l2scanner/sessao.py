@@ -59,6 +59,7 @@ from .notificador import Categoria
 from .presenca import fechar_e_narrar
 from .rastreador import Evento
 from .respawn import (
+    JANELA_DO_EPISODIO,
     anunciar_janelas,
     anunciar_nascimento,
     chave_do_nascimento,
@@ -193,6 +194,7 @@ class Sessao:
         mercado=None,
         bosses=None,
         regras_de_respawn=(),
+        janela_do_episodio=JANELA_DO_EPISODIO,
         aprendiz=None,
     ) -> None:
         self.cal = cal
@@ -246,6 +248,14 @@ class Sessao:
         # `mercado`: toda construcao de `Sessao` que ja existe continua valida
         # sem edicao, e sem regra nenhuma o tick simplesmente nao preve nada.
         self.regras_de_respawn = regras_de_respawn
+        # A JANELA ANTI-REPETICAO DO ANUNCIO, e ela e SEPARADA de
+        # `regras_de_respawn` de proposito desde 2026-08-31. Enquanto saiu de
+        # `respawn_horas_min`, um numero errado no `config.toml` (8 no lugar de
+        # 6) fez o scanner calar dois nascimentos reais de `Tiat North`. As
+        # duas grandezas respondem perguntas diferentes: aquela e "quando o
+        # boss pode voltar", esta e "quantos minutos de deteccoes sao o mesmo
+        # nascimento". O default e medido; ver `respawn.JANELA_DO_EPISODIO`.
+        self.janela_do_episodio = janela_do_episodio
         # O `aprendiz.Aprendiz`. Default None pela mesma razao do `loot`, do
         # `manutencao`, do `mercado` e do `bosses`: toda construcao de `Sessao`
         # que ja existe continua valida sem edicao, e sem ele o tick
@@ -482,7 +492,7 @@ class Sessao:
             # janela mora em `anunciar_janelas`: uma copia aqui divergiria da
             # de la no primeiro ajuste.
             if not anunciar_nascimento(
-                self.registro, aviso.boss, agora, self.regras_de_respawn
+                self.registro, aviso.boss, agora, self.janela_do_episodio
             ):
                 resultado.nascimentos_calados.append(
                     (aviso.boss, aviso.origem)

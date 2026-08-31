@@ -1945,9 +1945,12 @@ class TestOSilencioAcabaQuandoONascimentoVoltaASerPossivel(
     um nascimento real, sem deixar rastro nenhum — ninguem percebe um alerta
     que nao chegou.
 
-    E por isso que `MARGEM_DO_EPISODIO` vai para o lado CURTO: a janela do
-    episodio e `respawn_horas_min` MENOS cinco minutos, deliberadamente mais
-    curta que o minimo do servidor. Longa demais, ela funde dois nascimentos e
+    E POR ISSO QUE A JANELA DO EPISODIO E CURTA, e desde 2026-08-31 ela e uma
+    grandeza PROPRIA (`respawn.JANELA_DO_EPISODIO`, 25 minutos medidos em
+    campo) e nao mais `respawn_horas_min` menos cinco minutos. O acoplamento
+    antigo tinha exatamente o defeito que esta classe existe para impedir: com
+    8 horas erradas no `config.toml`, a janela virou 7h55 e a supressao comeu
+    dois nascimentos de verdade. Longa demais, ela funde dois nascimentos e
     cala o segundo, que e a falha invisivel; curta demais, ela repete uma
     mensagem, que o usuario le e ignora em dois segundos.
     """
@@ -2052,10 +2055,22 @@ class TestOQueASupressaoPERDE(BaseDaMatrizDeAnuncio):
     def test_dois_nascimentos_dentro_da_janela_produzem_UMA_mensagem(
         self, calibracao, frame_real, tmp_path
     ):
-        """D-26 literal. O que se perde e o MESMO boss nascer duas vezes dentro
-        da mesma janela, e isso e impossivel pela regra do servidor: o respawn
-        conta a partir da MORTE, entao dois nascimentos distam no minimo
-        `respawn_horas_min`.
+        """D-26 literal: dois anuncios do servidor DENTRO da janela do episodio
+        rendem UMA mensagem. E a supressao fazendo o trabalho dela.
+
+        A JANELA MUDOU DE TAMANHO EM 2026-08-31, E A ASERCAO NAO. Este teste
+        rodava com os dois anuncios a TRES HORAS de distancia, e passava porque
+        a janela do episodio saia de `respawn_horas_min` e cobria horas
+        inteiras. A justificativa escrita aqui era "dois nascimentos distam no
+        minimo `respawn_horas_min` pela regra do servidor" — verdade sobre o
+        SERVIDOR e mentira sobre a CONFIGURACAO, e foi por essa mentira que o
+        scanner calou dois nascimentos reais de `Tiat North` naquele dia.
+
+        Agora a janela e uma grandeza propria de 25 minutos, medida nas
+        deteccoes de campo, e os dois anuncios deste teste distam TRES MINUTOS:
+        e o caso que a supressao existe para cobrir de verdade, que e a mesma
+        linha do servidor vista de novo. Tres horas nao sao mais silencio, e
+        isso e o conserto e nao uma regressao.
         """
         pasta = tmp_path / "agenda"
         pares = [
@@ -2067,8 +2082,8 @@ class TestOQueASupressaoPERDE(BaseDaMatrizDeAnuncio):
         s = self.sessao(calibracao, tmp_path, pasta, pares)
 
         ticks = [
-            s.tick(self.frame(frame_real), momento=self.quando(hours=h))
-            for h in (0, 1, 2, 3)
+            s.tick(self.frame(frame_real), momento=self.quando(minutes=m))
+            for m in (0, 1, 2, 3)
         ]
 
         assert sum(len(t.avisos_de_boss) for t in ticks) == 1

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import tomllib
+from datetime import timedelta
 from pathlib import Path
 
 from .agenda import (
@@ -34,6 +35,13 @@ from .bosses import Boss, BossInvalido
 from .comandos import DIGITOS_FINAIS_DO_TELEFONE, Membro, so_digitos
 from .loot import NICK_VALIDO, apelido
 from .notificador import ConfigChatwoot
+
+# O DEFAULT DA JANELA DO EPISODIO mora em `respawn.py`, ao lado da medicao de
+# campo que o derivou. A direcao e `config -> respawn`, e ela e segura porque
+# `respawn` so importa `agenda` e `bosses` (portao de AST em
+# `tests/test_presenca.py::TestSemRelogioProprio`): nenhum dos dois importa
+# `config`, entao o ciclo nao existe.
+from .respawn import JANELA_DO_EPISODIO
 
 log = logging.getLogger(__name__)
 
@@ -467,6 +475,119 @@ def _recusar_bosses_repetidos(bosses: list[Boss]) -> None:
                 f"os dois nomes."
             )
         apelidos[apelido] = boss.nome
+
+
+# ---------------------------------------------------------------------------
+# A janela anti-repeticao do anuncio de nascimento ([episodio])
+#
+# UMA GRANDEZA PROPRIA DESDE 2026-08-31, e a separacao e o conserto de um
+# defeito de campo. Ate aquele dia o tamanho do episodio saia de
+# `respawn_horas_min - 5min`; com 8 horas escritas nos `[[boss]]` a janela
+# virou 7h55 e dois nascimentos de `Tiat North` (07:16 e 14:12 de 31/08) foram
+# CALADOS por terem caido dentro dela. O numero errado no config podia atrasar
+# uma previsao; nao podia apagar um aviso.
+#
+# O default vive em `respawn.JANELA_DO_EPISODIO`, com a medicao que o derivou
+# escrita ao lado dele. Aqui mora so a leitura e o TETO.
+# ---------------------------------------------------------------------------
+
+
+def ler_janela_do_episodio(
+    bosses: list[Boss] | tuple[Boss, ...] = (),
+    caminho: Path | None = None,
+) -> timedelta:
+    """Le `[episodio] minutos` do config.toml e RECUSA o valor que cala.
+
+    OS `bosses` ENTRAM POR PARAMETRO, JA LIDOS, e nao sao relidos aqui. E a
+    mesma razao escrita no `laco_principal` para haver uma unica chamada a
+    `ler_bosses()`: entre duas leituras o usuario pode editar o arquivo, e o
+    scanner subiria conferindo um teto contra uma lista de bosses e usando
+    outra.
+
+    O TETO E `janela < menor respawn_horas_min`, E ELE FALHA SEGURO NO
+    ARRANQUE. Uma janela anti-repeticao maior ou igual ao minimo de respawn de
+    algum boss e EXATAMENTE o estado que produziu o incidente de 2026-08-31: o
+    nascimento SEGUINTE cai dentro da janela do anterior, a chave do anuncio
+    sai repetida, e o `O_CREAT|O_EXCL` cala um boss de verdade. O modo de falha
+    e SILENCIOSO e ninguem percebe um alerta que nao chegou, entao a recusa e
+    de arranque, com o usuario olhando o console, e nao um aviso no log que ele
+    so leria depois de perder o boss.
+
+    A MENSAGEM CITA O BOSS E OS DOIS NUMEROS, no mesmo molde de `_boss_de_dict`:
+    "esta errado" faz o usuario conferir bloco por bloco, e "o boss 'X' tem 6
+    horas e voce escreveu 400 minutos" ele conserta em cinco segundos.
+
+    SEM `[[boss]]` NENHUM NAO HA TETO A CONFERIR, e o valor passa. Mesma regra
+    de `ler_bosses`: quem nao configurou boss nao pode ver o programa quebrar
+    por causa de um recurso que nao pediu.
+    """
+    minutos = _minutos_do_episodio(caminho)
+    if minutos is None:
+        return JANELA_DO_EPISODIO
+
+    janela = timedelta(minutes=minutos)
+    # O MENOR `respawn_horas_min` MANDA, porque basta UM boss violado para o
+    # silencio comer um nascimento dele. Conferir a media ou o maior deixaria
+    # passar exatamente o boss mais rapido, que e o que mais nasce.
+    apertado = min(bosses, key=lambda b: b.respawn_horas_min, default=None)
+    if apertado is not None:
+        limite = timedelta(hours=apertado.respawn_horas_min)
+        if janela >= limite:
+            teto = limite.total_seconds() / 60
+            raise BossInvalido(
+                f"[episodio]: 'minutos' ({minutos:g}) e maior ou igual ao "
+                f"'respawn_horas_min' do boss '{apertado.nome}' ({teto:g} "
+                f"minutos). Essa janela so agrupa as deteccoes de UM MESMO "
+                f"nascimento; desse tamanho ela engole o nascimento SEGUINTE "
+                f"e o scanner fica MUDO, que foi o que aconteceu em "
+                f"31/08/2026. Escreva um valor bem menor que {teto:g}."
+            )
+
+    return janela
+
+
+def _minutos_do_episodio(caminho: Path | None) -> float | None:
+    """Os minutos escritos em `[episodio]`, ou `None` se nao houver secao.
+
+    Arquivo ausente nao e erro e secao ausente tambem nao, exatamente como em
+    `ler_bosses`: o scanner roda desde a v1 sem esta secao existir.
+    """
+    caminho = caminho or ARQUIVO_CONFIG
+    if not caminho.exists():
+        return None
+
+    try:
+        with caminho.open("rb") as arquivo:
+            dados = tomllib.load(arquivo)
+    except tomllib.TOMLDecodeError as erro:
+        raise BossInvalido(
+            f"{caminho.name} nao e um TOML valido: {erro}"
+        ) from erro
+
+    secao = dados.get("episodio")
+    if not isinstance(secao, dict) or "minutos" not in secao:
+        return None
+
+    valor = secao["minutos"]
+    # Booleano recusado EXPLICITAMENTE e ANTES do teste numerico, pela mesma
+    # razao ja escrita em `_horas_de_respawn`: `isinstance(True, int)` e
+    # verdadeiro em Python, e `minutos = true` passaria como um minuto. Um
+    # minuto de janela devolve o spam de 2026-08-30 sem uma linha de erro.
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        raise BossInvalido(
+            f"[episodio]: 'minutos' precisa ser um numero de minutos maior "
+            f"que zero (recebi {valor!r}). Exemplo: minutos = 25"
+        )
+    # ZERO RECUSADO JUNTO COM NEGATIVO. Com janela zero cada deteccao vira
+    # episodio proprio, e foi assim que UM nascimento rendeu SEIS mensagens no
+    # WhatsApp em 2026-08-30.
+    if valor <= 0:
+        raise BossInvalido(
+            f"[episodio]: 'minutos' precisa ser MAIOR que zero (recebi "
+            f"{valor:g}). Com zero, cada deteccao do mesmo nascimento vira uma "
+            f"mensagem no grupo."
+        )
+    return float(valor)
 
 
 # ---------------------------------------------------------------------------

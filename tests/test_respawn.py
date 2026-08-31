@@ -25,7 +25,7 @@ from l2scanner.agenda import (
 )
 from l2scanner.bosses import Boss, OrigemDoAviso
 from l2scanner.respawn import (
-    MARGEM_DO_EPISODIO,
+    JANELA_DO_EPISODIO,
     Ancora,
     AvisoDeJanela,
     TipoDeJanela,
@@ -1108,7 +1108,6 @@ class TestOInicioDoEpisodio:
             inicio_do_episodio(
                 self._ancoras(ANUNCIO_EM),
                 agora=ANUNCIO_EM + timedelta(minutes=3),
-                horas_min=6,
             )
             == ANUNCIO_EM
         )
@@ -1124,13 +1123,13 @@ class TestOInicioDoEpisodio:
 
         assert (
             inicio_do_episodio(
-                ancoras, agora=ANUNCIO_EM + timedelta(minutes=3), horas_min=6
+                ancoras, agora=ANUNCIO_EM + timedelta(minutes=3)
             )
             == ANUNCIO_EM
         )
 
     def test_lista_vazia_devolve_None(self):
-        assert inicio_do_episodio([], agora=ANUNCIO_EM, horas_min=6) is None
+        assert inicio_do_episodio([], agora=ANUNCIO_EM) is None
 
     def test_uma_ancora_do_ciclo_ANTERIOR_nao_entra_no_episodio(self):
         """O silencio nao pode durar mais que a janela: um nascimento novo
@@ -1139,23 +1138,29 @@ class TestOInicioDoEpisodio:
             inicio_do_episodio(
                 self._ancoras(ANUNCIO_EM),
                 agora=ANUNCIO_EM + timedelta(hours=6),
-                horas_min=6,
             )
             is None
         )
 
     def test_a_borda_INFERIOR_e_ESTRITA_a_ancora_no_limite_esta_FORA(self):
-        """Dois nascimentos consecutivos distam no MINIMO `horas_min` — a regra
-        do servidor conta da MORTE, e a morte vem sempre depois do nascimento.
-        Com o limite frouxo, dois nascimentos exatamente no minimo cairiam no
-        mesmo episodio e o segundo seria CALADO, sem deixar rastro.
+        """A ancora exatamente na borda ja pertence ao ciclo ANTERIOR.
+
+        A JUSTIFICATIVA DESTE TESTE MUDOU EM 2026-08-31, e as asercoes nao. Ela
+        era "dois nascimentos consecutivos distam no MINIMO `horas_min`", que e
+        verdade sobre o SERVIDOR e mentira sobre a CONFIGURACAO — foi essa
+        confusao que calou dois nascimentos naquele dia, e a janela deixou de
+        sair de `horas_min` por causa dela.
+
+        O que a borda estrita protege agora e outra coisa, e continua valendo:
+        incluir o instante exato do piso faria a chave do episodio depender de
+        um empate de segundo que o nome de arquivo `<HHMM>` nem guarda.
         """
         agora = ANUNCIO_EM + timedelta(hours=6)
-        janela = timedelta(hours=6) - MARGEM_DO_EPISODIO
+        janela = JANELA_DO_EPISODIO
 
         assert (
             inicio_do_episodio(
-                self._ancoras(agora - janela), agora=agora, horas_min=6
+                self._ancoras(agora - janela), agora=agora, janela=janela
             )
             is None
         )
@@ -1163,7 +1168,7 @@ class TestOInicioDoEpisodio:
             inicio_do_episodio(
                 self._ancoras(agora - janela + timedelta(minutes=1)),
                 agora=agora,
-                horas_min=6,
+                janela=janela,
             )
             is not None
         )
@@ -1175,18 +1180,26 @@ class TestOInicioDoEpisodio:
             inicio_do_episodio(
                 self._ancoras(ANUNCIO_EM + timedelta(minutes=1)),
                 agora=ANUNCIO_EM,
-                horas_min=6,
             )
             is None
         )
 
-    def test_um_boss_com_respawn_menor_que_a_margem_vira_degenerado(self):
-        """`max(timedelta(0), ...)`: o boss volta a ser anunciado a cada
-        deteccao, que e o comportamento de HOJE — ruidoso e nao mudo, de novo
-        o lado certo do erro."""
+    def test_uma_janela_de_ZERO_vira_um_episodio_degenerado(self):
+        """O boss volta a ser anunciado a cada deteccao — ruidoso e nao mudo,
+        de novo o lado certo do erro.
+
+        MESMA ASERCAO DE ANTES, OUTRO JEITO DE CHEGAR NELA. Ate 2026-08-31 o
+        caso degenerado era um `[[boss]]` com `respawn_horas_min` menor que a
+        margem de cinco minutos; agora que a janela e grandeza propria, ele e
+        simplesmente uma janela de zero. `config.ler_janela_do_episodio` recusa
+        esse valor no arranque, e esta funcao continua se comportando de forma
+        previsivel se ele chegar por outro caminho.
+        """
         assert (
             inicio_do_episodio(
-                self._ancoras(ANUNCIO_EM), agora=ANUNCIO_EM, horas_min=0.01
+                self._ancoras(ANUNCIO_EM),
+                agora=ANUNCIO_EM,
+                janela=timedelta(0),
             )
             is None
         )
@@ -1247,14 +1260,11 @@ class TestAnunciarNascimento:
             chave_do_nascimento("Tiat North", ANUNCIO_EM, OrigemDoAviso.CHAT)
         )
 
-        primeira = anunciar_nascimento(
-            registro, "Tiat North", ANUNCIO_EM, [NORTH]
-        )
+        primeira = anunciar_nascimento(registro, "Tiat North", ANUNCIO_EM)
         segunda = anunciar_nascimento(
             registro,
             "Tiat North",
             ANUNCIO_EM + timedelta(minutes=2),
-            [NORTH],
         )
 
         assert primeira is True
@@ -1267,7 +1277,7 @@ class TestAnunciarNascimento:
         )
 
         anunciar_nascimento(
-            registro, "Tiat North", ANUNCIO_EM + timedelta(minutes=2), [NORTH]
+            registro, "Tiat North", ANUNCIO_EM + timedelta(minutes=2)
         )
 
         assert [
@@ -1279,11 +1289,18 @@ class TestAnunciarNascimento:
     def test_um_boss_sem_regra_anuncia_prefere_o_duplicado_ao_perdido(
         self, tmp_path
     ):
-        """Sem a regra nao ha como saber o tamanho do episodio. A party ignora
-        uma repeticao; nao adivinha um nascimento que ninguem anunciou."""
+        """A party ignora uma repeticao; nao adivinha um nascimento que
+        ninguem anunciou.
+
+        DESDE 2026-08-31 ISTO VALE PARA QUALQUER BOSS, e nao so para um sem
+        `[[boss]]`: a lista de regras deixou de entrar em
+        `anunciar_nascimento`, porque foi por ela que um `respawn_horas_min`
+        errado conseguiu apagar dois avisos. A asercao continua a mesma e agora
+        e consequencia da forma, e nao de um caso especial escrito a mao.
+        """
         registro = self._registro(tmp_path)
 
-        assert anunciar_nascimento(registro, "Tiat North", ANUNCIO_EM, []) is True
+        assert anunciar_nascimento(registro, "Tiat North", ANUNCIO_EM) is True
 
     def test_o_episodio_e_por_boss_e_um_nao_cala_o_outro(self, tmp_path):
         registro = self._registro(tmp_path)
@@ -1292,12 +1309,8 @@ class TestAnunciarNascimento:
                 chave_do_nascimento(nome, ANUNCIO_EM, OrigemDoAviso.CHAT)
             )
 
-        assert anunciar_nascimento(
-            registro, "Tiat North", ANUNCIO_EM, [NORTH, SOUTH]
-        )
-        assert anunciar_nascimento(
-            registro, "Tiat South", ANUNCIO_EM, [NORTH, SOUTH]
-        )
+        assert anunciar_nascimento(registro, "Tiat North", ANUNCIO_EM)
+        assert anunciar_nascimento(registro, "Tiat South", ANUNCIO_EM)
 
     def test_um_nascimento_novo_horas_min_depois_ANUNCIA_de_novo(self, tmp_path):
         """A supressao nao pode virar perda: o silencio termina no instante em
@@ -1306,14 +1319,14 @@ class TestAnunciarNascimento:
         registro.registrar_nascimento(
             chave_do_nascimento("Tiat North", ANUNCIO_EM, OrigemDoAviso.CHAT)
         )
-        anunciar_nascimento(registro, "Tiat North", ANUNCIO_EM, [NORTH])
+        anunciar_nascimento(registro, "Tiat North", ANUNCIO_EM)
 
         depois = ANUNCIO_EM + timedelta(hours=6)
         registro.registrar_nascimento(
             chave_do_nascimento("Tiat North", depois, OrigemDoAviso.CHAT)
         )
 
-        assert anunciar_nascimento(registro, "Tiat North", depois, [NORTH])
+        assert anunciar_nascimento(registro, "Tiat North", depois)
 
     def test_em_simulacao_anuncia_sempre_e_nao_encosta_no_disco(self, tmp_path):
         """Herdado de `marcar`, e ACEITO: o produto inteiro do `--dry-run` e a
@@ -1322,7 +1335,7 @@ class TestAnunciarNascimento:
         registro = RegistroEmDisco(pasta, simulando=True)
 
         assert all(
-            anunciar_nascimento(registro, "Tiat North", ANUNCIO_EM, [NORTH])
+            anunciar_nascimento(registro, "Tiat North", ANUNCIO_EM)
             for _ in range(3)
         )
         assert not pasta.exists()

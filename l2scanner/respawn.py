@@ -99,22 +99,52 @@ _PESO_DA_ORIGEM = {
 }
 
 
-# QUANTO A JANELA DO EPISODIO E MAIS CURTA QUE O MINIMO DO SERVIDOR.
+# QUANTO TEMPO DE DETECCOES CONTA COMO UM MESMO NASCIMENTO.
 #
-# A janela do episodio e `respawn_horas_min - MARGEM_DO_EPISODIO`, e a direcao
-# do erro e deliberada. Longa demais, dois nascimentos distintos caem no mesmo
-# episodio e o segundo e CALADO — a party nao recebe nada e nao tem como saber
-# que deixou de receber. Curta demais, uma remarcacao tardia de alvo abre um
-# episodio novo e sai UMA mensagem repetida, que o usuario le e ignora em dois
-# segundos. O falso negativo silencioso e o erro caro, entao a margem vai para
-# o lado CURTO (T-03-01).
+# ESTA GRANDEZA E PROPRIA, E NAO SAI MAIS DE `respawn_horas_min`. Ate
+# 2026-08-31 ela era `respawn_horas_min - 5min`, e esse acoplamento custou dois
+# avisos no mesmo dia: com 8 horas escritas no `config.toml` (numero errado; a
+# regra do servidor e 6 mais 0 a 2 aleatorias) a janela virou 7h55, o
+# nascimento das 14:12 caiu a 7.83h do das 06:22, e o silencio comeu um
+# nascimento de verdade. Errar aquele numero pode, no maximo, atrasar uma
+# PREVISAO; nao pode APAGAR um aviso. Por isso ele nao entra mais nesta conta.
 #
-# Cinco minutos porque a ancora e gravada com resolucao de MINUTO (`<HHMM>`), e
-# o truncamento pode encurtar a distancia aparente entre duas ancoras em ate 59
-# segundos. Cinco e folga confortavel sobre esse limite e ainda deixa 5h55 de
-# cobertura de remarcacao para o Tiat — muito alem de qualquer remarcacao
-# plausivel, ja que o boss precisa estar vivo para ser alvejado.
-MARGEM_DO_EPISODIO = timedelta(minutes=5)
+# ELA NAO PRECISA DE HORAS. So precisa cobrir as deteccoes de UM MESMO
+# nascimento, e essas se juntam em MINUTOS: sao a linha do servidor persistindo
+# no recorte do chat, as duas instancias do usuario ticando com segundos de
+# diferenca, e o alvo sendo desmarcado e remarcado.
+#
+# A MEDIDA, feita em 2026-08-31 sobre os arquivos `nascimento_*` de `.agenda/`
+# do repositorio. Vao entre a PRIMEIRA e a ULTIMA deteccao de cada nascimento:
+#
+#     30/08  tiat-north  22:17 -> 22:29   12 min   (9 deteccoes)
+#     30/08  tiat-south  21:59 -> 22:06    7 min   (6 deteccoes)
+#     31/08  tiat-north  06:22 -> 06:26    4 min   (4 deteccoes)
+#     31/08  tiat-north  14:12 -> 14:19    7 min   (9 deteccoes)
+#     31/08  tiat-south  04:07 -> 04:09    2 min   (2 deteccoes)
+#     31/08  tiat-south  12:13 -> 12:15    2 min   (3 deteccoes)
+#
+# MAIOR VAO MEDIDO: 12 MINUTOS. A FOLGA: 25 = 12 (a medida) + 12 (o dobro dela,
+# porque seis nascimentos sao amostra pequena e o pior caso plausivel e uma
+# sequencia de remarcacoes mais longa que a de 30/08) + 1 (a ancora e gravada
+# com resolucao de MINUTO em `<HHMM>`, e o truncamento pode encurtar a
+# distancia aparente entre duas ancoras em ate 59 segundos).
+#
+# A DIRECAO DO ERRO CONTINUA A MESMA de antes, e e o que decide os dois lados
+# da folga. Longa demais, dois nascimentos distintos caem no mesmo episodio e o
+# segundo e CALADO — a party nao recebe nada e nao tem como saber que deixou de
+# receber. Curta demais, uma deteccao atrasada abre um episodio novo e sai UMA
+# mensagem repetida, que o usuario le e ignora em dois segundos.
+#
+# O QUE 25 MINUTOS DEIXA PASSAR, medido e aceito: a ancora isolada de
+# `tiat-north` das 07:16 de 31/08 esta 54 minutos depois da das 06:22 e tem uma
+# unica deteccao, de chat. E quase certamente a mesma linha do servidor relida
+# na tela, e com esta janela ela rende uma mensagem repetida. E o lado barato.
+#
+# O TETO QUE IMPEDE O INCIDENTE DE VOLTAR mora em
+# `config.ler_janela_do_episodio`: o arranque recusa uma janela maior ou igual
+# ao menor `respawn_horas_min` configurado, que e exatamente o estado de 31/08.
+JANELA_DO_EPISODIO = timedelta(minutes=25)
 
 
 @dataclass(frozen=True)
@@ -263,8 +293,7 @@ def ancoras_do_boss(chaves: Iterable[str], apelido: str) -> list[Ancora]:
 def inicio_do_episodio(
     ancoras: Iterable[Ancora],
     agora: datetime,
-    horas_min: float,
-    margem: timedelta = MARGEM_DO_EPISODIO,
+    janela: timedelta = JANELA_DO_EPISODIO,
 ) -> datetime | None:
     """O instante da ancora MAIS ANTIGA do episodio corrente, ou `None`.
 
@@ -288,19 +317,37 @@ def inicio_do_episodio(
     string — inclusive a que perdeu a corrida do `O_CREAT|O_EXCL` da propria
     ancora, porque o arquivo da vencedora ja esta la.
 
-    O LIMITE INFERIOR E ESTRITO (`>`), E NAO FROUXO. Dois nascimentos
-    consecutivos distam no MINIMO `horas_min`: a regra do servidor conta a
-    partir da MORTE, e a morte e sempre depois do nascimento, entao
-    `nascimento2 - nascimento1 >= horas_min` sempre. Com o limite frouxo, dois
-    nascimentos exatamente no minimo cairiam no mesmo episodio e o segundo
-    seria calado — a supressao virando perda, que e T-03-01.
+    A JANELA E GRANDEZA PROPRIA, E EM 2026-08-31 ELA DEIXOU DE SAIR DE
+    `respawn_horas_min`. A versao anterior desta docstring afirmava:
 
-    O `max(timedelta(0), ...)` protege um `[[boss]]` com `respawn_horas_min`
-    menor que a margem: o episodio vira degenerado e o boss volta a ser
-    anunciado a cada deteccao. E o comportamento de hoje, ruidoso e nao mudo —
-    de novo o lado certo do erro.
+        "Dois nascimentos consecutivos distam no MINIMO horas_min: a regra do
+        servidor conta a partir da MORTE, e a morte e sempre depois do
+        nascimento, entao nascimento2 - nascimento1 >= horas_min sempre."
+
+    A frase e VERDADEIRA SOBRE O SERVIDOR e FALSA SOBRE A CONFIGURACAO, e a
+    diferenca custou dois avisos em 2026-08-31. `horas_min` nao e a regra do
+    servidor: e um numero que uma pessoa digitou num arquivo de texto. Naquele
+    dia o `config.toml` dizia 8 (a regra real e 6 mais 0 a 2 aleatorias), a
+    janela virou 7h55, e os nascimentos de `Tiat North` das 07:16 e das 14:12
+    cairam DENTRO dela. O `O_CREAT|O_EXCL` fez o que devia; a premissa e que
+    era falsa, e o custo foi um nascimento de boss que ninguem soube que
+    aconteceu.
+
+    A LICAO ESTRUTURAL: um numero de config errado pode atrasar uma PREVISAO,
+    e nao pode APAGAR um aviso. Por isso `horas_min` nao chega mais ate aqui
+    nem por parametro. O que sobra e uma janela pequena e medida, cujo tamanho
+    esta derivado no comentario de `JANELA_DO_EPISODIO`.
+
+    O LIMITE INFERIOR CONTINUA ESTRITO (`>`), E NAO FROUXO, e agora a razao e
+    outra: uma ancora exatamente na borda ja pertence ao ciclo anterior por
+    definicao da janela, e inclui-la faria a chave do episodio depender de um
+    empate de segundo que o nome de arquivo `<HHMM>` nem guarda.
+
+    UMA JANELA DE ZERO DEIXA O EPISODIO DEGENERADO e o boss volta a ser
+    anunciado a cada deteccao, que e o defeito de spam de 2026-08-30. E por
+    isso que `config.ler_janela_do_episodio` recusa zero no arranque, em vez de
+    esta funcao remendar em silencio.
     """
-    janela = max(timedelta(0), timedelta(hours=horas_min) - margem)
     piso = agora - janela
     candidatos = [a.instante for a in ancoras if piso < a.instante <= agora]
     return min(candidatos) if candidatos else None
@@ -332,7 +379,10 @@ def chave_do_anuncio(apelido: str, instante: datetime) -> str:
 
 
 def anunciar_nascimento(
-    registro, boss: str, agora: datetime, regras: Iterable[Boss]
+    registro,
+    boss: str,
+    agora: datetime,
+    janela: timedelta = JANELA_DO_EPISODIO,
 ) -> bool:
     """True se ESTE processo deve anunciar o nascimento. Irma de
     `anunciar_janelas`.
@@ -348,13 +398,22 @@ def anunciar_nascimento(
     outra falou, e cada uma ficaria verde sozinha. O portao de
     `tests/test_anuncio_unico.py` afirma isso por AST.
 
-    SEM A REGRA DO `[[boss]]`, ANUNCIA. Nao ha como saber o tamanho do episodio
-    sem `respawn_horas_min`, e a escolha e a mesma que `marcar` ja faz no
-    `except OSError`: preferir o duplicado ao perdido. A party consegue ignorar
-    uma repeticao, mas nao consegue adivinhar um nascimento que ninguem
-    anunciou. Na pratica o caso nao acontece — o vigia e construido da MESMA
-    lista que vira `regras_de_respawn` — e a linha existe para o dia em que
-    essa premissa mudar sem ninguem notar.
+    A LISTA DE `[[boss]]` NAO ENTRA MAIS AQUI, e a ausencia dela e o conserto
+    de 2026-08-31. Ate aquele dia esta funcao procurava a `regra` do boss so
+    para tirar dela o `respawn_horas_min` e derivar o tamanho do episodio; com
+    o numero errado no `config.toml`, a janela virou 7h55 e dois nascimentos de
+    verdade foram calados. O tamanho do episodio agora entra por `janela`, que
+    e grandeza propria e medida, e o valor de `respawn_horas_min` deixou de
+    poder alcancar esta decisao POR ASSINATURA, e nao por disciplina. Ele
+    continua mandando na PREVISAO (`janelas_devidas`), que e onde erra-lo custa
+    o que sempre devia ter custado: um horario adiantado ou atrasado.
+
+    QUALQUER BOSS ANUNCIA A PRIMEIRA DETECCAO, inclusive um que nao esteja em
+    `[[boss]]` nenhum. Antes isso era um caso especial escrito a mao; agora e
+    consequencia da forma, porque sem ancora anterior o episodio comeca AGORA.
+    A escolha e a mesma que `marcar` ja faz no `except OSError`: preferir o
+    duplicado ao perdido. A party consegue ignorar uma repeticao, mas nao
+    consegue adivinhar um nascimento que ninguem anunciou.
 
     EPISODIO VAZIO USA `agora`, E ESSE E O CAMINHO DO `--dry-run`. Em simulacao
     `registrar_nascimento` nao escreveu nada, entao nao ha ancora para ler; a
@@ -364,12 +423,8 @@ def anunciar_nascimento(
     """
     apelido = apelido_do_evento(boss)
 
-    regra = next((r for r in regras if r.nome == boss), None)
-    if regra is None:
-        return registro.registrar_anuncio(chave_do_anuncio(apelido, agora))
-
     ancoras = ancoras_do_boss(registro.nascimentos(), apelido)
-    instante = inicio_do_episodio(ancoras, agora, regra.respawn_horas_min)
+    instante = inicio_do_episodio(ancoras, agora, janela)
     return registro.registrar_anuncio(
         chave_do_anuncio(apelido, instante or agora)
     )
