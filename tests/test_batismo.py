@@ -1716,3 +1716,749 @@ class TestAGramaticaEUmaSo:
 
     def test_o_nick_e_preservado_como_digitado(self):
         assert interpretar_batismo("15caec MoStArDa") == ("15caec", "MoStArDa")
+
+
+# ---------------------------------------------------------------------------
+# TAREFA 3: a pergunta que nao vira spam, e o marcador que nao e queimado a toa
+# ---------------------------------------------------------------------------
+
+
+class TestUmaPerguntaPorAssinaturaParaSempre:
+    """D-04. O marcador E a decisao, e nunca uma checagem anterior."""
+
+    CHAVE = "a" * 64
+
+    def test_a_primeira_chamada_marca_e_as_seguintes_nao(self, tmp_path):
+        acervo = AcervoDeIdentidades(tmp_path)
+
+        assert acervo.marcar_pergunta(self.CHAVE) is True
+        assert acervo.marcar_pergunta(self.CHAVE) is False
+        assert acervo.marcar_pergunta(self.CHAVE) is False
+
+    def test_uma_instancia_NOVA_sobre_a_mesma_pasta_tambem_nao_marca(
+        self, tmp_path
+    ):
+        assert AcervoDeIdentidades(tmp_path).marcar_pergunta(self.CHAVE) is True
+        assert AcervoDeIdentidades(tmp_path).marcar_pergunta(self.CHAVE) is False
+
+    def test_duas_instancias_disputando_produzem_UMA_pergunta(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A premissa do projeto: Yazalaque e Faerlina rodando ao mesmo tempo.
+
+        As duas veem partys DIFERENTES (cada cliente mostra os OUTROS
+        membros), entao as duas vao aprender e as duas vao querer perguntar. O
+        `O_CREAT|O_EXCL` decide a corrida no kernel.
+        """
+        chave = semear(
+            tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        )
+        yazalaque = AcervoDeIdentidades(tmp_path)
+        faerlina = AcervoDeIdentidades(tmp_path)
+
+        desfechos = [
+            yazalaque.marcar_pergunta(chave),
+            faerlina.marcar_pergunta(chave),
+        ]
+        assert sorted(desfechos) == [False, True]
+
+    def test_montar_pergunta_produz_texto_num_e_None_no_outro(
+        self, tmp_path, pixels, calibracao
+    ):
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA))
+        yazalaque = AcervoDeIdentidades(tmp_path)
+        faerlina = AcervoDeIdentidades(tmp_path)
+
+        primeira = montar_pergunta(yazalaque, pendentes_do_acervo(yazalaque))
+        segunda = montar_pergunta(faerlina, pendentes_do_acervo(faerlina))
+
+        assert primeira is not None
+        assert segunda is None, (
+            "as duas instancias mandaram a mesma pergunta para o mesmo grupo"
+        )
+
+    def test_uma_chave_que_nao_e_64_hex_nunca_marca(self, tmp_path):
+        acervo = AcervoDeIdentidades(tmp_path)
+        antes = retrato_da_pasta(tmp_path)
+
+        for chave in ("", "3", "linha3", "../" + "a" * 61):
+            assert acervo.marcar_pergunta(chave) is False, chave
+
+        assert retrato_da_pasta(tmp_path) == antes
+
+
+class TestFalhaDeDiscoNaoManda:
+    """D-05, e ela e o CONTRARIO da agenda. As duas razoes, lado a lado.
+
+    `agenda.RegistroEmDisco.marcar` colapsa `OSError` em True porque aviso
+    duplicado vence aviso perdido: a party ignora uma repeticao, mas nao
+    adivinha um TvT que ninguem anunciou.
+
+    Aqui e ao contrario. Uma pergunta perdida custa uma pessoa que continua
+    como "Membro 4" ate o proximo arranque, e o proximo arranque tenta de novo.
+    Uma pergunta REPETIDA repete A CADA TICK, para sempre, porque o marcador
+    nunca chega ao disco.
+    """
+
+    def _quebrar_o_marcador(self, monkeypatch, pasta: Path):
+        """`os.open` que so falha para o marcador desta pasta.
+
+        Patchar a funcao inteira derrubaria a propria pytest junto, e um caso
+        que dependesse de permissao real de sistema de arquivos nao rodaria
+        igual em duas maquinas. Mesmo idioma de `falhar_dentro_de` na Fase 1.
+        """
+        real = os.open
+
+        def falso(alvo, *args, **kwargs):
+            if str(pasta) in str(alvo) and PREFIXO_PERGUNTA in str(alvo):
+                raise OSError("disco cheio (simulado)")
+            return real(alvo, *args, **kwargs)
+
+        monkeypatch.setattr(os, "open", falso)
+
+    def test_marcar_devolve_FALSE_quando_o_disco_falha(
+        self, tmp_path, monkeypatch
+    ):
+        acervo = AcervoDeIdentidades(tmp_path)
+        self._quebrar_o_marcador(monkeypatch, tmp_path)
+
+        assert acervo.marcar_pergunta("a" * 64) is False, (
+            "colapsar OSError em True aqui produziria a mensagem no grupo A "
+            "CADA TICK, para sempre, porque o marcador nunca chega ao disco. "
+            "Na agenda o colapso e para True pela razao OPOSTA: la aviso "
+            "duplicado vence aviso perdido"
+        )
+
+    def test_montar_pergunta_devolve_None_quando_o_disco_falha(
+        self, tmp_path, pixels, calibracao, monkeypatch
+    ):
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA))
+        acervo = AcervoDeIdentidades(tmp_path)
+        self._quebrar_o_marcador(monkeypatch, tmp_path)
+
+        assert montar_pergunta(acervo, pendentes_do_acervo(acervo)) is None
+
+    def test_a_agenda_continua_fazendo_o_CONTRARIO(self, tmp_path, monkeypatch):
+        """O par que torna a assimetria visivel, e nao so afirmada aqui."""
+        registro = RegistroEmDisco(tmp_path / "agenda")
+        real = os.open
+
+        def falso(alvo, *args, **kwargs):
+            if str(tmp_path / "agenda") in str(alvo):
+                raise OSError("disco cheio (simulado)")
+            return real(alvo, *args, **kwargs)
+
+        monkeypatch.setattr(os, "open", falso)
+
+        assert registro.marcar("qualquer-chave") is True, (
+            "a agenda manda assim mesmo, e e por isso que o acervo NAO manda: "
+            "os dois tri-estados sao opostos de proposito"
+        )
+
+
+class TestODryRunNaoQueimaOMarcador:
+    """O incidente de 2026-08-26 19:30, agora numa pasta mais cara.
+
+    Em `--dry-run` o `montar_despachante` devolve um `Despachante` de CONSOLE,
+    real e vivo — entao a simulacao PERGUNTA de verdade. Sem `simulando`, ela
+    gravaria `perguntado_<chave>` na `.identidades/` COMPARTILHADA e apagaria
+    PARA SEMPRE a pergunta do scanner de verdade.
+    """
+
+    def test_simulando_marca_sem_encostar_no_disco(
+        self, tmp_path, pixels, calibracao
+    ):
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA))
+        acervo = AcervoDeIdentidades(tmp_path, simulando=True)
+        antes = retrato_da_pasta(tmp_path)
+
+        pergunta = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+
+        assert pergunta is not None, (
+            "o TEXTO e o produto inteiro do modo simulacao: sem ele nao ha o "
+            "que imprimir no console"
+        )
+        assert retrato_da_pasta(tmp_path) == antes, (
+            "a simulacao queimou o marcador da instancia real. E a forma "
+            "exata do incidente de 2026-08-26 19:30, numa pasta que nao tem "
+            "desfazer e nao tem comando de esquecer"
+        )
+
+    def test_simulando_pode_perguntar_a_vontade(self, tmp_path):
+        acervo = AcervoDeIdentidades(tmp_path, simulando=True)
+        chave = "a" * 64
+
+        assert acervo.marcar_pergunta(chave) is True
+        assert acervo.marcar_pergunta(chave) is True
+
+    def test_o_scanner_de_verdade_continua_com_a_pergunta_dele(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A guarda que prova que o `simulando` protegeu alguma coisa."""
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA))
+        simulacao = AcervoDeIdentidades(tmp_path, simulando=True)
+        montar_pergunta(simulacao, pendentes_do_acervo(simulacao))
+
+        real = AcervoDeIdentidades(tmp_path)
+        assert montar_pergunta(real, pendentes_do_acervo(real)) is not None
+
+
+class TestAPerguntaNaoViraEnxurrada:
+    """T-03-06. O usuario ja desligou `avisar_no_horario` do Solo Boss por
+    volume, e uma pergunta por tick seria muito pior que doze por dia."""
+
+    def test_trezentos_ticks_produzem_UMA_pergunta(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A afirmacao e que o numero NAO CRESCE com o numero de ticks.
+
+        Herdado do molde da Fase 2 (o caso de 300 recusas): um numero magico de
+        mensagens estaria medindo a fixture, e nao a cadencia.
+        """
+        semear_tres_das_quatro(tmp_path, pixels, calibracao)
+        identidades = carregar_na_calibracao(calibracao, tmp_path)
+
+        despachante = DespachanteQueGrava()
+        sessao = montar_sessao(
+            tmp_path,
+            calibracao,
+            acervo=AcervoDeIdentidades(tmp_path),
+            despachante=despachante,
+            identidades=identidades,
+        )
+        marcos = {}
+        for indice in range(300):
+            sessao.tick(
+                Frame(pixels=pixels, indice=indice, saude=SaudeDoFrame.OK),
+                momento=1_700_000_000 + indice,
+            )
+            if indice in (9, 99, 299):
+                marcos[indice] = len(despachante.perguntas)
+
+        assert marcos == {9: 1, 99: 1, 299: 1}, (
+            f"a contagem de perguntas cresceu com os ticks: {marcos}"
+        )
+
+    def test_uma_sessao_que_nao_aprende_nada_produz_ZERO_perguntas(
+        self, tmp_path, pixels, calibracao
+    ):
+        for indice in range(4):
+            semear(tmp_path, assinatura_da_linha(pixels, calibracao, indice))
+        identidades = carregar_na_calibracao(calibracao, tmp_path)
+
+        despachante = DespachanteQueGrava()
+        sessao = montar_sessao(
+            tmp_path,
+            calibracao,
+            acervo=AcervoDeIdentidades(tmp_path),
+            despachante=despachante,
+            identidades=identidades,
+        )
+        for indice in range(30):
+            sessao.tick(
+                Frame(pixels=pixels, indice=indice, saude=SaudeDoFrame.OK),
+                momento=1_700_000_000 + indice,
+            )
+
+        assert despachante.perguntas == []
+
+    def test_duas_assinaturas_no_MESMO_tick_produzem_UM_despacho(
+        self, tmp_path, pixels, calibracao
+    ):
+        """UMA MENSAGEM PARA N ENTRADAS, e isso e decisao de produto.
+
+        E ha um segundo ganho, que e o que torna a divida T-02-18 legivel:
+        quando a mesma pessoa foi aprendida duas vezes, as duas entradas
+        aparecem como duas linhas da MESMA mensagem, uma embaixo da outra, em
+        vez de duas perguntas soltas que o usuario le como dois desconhecidos.
+        """
+        desconhecidas = (1, 3)
+        for indice in range(4):
+            if indice not in desconhecidas:
+                semear(tmp_path, assinatura_da_linha(pixels, calibracao, indice))
+        identidades = carregar_na_calibracao(calibracao, tmp_path)
+
+        despachante = DespachanteQueGrava()
+        sessao = montar_sessao(
+            tmp_path,
+            calibracao,
+            acervo=AcervoDeIdentidades(tmp_path),
+            despachante=despachante,
+            identidades=identidades,
+        )
+        aprendidas = []
+        for indice in range(10):
+            resultado = sessao.tick(
+                Frame(pixels=pixels, indice=indice, saude=SaudeDoFrame.OK),
+                momento=1_700_000_000 + indice,
+            )
+            aprendidas.extend(resultado.aprendizados)
+
+        assert len(aprendidas) == 2, "premissa: duas entradas nasceram"
+        assert len(despachante.perguntas) == 1, (
+            f"duas bolhas no WhatsApp em vez de uma: {despachante.perguntas}"
+        )
+        pergunta = despachante.perguntas[0]
+        for aprendizado in aprendidas:
+            assert apelido_da_chave(aprendizado.chave) in pergunta
+
+
+class TestAPerguntaAtravessaOSilencioNoTRANSPORTE:
+    """Um `Despachante` DE VERDADE, porque o corte mora dentro do `despachar`.
+
+    Um despachante falso que so grava tuplas nunca exercitaria o corte, e o
+    caso estaria afirmando a categoria contra si mesmo.
+    """
+
+    def _despachante_em_silencio(self, tmp_path):
+        from l2scanner.notificador import Despachante
+
+        class NotificadorMudo:
+            def enviar(self, texto):
+                return None
+
+        despachante = Despachante(
+            NotificadorMudo(), arquivo_outbox=tmp_path / "outbox.jsonl"
+        )
+        despachante.em_silencio = lambda: True
+        return despachante
+
+    def test_a_pergunta_passa_e_um_evento_NORMAL_e_cortado(self, tmp_path):
+        """O par que prova que a categoria e deliberada, e nao um default.
+
+        O outbox e a prova publica: a mensagem SILENCIADA nao entra nele, e a
+        que atravessa entra.
+        """
+        despachante = self._despachante_em_silencio(tmp_path)
+
+        despachante.despachar("Mostarda morreu", Categoria.NORMAL)
+        despachante.despachar("Aprendi 1 pessoa: 15caec", Categoria.SEMPRE)
+
+        assert despachante.silenciados == 1, (
+            "o evento NORMAL tinha que ser cortado; sem isso o caso nao prova "
+            "que havia silencio nenhum"
+        )
+        entregues = [
+            json.loads(linha)["texto"]
+            for linha in (tmp_path / "outbox.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        assert entregues == ["Aprendi 1 pessoa: 15caec"], (
+            "a pergunta foi cortada pelo silencio de TvT. O marcador de D-04 e "
+            "de MAO UNICA: uma pergunta silenciada e uma pergunta perdida para "
+            "sempre, e TvT e justamente quando a party muda de gente"
+        )
+
+
+class TestAVarreduraDeArranque:
+    """O caso que DEFINE a fase: as entradas que ja estao no disco.
+
+    Elas nunca produzem `Aprendizado` (ver
+    `TestOGatilhoDoAprendizadoNaoAlcancaOQueJaEstaNoDisco`), entao este e o
+    unico caminho que as alcanca.
+    """
+
+    def _duas_anonimas(self, tmp_path, pixels, calibracao):
+        return [
+            semear(tmp_path, assinatura_da_linha(pixels, calibracao, indice))
+            for indice in (LINHA_DA_FATIA, LINHA_DA_OUTRA)
+        ]
+
+    def test_duas_entradas_anonimas_produzem_UMA_mensagem_com_os_dois_apelidos(
+        self, tmp_path, pixels, calibracao
+    ):
+        chaves = self._duas_anonimas(tmp_path, pixels, calibracao)
+        acervo = AcervoDeIdentidades(tmp_path)
+
+        pergunta = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+
+        assert pergunta is not None
+        for chave in chaves:
+            assert apelido_da_chave(chave) in pergunta, pergunta
+        assert "/batizar" in pergunta, "a mensagem ensina a sintaxe da resposta"
+        assert pergunta.count("Aprendi") == 1, (
+            f"duas mensagens coladas em vez de uma:\n{pergunta}"
+        )
+
+    def test_a_varredura_NAO_cita_posicao_nenhuma(
+        self, tmp_path, pixels, calibracao
+    ):
+        """O desvio deliberado do criterio 1, e ele e deliberado.
+
+        Aquelas entradas foram aprendidas numa sessao anterior, possivelmente
+        por outra instancia, e nenhuma posicao de AGORA corresponde a elas.
+        Inventar uma seria a primeira mentira do caminho, no recurso inteiro
+        que existe para nao mentir. Quem cumpre o criterio 1 ao pe da letra e o
+        gatilho do APRENDIZADO, que cita.
+        """
+        self._duas_anonimas(tmp_path, pixels, calibracao)
+        acervo = AcervoDeIdentidades(tmp_path)
+
+        pergunta = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+
+        assert "linha" not in pergunta.lower(), (
+            f"a varredura inventou uma posicao:\n{pergunta}"
+        )
+
+    def test_rodar_o_arranque_de_novo_nao_produz_mensagem_nenhuma(
+        self, tmp_path, pixels, calibracao
+    ):
+        self._duas_anonimas(tmp_path, pixels, calibracao)
+        primeiro = AcervoDeIdentidades(tmp_path)
+        assert montar_pergunta(primeiro, pendentes_do_acervo(primeiro)) is not None
+
+        segundo = AcervoDeIdentidades(tmp_path)
+        assert montar_pergunta(segundo, pendentes_do_acervo(segundo)) is None
+
+    def test_quem_ja_tem_nome_nunca_entra_na_varredura(
+        self, tmp_path, pixels, calibracao
+    ):
+        chaves = self._duas_anonimas(tmp_path, pixels, calibracao)
+        acervo = AcervoDeIdentidades(tmp_path)
+        acervo.nomear(chaves[0], "Titander")
+
+        pergunta = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+
+        assert apelido_da_chave(chaves[0]) not in pergunta
+        assert apelido_da_chave(chaves[1]) in pergunta
+
+    def test_o_arranque_e_o_tick_dividem_o_MESMO_marcador(
+        self, tmp_path, pixels, calibracao
+    ):
+        """Dois gatilhos, um marcador. D-04 e por ASSINATURA, e nao por evento.
+
+        A sequencia e a de um dia de uso: o scanner sobe e pergunta pelas que
+        ja estavam no disco; durante o farm ele aprende mais uma e pergunta por
+        ela; e o arranque do dia seguinte nao repete nenhuma das duas.
+        """
+        semeadas = semear_tres_das_quatro(tmp_path, pixels, calibracao)
+        identidades = carregar_na_calibracao(calibracao, tmp_path)
+
+        # (1) O ARRANQUE pergunta pelas tres que ja estavam no disco.
+        acervo = AcervoDeIdentidades(tmp_path)
+        do_arranque = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+        assert do_arranque is not None
+        for chave in semeadas:
+            assert apelido_da_chave(chave) in do_arranque
+
+        # (2) O TICK aprende a quarta e pergunta SO por ela.
+        despachante = DespachanteQueGrava()
+        sessao = montar_sessao(
+            tmp_path,
+            calibracao,
+            acervo=acervo,
+            despachante=despachante,
+            identidades=identidades,
+        )
+        aprendidas = []
+        for indice in range(10):
+            resultado = sessao.tick(
+                Frame(pixels=pixels, indice=indice, saude=SaudeDoFrame.OK),
+                momento=1_700_000_000 + indice,
+            )
+            aprendidas.extend(resultado.aprendizados)
+
+        assert len(despachante.perguntas) == 1, "premissa: o tick perguntou"
+        do_tick = despachante.perguntas[0]
+        assert apelido_da_chave(aprendidas[0].chave) in do_tick
+        for chave in semeadas:
+            assert apelido_da_chave(chave) not in do_tick, (
+                "o tick repetiu uma pergunta que o ARRANQUE ja tinha feito: os "
+                "dois gatilhos nao estao dividindo o mesmo marcador"
+            )
+
+        # (3) O ARRANQUE SEGUINTE nao repete nenhuma das duas.
+        novo = AcervoDeIdentidades(tmp_path)
+        assert montar_pergunta(novo, pendentes_do_acervo(novo)) is None, (
+            "o arranque seguinte repetiu o que o tick ja perguntou"
+        )
+
+    def test_sem_nada_anonimo_o_arranque_nao_manda_mensagem_nenhuma(
+        self, tmp_path, pixels, calibracao
+    ):
+        """Quem so tem gente batizada nao recebe pergunta no arranque.
+
+        E a guarda contra a varredura virar uma linha de ruido por reinicio
+        para quem ja respondeu tudo.
+        """
+        chaves = self._duas_anonimas(tmp_path, pixels, calibracao)
+        acervo = AcervoDeIdentidades(tmp_path)
+        for chave, nome in zip(chaves, ("Mostarda", "Titander")):
+            assert acervo.nomear(chave, nome) == "nomeado"
+
+        assert pendentes_do_acervo(acervo) == []
+        assert montar_pergunta(acervo, pendentes_do_acervo(acervo)) is None
+
+
+class TestDepoisDeUmDryRunODiscoMostraAAssimetria:
+    """As duas metades juntas, e elas parecem contraditorias ate serem lidas.
+
+    `gravar` NAO e simulado: a entrada que a simulacao escreve e byte a byte a
+    que o scanner de verdade escreveria, e o `O_EXCL` faz a segunda receber
+    `ja_existia`. O MARCADOR e simulado, porque ele e um recurso de uma vez so
+    e consumi-lo nao tem desfazer.
+    """
+
+    def _sessao_simulada(self, tmp_path, pixels, calibracao):
+        identidades = carregar_na_calibracao(calibracao, tmp_path)
+        despachante = DespachanteQueGrava()
+        sessao = montar_sessao(
+            tmp_path,
+            calibracao,
+            acervo=AcervoDeIdentidades(tmp_path, simulando=True),
+            despachante=despachante,
+            identidades=identidades,
+        )
+        aprendidas = []
+        for indice in range(10):
+            resultado = sessao.tick(
+                Frame(pixels=pixels, indice=indice, saude=SaudeDoFrame.OK),
+                momento=1_700_000_000 + indice,
+            )
+            aprendidas.extend(resultado.aprendizados)
+        return aprendidas, despachante
+
+    def test_a_assinatura_FICA_e_o_marcador_NAO(
+        self, tmp_path, pixels, calibracao
+    ):
+        semear_tres_das_quatro(tmp_path, pixels, calibracao)
+        aprendidas, despachante = self._sessao_simulada(
+            tmp_path, pixels, calibracao
+        )
+
+        assert len(aprendidas) == 1, "premissa: a simulacao aprendeu alguem"
+        chave = aprendidas[0].chave
+        assert (tmp_path / f"{PREFIXO_ASSINATURA}{chave}.json").exists(), (
+            "o gravar NAO e simulado, e prometer que nada e escrito na "
+            ".identidades/ seria mentira"
+        )
+        assert not (tmp_path / f"{PREFIXO_PERGUNTA}{chave}").exists(), (
+            "a simulacao queimou o marcador do scanner de verdade"
+        )
+        assert len(despachante.perguntas) == 1, (
+            "e a simulacao IMPRIME a pergunta: e o produto inteiro do modo"
+        )
+
+    def test_na_sequencia_dry_run_e_depois_real_a_varredura_e_quem_salva(
+        self, tmp_path, pixels, calibracao
+    ):
+        """O efeito colateral CONHECIDO e COBERTO, e nao um bug a consertar.
+
+        Uma entrada criada por um `--dry-run` existe em disco de verdade.
+        Quando o scanner real aprender a mesma pessoa, `gravar` devolve
+        `ja_existia`, e o gatilho do aprendizado so pergunta em `criado` —
+        entao ele NAO pergunta naquele tick. Quem salva a pergunta e a
+        varredura do proximo arranque.
+
+        Ninguem deve "consertar" isso fazendo `ja_existia` perguntar tambem.
+        """
+        semear_tres_das_quatro(tmp_path, pixels, calibracao)
+        self._sessao_simulada(tmp_path, pixels, calibracao)
+
+        # Agora o scanner DE VERDADE, sobre a mesma pasta e o mesmo frame.
+        cal2 = Calibracao.carregar(FIXTURES / "calibracao.json")
+        cal2.assinaturas = []
+        identidades2 = carregar_na_calibracao(cal2, tmp_path)
+        despachante = DespachanteQueGrava()
+        acervo = AcervoDeIdentidades(tmp_path)
+        sessao = montar_sessao(
+            tmp_path,
+            cal2,
+            acervo=acervo,
+            despachante=despachante,
+            identidades=identidades2,
+        )
+        aprendidas = []
+        for indice in range(10):
+            resultado = sessao.tick(
+                Frame(pixels=pixels, indice=indice, saude=SaudeDoFrame.OK),
+                momento=1_700_000_000 + indice,
+            )
+            aprendidas.extend(resultado.aprendizados)
+
+        assert [a.desfecho for a in aprendidas] == [], (
+            "a entrada ja estava em disco pelo dry-run, entao ela nem chega a "
+            "ser candidata: a lista viva do arranque ja a carregava"
+        )
+        assert despachante.perguntas == [], (
+            "o tick nao pergunta neste caso, e isso e o esperado"
+        )
+
+        # E a varredura do arranque seguinte e quem pergunta.
+        seguinte = AcervoDeIdentidades(tmp_path)
+        pergunta = montar_pergunta(seguinte, pendentes_do_acervo(seguinte))
+        assert pergunta is not None, (
+            "a varredura de arranque e a rede que pega toda pergunta que nao "
+            "saiu, e ela nao se importa com qual processo gravou a entrada"
+        )
+
+
+class TestSemDespachanteONemOArranqueNemOTickMarcam:
+    def test_o_arranque_sem_despachante_nao_marca(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A trava e o `if despachante is not None` do laco, e nao o acervo.
+
+        `montar_pergunta` MARCA. Chama-la sem despachante queimaria o marcador
+        de uma pergunta que nao vai para lugar nenhum, e o marcador e para
+        sempre.
+        """
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        fonte = inspect.getsource(principal.laco_principal)
+        arvore = ast.parse(fonte)
+        chamadas = [
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.Call)
+            and isinstance(no.func, ast.Name)
+            and no.func.id == "montar_pergunta"
+        ]
+        assert chamadas, "laco_principal nao varre o acervo no arranque"
+
+        guardas = [
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.If)
+            and any(
+                isinstance(dentro, ast.Call)
+                and isinstance(dentro.func, ast.Name)
+                and dentro.func.id == "montar_pergunta"
+                for dentro in ast.walk(no)
+            )
+            and "despachante" in ast.dump(no.test)
+        ]
+        assert guardas, (
+            "a varredura de arranque nao esta atras de um `if despachante`: "
+            "ela queimaria o marcador de uma pergunta que nao vai para lugar "
+            "nenhum, e quem roda sem .env ficaria com a pessoa como Membro N "
+            "ate alguem apagar um arquivo a mao"
+        )
+
+
+class TestOsDoisLacosPassamOAcervo:
+    """A familia de defeito que este projeto ja pagou DUAS vezes.
+
+    O marcador `comando_<id>` da `.agenda/` e COMPARTILHADO: exatamente uma
+    instancia obedece cada comando. Se o laco da agenda receber a mensagem
+    primeiro e nao tiver acervo, ele consome o marcador, responde "nao consigo
+    mexer nas identidades agora" e o batismo do usuario e PERDIDO.
+
+    LE O FONTE, e nao o comportamento, pela mesma razao do portao irmao em
+    `tests/test_janela_sob_demanda.py`: os lacos tem `while True` e captura de
+    tela dentro.
+    """
+
+    def _chamada(self, nome_do_laco) -> ast.Call:
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        arvore = ast.parse(inspect.getsource(getattr(principal, nome_do_laco)))
+        for no in ast.walk(arvore):
+            if (
+                isinstance(no, ast.Call)
+                and isinstance(no.func, ast.Name)
+                and no.func.id == "atender_comandos"
+            ):
+                return no
+        raise AssertionError(f"{nome_do_laco} nao chama atender_comandos")
+
+    @pytest.mark.parametrize("laco", ["laco_principal", "laco_da_agenda"])
+    def test_os_dois_passam_acervo(self, laco):
+        nomeados = {palavra.arg for palavra in self._chamada(laco).keywords}
+        assert "acervo" in nomeados, (
+            f"{laco} nao passa `acervo` para atender_comandos: se ele obedecer "
+            "o comando primeiro, o batismo do usuario e consumido e perdido"
+        )
+
+    @pytest.mark.parametrize("laco", ["laco_principal", "laco_da_agenda"])
+    def test_o_que_e_passado_e_a_VARIAVEL_e_nao_um_None(self, laco):
+        """Guarda contra o conserto preguicoso.
+
+        `acervo=None` satisfaria o teste acima e deixaria o defeito inteiro de
+        pe: a chamada existe, o comando responde, e a resposta e sempre "nao
+        consigo mexer nas identidades agora".
+        """
+        chamada = self._chamada(laco)
+        passado = next(p.value for p in chamada.keywords if p.arg == "acervo")
+        assert isinstance(passado, ast.Name), (
+            f"{laco} passa um literal para `acervo` em vez do acervo de verdade"
+        )
+
+    def test_o_laco_principal_passa_tambem_a_lista_viva(self):
+        """So o principal: no laco da agenda nao existe tela."""
+        chamada = self._chamada("laco_principal")
+        nomeados = {palavra.arg for palavra in chamada.keywords}
+        assert "assinaturas_vivas" in nomeados, (
+            "sem a lista viva o nome so vale no proximo arranque, e o usuario "
+            "batiza de novo achando que falhou (D-08)"
+        )
+
+
+class TestOsDoisAcervosNascemComSimulando:
+    """O `--dry-run` alcanca os DOIS lacos, entao os dois construtores pagam."""
+
+    @pytest.mark.parametrize("laco", ["laco_principal", "laco_da_agenda"])
+    def test_o_acervo_e_construido_com_simulando(self, laco):
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        arvore = ast.parse(inspect.getsource(getattr(principal, laco)))
+        construcoes = [
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.Call)
+            and isinstance(no.func, ast.Name)
+            and no.func.id == "AcervoDeIdentidades"
+        ]
+        assert construcoes, f"{laco} nao constroi AcervoDeIdentidades"
+        for construcao in construcoes:
+            nomeados = {palavra.arg for palavra in construcao.keywords}
+            assert "simulando" in nomeados, (
+                f"o AcervoDeIdentidades de {laco} nasce sem `simulando`: um "
+                "--dry-run ao lado do scanner de verdade queimaria as "
+                "perguntas dele para sempre"
+            )
+
+
+class TestAFraseDoDryRunEVERDADE:
+    """Ela ja foi consertada uma vez neste projeto. Nao piorar de novo.
+
+    A tentacao e escrever que nada e gravado tambem na `.identidades/`, e isso
+    e FALSO: o `Aprendiz` roda em `--dry-run` e `acervo.gravar` escreve
+    `assinatura_*` na pasta compartilhada. Aquela frase reintroduziria
+    exatamente a promessa mentirosa que este bloco existe para consertar.
+    """
+
+    def _frase(self, caplog):
+        import argparse
+        import logging
+
+        from l2scanner.__main__ import montar_despachante
+
+        args = argparse.Namespace(dry_run=True)
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            montar_despachante(args)
+        return "\n".join(r.getMessage() for r in caplog.records)
+
+    def test_a_frase_fala_de_PERGUNTA(self, caplog):
+        frase = self._frase(caplog)
+        assert "pergunta" in frase.lower(), (
+            f"o --dry-run nao conta o que o `simulando` do acervo garante:\n{frase}"
+        )
+
+    def test_a_frase_NAO_promete_que_nada_e_gravado_na_identidades(self, caplog):
+        frase = self._frase(caplog).lower()
+        for mentira in (
+            "nada e gravado em .identidades",
+            "nada e gravado na .identidades",
+            "nada e escrito em .identidades",
+        ):
+            assert mentira not in frase, (
+                f"a frase promete o que nao cumpre: o gravar NAO e simulado.\n{frase}"
+            )
