@@ -230,11 +230,17 @@ def montar_pergunta(
         return None
 
     quantas = len(vencedoras)
-    plural = "s" if quantas > 1 else ""
-    linhas = [
-        f"Aprendi {quantas} pessoa{plural} que ainda esta{plural} sem nome:",
-        "",
-    ]
+    # As duas redacoes por extenso, e nao um sufixo colado.
+    #
+    # "esta" + "s" da "estas", que nao e o plural de "esta" — e o texto vai
+    # para o WhatsApp de quatro a oito pessoas. Uma regra de plural por
+    # concatenacao acerta o substantivo e erra o verbo, e o erro so aparece no
+    # dia em que houver duas assinaturas esperando.
+    if quantas == 1:
+        cabecalho = "Aprendi 1 pessoa que ainda esta sem nome:"
+    else:
+        cabecalho = f"Aprendi {quantas} pessoas que ainda estao sem nome:"
+    linhas = [cabecalho, ""]
     for pendente in vencedoras:
         apelido = apelido_da_chave(pendente.chave)
         if pendente.indice is None:

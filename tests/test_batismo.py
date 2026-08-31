@@ -2081,6 +2081,30 @@ class TestAVarreduraDeArranque:
             f"duas mensagens coladas em vez de uma:\n{pergunta}"
         )
 
+    def test_o_plural_da_frase_esta_certo_nas_DUAS_formas(
+        self, tmp_path, pixels, calibracao
+    ):
+        """O texto vai para o WhatsApp de quatro a oito pessoas.
+
+        Uma regra de plural por concatenacao acerta o substantivo e erra o
+        verbo ("esta" + "s" da "estas"), e o erro so aparece no dia em que
+        houver duas assinaturas esperando — que e justamente o dia do acervo
+        real do usuario.
+        """
+        uma = semear(tmp_path, assinatura_da_linha(pixels, calibracao, 0))
+        acervo = AcervoDeIdentidades(tmp_path)
+
+        singular = montar_pergunta(acervo, [Pendente(chave=uma)])
+        assert "Aprendi 1 pessoa que ainda esta sem nome" in singular, singular
+
+        outra = semear(tmp_path, assinatura_da_linha(pixels, calibracao, 1))
+        mais = semear(tmp_path, assinatura_da_linha(pixels, calibracao, 2))
+        plural = montar_pergunta(
+            acervo, [Pendente(chave=outra), Pendente(chave=mais)]
+        )
+        assert "Aprendi 2 pessoas que ainda estao sem nome" in plural, plural
+        assert "estas" not in plural, plural
+
     def test_a_varredura_NAO_cita_posicao_nenhuma(
         self, tmp_path, pixels, calibracao
     ):
