@@ -838,7 +838,9 @@ _EXEMPLO_DA_WATCHLIST = (
 )
 
 
-def ler_watchlist_do_mercado(caminho: Path | None = None) -> list[str]:
+def ler_watchlist_do_mercado(
+    caminho: Path | None = None, caminho_local: Path | None = None
+) -> list[str]:
     """Os itens que o usuario quer ver PRIMEIRO no console do mercado.
 
     ARQUIVO AUSENTE NAO E ERRO, E SECAO AUSENTE TAMBEM NAO. O `[mercado]
@@ -868,10 +870,90 @@ def ler_watchlist_do_mercado(caminho: Path | None = None) -> list[str]:
     A LISTA VOLTA NA ORDEM ESCRITA. Quem ordena e o console, e a ordem entre os
     itens marcados sai da evidencia — mas devolver embaralhado aqui esconderia
     de quem depura o que o arquivo realmente diz.
+
+    O `config.local.toml` VENCE o `config.toml`, pelo precedente JA ESTABELECIDO
+    em `ler_membros` e `ler_personagem_do_jogo` — e nao por uma terceira
+    convencao inventada aqui. O usuario TEM esse arquivo (e onde os telefones
+    moram, porque o `.gitignore` o cobre), e uma `watchlist` escrita la era
+    silenciosamente ignorada: o console simplesmente nao marcava nada, que e
+    indistinguivel de "nao configurei".
+
+    UM ARQUIVO OU O OUTRO, NUNCA A SOMA, e quando os DOIS trazem a chave o
+    arranque avisa nomeando o vencedor — as duas regras, e as razoes delas,
+    estao escritas por extenso na docstring de `ler_membros`.
+
+    UM `caminho` EXPLICITO LE SO AQUELE ARQUIVO, sem procurar vizinho, pela
+    mesma razao de la: e disso que dependem os testes que passam um caminho so.
     """
+    if caminho is None and caminho_local is None:
+        caminho_local = ARQUIVO_CONFIG_LOCAL
     caminho = caminho or ARQUIVO_CONFIG
-    if not caminho.exists():
+
+    do_versionado = _watchlist_do_arquivo(caminho)
+    do_local = _watchlist_do_arquivo(caminho_local)
+
+    if do_local and do_versionado:
+        log.warning(
+            "ATENCAO: %s e %s tem [%s] %s. Vale o %s; a lista do %s esta sendo "
+            "IGNORADA e nao marca nada. Para voltar a usar o %s, apague a "
+            "chave do %s.",
+            caminho.name,
+            caminho_local.name,
+            SECAO_DO_MERCADO,
+            CHAVE_DA_WATCHLIST,
+            caminho_local.name,
+            caminho.name,
+            caminho.name,
+            caminho_local.name,
+        )
+
+    # O VENCEDOR VIAJA COM O NOME DO PROPRIO ARQUIVO. Validar o conteudo do
+    # local citando `config.toml` na recusa mandaria o usuario editar o arquivo
+    # errado — erro que aponta para o lugar errado e pior do que erro nenhum.
+    if do_local:
+        brutos, de_onde = do_local, caminho_local
+    else:
+        brutos, de_onde = do_versionado, caminho
+
+    if brutos is None:
         return []
+
+    if not isinstance(brutos, list):
+        raise AgendaInvalida(
+            f"{de_onde.name}: [{SECAO_DO_MERCADO}] {CHAVE_DA_WATCHLIST} precisa "
+            f"ser uma LISTA, veio {type(brutos).__name__}. Um texto solto seria "
+            f"lido letra por letra.\n{_EXEMPLO_DA_WATCHLIST}"
+        )
+
+    itens: list[str] = []
+    for posicao, bruto in enumerate(brutos, start=1):
+        if not isinstance(bruto, str):
+            raise AgendaInvalida(
+                f"{de_onde.name}: o item {posicao} de [{SECAO_DO_MERCADO}] "
+                f"{CHAVE_DA_WATCHLIST} precisa ser TEXTO, veio "
+                f"{type(bruto).__name__}.\n{_EXEMPLO_DA_WATCHLIST}"
+            )
+        if bruto.strip():
+            itens.append(bruto)
+    return itens
+
+
+def _watchlist_do_arquivo(caminho: Path | None):
+    """O valor CRU de `[mercado] watchlist` de UM arquivo, ainda sem validar.
+
+    A leitura e separada da validacao pela mesma razao de `_blocos_de_membro`:
+    para saber qual dos dois arquivos manda e preciso primeiro saber quais tem
+    a chave, e so o VENCEDOR e validado. Validar o perdedor derrubaria o
+    arranque por causa de uma lista que ja nao tem efeito nenhum.
+
+    O QUE ELE AINDA RECUSA AQUI, e nao adia: TOML quebrado e `[mercado]` que
+    nao e secao. Os dois impedem a propria PERGUNTA "este arquivo tem
+    watchlist?" de ter resposta — nao da para adiar o que e preciso saber para
+    escolher o vencedor. Mesmo espirito do `TOMLDecodeError` de
+    `_blocos_de_membro`, que tambem vale para os dois arquivos.
+    """
+    if caminho is None or not caminho.exists():
+        return None
 
     try:
         with caminho.open("rb") as arquivo:
@@ -888,28 +970,7 @@ def ler_watchlist_do_mercado(caminho: Path | None = None) -> list[str]:
             f"{type(secao).__name__}.\n{_EXEMPLO_DA_WATCHLIST}"
         )
 
-    brutos = secao.get(CHAVE_DA_WATCHLIST)
-    if brutos is None:
-        return []
-
-    if not isinstance(brutos, list):
-        raise AgendaInvalida(
-            f"{caminho.name}: [{SECAO_DO_MERCADO}] {CHAVE_DA_WATCHLIST} precisa "
-            f"ser uma LISTA, veio {type(brutos).__name__}. Um texto solto seria "
-            f"lido letra por letra.\n{_EXEMPLO_DA_WATCHLIST}"
-        )
-
-    itens: list[str] = []
-    for posicao, bruto in enumerate(brutos, start=1):
-        if not isinstance(bruto, str):
-            raise AgendaInvalida(
-                f"{caminho.name}: o item {posicao} de [{SECAO_DO_MERCADO}] "
-                f"{CHAVE_DA_WATCHLIST} precisa ser TEXTO, veio "
-                f"{type(bruto).__name__}.\n{_EXEMPLO_DA_WATCHLIST}"
-            )
-        if bruto.strip():
-            itens.append(bruto)
-    return itens
+    return secao.get(CHAVE_DA_WATCHLIST)
 
 
 # ---------------------------------------------------------------------------
@@ -1010,7 +1071,9 @@ class Receita:
     componentes: tuple[ComponenteDaReceita, ...]
 
 
-def ler_receitas(caminho: Path | None = None) -> list[Receita]:
+def ler_receitas(
+    caminho: Path | None = None, caminho_local: Path | None = None
+) -> list[Receita]:
     """Le os blocos [[receita]] do config.toml. ANAL-04.
 
     ARQUIVO AUSENTE NAO E ERRO, E SECAO AUSENTE TAMBEM NAO. A secao
@@ -1023,10 +1086,84 @@ def ler_receitas(caminho: Path | None = None) -> list[Receita]:
 
     A LISTA VOLTA NA ORDEM ESCRITA. Devolver embaralhado esconderia de quem
     depura o que o arquivo realmente diz.
+
+    O `config.local.toml` VENCE o `config.toml`, pelo precedente JA
+    ESTABELECIDO em `ler_membros` e `ler_personagem_do_jogo`. Aqui isso pesa
+    MAIS do que nos outros dois: um `[[receita]]` escrito no local e ignorado
+    produzia exatamente o silencio que o design manda produzir quando NAO ha
+    receita nenhuma — a secao MARGEM DE CRAFT nao aparece, e o usuario nao tem
+    como distinguir "nao configurei" de "configurei no arquivo errado". Um
+    bloco que nao faz nada e invisivel; um bloco que nao faz nada e nao avisa e
+    uma armadilha.
+
+    UM ARQUIVO OU O OUTRO, NUNCA A SOMA, e com os dois o arranque avisa
+    nomeando o vencedor — as razoes estao por extenso em `ler_membros`.
+
+    UM `caminho` EXPLICITO LE SO AQUELE ARQUIVO, sem procurar vizinho.
     """
+    if caminho is None and caminho_local is None:
+        caminho_local = ARQUIVO_CONFIG_LOCAL
     caminho = caminho or ARQUIVO_CONFIG
-    if not caminho.exists():
+
+    do_versionado = _blocos_de_receita(caminho)
+    do_local = _blocos_de_receita(caminho_local)
+
+    if do_local and do_versionado:
+        log.warning(
+            "ATENCAO: %s e %s tem [[%s]]. Vale o %s; os blocos do %s estao "
+            "sendo IGNORADOS e nao entram em margem nenhuma. Para voltar a "
+            "usar o %s, apague os [[%s]] do %s.",
+            caminho.name,
+            caminho_local.name,
+            SECAO_DA_RECEITA,
+            caminho_local.name,
+            caminho.name,
+            caminho.name,
+            SECAO_DA_RECEITA,
+            caminho_local.name,
+        )
+
+    # O VENCEDOR VIAJA COM O NOME DO PROPRIO ARQUIVO: uma recusa que cita
+    # `config.toml` por causa de um bloco do `config.local.toml` manda o
+    # usuario editar o arquivo errado.
+    if do_local:
+        brutos, de_onde = do_local, caminho_local
+    else:
+        brutos, de_onde = do_versionado, caminho
+
+    if brutos is None:
         return []
+
+    # `receita = "Dragon Belt"` ITERARIA OS CARACTERES e produziria uma receita
+    # por letra. E o mesmo defeito que `ler_watchlist_do_mercado` ja recusa do
+    # lado dela, e ele e silenciosamente absurdo em vez de ruidosamente errado.
+    if not isinstance(brutos, list):
+        raise ReceitaInvalida(
+            f"{de_onde.name}: [[{SECAO_DA_RECEITA}]] precisa ser um ou mais "
+            f"BLOCOS de receita, e nao {type(brutos).__name__}. Um texto solto "
+            f"seria lido letra por letra.\n{_EXEMPLO_DA_RECEITA}"
+        )
+
+    return [
+        _receita_de_dict(bruto, indice, de_onde)
+        for indice, bruto in enumerate(brutos)
+    ]
+
+
+def _blocos_de_receita(caminho: Path | None):
+    """Os `[[receita]]` crus de UM arquivo, ainda sem validar bloco nenhum.
+
+    Separado da validacao pela mesma razao de `_blocos_de_membro`: para saber
+    qual dos dois arquivos manda e preciso primeiro saber quais tem bloco, e so
+    o VENCEDOR e validado — validar o perdedor derrubaria o arranque por causa
+    de uma receita que ja nao tem efeito nenhum.
+
+    TOML quebrado E erro nos DOIS arquivos, e a mensagem cita o nome: com dois
+    arquivos em jogo, "o TOML esta quebrado" sem dizer qual e um convite a
+    editar o errado.
+    """
+    if caminho is None or not caminho.exists():
+        return None
 
     try:
         with caminho.open("rb") as arquivo:
@@ -1036,32 +1173,21 @@ def ler_receitas(caminho: Path | None = None) -> list[Receita]:
             f"{caminho.name} nao e um TOML valido: {erro}"
         ) from erro
 
-    brutos = dados.get(SECAO_DA_RECEITA)
-    if brutos is None:
-        return []
-
-    # `receita = "Dragon Belt"` ITERARIA OS CARACTERES e produziria uma receita
-    # por letra. E o mesmo defeito que `ler_watchlist_do_mercado` ja recusa do
-    # lado dela, e ele e silenciosamente absurdo em vez de ruidosamente errado.
-    if not isinstance(brutos, list):
-        raise ReceitaInvalida(
-            f"{caminho.name}: [[{SECAO_DA_RECEITA}]] precisa ser um ou mais "
-            f"BLOCOS de receita, e nao {type(brutos).__name__}. Um texto solto "
-            f"seria lido letra por letra.\n{_EXEMPLO_DA_RECEITA}"
-        )
-
-    return [
-        _receita_de_dict(bruto, indice) for indice, bruto in enumerate(brutos)
-    ]
+    return dados.get(SECAO_DA_RECEITA)
 
 
-def _receita_de_dict(bruto: object, indice: int) -> Receita:
+def _receita_de_dict(bruto: object, indice: int, de_onde: Path) -> Receita:
     """Valida um bloco [[receita]] e diz exatamente o que esta errado.
 
     MESMO PADRAO DE `onde` DO `_boss_de_dict`: cita o NOME sempre que ele
     existe, porque "o segundo [[receita]] esta errado" faz o usuario contar
     blocos e "a receita 'Dragon Belt' tem um componente sem 'item'" ele
     conserta em cinco segundos.
+
+    `de_onde` E O ARQUIVO VENCEDOR, e ele entra em TODA recusa: desde que a
+    receita pode vir do `config.toml` OU do `config.local.toml`, uma mensagem
+    sem o nome do arquivo manda o usuario procurar o bloco torto nos dois — e a
+    chance de ele editar o que nao tem efeito e de metade.
 
     `rende` E OBRIGATORIO, E NAO OPCIONAL COM PADRAO 1. E ESCOLHA, e a
     alternativa trocaria uma linha de verbosidade por risco de numero errado:
@@ -1076,9 +1202,9 @@ def _receita_de_dict(bruto: object, indice: int) -> Receita:
     """
     if not isinstance(bruto, dict):
         raise ReceitaInvalida(
-            f"[[{SECAO_DA_RECEITA}]] #{indice + 1}: precisa ser um bloco "
-            f"[[{SECAO_DA_RECEITA}]] com produto, rende e componentes, e nao "
-            f"{type(bruto).__name__}.\n{_EXEMPLO_DA_RECEITA}"
+            f"{de_onde.name}: [[{SECAO_DA_RECEITA}]] #{indice + 1} precisa ser "
+            f"um bloco [[{SECAO_DA_RECEITA}]] com produto, rende e "
+            f"componentes, e nao {type(bruto).__name__}.\n{_EXEMPLO_DA_RECEITA}"
         )
 
     produto_bruto = bruto.get("produto")
@@ -1086,9 +1212,9 @@ def _receita_de_dict(bruto: object, indice: int) -> Receita:
         str(produto_bruto).strip() if isinstance(produto_bruto, str) else ""
     )
     onde = (
-        f"receita '{produto}'"
+        f"{de_onde.name}: receita '{produto}'"
         if produto
-        else f"[[{SECAO_DA_RECEITA}]] #{indice + 1}"
+        else f"{de_onde.name}: [[{SECAO_DA_RECEITA}]] #{indice + 1}"
     )
 
     if not produto:

@@ -349,8 +349,12 @@ def laco_do_mercado(
         )
         modelo = ModeloDeMercado.de_observacoes([])
 
+    # AS DUAS LEITURAS ABAIXO OLHAM O `config.local.toml` ANTES do `config.toml`,
+    # pela precedencia que `ler_membros` ja estabeleceu. O usuario TEM o arquivo
+    # local, e uma watchlist ou uma receita escrita la era ignorada em silencio.
+    #
     # A WATCHLIST E FILTRO DE DESTAQUE, E NAO O PRODUTO - e por isso um
-    # `config.toml` quebrado NAO derruba a coleta. `ler_watchlist_do_mercado`
+    # config quebrado NAO derruba a coleta. `ler_watchlist_do_mercado`
     # LEVANTA de proposito para TOML invalido e para tipo errado (T-04-11),
     # porque do lado de quem edita o arquivo a recusa alta e o certo; aqui,
     # deixar esse `raise` escapar mataria o modo `--mercado` inteiro por causa
@@ -387,8 +391,12 @@ def laco_do_mercado(
         except ReceitaInvalida as erro:
             return _recusar(
                 [
-                    "MODO MERCADO NAO VAI SUBIR: um bloco [[receita]] do "
-                    "config.toml nao serve.",
+                    # O NOME DO ARQUIVO SAI DO `str(erro)` LOGO ABAIXO, e nao
+                    # daqui: a receita pode vir do `config.toml` OU do
+                    # `config.local.toml`, e cravar um dos dois nesta linha
+                    # mandaria metade dos usuarios editar o arquivo errado.
+                    "MODO MERCADO NAO VAI SUBIR: um bloco [[receita]] nao "
+                    "serve.",
                     str(erro),
                     "A margem de craft e uma conta: uma receita torta daria "
                     "um numero perfeitamente formatado e completamente falso. "
@@ -487,7 +495,8 @@ def laco_do_mercado(
     # historico gravado parecer vazio no segundo em que ele abre.
     desenhar_a_analise()
     # E DEPOIS POR INTERVALO, NUNCA POR TICK. A `linha_ao_vivo` e a que responde
-    # "o modo esta vivo?" e repinta a 1 Hz; esta responde "vale quanto?", e a
+    # "o modo esta vivo?" e repinta a 1 Hz com o painel aberto; esta responde
+    # "vale quanto?", e a
     # resposta so muda quando uma serie ganha observacao nova. O precedente e
     # `desenhar_status` do laco principal, que tambem sai por intervalo.
     proxima_secao = time.monotonic() + SEGUNDOS_ENTRE_SECOES
@@ -617,6 +626,28 @@ def laco_do_mercado(
                     catalogo.gravar()
                     paginas_desde_a_gravacao = 0
 
+            # A LINHA AO VIVO SAI POR TICK COM O PAINEL ABERTO, E NAO POR
+            # PAGINA ACEITA - e a diferenca entre as duas e o requisito.
+            #
+            # Emitida de dentro do `if pagina is not None`, ela calava o console
+            # exatamente no tick em que a metade PERDIDA cresce, que e a metade
+            # que o LEIT-04 existe para nao deixar esconder: no censo foram 151
+            # lidas contra 189 perdidas. Quem estivesse olhando veria a linha
+            # congelar e nao teria como distinguir "o painel fechou", "a captura
+            # travou" e "as ultimas dez leituras foram todas recusadas" - tres
+            # coisas com respostas diferentes.
+            #
+            # ELA FICA DEPOIS DO BLOCO DA PAGINA, e nao antes: `contagem` e
+            # `ultimo_item` tem de ser os DESTE tick. Antes, a linha mostraria
+            # sempre o estado do tick anterior.
+            #
+            # O PORTAO E O PAINEL ABERTO, e nao "todo tick". Painel fechado e o
+            # estado normal e majoritario de um farm real, e uma linha por tick
+            # ali seriam 3.600 por hora afogando a forense do log rotativo -
+            # mesmo raciocinio do latch de `transicao_do_painel`. Com o painel
+            # fechado quem responde "o modo esta vivo?" e a linha de transicao,
+            # que ja saiu.
+            if aberto_agora:
                 log.info("%s", linha_ao_vivo(leitor, contagem, ultimo_item))
 
             if time.monotonic() >= proxima_secao:

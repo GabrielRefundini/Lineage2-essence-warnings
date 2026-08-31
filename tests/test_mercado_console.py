@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import logging
 from datetime import datetime, timedelta
 
 import pytest
@@ -183,6 +184,95 @@ class TestALeituraDaWatchlist:
             '[mercado]\nwatchlist = ["Dragon Belt", "   "]\n', encoding="utf-8"
         )
         assert ler_watchlist_do_mercado(arquivo) == ["Dragon Belt"]
+
+
+class TestAWatchlistTambemOlhaOConfigLocal:
+    """O MESMO precedente de `ler_membros` e `ler_personagem_do_jogo`.
+
+    O usuario TEM um `config.local.toml` (o `.gitignore` o cobre, e e onde os
+    telefones moram). Uma `watchlist` escrita la era silenciosamente ignorada,
+    porque esta funcao so olhava o `ARQUIVO_CONFIG` — o desfecho MUDO que a
+    propria doutrina do modulo declara inaceitavel.
+
+    NAO E UMA TERCEIRA CONVENCAO: e a que ja existe, item por item. Um arquivo
+    ou o outro, nunca a soma; o local vence; e quando os dois trazem a chave o
+    arranque AVISA nomeando o vencedor.
+    """
+
+    VERSIONADO = '[mercado]\nwatchlist = ["Dragon Belt"]\n'
+    LOCAL = '[mercado]\nwatchlist = ["Phantom Mask Sealed"]\n'
+
+    def _arquivos(self, tmp_path, versionado, local):
+        caminho = tmp_path / "config.toml"
+        caminho_local = tmp_path / "config.local.toml"
+        if versionado is not None:
+            caminho.write_text(versionado, encoding="utf-8")
+        if local is not None:
+            caminho_local.write_text(local, encoding="utf-8")
+        return caminho, caminho_local
+
+    def test_so_o_local_LE_DO_LOCAL(self, tmp_path) -> None:
+        """O caso do usuario: a watchlist so no arquivo que nao vai pro git."""
+        caminho, local = self._arquivos(tmp_path, None, self.LOCAL)
+        assert ler_watchlist_do_mercado(caminho, local) == [
+            "Phantom Mask Sealed"
+        ]
+
+    def test_so_o_versionado_le_do_versionado(self, tmp_path) -> None:
+        caminho, local = self._arquivos(tmp_path, self.VERSIONADO, None)
+        assert ler_watchlist_do_mercado(caminho, local) == ["Dragon Belt"]
+
+    def test_os_dois_o_local_VENCE_e_NAO_soma(self, tmp_path) -> None:
+        """Somar poria o console a marcar item que o usuario apagou."""
+        caminho, local = self._arquivos(tmp_path, self.VERSIONADO, self.LOCAL)
+        assert ler_watchlist_do_mercado(caminho, local) == [
+            "Phantom Mask Sealed"
+        ]
+
+    def test_os_dois_o_arranque_AVISA_nomeando_os_dois_arquivos(
+        self, tmp_path, caplog
+    ) -> None:
+        caminho, local = self._arquivos(tmp_path, self.VERSIONADO, self.LOCAL)
+        with caplog.at_level(logging.WARNING, logger="l2scanner"):
+            ler_watchlist_do_mercado(caminho, local)
+        assert "config.toml" in caplog.text
+        assert "config.local.toml" in caplog.text
+
+    def test_so_o_versionado_NAO_avisa(self, tmp_path, caplog) -> None:
+        """Aviso sem conflito e aviso que se aprende a ignorar."""
+        caminho, local = self._arquivos(tmp_path, self.VERSIONADO, None)
+        with caplog.at_level(logging.WARNING, logger="l2scanner"):
+            ler_watchlist_do_mercado(caminho, local)
+        assert caplog.text == ""
+
+    def test_nenhum_dos_dois_e_lista_vazia_sem_excecao(self, tmp_path) -> None:
+        caminho, local = self._arquivos(tmp_path, None, None)
+        assert ler_watchlist_do_mercado(caminho, local) == []
+
+    def test_a_validacao_vale_igual_vinda_do_LOCAL(self, tmp_path) -> None:
+        """A regra e escrita UMA vez: lixo derruba venha de onde vier.
+
+        Um segundo caminho de leitura com validacao propria e como a regra
+        morre: ela continua no arquivo antigo e some no novo, que e justamente
+        o que todo mundo passa a usar.
+        """
+        caminho, local = self._arquivos(
+            tmp_path, None, '[mercado]\nwatchlist = "Dragon Belt"\n'
+        )
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_watchlist_do_mercado(caminho, local)
+        assert "config.local.toml" in str(erro.value), (
+            "a recusa tem de nomear o arquivo que REALMENTE tem o erro"
+        )
+
+    def test_um_caminho_EXPLICITO_nao_arrasta_o_vizinho(self, tmp_path) -> None:
+        """O guarda de que depende todo teste que passa um caminho so.
+
+        Se um `caminho` explicito fosse buscar o `config.local.toml` ao lado, os
+        testes acima passariam a ler a maquina de quem os roda.
+        """
+        caminho, _ = self._arquivos(tmp_path, self.VERSIONADO, self.LOCAL)
+        assert ler_watchlist_do_mercado(caminho) == ["Dragon Belt"]
 
     def test_o_config_NAO_IMPORTA_a_ferramenta_de_calibracao(self) -> None:
         """Ela chama `tornar_consciente_de_dpi()` NO IMPORT e arrasta `cv2`.

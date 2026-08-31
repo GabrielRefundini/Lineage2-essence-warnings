@@ -444,3 +444,201 @@ class TestNenhumaDependenciaNova:
         for nome in MODULOS_DO_MERCADO_DESTA_FASE:
             modulo = importlib.import_module(nome)
             assert "rich" not in _modulos_importados(modulo)
+
+
+# ---------------------------------------------------------------------------
+# ESTE MODO LE A CALIBRACAO, NUNCA A ESCREVE
+# ---------------------------------------------------------------------------
+#
+# POR QUE ESTA GUARDA EXISTE, E O QUE ELA SUBSTITUI
+# =================================================
+# O criterio de aceitacao do 04-01 e do 04-03 era
+#
+#     test -z "$(git status --porcelain calibration.json)" || { echo REPROVADO; exit 1; }
+#
+# e ele e VACUO: `calibration.json` e GITIGNORED (`.gitignore:51`), entao a
+# saida do `git status --porcelain` e vazia SEMPRE — o arquivo tendo sido
+# reescrito ou nao. O comando nao consegue detectar a escrita que ele existe
+# para proibir. A verdade que ele AFIRMA continua verdadeira; ela so nao era
+# verdadeira POR CAUSA DELE.
+#
+# A verificacao da Fase 4 contou esta como a OITAVA instancia do mesmo padrao
+# de defeito na fase — um guarda cuja saida nao muda com o fato que ele julga.
+# O antidoto e o mesmo em todas: ao lado da afirmacao, o CONTROLE NEGATIVO que
+# prova que o guarda reprova quando o fato acontece. Ele esta logo abaixo, em
+# `test_a_guarda_REPROVA_quando_a_escrita_ACONTECE`, e sem ele esta guarda
+# seria so a nona aparicao.
+#
+# AS DUAS METADES:
+#   - a ESTRUTURAL, por AST: nenhum modulo `mercado_*` alcanca o escritor;
+#   - a de EXECUCAO: um `calibration.json` de verdade, com impressao digital
+#     tirada antes e depois de uma sessao inteira do laco.
+# Sozinha, a estrutural nao ve uma escrita via `getattr`/`open` cru; sozinha, a
+# de execucao so cobre o caminho que aquela sessao percorreu.
+
+
+def _impressao_do_arquivo(caminho: Path) -> tuple[int, int, str]:
+    """(tamanho, mtime_ns, sha256) — a impressao digital de UM arquivo.
+
+    OS TRES JUNTOS, e nao so o sha256: uma reescrita com bytes IDENTICOS nao
+    muda o hash, e "escreveu por cima com o mesmo conteudo" continua sendo
+    escrita neste arquivo — e a rodada seguinte do usuario poderia sair
+    diferente. O `mtime_ns` pega esse caso; o sha256 pega o caso em que o
+    relogio do sistema de arquivos e grosso demais para separar duas escritas.
+    """
+    import hashlib
+
+    bruto = caminho.read_bytes()
+    estado = caminho.stat()
+    return (estado.st_size, estado.st_mtime_ns, hashlib.sha256(bruto).hexdigest())
+
+
+def _uma_calibracao_gravada(pasta: Path) -> Path:
+    """Um `calibration.json` REAL em `tmp_path`, escrito pelo escritor de verdade.
+
+    Escrever o JSON a mao aqui seria um segundo formatador do arquivo; o que se
+    quer e exatamente o que `calibrar.bat` produz, para que a impressao digital
+    seja tirada do material verdadeiro.
+    """
+    from tests.test_mercado_modo import cal_de_fixtura
+
+    arquivo = pasta / "calibration.json"
+    cal_de_fixtura().salvar(arquivo)
+    return arquivo
+
+
+class TestOMercadoNaoEscreveNoCalibrationJson:
+    def test_uma_sessao_INTEIRA_do_laco_nao_altera_o_calibration_json(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A afirmacao em EXECUCAO, e nao por `git status` sobre gitignored.
+
+        `ARQUIVO_CALIBRACAO` e apontado para o `tmp_path` ANTES do laco por duas
+        razoes, e a segunda importa mais que a primeira: para a impressao
+        digital ser tirada de um arquivo que este teste controla, e para que uma
+        regressao que passasse a escrever caisse no temporario em vez de
+        corromper o `calibration.json` medido a mao pelo usuario.
+        """
+        calibrar = importlib.import_module("l2scanner.calibrar")
+        arquivo = _uma_calibracao_gravada(tmp_path)
+        monkeypatch.setattr(calibrar, "ARQUIVO_CALIBRACAO", arquivo)
+
+        from tests.test_mercado_modo import LeitoraDeRecorte, cal_de_fixtura
+
+        antes = _impressao_do_arquivo(arquivo)
+
+        quadros = [
+            np.full((400, 400, 3), 20 + i * 7, dtype=np.uint8) for i in range(4)
+        ]
+
+        class _Fonte:
+            def __init__(self) -> None:
+                self._i = 0
+
+            def capturar(self):
+                if self._i >= len(quadros):
+                    raise StopIteration
+                from l2scanner.frames import Frame, SaudeDoFrame
+
+                self._i += 1
+                return Frame(
+                    pixels=quadros[self._i - 1],
+                    indice=self._i,
+                    saude=SaudeDoFrame.OK,
+                )
+
+            def fechar(self) -> None:
+                pass
+
+        mercado_modo.laco_do_mercado(
+            argparse.Namespace(janela="Lineage II", intervalo=0.0),
+            cal_de_fixtura(),
+            fonte=_Fonte(),
+            ler_texto=LeitoraDeRecorte(),
+            ler_texto_conferencia=LeitoraDeRecorte(),
+            relogio=Relogio(),
+            pasta=tmp_path,
+            ticks_maximos=4,
+        )
+
+        assert _impressao_do_arquivo(arquivo) == antes, (
+            "o modo --mercado ESCREVEU no calibration.json. Ele le a "
+            "calibracao e nunca a escreve: quem escreve e o calibrar.bat, com "
+            "o usuario olhando"
+        )
+
+    def test_a_guarda_REPROVA_quando_a_escrita_ACONTECE(self, tmp_path) -> None:
+        """O CONTROLE NEGATIVO — a metade que faltava no criterio antigo.
+
+        Sem ele, uma guarda que sempre devolve "igual" (era o caso do `git
+        status` sobre arquivo gitignored) passaria por prova de que nada foi
+        escrito. Aqui a MESMA `_impressao_do_arquivo` do teste acima e apontada
+        para uma escrita REAL, e o que se afirma e que ela ACUSA.
+
+        Sao os DOIS jeitos de escrever, porque a guarda tem de pegar os dois:
+        conteudo diferente (sha256/tamanho) e reescrita com o MESMO conteudo
+        (mtime_ns). O segundo e o sorrateiro — e o `cal.salvar()` que um
+        refactor chamaria sem querer, achando que "nao mudou nada".
+        """
+        from tests.test_mercado_modo import cal_de_fixtura
+
+        arquivo = _uma_calibracao_gravada(tmp_path)
+        antes = _impressao_do_arquivo(arquivo)
+
+        # (a) escrita com CONTEUDO DIFERENTE
+        cal = cal_de_fixtura()
+        cal.mercado_limiar_da_ancora = float(cal.mercado_limiar_da_ancora) / 2.0
+        cal.salvar(arquivo)
+        depois = _impressao_do_arquivo(arquivo)
+        assert depois != antes, (
+            "a guarda NAO acusou uma escrita com conteudo diferente - ela "
+            "seria a nona aparicao do criterio vacuo"
+        )
+        assert depois[2] != antes[2], "o sha256 tinha de ter mudado"
+
+        # (b) escrita com o MESMO CONTEUDO, que o sha256 sozinho nao pega
+        so_hash_antes = _impressao_do_arquivo(arquivo)[2]
+        cal.salvar(arquivo)
+        de_novo = _impressao_do_arquivo(arquivo)
+        assert de_novo[2] == so_hash_antes, (
+            "a fixtura deixou de gravar bytes deterministicos: este ramo nao "
+            "esta mais testando 'mesmo conteudo'"
+        )
+        assert de_novo != depois, (
+            "a guarda NAO acusou uma reescrita com bytes identicos. O sha256 "
+            "sozinho nao pega esse caso; o mtime_ns esta na impressao "
+            "exatamente por isso"
+        )
+
+    def test_nenhum_modulo_do_mercado_alcanca_o_ESCRITOR_da_calibracao(
+        self,
+    ) -> None:
+        """A metade ESTRUTURAL: o caminho de escrita nao existe no fonte.
+
+        `Calibracao.salvar` e os dois modulos de calibracao sao o unico jeito
+        de o `calibration.json` mudar. Nenhum modulo `mercado_*` pode cita-los.
+
+        A varredura e por GLOB e nao por lista escrita a mao — ao contrario de
+        `DISTRIBUICOES_ANTES_DA_FASE_4`, aqui a lista automatica so pode AUMENTAR
+        a cobertura: um `mercado_novo.py` entra sozinho, em vez de nascer fora
+        do firewall porque ninguem lembrou de acrescenta-lo.
+        """
+        modulos = sorted(RAIZ.glob("l2scanner/mercado_*.py"))
+        assert modulos, "o glob nao achou modulo de mercado nenhum"
+
+        for caminho in modulos:
+            modulo = importlib.import_module(f"l2scanner.{caminho.stem}")
+            importados = _modulos_importados(modulo)
+            pedacos = {parte for nome in importados for parte in nome.split(".")}
+            for proibido in ("calibrar", "calibrar_mercado"):
+                assert proibido not in pedacos, (
+                    f"{caminho.name} passou a importar `{proibido}`, que e "
+                    "quem ESCREVE o calibration.json"
+                )
+
+            codigo = _codigo_sem_comentario_nem_docstring(modulo)
+            assert ".salvar(" not in codigo, (
+                f"o CODIGO de {caminho.name} chama `.salvar(`. Se for outro "
+                "`salvar` que nao o da Calibracao, esta guarda precisa ficar "
+                "mais fina - nao ser apagada"
+            )
