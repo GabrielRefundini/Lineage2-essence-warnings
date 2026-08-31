@@ -241,7 +241,31 @@ class VigiaDeBosses:
     durante os minutos em que o anuncio de `Tiat North` ainda persiste no
     recorte do chat seria engolido: o vigia estaria desarmado por causa de
     OUTRO mob.
+
+    E O REARME E POR CANAL, e nao um flag por boss — o mesmo movimento num
+    segundo eixo, e a mudanca que o criterio 2 da Fase 3 exige (D-24). Com um
+    flag por boss, o usuario segurando `Tiat North` no alvo por minutos
+    deixava `_armado` em `False` indefinidamente, e a frase do servidor
+    chegando no recorte do chat era DESCARTADA AQUI DENTRO, antes de qualquer
+    disco: sem ancora, sem `ResultadoDoTick`, sem log. Um alerta que nunca
+    saiu nao deixa rastro nenhum para alguem notar.
+
+    E o anuncio do servidor e justamente o caminho confiavel: e o unico sinal
+    que existe quando ninguem esta olhando a tela, enquanto o alvo exige
+    alguem na frente do computador. A razao e do usuario, ditada junto com a
+    regra: o chat SEMPRE avisa, "pois eu posso estar longe do computador".
+
+    A CONSEQUENCIA ACEITA: com os dois estados separados, um aviso a mais
+    chega ao marcador duravel do episodio, que o descarta e registra o
+    descarte. O preco e uma leitura de disco a mais em ticks raros; o
+    beneficio e um anuncio de servidor que nao some. O rearme continua sendo
+    o primeiro filtro barato — a garantia e o marcador.
     """
+
+    # Os dois nomes moram em UM lugar so, e sao os mesmos que `OrigemDoAviso`
+    # usa. Uma terceira copia deles espalhada pelo laco divergiria no primeiro
+    # ajuste.
+    CANAIS = ("chat", "alvo")
 
     def __init__(
         self,
@@ -270,8 +294,18 @@ class VigiaDeBosses:
                 (nome, padrao_do_anuncio(nome), padrao_do_nome(nome))
             )
 
-        self._armado: dict[str, bool] = {n: True for n, _, _ in self._bosses}
-        self._limpas: dict[str, int] = {n: 0 for n, _, _ in self._bosses}
+        # INDEXADO PRIMEIRO PELO CANAL E DEPOIS PELO BOSS. Os dois niveis sao
+        # o que impede o alvo de calar o chat, e ha portao de AST em
+        # `tests/test_anuncio_unico.py` exigindo os dois — porque quase todo
+        # teste de comportamento fica verde nos DOIS formatos.
+        self._armado: dict[str, dict[str, bool]] = {
+            canal: {n: True for n, _, _ in self._bosses}
+            for canal in self.CANAIS
+        }
+        self._limpas: dict[str, dict[str, int]] = {
+            canal: {n: 0 for n, _, _ in self._bosses}
+            for canal in self.CANAIS
+        }
 
     def _ler(self, pixels) -> str | None:
         if pixels is None:
@@ -373,22 +407,43 @@ class VigiaDeBosses:
             no_chat = any(anuncio.search(linha) for linha in linhas_do_chat)
             no_alvo = nome in no_alvo_por_boss
 
-            if no_chat or no_alvo:
-                self._limpas[nome] = 0
-                if not self._armado[nome]:
+            # CADA CANAL DECIDE SOZINHO, e nenhum dos dois cala o outro. A
+            # aritmetica e a mesma de sempre — `leituras_limpas_para_rearmar`
+            # leituras limpas CONSECUTIVAS DAQUELE CANAL rearmam aquele canal.
+            # So a CHAVE do dicionario mudou.
+            disparou = False
+            for canal, presente in (("chat", no_chat), ("alvo", no_alvo)):
+                if presente:
+                    self._limpas[canal][nome] = 0
+                    if self._armado[canal][nome]:
+                        self._armado[canal][nome] = False
+                        disparou = True
                     continue
-                self._armado[nome] = False
-                if no_chat and no_alvo:
-                    origem = OrigemDoAviso.CHAT_E_ALVO
-                elif no_chat:
-                    origem = OrigemDoAviso.CHAT
-                else:
-                    origem = OrigemDoAviso.ALVO
-                avisos.append(AvisoDeBoss(boss=nome, origem=origem))
+
+                self._limpas[canal][nome] += 1
+                if self._limpas[canal][nome] >= self._limpas_para_rearmar:
+                    self._armado[canal][nome] = True
+
+            if not disparou:
                 continue
 
-            self._limpas[nome] += 1
-            if self._limpas[nome] >= self._limpas_para_rearmar:
-                self._armado[nome] = True
+            # A ORIGEM VEM DA PRESENCA, E NUNCA DE QUAL CANAL ARMOU (D-31).
+            # Sao duas perguntas diferentes: o canal decide se HA aviso, a
+            # presenca descreve o SINAL. E `origem` nao e cosmetica — ela vira
+            # nome de arquivo de ancora (D-18) e ramifica o texto da mensagem
+            # de janela seis a oito horas depois (D-16). Deriva-la do canal
+            # mudaria a distribuicao de `chat`/`alvo`/`chat_e_alvo` em disco
+            # sem uma linha de `respawn.py` mudar e sem um teste de la ficar
+            # vermelho.
+            if no_chat and no_alvo:
+                origem = OrigemDoAviso.CHAT_E_ALVO
+            elif no_chat:
+                origem = OrigemDoAviso.CHAT
+            else:
+                origem = OrigemDoAviso.ALVO
+            # UM aviso por boss por tick, mesmo com os dois canais armados
+            # (RECO-05): partir o ESTADO em dois nao pode partir a SAIDA em
+            # dois, que seriam duas mensagens para o mesmo nascimento.
+            avisos.append(AvisoDeBoss(boss=nome, origem=origem))
 
         return avisos
