@@ -7,15 +7,15 @@ created: 2026-08-30
 
 ## Current Position
 
-**Status:** Roadmap pronto, nenhuma fase planejada
-**Current Phase:** None (proxima: Phase 1 - O acervo e o silencio dele)
-**Last Activity:** 2026-08-30
-**Last Activity Description:** ROADMAP.md criado; 16/16 requisitos mapeados em 3 fases
+**Status:** Fase 2 em andamento (plano 02-01 entregue, 02-02 pendente)
+**Current Phase:** Phase 2 - Aprender sozinho
+**Last Activity:** 2026-08-31
+**Last Activity Description:** 02-01 executado: l2scanner/aprendiz.py, o elo do assinaturas_configuradas e o auto-diagnostico de D-07
 
 ## Progress
 
-**Phases Complete:** 0/3
-**Current Plan:** N/A
+**Phases Complete:** 1/3
+**Current Plan:** 02-02
 
 ## Accumulated Context
 
@@ -40,8 +40,8 @@ Nenhum.
 
 ## Session Continuity
 
-**Stopped At:** Roadmap criado, aguardando `/gsd-plan-phase 1`
-**Resume File:** .planning/workstreams/identidade/ROADMAP.md
+**Stopped At:** Completado 02-01-PLAN.md
+**Resume File:** .planning/workstreams/identidade/phases/02-aprender-sozinho/02-02-PLAN.md
 
 ## Fase 1 entregue (2026-08-31)
 
@@ -79,3 +79,63 @@ digitar `False`, e ai a escolha aparece no diff.
     celulas ja fazem a pessoa parar de ser reconhecida. E o numero que a
     Fase 2 precisa para APRE-04.
   - suite: 3197 passando, zero falha
+
+## Fase 2, plano 01 entregue (2026-08-31)
+
+O scanner grava sozinho a assinatura de quem ele nao conhece, depois de cinco
+leituras seguidas com a imagem do nome estavel, e a linha continua calada.
+`l2scanner/aprendiz.py` nasceu SEM RELOGIO e ja esta na tupla `MODULOS` do
+portao AST. Nenhum alerta novo saiu desta fase.
+
+### O elo que o criterio exigia, e que nao era obvio
+
+Gravar a assinatura NAO bastava. `Rastreador.assinaturas_configuradas` e
+calculado UMA vez no arranque e nasce `False` numa instalacao sem assinatura
+nenhuma — que e exatamente a instalacao onde esta fase mais importa. Sem um elo
+novo, a primeira pessoa aprendida seria gravada como ANONIMA no disco e
+ANUNCIADA COM O NOME DE OUTRA na tela: o defeito que a Fase 1 acabou de
+consertar, chegando por outra porta.
+
+Agora o mesmo tick que grava a primeira assinatura liga a flag. E a virada muda
+o regime da party INTEIRA (toda linha nao reconhecida passa a ser "Membro N", e
+MORREU/RESSUSCITOU passam a ser vetados para `#linhaN`), entao ela sai no
+`scanner.log` com um `log.warning`, UMA vez — depois do `log.info` do
+aprendizado, porque as duas caem no mesmo tick e o log nao pode anunciar a
+consequencia antes da causa.
+
+A GARANTIA NAO E TOTAL, e isso esta escrito: o aprendizado roda DEPOIS do
+`rastreador.observar` do mesmo tick, entao nas N leituras ate a primeira
+assinatura existir a flag ainda e `False`. A fase ENCURTA para cinco leituras
+uma janela que hoje dura a sessao inteira; ela nao a fecha.
+
+### O numero de campo que AINDA NAO EXISTE
+
+Nao ha medicao do ruido entre frames consecutivos, e a checagem foi feita em vez
+de assumida: as duas unicas capturas de party window versionadas
+(`party_ordem_original.png` e `party_com_lider.png`) sao BYTE A BYTE IDENTICAS
+(0 pixels diferentes de 90828), e `recordings/` nao se materializa num clone.
+O "0" que sai de compara-las nao e medida de ruido: e a mesma imagem consigo
+mesma.
+
+Por isso `celulas_toleradas` nasce ZERO, e por isso D-07 e requisito e nao
+enfeite: toda recusa por instabilidade registra a DISTANCIA MEDIDA, e o resumo
+com a faixa (minimo, maximo e mediana) sai no `scanner.log` quando o retrato
+muda. O numero de campo vem da primeira sessao real, e o comentario do
+`[identidade]` no `config.toml` diz onde acha-lo.
+
+### Numeros medidos
+
+  - teto de `celulas_toleradas`: 12, DERIVADO da tabela da Fase 1 (em 12 o
+    reconhecedor ainda se recusa a distinguir; em 20 ja distingue). A CONDICAO
+    DE VALIDADE esta escrita: a medida foi feita numa mascara de 48 pixels de
+    texto, e num nick curto as mesmas 12 celulas sao 60% do sinal.
+  - 300 leituras alternando duas mascaras a 7 celulas: 299 recusas e UMA linha
+    de resumo no log.
+  - quem conhece o acervo: `{acervo.py, aprendiz.py, __main__.py}`. `sessao.py`
+    e `visao.py` continuam de fora.
+  - suite: 3324 passando, 23 skipped (linha de base 3259/23).
+
+### O que falta na fase
+
+O plano 02-02: a prova exaustiva do ramo da MARGEM (D-02) e o T-02-18 da
+confianca registrada. `Aprendizado.confianca` ja viaja e ja sai no `log.info`.

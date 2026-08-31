@@ -189,7 +189,7 @@ do batismo os alertas daquela pessoa saem com o nome certo.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. O acervo e o silencio dele | 0/2 | Planned | - |
-| 2. Aprender sozinho | 0/? | Not started | - |
+| 2. Aprender sozinho | 1/2 | In progress | - |
 | 3. Batismo pelo WhatsApp | 0/? | Not started | - |
 
 ## Coverage
