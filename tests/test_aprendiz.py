@@ -51,7 +51,11 @@ import numpy as np
 import pytest
 
 import l2scanner.rastreador
-from l2scanner.acervo import AcervoDeIdentidades
+from l2scanner.acervo import (
+    AcervoDeIdentidades,
+    carregar_identidades,
+    chave_da_assinatura,
+)
 from l2scanner.agenda import AgendaInvalida, RegistroEmDisco
 from l2scanner.aprendiz import (
     LEITURAS_PARA_APRENDER,
@@ -66,14 +70,35 @@ from l2scanner.config import ler_ajustes_do_aprendiz
 from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.identidade import (
+    LIMIAR_DE_CASAMENTO,
+    LIMIAR_DO_ORNAMENTO,
+    MARGEM_MINIMA_SOBRE_O_SEGUNDO,
     PIXELS_MINIMOS_DE_TEXTO,
     Assinatura,
+    _pontuar_mascara,
     criar_assinatura,
     mascara_de_texto,
 )
 from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
 from l2scanner.sessao import ResultadoDoTick, Sessao
 from l2scanner.visao import EstadoDaLinha, LeituraDeLinha, Observacao, _recorte_do_nome, extrair
+
+# OS TRES HELPERS DA FASE 1 SAO IMPORTADOS, E NAO COPIADOS.
+#
+# `BITS_VIRADOS` vale 8 porque foi MEDIDO, e a tabela que o justifica mora
+# no comentario dele em `tests/test_acervo.py`. Duplicar o numero aqui o
+# transformaria, na primeira leitura de outra pessoa, de numero medido em
+# constante inventada — e constante inventada e exatamente o que este
+# projeto proibe. `quase_igual` produz a copia com aquele numero de celulas
+# viradas, e `semear` escreve uma entrada A MAO, sem passar por nenhum
+# caminho de escrita de producao: e assim que o acervo de partida destes
+# casos e montado sem depender da propria feature sob teste.
+from test_acervo import (  # noqa: E402 - helper irmao, ver o bloco acima
+    BITS_VIRADOS,
+    assinatura_da_linha,
+    quase_igual,
+    semear,
+)
 
 RAIZ = Path(__file__).resolve().parent.parent
 FIXTURES = Path(__file__).parent / "fixtures" / "identidade"
@@ -1639,3 +1664,456 @@ class TestASecaoDoConfigToml:
         """O `config.toml` versionado tem a secao COMENTADA, entao ela nao muda
         nada para quem nunca a preencheu."""
         assert ler_ajustes_do_aprendiz(RAIZ / "config.toml") == AjustesDoAprendiz()
+
+
+# ---------------------------------------------------------------------------
+# APRE-04: A MESMA PESSOA NAO VIRA DUAS ENTRADAS
+#
+# Quatro caminhos por onde ela poderia virar, e um QUINTO que esta fase nao
+# fecha e documenta em vez de esconder (T-02-18, no fim do arquivo).
+#
+# POR QUE TUDO AQUI COMPARA CONJUNTO DE CHAVES, E NUNCA CONTAGEM
+#
+# Uma chave trocada por outra passa numa comparacao de contagem. O acervo e
+# IRREVERSIVEL no v1 (nao ha comando de esquecer), entao trocar silenciosamente
+# a assinatura de alguem pela de outra pessoa e uma corrupcao permanente que
+# `len(chaves) == 1` afirmaria estar tudo bem.
+# ---------------------------------------------------------------------------
+
+
+def pasta_do_acervo(tmp_path: Path) -> Path:
+    """A MESMA pasta que `montar_aprendiz` usa, para semear antes dele existir."""
+    return tmp_path / ".identidades"
+
+
+def chaves_do_acervo(pasta: Path) -> set[str]:
+    """O CONJUNTO de chaves em disco. Nunca a contagem. Ver o bloco acima."""
+    if not pasta.exists():
+        return set()
+    return set(AcervoDeIdentidades(pasta).chaves())
+
+
+def com_o_acervo_na_lista_viva(cal: Calibracao, pasta: Path) -> Calibracao:
+    """As TRES linhas que o arranque de verdade executa, e nada mais.
+
+    `l2scanner/__main__.py` faz exatamente isto com o acervo: constroi
+    `AcervoDeIdentidades(pasta)`, chama `carregar_identidades(...)` e atribui o
+    resultado a `cal.assinaturas`. Refazer as tres linhas AQUI e o que torna o
+    caso de reinicio afirmavel com o jogo fechado, sem rede e sem subir
+    processo nenhum.
+
+    Ninguem deve "melhorar" isto depois com um `subprocess`: o que o reinicio
+    muda, do ponto de vista desta fase, e so quem esta na lista viva. Um
+    processo de verdade acrescentaria captura de tela, relogio e sistema de
+    arquivos reais a um caso cuja pergunta nao depende de nenhum dos tres.
+    """
+    identidades = carregar_identidades(
+        list(cal.assinaturas), AcervoDeIdentidades(pasta)
+    )
+    cal.assinaturas = identidades.assinaturas
+    return cal
+
+
+def pontuacoes_da_linha(px, cal, indice, assinaturas) -> list[float]:
+    """As pontuacoes CRUAS daquela linha contra cada assinatura, na ordem.
+
+    Existe para as premissas serem MEDIDAS antes do desfecho. Afirmar "nada foi
+    gravado" sem antes afirmar POR QUE a linha nao foi aprendida deixaria o caso
+    passar por qualquer motivo, inclusive o motivo errado.
+    """
+    return _pontuar_mascara(
+        mascara_de_texto(_recorte_do_nome(px, cal, indice)), list(assinaturas)
+    )
+
+
+class TestOAcervoVazioAPRENDE_eEsteContrasteVemPrimeiro:
+    """A guarda contra prova vazia da familia APRE-04 inteira.
+
+    Toda afirmacao das classes abaixo tem a forma "o conjunto de chaves nao
+    mudou". Essa frase passa IGUALZINHA num cenario em que a candidatura nunca
+    funcionou: um `_candidatas_para_aprender` que devolvesse sempre `()` faria o
+    arquivo inteiro ficar verde afirmando que a fase NAO funciona, com cara de
+    estar provando o APRE-04.
+
+    Por isso o contraste vem ANTES, e nao depois. E a mesma disciplina que a
+    Fase 1 usou em `TestUmaEntradaAMaoAtravessaOScanner` e que este arquivo ja
+    usa em `TestOCenarioProvaAlgumaCoisa`: primeiro se prova que o cenario
+    produz alguma coisa, depois se prova que ele nao produz demais.
+    """
+
+    def test_a_MESMA_linha_com_o_acervo_VAZIO_e_aprendida(
+        self, tmp_path, pixels, tres_conhecidas
+    ):
+        """A linha alvo das classes abaixo, sem nada no acervo, VIRA uma chave.
+
+        E a mesma linha, a mesma calibracao e o mesmo numero de leituras que os
+        casos de nao-aprendizado usam. A UNICA diferenca entre este caso e eles
+        e o que esta gravado no acervo, que e precisamente o que APRE-04 afirma
+        ser a causa.
+        """
+        pasta = pasta_do_acervo(tmp_path)
+        antes = chaves_do_acervo(pasta)
+        assert antes == set(), "o cenario comeca com o acervo vazio"
+
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        sessao = montar_sessao(tres_conhecidas, tmp_path, aprendiz=aprendiz)
+        rodar(sessao, pixels, 5)
+
+        depois = chaves_do_acervo(pasta)
+        assert len(depois - antes) == 1, (
+            "com o acervo vazio a linha alvo TEM de ser aprendida; sem isto "
+            f"nenhum caso de nao-aprendizado prova nada. Achado: {depois}"
+        )
+
+
+class TestAPessoaJaRECONHECIDA_NuncaViraUmaSegundaEntrada:
+    """Caminho 1: a linha que o casamento contra o acervo ja resolveu.
+
+    Trivial no papel e a metade que quase todo mundo escreve errado. Ver a
+    docstring do segundo caso.
+    """
+
+    def test_uma_entrada_COM_NOME_casa_a_linha_e_cem_leituras_nao_gravam_nada(
+        self, tmp_path, pixels, tres_conhecidas
+    ):
+        pasta = pasta_do_acervo(tmp_path)
+        gravada = assinatura_da_linha(pixels, tres_conhecidas, LINHA_ALVO)
+        semear(pasta, gravada, nome=NOME_DA_LINHA_ALVO)
+        antes = chaves_do_acervo(pasta)
+
+        cal = com_o_acervo_na_lista_viva(tres_conhecidas, pasta)
+
+        # A PREMISSA, antes do desfecho: a entrada do acervo de fato CASA a
+        # linha. Sem esta medida, "nada foi gravado" poderia vir de a linha
+        # nunca ter sido candidata por outro motivo.
+        obs = observacao_de(pixels, cal)
+        assert obs.linhas[LINHA_ALVO].nome == NOME_DA_LINHA_ALVO
+        assert obs.linhas[LINHA_ALVO].confianca_do_nome > 0.9
+
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        sessao = montar_sessao(cal, tmp_path, aprendiz=aprendiz, configuradas=True)
+        rodar(sessao, pixels, 100)
+
+        assert chaves_do_acervo(pasta) == antes, (
+            "uma pessoa que o scanner ja reconhece pelo nome nunca pode virar "
+            "uma segunda entrada, nem depois de cem leituras"
+        )
+
+    def test_uma_entrada_SEM_NOME_casa_a_linha_e_cem_leituras_nao_gravam_nada(
+        self, tmp_path, pixels, tres_conhecidas
+    ):
+        """O caso que UM OPERADOR quebra, e que nenhum outro teste pegaria.
+
+        `Casamento.nome` de uma entrada ANONIMA do acervo e a string VAZIA, e
+        nao `None`. `""` significa "reconheci esta pessoa e ninguem a batizou";
+        `None` significa "nao sei quem e". Sao estados DIFERENTES e a condicao
+        de candidatura separa os dois com `linha.nome is None`.
+
+        `""` e FALSY. Trocar a condicao por `not linha.nome` compila, passa em
+        todo caso que envolve uma pessoa desconhecida, passa em todo caso que
+        envolve uma pessoa batizada, e falha SO AQUI: toda pessoa ja aprendida
+        voltaria a ser candidata em todo tick. Como o recorte muda por uma
+        celula aqui e ali entre uma sessao e outra, a cada N ticks nasceria uma
+        entrada nova para a MESMA pessoa, num acervo que nunca e podado e nao
+        tem comando de esquecer. E o inchaco que o APRE-04 existe para proibir,
+        escrito num operador.
+
+        A diferenca entre `""` e `None` so e observavel depois que existe uma
+        entrada anonima E existe um caminho que aprende. As duas coisas passam a
+        existir juntas nesta fase, e e por isso que este caso mora aqui e nao na
+        Fase 1. (T-02-13)
+        """
+        pasta = pasta_do_acervo(tmp_path)
+        gravada = assinatura_da_linha(pixels, tres_conhecidas, LINHA_ALVO)
+        semear(pasta, gravada)  # ANONIMA: sem o irmao `nome_<chave>`
+        antes = chaves_do_acervo(pasta)
+
+        cal = com_o_acervo_na_lista_viva(tres_conhecidas, pasta)
+
+        obs = observacao_de(pixels, cal)
+        alvo = obs.linhas[LINHA_ALVO]
+        assert alvo.nome == "", (
+            "a premissa do caso e que a linha esta RECONHECIDA e ANONIMA. "
+            f"Achado: {alvo.nome!r}"
+        )
+        assert alvo.confianca_do_nome > 0.9
+
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        sessao = montar_sessao(cal, tmp_path, aprendiz=aprendiz, configuradas=True)
+        rodar(sessao, pixels, 100)
+
+        assert chaves_do_acervo(pasta) == antes, (
+            "uma pessoa que o scanner ja reconhece, ainda que ANONIMA, nunca "
+            "pode virar uma segunda entrada. "
+            f"Antes: {sorted(antes)}. Depois: {sorted(chaves_do_acervo(pasta))}"
+        )
+
+    def test_o_operador_e_o_PRIMEIRO_de_DOIS_portoes_e_nenhum_dos_dois_sobra(
+        self, tmp_path, pixels, tres_conhecidas
+    ):
+        """MEDIDO NA EXECUCAO DESTE PLANO, e contraria o que o plano previa.
+
+        O plano 02-02 mandava que o caso de ponta a ponta acima falhasse se
+        alguem trocasse `linha.nome is None` por `not linha.nome` em
+        `_candidatas_para_aprender`. Ele NAO falha, e a mutacao foi rodada para
+        conferir em vez de supor: com o operador trocado, a linha anonima volta
+        a ser candidata em todo tick, mas ela chega ao `Aprendiz` com
+        `confianca` alta e o portao de D-02 (`confianca >= LIMIAR_DE_CASAMENTO`)
+        a descarta antes de qualquer vigia nascer. O acervo continua com uma
+        chave, e o desfecho de ponta a ponta e IDENTICO.
+
+        A RAZAO E ESTRUTURAL, e nao sorte desta fixture. So existem dois lugares
+        em `identificar_linhas` que atribuem um nome, e os dois exigem pontuacao
+        acima de um limiar: `LIMIAR_DE_CASAMENTO` (0.75) no primeiro passe e
+        `LIMIAR_DO_ORNAMENTO` (0.85) na repescagem da coroa. Como o segundo e
+        MAIOR que o primeiro, "a linha tem nome" implica "a confianca passou de
+        0.75" — e e exatamente essa a condicao que D-02 veta. Os dois portoes se
+        sobrepoem por construcao.
+
+        O QUE ISSO MUDA, E O QUE NAO MUDA. Nao muda que o operador esta certo:
+        `""` significa "reconheci e ninguem batizou" e `None` significa "nao sei
+        quem e", e sao estados diferentes. Muda ONDE a troca e observavel: no
+        `_candidatas_para_aprender`, e nao no acervo. O caso que prende o
+        operador e o unitario
+        `TestQuemNuncaECandidato::test_uma_linha_ja_reconhecida_e_anonima_nunca_e_candidata`
+        (plano 02-01), e foi ele — e so ele — que a mutacao derrubou.
+
+        E POR ISSO NENHUM DOS DOIS PODE SER REMOVIDO como "redundante". Sao
+        defesas em profundidade sobre um acervo IRREVERSIVEL: tirar o portao do
+        operador poe toda pessoa ja aprendida na mesa do aprendiz em todo tick,
+        e ai a unica coisa entre ela e uma segunda entrada passa a ser um
+        `>=` — o mesmo `>=` que
+        `TestOVetoESobreONumeroENaoSobreAOrigem` mostra ser sensivel a UM
+        centesimo. Tirar D-02 abre a porta da margem. Este caso existe para que
+        quem encontrar a sobreposicao um dia leia por que ela e deliberada,
+        em vez de "limpar" uma das duas.
+        """
+        assert LIMIAR_DO_ORNAMENTO >= LIMIAR_DE_CASAMENTO, (
+            "e este >= que faz 'tem nome' implicar 'passou do limiar'. Se a "
+            "repescagem do ornamento ficasse MAIS BARATA que o primeiro passe, "
+            "uma linha poderia receber nome com confianca abaixo de 0.75, D-02 "
+            "deixaria de mascarar a troca do operador, e o portao do operador "
+            "voltaria a ser a UNICA defesa deste caminho"
+        )
+
+        pasta = pasta_do_acervo(tmp_path)
+        semear(pasta, assinatura_da_linha(pixels, tres_conhecidas, LINHA_ALVO))
+        cal = com_o_acervo_na_lista_viva(tres_conhecidas, pasta)
+
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        sessao = montar_sessao(cal, tmp_path, aprendiz=aprendiz, configuradas=True)
+
+        obs = observacao_de(pixels, cal)
+        alvo = obs.linhas[LINHA_ALVO]
+        assert alvo.nome == ""
+        assert sessao._candidatas_para_aprender(obs) == (), (
+            "o portao do operador e o que tira a linha da mesa ANTES do "
+            "aprendiz; e aqui, e nao no acervo, que a troca por `not "
+            "linha.nome` e observavel"
+        )
+        assert alvo.confianca_do_nome >= LIMIAR_DE_CASAMENTO, (
+            "e este numero e o que D-02 vetaria se ela chegasse la assim mesmo"
+        )
+
+
+class TestAFalhaPorMARGEM_Cala:
+    """Caminho 2: a linha calada por ter DOIS candidatos parecidos demais.
+
+    `identificar_linhas` devolve `Casamento(None, ...)` por dois motivos
+    diferentes, e eles pedem desfechos OPOSTOS (D-02):
+
+        melhor pontuacao < 0.75      "nao conheco ninguem parecido"   APRENDE
+        >= 0.75 e sem margem         "conheco DOIS parecidos demais"  CALA
+
+    Aprender no segundo caso e o pior desfecho deste workstream, e ele ja esta
+    escrito na docstring de `acervo.carregar_identidades`: acrescentar ao acervo
+    um quase-duplicado de alguem faz essa pessoa PARAR de ser reconhecida, e as
+    duas assinaturas caem no silencio pela margem.
+
+    AS PREMISSAS SAO MEDIDAS, E NAO SUPOSTAS. `BITS_VIRADOS` e importado de
+    `tests/test_acervo.py` de proposito: o numero 8 nao foi escolhido no olho, e
+    a tabela que o justifica esta no comentario dele, na Fase 1. Duplicar o
+    numero aqui sem a medicao ao lado o transformaria de numero medido em
+    constante inventada, que e exatamente o que este projeto proibe.
+    """
+
+    def _semear_o_par(self, pasta, pixels, cal):
+        exata = assinatura_da_linha(pixels, cal, LINHA_ALVO)
+        copia = quase_igual(exata)
+        semear(pasta, exata)
+        semear(pasta, copia)
+        return exata, copia
+
+    def test_as_quatro_premissas_sao_medidas_ANTES_do_desfecho(
+        self, tmp_path, pixels, tres_conhecidas
+    ):
+        """Na ordem, e cada uma sustenta a seguinte.
+
+        (a) as chaves diferem, senao o caso seria o da deduplicacao por chave;
+        (b) as duas pontuacoes passam do limiar, senao a recusa viria do limiar
+            e nao da margem, e o caso estaria provando o outro ramo de D-02;
+        (c) a diferenca entre elas fica abaixo da margem, que e o que faz
+            `identificar_linhas` calar;
+        (d) e a linha resultante tem `nome is None` COM confianca ALTA, que e a
+            forma exata que a candidatura precisa vetar.
+        """
+        pasta = pasta_do_acervo(tmp_path)
+        exata, copia = self._semear_o_par(pasta, pixels, tres_conhecidas)
+
+        assert chave_da_assinatura(exata) != chave_da_assinatura(copia), (
+            "um pixel basta para a chave mudar; se elas fossem iguais o caso "
+            "seria o da deduplicacao por chave e nao o da margem"
+        )
+
+        cal = com_o_acervo_na_lista_viva(tres_conhecidas, pasta)
+        pontos = pontuacoes_da_linha(pixels, cal, LINHA_ALVO, cal.assinaturas)
+        duas = sorted(pontos, reverse=True)[:2]
+
+        assert duas[0] > LIMIAR_DE_CASAMENTO, duas
+        assert duas[1] > LIMIAR_DE_CASAMENTO, (
+            f"as DUAS precisam passar do limiar para a recusa ser por margem: {duas}"
+        )
+        assert duas[0] - duas[1] < MARGEM_MINIMA_SOBRE_O_SEGUNDO, (
+            f"as duas pontuacoes precisam EMPATAR para o caso existir: {duas}"
+        )
+
+        alvo = observacao_de(pixels, cal).linhas[LINHA_ALVO]
+        assert alvo.nome is None, (
+            "o desfecho de `identificar_linhas` aqui e SILENCIO, e e por isso "
+            "que a linha chega a `_candidatas_para_aprender` como candidata"
+        )
+        assert alvo.confianca_do_nome >= LIMIAR_DE_CASAMENTO, (
+            "e e ESTE numero, e nao a presenca de algo no acervo, que D-02 "
+            f"manda vetar. Achado: {alvo.confianca_do_nome}"
+        )
+
+    def test_cem_leituras_estaveis_nao_gravam_NADA(
+        self, tmp_path, pixels, tres_conhecidas
+    ):
+        pasta = pasta_do_acervo(tmp_path)
+        self._semear_o_par(pasta, pixels, tres_conhecidas)
+        antes = chaves_do_acervo(pasta)
+        assert len(antes) == 2
+
+        cal = com_o_acervo_na_lista_viva(tres_conhecidas, pasta)
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        sessao = montar_sessao(cal, tmp_path, aprendiz=aprendiz, configuradas=True)
+        rodar(sessao, pixels, 100)
+
+        assert chaves_do_acervo(pasta) == antes, (
+            "aprender aqui seria acrescentar um TERCEIRO quase-duplicado da "
+            "mesma pessoa a um acervo irreversivel, e cada copia torna a "
+            "original MENOS reconhecivel, e nao mais"
+        )
+
+    def test_os_TRES_desfechos_juntos_mostram_que_a_recusa_e_sobre_a_CONFIANCA(
+        self, tmp_path, pixels, calibracao
+    ):
+        """Vazio APRENDE, uma entrada CALA, duas entradas CALAM.
+
+        Sozinho, "com duas entradas nada foi gravado" seria compativel com a
+        regra errada "se ha alguma coisa no acervo, nao aprenda". O caso do meio
+        e o que separa as duas leituras: com UMA entrada a linha nem sequer e
+        candidata (`nome == ""`), e com DUAS ela e candidata e e VETADA pela
+        confianca. Os desfechos coincidem e as causas nao, e e a causa que D-02
+        governa.
+        """
+        desfechos = {}
+        confiancas = {}
+
+        for rotulo, quantas in (("vazio", 0), ("uma", 1), ("duas", 2)):
+            pasta_da_rodada = tmp_path / rotulo
+            cal = Calibracao.carregar(FIXTURES / "calibracao.json")
+            cal.assinaturas = [
+                a for a in cal.assinaturas if a.nome != NOME_DA_LINHA_ALVO
+            ]
+            pasta = pasta_do_acervo(pasta_da_rodada)
+            exata = assinatura_da_linha(pixels, cal, LINHA_ALVO)
+            if quantas >= 1:
+                semear(pasta, exata)
+            if quantas >= 2:
+                semear(pasta, quase_igual(exata))
+
+            antes = chaves_do_acervo(pasta)
+            cal = com_o_acervo_na_lista_viva(cal, pasta)
+            confiancas[rotulo] = observacao_de(pixels, cal).linhas[LINHA_ALVO]
+
+            aprendiz, _ = montar_aprendiz(
+                pasta_da_rodada, leituras_para_aprender=5
+            )
+            sessao = montar_sessao(
+                cal,
+                pasta_da_rodada,
+                aprendiz=aprendiz,
+                configuradas=bool(cal.assinaturas),
+            )
+            rodar(sessao, pixels, 10)
+            desfechos[rotulo] = len(chaves_do_acervo(pasta) - antes)
+
+        assert desfechos == {"vazio": 1, "uma": 0, "duas": 0}, desfechos
+
+        # E as causas, que sao o ponto inteiro do caso.
+        assert confiancas["vazio"].nome is None
+        assert confiancas["vazio"].confianca_do_nome < LIMIAR_DE_CASAMENTO
+        assert confiancas["uma"].nome == "", "reconhecida, e nem chega a ser candidata"
+        assert confiancas["duas"].nome is None
+        assert confiancas["duas"].confianca_do_nome >= LIMIAR_DE_CASAMENTO, (
+            "candidata, e vetada pela CONFIANCA: o mesmo desfecho de 'uma', "
+            "por um motivo completamente diferente"
+        )
+
+
+class TestOVetoESobreONumeroENaoSobreAOrigem:
+    """A fronteira e no limiar EXATO, e `>=` cala.
+
+    Alimenta o `Aprendiz` direto, sem frame e sem `identificar_linhas`, porque a
+    pergunta aqui nao e sobre a party window: e sobre qual comparacao o portao
+    de D-02 usa. No limiar exato `identificar_linhas` ainda ACEITA o casamento
+    (`if valor < LIMIAR_DE_CASAMENTO: break`), entao um `>` no aprendiz deixaria
+    passar uma linha que o reconhecedor considera casada.
+    """
+
+    @staticmethod
+    def _mascara_com_texto():
+        mascara = np.zeros((20, 100), dtype=np.uint8)
+        mascara[5, :40] = 1
+        return mascara
+
+    def test_no_limiar_EXATO_nao_grava(self, tmp_path):
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=3)
+        mascara = self._mascara_com_texto()
+
+        for _ in range(10):
+            saida = aprendiz.observar(
+                (
+                    Candidata(
+                        indice=0, mascara=mascara, confianca=LIMIAR_DE_CASAMENTO
+                    ),
+                )
+            )
+            assert saida.aprendizados == []
+
+        assert chaves_do_acervo(pasta) == set(), (
+            "no limiar exato o reconhecedor ainda considera a linha CASADA; a "
+            "comparacao do aprendiz tem de ser >= e nao >"
+        )
+
+    def test_um_centesimo_ABAIXO_do_limiar_grava(self, tmp_path):
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=3)
+        mascara = self._mascara_com_texto()
+
+        for _ in range(3):
+            aprendiz.observar(
+                (
+                    Candidata(
+                        indice=0,
+                        mascara=mascara,
+                        confianca=LIMIAR_DE_CASAMENTO - 0.01,
+                    ),
+                )
+            )
+
+        assert len(chaves_do_acervo(pasta)) == 1, (
+            "sem este contraste o caso acima passaria num aprendiz que nunca "
+            "grava nada"
+        )
