@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 27
+open_count: 28
 waived_count: 1
 fixed_count: 7
-total_count: 35
-last_updated: 2026-08-31T03:55:44.144Z
+total_count: 36
+last_updated: 2026-08-31T04:17:44.268Z
 ---
 
 # Broken Windows Ledger
@@ -50,6 +50,7 @@ last_updated: 2026-08-31T03:55:44.144Z
 | 33 | 02 | deviation | l2scanner/mercado_pagina.py |  | ACEITO PELO USUARIO 2026-08-30: numa captura travada UMA pagina e aceita antes do congelamento disparar. O acordo fecha com 2 frames identicos; JANELAS_IGUAIS_PARA_CONGELAR=3. No frame 2 a pagina e lida, concorda trivialmente e passa; so do frame 3 em diante nada mais passa. Contradiz a LETRA do criterio 3 da fase ('frames bit a bit identicos sao reportados como captura congelada, nao aceitos como acordo'), mas o dado daquela pagina e o ULTIMO FRAME VIVO — verdadeiro, so velho — e a Fase 3 dedupa por chave de conteudo, entao ela nao vira linha duplicada no CSV. A alternativa (baixar para 2) pagaria falso positivo: duas janelas identicas por coincidencia viram captura travada e perde-se pagina boa. Achado pelo gsd-verifier em 2026-08-30; o teste test_congelada_NENHUMA_pagina_e_aceita afirma aceitas[2:] e e silencioso sobre aceitas[1] | open |  | 2026-08-31T02:27:00.087Z |  |
 | 34 | 03 | unrun-verify | l2scanner/mercado_registro.py |  | PERS-03 ('nunca derruba o nucleo de alertas') e verdadeiro nesta fase por AUSENCIA DE ACOPLAMENTO, nao por teste de ponta a ponta: o mercado nao tem chamador de producao (LeitorDePagina nao tem instanciador em l2scanner/, e o modo --mercado e DETC-02, Fase 4). registrar() nunca levantar esta provado em unidade, mas o scanner rodando COM o mercado ligado e uma falha de disco real nunca foi exercitado. O portao de ponta a ponta e da Fase 4. | open |  | 2026-08-31T03:55:34.734Z |  |
 | 35 | 03 | deviation | tests/test_mercado_registro.py |  | Criterio de aceitacao do 03-01 REFUTADO POR MEDICAO e substituido: 'cv2 e numpy ausentes de sys.modules apos importar mercado_registro' e impossivel, porque mercado_catalogo (import obrigatorio desta fase) ja os traz via .config -> .visao. Substituido por TestOModuloNaoArrastaAMetadeDeVisao, que afirma que o registro acrescenta EXATAMENTE UM modulo e que mercado_leitura fica fora. Se um dia alguem aliviar a cadeia de config, o terceiro teste dessa classe fica vermelho — e ai e a hora de cobrar de volta a forma forte. | open |  | 2026-08-31T03:55:44.144Z |  |
+| 36 | 03 | unmet-truth | tests/test_mercado_leitura.py | 534 | test_as_duas_leitoras_sao_CHAMADAS_em_toda_linha_que_vira_LinhaLida vermelho na base f03eee80, tambem em isolamento; sem vinculo de import com o 03-02 | open |  | 2026-08-31T04:17:44.268Z |  |
 
 ````json
 [
@@ -471,6 +472,18 @@ last_updated: 2026-08-31T03:55:44.144Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-31T03:55:44.144Z",
+    "resolved_at": null
+  },
+  {
+    "id": 36,
+    "kind": "unmet-truth",
+    "phase": "03",
+    "file": "tests/test_mercado_leitura.py",
+    "line": 534,
+    "description": "test_as_duas_leitoras_sao_CHAMADAS_em_toda_linha_que_vira_LinhaLida vermelho na base f03eee80, tambem em isolamento; sem vinculo de import com o 03-02",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T04:17:44.268Z",
     "resolved_at": null
   }
 ]

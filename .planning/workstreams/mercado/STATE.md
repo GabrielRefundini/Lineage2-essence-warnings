@@ -5,16 +5,16 @@ milestone_name: )
 current_phase: 2
 current_phase_name: Leitura de pagina
 status: verifying
-stopped_at: Completed 03-01-PLAN.md — mercado_registro.py inteiro, 95 testes verdes
-last_updated: "2026-08-31T03:55:08.951Z"
+stopped_at: Completed 03-02-PLAN.md — montar_registro_de_mercado (+78 linhas no __main__.py, acrescimo puro) e o LEIAME.txt; 114 testes no arquivo do registro
+last_updated: "2026-08-31T04:19:03.463Z"
 last_activity: 2026-08-31
 last_activity_desc: "Fase 2 plano 06: a TERCEIRA leitura de numero (a coluna do unitario) entrou em ler_linha e esta provada por contagem (2/2 em f010, 4/4 em f005); a guarda de cruzamento foi construida e ficou DESLIGADA pela rota REPROVADA do 02-02, degradada para observacao com a refutacao escrita no fonte"
-state_head: b26301f2988aaaef25292ada0dafa9df42420c40
+state_head: 3dbe8eaf990ba3f38de6cb4990cf6642a94ea539
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 16
-  completed_plans: 14
+  completed_plans: 15
   percent: 25
 ---
 
@@ -91,6 +91,9 @@ Progress: [███░░░░░░░] 25%
 - [Phase 2]: [Phase 02] REFUTADO por medicao no 02-05: 'linhas descartadas' NAO e sinonimo de 'linhas cobertas'. A gravacao scroll-transicao, escrita por mim como controle 'sem oclusao', descarta 6,30 linhas por frame contra 3,62 da gravacao de tooltip deliberado e 0,74 da de alvo-sobreposto. Durante a rolagem o fundo alternado esta em transicao e a sonda o le nao-uniforme: recusa legitima e fail-closed, mas nao oclusao. O teste falso saiu; as taxas medidas entraram no relatorio.
 - [Phase 2]: [Phase 3] D-17 virou codigo: arquivo de observacoes que NAO termina em quebra de linha e CONTRATO QUEBRADO — a feature desliga alto, NADA e lido, e nenhum byte do arquivo do usuario e tocado. Medido: 5 de 5 cortes byte a byte recusados, contra 3 de 5 da contagem de campos. As duas saidas alternativas (truncar a cauda; completa-la com \n) estao refutadas por escrito no fonte e presas por AST
 - [Phase 2]: [Phase 3] UM NUMERO QUE CAIU: o criterio de aceitacao 'cv2 e numpy ausentes de sys.modules apos importar mercado_registro' e IMPOSSIVEL — mercado_catalogo SOZINHO ja os traz, via .config -> .visao. Como importar dele e must-have da fase, as duas exigencias se contradiziam. Substituido pelo que mede a mesma intencao: o registro acrescenta EXATAMENTE UM modulo ao processo, e mercado_leitura fica fora de sys.modules
+- [Phase 2]: [Phase 3] A montagem do mercado captura ContratoDoArquivoQuebrado AO LADO do OSError: divergencia de UM tipo com a regra da casa, justificada no fonte — contrato quebrado nao e falha de sistema de arquivos, mas o desfecho e o mesmo (feature desligada, scanner de pe). Sem ela a excecao subiria do arranque como traceback cru
+- [Phase 2]: [Phase 3] O tipo de retorno de montar_registro_de_mercado NAO foi anotado, contra a letra do plano e a favor do vizinho: montar_vigia_do_mercado tambem nao anota, porque o tipo so existe atras do import ADIADO. Anotar deixaria um nome que typing.get_type_hints nao resolve, e resolve-lo exigiria um bloco TYPE_CHECKING no topo do __main__.py — arquivo disputado com o workstream tiat nesta wave
+- [Phase 2]: [Phase 3] O LEIAME.txt e escrito UMA VEZ, na criacao da pasta, e NUNCA sobrescrito: e um texto para humano, na pasta do humano, e reescreve-lo a cada arranque apagaria a anotacao do usuario calado. As duas alternativas foram RECUSADAS com motivo — instrucao no topo do CSV quebraria o cabecalho-contrato e o Sheets a importaria como dado; coluna total_exibido seria dois campos para o mesmo fato
 
 ### Blockers
 
@@ -104,6 +107,7 @@ Progress: [███░░░░░░░] 25%
 - JANELA 13 ABERTA: `l2scanner/calibrar.py` (calibracao de PARTY) apaga TODA a calibracao de mercado — `calibrar_selecionando` monta uma Calibracao do zero (calibrar.py:353) e o fluxo grava por cima do arquivo inteiro (calibrar.py:1244). Confirmado em campo 2026-08-30. Enquanto nao for consertado, recalibrar a party DE NOVO custa a calibracao de mercado outra vez. Resgate em calibration.RESGATE-13-glifos.json.
 - ~~DECISAO PENDENTE (02-03 Task 2): a fonte da assinatura de digitos.~~ **RESOLVIDA em 2026-08-30: `ocr-estrito`.** O usuario aceitou o custo de 8,86% das linhas caindo (as vezes pagina inteira) para nao pagar uma chave `7655` que ele nao consegue ler no CSV. O caminho de volta da rota `molde` esta medido e escrito na docstring de `mercado_catalogo.assinatura_por_molde` (vao +0,1563, entre 0,8510 e 0,6947).
 - VERIFICACAO HUMANA DE FIM DE FASE, o que nenhuma fixtura alcanca: (1) o OCR REAL com WinRT — o pytest roda no Python GLOBAL e injeta as leitoras, entao nenhum teste desta fase chamou o motor de verdade; a leitura de nome precisa ser conferida com o jogo aberto; (2) o congelamento de captura — frames_congelados = ZERO em todo o censo, e a borda de TRES so foi exercitada por fixtura sintetica: minimize a janela do jogo ou pause a captura e confira que o aviso alto sai e nenhuma pagina e aceita; (3) o rendimento 151/189 e um julgamento de produto — 72% das perdas sao o piso de 7 posicoes, e baixa-lo reabre o acordo trivial e exige varredura nova.
+- [Phase 3, achado do 03-02] tests/test_mercado_leitura.py::TestOAcordoEntreAsDuasEscalas::test_as_duas_leitoras_sao_CHAMADAS_em_toda_linha_que_vira_LinhaLida esta VERMELHO no commit-base f03eee80, e falha TAMBEM em isolamento. Sem vinculo de import com o 03-02 (grep por __main__/mercado_registro no grafo de leitura devolve zero). A wave 1 mediu zero failed no base 0820587: ou algo entre os dois commits quebrou, ou a medicao nao alcancou o arquivo. Investigacao em deferred-items.md da fase
 
 ### Quick Tasks Completed
 
@@ -192,9 +196,9 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 
 ## Session Continuity
 
-**Last session:** 2026-08-31T03:55:08.711Z
+**Last session:** 2026-08-31T04:19:03.213Z
 
-**Stopped At:** Completed 03-01-PLAN.md — mercado_registro.py inteiro, 95 testes verdes
+**Stopped At:** Completed 03-02-PLAN.md — montar_registro_de_mercado (+78 linhas no __main__.py, acrescimo puro) e o LEIAME.txt; 114 testes no arquivo do registro
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -212,3 +216,4 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 | Phase 02 P07 | 1h 8m | 2 tasks | 10 files |
 | Phase 02 P05 | 105 min | 3 tasks | 7 files |
 | Phase 03 P01 | 18min | 3 tasks | 2 files |
+| Phase 03 P02 | 18min | 2 tasks | 5 files |
