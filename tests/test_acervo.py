@@ -820,3 +820,205 @@ class TestGravar:
         assert "RegistroDeLoot" in doc
         assert "RegistroEmDisco" in doc
         assert "criado | ja_existia | falhou" in doc
+
+
+# ---------------------------------------------------------------------------
+# SEM PODA, SEM RELOGIO, E ATRAVESSANDO O REINICIO
+# ---------------------------------------------------------------------------
+
+
+DIAS_DE_ENVELHECIMENTO = 400
+SEGUNDOS_POR_DIA = 86400
+
+
+class TestOAcervoNaoEnvelhece:
+    """562 bytes por assinatura, e o usuario dispensou qualquer limpeza no v1.
+
+    A ausencia de poda e uma DECISAO, e decisao que nao tem teste vira detalhe
+    de implementacao que alguem "arruma" na proxima fase.
+    """
+
+    def test_entradas_de_400_dias_atras_continuam_todas_presentes(
+        self, tmp_path, pixels, calibracao
+    ):
+        """400 dias porque o `.agenda/` poda em 3.
+
+        A pergunta "quem e o Fulano" e sobre MESES: a pessoa que entrou na party
+        no ano passado continua sendo a mesma pessoa. Se alguem acrescentar poda
+        por idade um dia, e aqui que aparece.
+
+        O tempo entra pelo ARQUIVO (`os.utime`), e nunca pelo relogio da
+        maquina: o modulo nao tem relogio para adiantar.
+        """
+        acervo = AcervoDeIdentidades(tmp_path)
+        for indice in range(4):
+            semear(tmp_path, assinatura_da_linha(pixels, calibracao, indice))
+        antes = acervo.chaves()
+        assert len(antes) == 4, "premissa: quatro linhas, quatro assinaturas"
+
+        antigo = os.stat(tmp_path).st_mtime - DIAS_DE_ENVELHECIMENTO * SEGUNDOS_POR_DIA
+        for arquivo in tmp_path.iterdir():
+            os.utime(arquivo, (antigo, antigo))
+
+        depois = AcervoDeIdentidades(tmp_path).chaves()
+        assert depois == antes
+        assert len(depois) == 4
+
+    def test_o_modulo_nao_tem_relogio_proprio(self):
+        """A guarda estrutural mora em `tests/test_presenca.py`.
+
+        Este caso existe para que quem ler `test_acervo.py` saiba ONDE ela esta:
+        a poda por acidente comeca sempre por um relogio proprio, e o portao que
+        impede isso e a tupla `MODULOS` de la.
+        """
+        from tests.test_presenca import TestSemRelogioProprio
+
+        assert "acervo.py" in TestSemRelogioProprio.MODULOS
+
+
+class TestOAcervoAtravessaOReinicio:
+    def test_uma_instancia_nova_ve_o_MESMO_acervo(
+        self, tmp_path, pixels, calibracao
+    ):
+        """Derrubar e subir o scanner nao pode regenerar nem perder nada.
+
+        A ORDEM entra na afirmacao de proposito: ela alimenta o desempate do
+        guloso de `identificar_linhas`. Duas leituras da mesma pasta em ordens
+        diferentes dariam reconhecimento diferente com a tela exatamente igual —
+        e um bug assim so aparece quando duas assinaturas empatam, ou seja,
+        exatamente quando errar e mais caro.
+        """
+        antes_acervo = AcervoDeIdentidades(tmp_path)
+        for indice in range(4):
+            semear(tmp_path, assinatura_da_linha(pixels, calibracao, indice))
+        antes = antes_acervo.assinaturas()
+        chaves_antes = antes_acervo.chaves()
+
+        del antes_acervo
+        depois_acervo = AcervoDeIdentidades(tmp_path)
+
+        assert depois_acervo.chaves() == chaves_antes
+        depois = depois_acervo.assinaturas()
+        assert len(depois) == len(antes)
+        for a, b in zip(antes, depois):
+            assert a.nome == b.nome
+            assert np.array_equal(a.mascara, b.mascara)
+
+
+# ---------------------------------------------------------------------------
+# A FRONTEIRA DE FASE: esta fase LE, e nao APRENDE
+# ---------------------------------------------------------------------------
+
+
+def _retrato_da_pasta(pasta: Path) -> dict[str, bytes]:
+    return {c.name: c.read_bytes() for c in sorted(pasta.iterdir())}
+
+
+class TestEstaFaseLeENaoAprende:
+    """Os dois portoes de FRONTEIRA DE FASE deste arquivo.
+
+    LEIA ISTO ANTES DE CONSERTAR UM DELES. A Fase 2 vai APAGAR
+    `test_o_laco_real_nao_encosta_no_acervo` e AJUSTAR
+    `test_so_dois_modulos_conhecem_o_acervo`, DE PROPOSITO — aprender assinaturas
+    no laco e literalmente o objetivo da Fase 2. Estes dois casos afirmam uma
+    fronteira de FASE, e nao uma invariante do projeto.
+
+    Sem esta frase escrita, o executor da Fase 2 encontra um teste vermelho e o
+    interpreta como regressao — e ou desfaz o proprio trabalho, ou afrouxa o
+    portao sem entender que estava afrouxando o certo.
+
+    Por que eles existem mesmo sendo temporarios: esta fase precisa ser
+    verificavel SOZINHA. Um tracer que comecasse a gravar entradas rouba o
+    trabalho da Fase 2 e torna impossivel dizer se o criterio "uma entrada posta
+    a mao se comporta certo" foi cumprido ou se o proprio scanner escreveu a
+    entrada que ele depois leu.
+    """
+
+    def test_so_dois_modulos_conhecem_o_acervo(self):
+        """Igualdade de CONJUNTOS, e nunca um `grep` negativo.
+
+        Um `assert "acervo" not in sessao.py` passaria por engano no dia em que
+        o import chegasse com outro nome. A igualdade acusa tanto quem passou a
+        conhecer quanto quem deixou de conhecer.
+
+        A pergunta e "quem IMPORTA o acervo", lida da arvore sintatica, e nao
+        "quem escreve a palavra acervo": as docstrings de `identidade.py` e de
+        `calibracao.py` citam o acervo em prosa ao explicar por que uma
+        assinatura anonima existe, e uma busca textual acusaria justamente a
+        documentacao que protege a regra — o mesmo motivo que fez
+        `_modulos_importados` nascer em `tests/test_presenca.py`.
+
+        Isso prende `sessao.py` e `visao.py` FORA, que e exatamente onde um
+        aprendizado prematuro nasceria.
+        """
+        conhecem = {"acervo.py"}  # quem define o modulo
+        for caminho in sorted((RAIZ / "l2scanner").glob("*.py")):
+            arvore = ast.parse(caminho.read_text(encoding="utf-8"))
+            for no in ast.walk(arvore):
+                if isinstance(no, ast.ImportFrom) and no.module == "acervo":
+                    conhecem.add(caminho.name)
+                elif isinstance(no, ast.Import):
+                    if any(a.name.split(".")[-1] == "acervo" for a in no.names):
+                        conhecem.add(caminho.name)
+
+        assert conhecem == {"acervo.py", "__main__.py"}, (
+            "a Fase 1 LE o acervo no arranque e mais nada; se a lista mudou, ou "
+            "alguem comecou a aprender cedo demais, ou a Fase 2 chegou e este "
+            "portao precisa ser AJUSTADO de proposito. Achado: " + str(conhecem)
+        )
+
+    def test_o_laco_real_nao_encosta_no_acervo(self, tmp_path, pixels, calibracao):
+        """A prova COMPORTAMENTAL, que vale mais que a textual.
+
+        Uma `Sessao` de verdade roda sobre um frame de verdade, e a pasta do
+        acervo fica byte a byte identica. Isso continua verdadeiro mesmo se um
+        caminho de escrita chegar por um nome que nenhuma busca por texto
+        anteciparia.
+
+        A Fase 2 APAGA este caso. Ver a docstring da classe.
+        """
+        from l2scanner.agenda import RegistroEmDisco
+        from l2scanner.sessao import Sessao
+
+        acervo_pasta = tmp_path / ".identidades"
+        for indice in range(4):
+            semear(acervo_pasta, assinatura_da_linha(pixels, calibracao, indice))
+        identidades = carregar_identidades([], AcervoDeIdentidades(acervo_pasta))
+        calibracao.assinaturas = identidades.assinaturas
+        antes = _retrato_da_pasta(acervo_pasta)
+        assert len(antes) == 4, "premissa: ha o que estragar"
+
+        class SilencioParado:
+            def ativo(self):
+                return False
+
+            def atualizar(self, agora):
+                return None
+
+        sessao = Sessao(
+            cal=calibracao,
+            rastreador=Rastreador(
+                nomes=list(calibracao.nomes),
+                assinaturas_configuradas=identidades.configuradas,
+            ),
+            eventos_agendados=[],
+            registro=RegistroEmDisco(tmp_path / ".agenda"),
+            silencio=SilencioParado(),
+        )
+        for indice in range(5):
+            resultado = sessao.tick(
+                Frame(pixels=pixels, indice=indice, saude=SaudeDoFrame.OK),
+                momento=1_700_000_000 + indice,
+            )
+        # NAO VACUIDADE: o laco rodou de verdade e USOU o acervo. Um tick que
+        # falhasse na analise deixaria a pasta intacta pelo motivo errado, e o
+        # portao passaria sem nunca ter chegado perto de uma escrita.
+        assert resultado.observacao is not None
+        assert any(
+            linha.nome == "" and linha.confianca_do_nome > 0.9
+            for linha in resultado.observacao.linhas
+        ), "as assinaturas do acervo tem de estar em jogo neste tick"
+
+        assert _retrato_da_pasta(acervo_pasta) == antes, (
+            "o laco escreveu no acervo; aprender e trabalho da Fase 2"
+        )
