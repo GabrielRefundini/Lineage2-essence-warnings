@@ -61,6 +61,25 @@ silenciar_minutos = 120
 # proposito) e continua desligado depois de reiniciar o scanner — nada religa
 # sozinho, so o /ativarsoloboss. Enquanto estiver assim, o /status diz. Estas
 # duas linhas continuam sendo a configuracao; o comando so as suspende.
+#
+# PARA PARAR SO DE MONTAR GRUPO, SEM CALAR O BOSS: mande /desativarlista. E a
+# chave FINA, e a diferenca entre as duas e o unico jeito de voce desligar a
+# coisa errada, entao ela esta escrita aqui do lado:
+#
+#   /desativarsoloboss  cala o evento INTEIRO — nem a chamada de 1h50, nem o
+#                       lembrete de 10 minutos. Voce para de saber do boss.
+#   /desativarlista     para so de MONTAR GRUPO — cai a chamada "Quem vai?",
+#                       caem /entrar e /sair, a lista deixa de fechar quando o
+#                       boss nasce e /loot-<nick> para de designar. O LEMBRETE
+#                       DE 10 MINUTOS CONTINUA CHEGANDO.
+#
+# Use a segunda quando a party parar de fazer Solo Boss e voce ainda quiser
+# saber que ele vai nascer. O historico de loot (/pegou, /corrigir, /<nick>)
+# fica inteiro nas duas: desligar nao apaga o passado.
+#
+# As duas sao independentes — nenhuma contem a outra —, nao voltam sozinhas nem
+# reiniciando, e o /status nomeia as duas separadamente. Religam com
+# /ativarsoloboss e /ativarlista, cada uma com o seu.
 [[evento]]
 nome = "Solo Boss"
 horarios = [
@@ -85,6 +104,12 @@ silenciar_minutos = 0
 # nem nenhum comando de loot — em especial /corrigir e /pegou, que reescrevem
 # a estatistica de quem pegou o que e nao tem como voltar atras. Esses
 # continuam so para os numeros de CHATWOOT_TELEFONES_COMANDO, no .env.
+#
+# NEM /desativarsoloboss, /desativarlista E OS PARES DE RELIGAR. Ficam de fora
+# de proposito: eles mudam o que a party INTEIRA recebe por tempo
+# indeterminado, e o efeito e a AUSENCIA de mensagem — do lado dos outros,
+# indistinguivel do bot ter caido. Um party-mate podia desligar a lista de
+# presenca de todos os outros.
 #
 # ATENCAO: isso vale enquanto CHATWOOT_TELEFONES_COMANDO tiver pelo menos um
 # numero. Com a variavel VAZIA, o scanner aceita comando de QUALQUER remetente

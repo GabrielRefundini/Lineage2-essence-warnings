@@ -41,7 +41,12 @@ import logging
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 
-from .agenda import avisos_devidos, texto_do_aviso
+from .agenda import (
+    NOME_DO_SOLO_BOSS,
+    apelido_do_evento,
+    avisos_devidos,
+    texto_do_aviso,
+)
 from .console import moldurar
 from .frames import Frame, SaudeDoFrame
 from .loot import Designacao, nick_para_o_aviso
@@ -568,6 +573,14 @@ class Sessao:
         # contraditorios no mesmo segundo.
         designacao = self.loot.designacao() if self.loot else None
 
+        # O que o usuario desligou por `/desativarlista`. UMA leitura por tick,
+        # reaproveitada pelo gate da chamada e pela linha de loot logo abaixo —
+        # duas leituras poderiam discordar entre si dentro do mesmo tick.
+        #
+        # Do DISCO a cada tick, e nao guardado na sessao, pela mesma razao dos
+        # eventos calados: o comando pode chegar na OUTRA instancia.
+        listas_desligadas = self.registro.listas_desligadas()
+
         for aviso in avisos_devidos(
             agora,
             self.eventos_agendados,
@@ -577,10 +590,24 @@ class Sessao:
             # OUTRA instancia, e um cache aqui faria este processo continuar
             # anunciando o boss que o outro acabou de calar.
             eventos_calados=self.registro.eventos_calados(),
+            listas_desligadas=listas_desligadas,
         ):
             if not self.registro.marcar(aviso.chave):
                 continue
-            texto = texto_do_aviso(aviso, nick_para_o_aviso(aviso, designacao))
+            texto = texto_do_aviso(
+                aviso,
+                nick_para_o_aviso(
+                    aviso,
+                    designacao,
+                    # UM BOOLEANO, E NUNCA O CONJUNTO CRU. O frozenset e
+                    # truthy sempre que a lista de QUALQUER evento estiver
+                    # desligada — passa-lo direto tiraria a linha `Loot:` do
+                    # TvT tambem, sem erro nenhum e sem ninguem perceber.
+                    lista_desligada=(
+                        apelido_do_evento(NOME_DO_SOLO_BOSS) in listas_desligadas
+                    ),
+                ),
+            )
             resultado.avisos.append(texto)
             # CRU no resultado, MOLDURADO no despacho. O console monta a
             # propria moldura (com cor) a partir de `avisos`; moldurar aqui

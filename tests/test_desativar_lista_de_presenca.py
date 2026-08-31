@@ -1403,7 +1403,14 @@ class TestNaCostura:
 
     TELEFONE = "+5544997077000"
 
-    def _atender(self, tmp_path, texto, registro=None, loot=None, conversa="1"):
+    def _atender(
+        self, tmp_path, texto, registro=None, loot=None, conversa="1", ident=909
+    ):
+        """O `ident` NAO e enfeite: `chave_da_mensagem` grava um marcador
+        `comando_<id>` e o segundo comando com o MESMO id seria descartado como
+        repetido — que e o dedup fazendo o trabalho dele. Um teste que mande
+        dois comandos no mesmo registro tem que dar dois ids, senao afirma o
+        contrario do que pensa estar afirmando."""
         import time
 
         from l2scanner.__main__ import atender_comandos
@@ -1417,7 +1424,7 @@ class TestNaCostura:
             def ler(self, _):
                 return [
                     {
-                        "id": 909,
+                        "id": ident,
                         "content": texto,
                         "message_type": 0,
                         "private": False,
@@ -1513,8 +1520,8 @@ class TestNaCostura:
     def test_as_duas_chaves_convivem_pelo_caminho_real(self, tmp_path):
         """Nenhuma precedencia: as duas valem, cada uma no que alcanca."""
         registro = RegistroEmDisco(tmp_path)
-        self._atender(tmp_path, "/desativarsoloboss", registro=registro)
-        self._atender(tmp_path, "/desativarlista", registro=registro)
+        self._atender(tmp_path, "/desativarsoloboss", registro=registro, ident=1)
+        self._atender(tmp_path, "/desativarlista", registro=registro, ident=2)
 
         assert registro.eventos_calados() == frozenset({SLUG})
         assert registro.listas_desligadas() == frozenset({SLUG})

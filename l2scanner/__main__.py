@@ -39,8 +39,10 @@ from .agenda import (  # noqa: E402
     avisos_devidos,
     HORAS_PARA_CANCELAR_ANTECIPADO,
     NOME_DO_SOLO_BOSS,
+    apelido_do_evento,
     nomes_dos_eventos,
     proxima_ocorrencia,
+    responder_lista_de_presenca,
     responder_silenciamento,
     silencio_ativo,
     texto_de_cancelamento,
@@ -1113,6 +1115,20 @@ def atender_comandos(
             # da party inteira, e o efeito e a AUSENCIA de mensagem. Calar isso
             # em segredo faria os outros concluirem que o bot caiu.
             avisar_o_grupo = True
+        elif pedido.comando in (
+            Comando.DESATIVAR_LISTA,
+            Comando.ATIVAR_LISTA,
+        ):
+            desligar = pedido.comando is Comando.DESATIVAR_LISTA
+            resposta = responder_lista_de_presenca(
+                registro, eventos_agendados, NOME_DO_SOLO_BOSS, desligar, quem
+            )
+            # Mesmo racional do ramo acima: muda o que o GRUPO recebe daqui pra
+            # frente — a chamada "Quem vai?" para de sair para todo mundo, e o
+            # /entrar de qualquer um passa a ser recusado. O efeito e a
+            # AUSENCIA de mensagem, que do lado dos outros e indistinguivel do
+            # bot ter caido.
+            avisar_o_grupo = True
         elif pedido.comando is Comando.LOOT_DESIGNAR:
             if loot is None:
                 resposta = "Nao consigo mexer no loot agora."
@@ -1126,6 +1142,13 @@ def atender_comandos(
                     agora,
                     pedido.argumento,
                     presenca=registro,
+                    # UM BOOLEANO, e nao o conjunto cru: o frozenset e truthy
+                    # com a lista de QUALQUER evento desligada. Aqui nao existe
+                    # local de tick, entao a leitura e na hora.
+                    lista_desligada=(
+                        apelido_do_evento(NOME_DO_SOLO_BOSS)
+                        in registro.listas_desligadas()
+                    ),
                 )
             # O grupo vai ficar sabendo pelo proprio aviso de antecedencia,
             # que sai com "Loot: X" no fim. Ecoar agora seria dizer a mesma
@@ -1318,6 +1341,14 @@ def _obedecer_status(registro, eventos, agora, rastreador=None) -> str:
     calados = nomes_dos_eventos(eventos, registro.eventos_calados())
     if calados:
         partes.append("avisos DESATIVADOS de " + ", ".join(calados))
+    # AS DUAS CHAVES APARECEM SEPARADAS, e isso e correcao e nao verbosidade:
+    # cada uma e desfeita por um COMANDO DIFERENTE. Fundi-las num "tudo
+    # desligado" deixaria o usuario sem saber se manda /ativarsoloboss ou
+    # /ativarlista — e mandar o errado devolve "ja estava ligado", que le como
+    # bot quebrado. O silencio maior vem primeiro.
+    sem_lista = nomes_dos_eventos(eventos, registro.listas_desligadas())
+    if sem_lista:
+        partes.append("lista de presenca DESLIGADA de " + ", ".join(sem_lista))
     if proximo:
         partes.append(f"proximo: {proximo[0]} as {proximo[1].strftime('%H:%M')}")
     return "Scanner: " + ", ".join(partes) + "."
@@ -1603,13 +1634,30 @@ def laco_da_agenda(args: argparse.Namespace) -> int:
             # Boss. Lida antes do loop, para todos os avisos deste tick
             # enxergarem a mesma.
             designacao = registro_de_loot.designacao()
+            # UMA leitura por tick, do disco e sem cache: o comando pode chegar
+            # na OUTRA instancia do usuario. Serve ao gate da chamada e a linha
+            # de loot logo abaixo.
+            desligadas = registro.listas_desligadas()
             for aviso in avisos_devidos(
                 agora, eventos, registro.enviados(),
                 eventos_calados=registro.eventos_calados(),
+                listas_desligadas=desligadas,
             ):
                 if not registro.marcar(aviso.chave):
                     continue
-                texto = texto_do_aviso(aviso, nick_para_o_aviso(aviso, designacao))
+                texto = texto_do_aviso(
+                    aviso,
+                    nick_para_o_aviso(
+                        aviso,
+                        designacao,
+                        # BOOLEANO, nunca o conjunto: o frozenset cru e truthy
+                        # com a lista de qualquer evento desligada e tiraria a
+                        # linha `Loot:` do TvT junto, sem erro nenhum.
+                        lista_desligada=(
+                            apelido_do_evento(NOME_DO_SOLO_BOSS) in desligadas
+                        ),
+                    ),
+                )
                 log.info(destacar(texto, hora=agora.strftime("%H:%M")))
                 if despachante:
                     # A MESMA moldura do console vai para o celular. O aviso

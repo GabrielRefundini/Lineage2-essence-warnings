@@ -438,6 +438,8 @@ Comandos, sempre com barra na frente:
 | `/cancelar` | Tira o silêncio de TvT/Prime que estiver rolando |
 | `/desativarsoloboss` | Para com **tudo** do Solo Boss: nem a chamada de 1h50, nem o lembrete de 10 min |
 | `/ativarsoloboss` | Volta a chamar e a lembrar do Solo Boss |
+| `/desativarlista` | Para de **montar grupo** no Solo Boss: sem chamada, sem `/entrar`, sem designar loot — o lembrete de 10 min continua chegando |
+| `/ativarlista` | Volta a perguntar quem vai e a aceitar `/entrar` e `/sair` |
 | `/status` | Diz se está vigiando ou calado, e qual o próximo evento |
 | `/solo` | Vigia só o seu personagem e para de reclamar de party ausente |
 | `/party` | Volta a vigiar a party inteira |
@@ -462,6 +464,29 @@ Solo Boss` enquanto estiver assim; se você esquecer que desligou, essa linha é
 a única coisa entre você e um boss perdido em silêncio. Também valem
 `/desativarboss` e `/ativarboss`, para quem não quer digitar dezessete letras
 no meio de um farm.
+
+**`/desativarlista` é a irmã fina dele, e a diferença é o recurso inteiro.**
+Aquele cala o boss por completo; este só **para de montar grupo**. Use quando a
+party parar de fazer Solo Boss mas você ainda quiser saber que o boss vai
+nascer: cai a chamada "Quem vai?", caem o `/entrar` e o `/sair`, a lista deixa
+de fechar quando o boss nasce e o `/loot-<nick>` para de designar — e o
+**lembrete de 10 minutos antes continua chegando normalmente**. O histórico de
+loot (`/pegou`, `/corrigir`, `/<nick>`) fica inteiro: desligar a lista não
+apaga o passado. Também valem `/desativarpresenca` e `/ativarpresenca`.
+
+As duas chaves são **independentes** — nenhuma contém a outra, e cada uma é
+desfeita por um comando diferente:
+
+| `/desativarsoloboss` | `/desativarlista` | O que o grupo recebe |
+|---|---|---|
+| ligado | ligada | chamada de 1h50 + lembrete de 10 min + fechamento da lista |
+| ligado | **desligada** | **só o lembrete de 10 min** |
+| **desligado** | ligada | nada; o `/entrar` ainda anota e a lista ainda fecharia |
+| **desligado** | **desligada** | nada, e o `/entrar` e o `/loot-<nick>` também recusam |
+
+Por isso o `/status` nomeia as duas separadamente (`avisos DESATIVADOS de Solo
+Boss`, `lista de presença DESLIGADA de Solo Boss`): fundir as duas numa frase
+só deixaria você sem saber qual comando religa o quê.
 
 Também valem `/ajuda`, `/comandos` e `/?` no lugar de `/help` — quem está no
 jogo pergunta pelo WhatsApp e recebe a lista sem sair da tela. **Essa lista é
