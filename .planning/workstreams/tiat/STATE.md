@@ -127,3 +127,45 @@ Os sete testes de rearme atravessaram byte a byte: `git diff` sobre
 `tests/test_bosses.py` deu 126 adicoes e 0 remocoes.
 
 Suite: 2821 passando, zero falha.
+
+## A margem foi DESCARTADA pela medicao (2026-08-31)
+
+O usuario tinha aprovado um campo `margem_apos_nascimento_minutos`. A medicao
+derrubou a ideia, e o raciocinio vale ficar escrito porque ele reaparece.
+
+**A deriva por remarcacao NAO e defeito.** Seis ancoras de `Tiat North` entre
+22:22 e 22:29 pareciam deriva de 7 minutos "para depois". Mas o usuario estava
+LUTANDO nesse intervalo, e a luta termina na MORTE. A ultima marcacao nao esta
+se afastando da verdade: esta caminhando para ela. `22:29` e uma estimativa
+melhor da morte que `22:22`.
+
+**As duas perguntas sao diferentes e o codigo ja as separa:**
+
+  - "qual nascimento e este?"  -> ancora MAIS ANTIGA (identidade do episodio,
+    usada pelo marcador do anuncio desde a Fase 3)
+  - "quando ele morreu?"       -> ancora MAIS RECENTE (previsao da janela,
+    usada por `ancoras_mais_recentes` desde a Fase 2)
+
+O orquestrador chegou a recomendar trocar a previsao para a mais antiga. Teria
+PIORADO a previsao. A recomendacao foi retirada antes de virar plano.
+
+**Os numeros do usuario, ditos por ele:**
+
+  - lutando: ele segura o alvo ate a morte; a ultima marcacao cai 5 a 10 min
+    depois do nascimento -> a ancora JA E a morte, erro ~= zero
+  - ausente: so o chat, ancora no nascimento, erro de 5 a 10 min ADIANTADO —
+    o lado que ele escolheu, e que ele avaliou como "ja esta otimo"
+
+Nos dois caminhos o desenho atual acerta. Uma margem de 15 min empurraria o
+caminho do chat para o lado ERRADO (atrasado), que e o que faz perder o boss.
+
+MORT-01 (o comando `/morreu`) continua sendo a unica saida exata, e continua
+em v2 — agora com a razao mais forte: ele so vale a pena para quem NAO luta.
+
+## A medir, quando a janela vencer
+
+Tiat South nasceu 30/08 21:59 (chat) -> janela abre 31/08 05:59
+Tiat North ancorado 30/08 22:29 (alvo) -> janela abre 31/08 06:29
+
+Sao os primeiros avisos de janela reais do projeto. Se chegarem, JANE-02 e
+JANE-05 ficam validados em campo.
