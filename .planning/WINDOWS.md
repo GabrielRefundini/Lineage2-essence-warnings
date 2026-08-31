@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 28
+open_count: 27
 waived_count: 1
-fixed_count: 7
-total_count: 36
-last_updated: 2026-08-31T04:17:44.268Z
+fixed_count: 10
+total_count: 38
+last_updated: 2026-08-31T04:42:27.578Z
 ---
 
 # Broken Windows Ledger
@@ -50,7 +50,9 @@ last_updated: 2026-08-31T04:17:44.268Z
 | 33 | 02 | deviation | l2scanner/mercado_pagina.py |  | ACEITO PELO USUARIO 2026-08-30: numa captura travada UMA pagina e aceita antes do congelamento disparar. O acordo fecha com 2 frames identicos; JANELAS_IGUAIS_PARA_CONGELAR=3. No frame 2 a pagina e lida, concorda trivialmente e passa; so do frame 3 em diante nada mais passa. Contradiz a LETRA do criterio 3 da fase ('frames bit a bit identicos sao reportados como captura congelada, nao aceitos como acordo'), mas o dado daquela pagina e o ULTIMO FRAME VIVO — verdadeiro, so velho — e a Fase 3 dedupa por chave de conteudo, entao ela nao vira linha duplicada no CSV. A alternativa (baixar para 2) pagaria falso positivo: duas janelas identicas por coincidencia viram captura travada e perde-se pagina boa. Achado pelo gsd-verifier em 2026-08-30; o teste test_congelada_NENHUMA_pagina_e_aceita afirma aceitas[2:] e e silencioso sobre aceitas[1] | open |  | 2026-08-31T02:27:00.087Z |  |
 | 34 | 03 | unrun-verify | l2scanner/mercado_registro.py |  | PERS-03 ('nunca derruba o nucleo de alertas') e verdadeiro nesta fase por AUSENCIA DE ACOPLAMENTO, nao por teste de ponta a ponta: o mercado nao tem chamador de producao (LeitorDePagina nao tem instanciador em l2scanner/, e o modo --mercado e DETC-02, Fase 4). registrar() nunca levantar esta provado em unidade, mas o scanner rodando COM o mercado ligado e uma falha de disco real nunca foi exercitado. O portao de ponta a ponta e da Fase 4. | open |  | 2026-08-31T03:55:34.734Z |  |
 | 35 | 03 | deviation | tests/test_mercado_registro.py |  | Criterio de aceitacao do 03-01 REFUTADO POR MEDICAO e substituido: 'cv2 e numpy ausentes de sys.modules apos importar mercado_registro' e impossivel, porque mercado_catalogo (import obrigatorio desta fase) ja os traz via .config -> .visao. Substituido por TestOModuloNaoArrastaAMetadeDeVisao, que afirma que o registro acrescenta EXATAMENTE UM modulo e que mercado_leitura fica fora. Se um dia alguem aliviar a cadeia de config, o terceiro teste dessa classe fica vermelho — e ai e a hora de cobrar de volta a forma forte. | open |  | 2026-08-31T03:55:44.144Z |  |
-| 36 | 03 | unmet-truth | tests/test_mercado_leitura.py | 534 | test_as_duas_leitoras_sao_CHAMADAS_em_toda_linha_que_vira_LinhaLida vermelho na base f03eee80, tambem em isolamento; sem vinculo de import com o 03-02 | open |  | 2026-08-31T04:17:44.268Z |  |
+| 36 | 03 | unmet-truth | tests/test_mercado_leitura.py | 534 | test_as_duas_leitoras_sao_CHAMADAS_em_toda_linha_que_vira_LinhaLida vermelho na base f03eee80, tambem em isolamento; sem vinculo de import com o 03-02 | fixed |  | 2026-08-31T04:17:44.268Z | 2026-08-31T04:42:26.745Z |
+| 37 | 02 | deviation | tests/test_mercado_leitura.py | 186 | REGRESSAO DA FASE 2 DIAGNOSTICADA E CONSERTADA (fecha a janela #36): test_as_duas_leitoras_sao_CHAMADAS_em_toda_linha_que_vira_LinhaLida caia com assert 5 == 6, e NAO por defeito de producao. LeitoraContadora anotava id(pixels) de recortes numpy TRANSITORIOS e o teste deduplicava com set(); o CPython recicla o endereco assim que o recorte de uma linha e liberado, entao recortes DIFERENTES apareciam com o mesmo id e o set os fundia num so. MEDIDO: um unico id chegou a carregar QUATRO conteudos (sha1) distintos, e len(set(vistos_2x)) deu 4, 5 ou 6 para as MESMAS seis chamadas, conforme o layout do heap. PRODUCAO INTACTA, provado por medida insensivel ao alocador e IDENTICA em 8b87eb3 (verde) e efcd73a (vermelho): linhas aceitas=6, barata.chamadas=6, conferencia.chamadas=6, len(vistos_2x)=len(vistos_3x)=6, vistos_2x==vistos_3x=True; e o sitio de producao e incondicional (mercado_leitura.py:1537-1538, barato=ler_texto(recorte_do_nome) seguido de caro=ler_texto_conferencia(recorte_do_nome), MESMO objeto, sem desvio que possa pular uma das duas). O corpo do teste e o LeitoraContadora.__call__ sao BYTE-IDENTICOS nos dois commits: efcd73a foi GATILHO (o estabilizador mudou a alocacao), nunca causa. Classe: Heisenbug — qualquer instrumentacao em __call__ deixava a suite VERDE, o que por si so ja refutava a hipotese de regressao de leitura. CONSERTO: LeitoraContadora passou a segurar referencia forte a cada recorte (self._vivos), o que impede a reciclagem e devolve a id() o significado que as afirmacoes sempre presumiram. NENHUMA afirmacao foi tocada — a invariante D-01/D-02 continua inteira, confirmada por MUTACAO: trocar a conferencia por leitura de escala unica mata 8 testes (o alvo com assert 0 == 6) e passar uma COPIA em vez do mesmo objeto mata 2. Estavel em 10 sementes de hash e em todos os contextos de isolamento. | fixed |  | 2026-08-31T04:42:09.728Z | 2026-08-31T04:42:27.128Z |
+| 38 | 02 | deviation | .planning/workstreams/mercado/phases/02-leitura-de-p-gina/02-05-SUMMARY.md | 368 | A CONTAGEM DE FECHAMENTO DO 02-05 NAO SE SUSTENTA. 02-05-SUMMARY.md:368 e 02-VERIFICATION.md:223 registram Suite 2605 passed, 2 skipped (sem test_agenda.py) mais 144 passed = zero falhas. MEDIDO agora NO PROPRIO COMMIT DE FECHAMENTO efcd73a, no Python global: 1 failed, 2551 passed, 14 skipped sem test_agenda.py, e 144 passed so com ele — ou seja 2695 passed, 14 skipped e UMA FALHA. Nem o total, nem os skips, nem o zero-falhas batem: aquela medicao nao foi tirada em efcd73a, foi tirada antes do commit final da fase, e a fase fechou VERMELHA sem saber. A falha era a janela #36 (o id() reciclado), agora consertada, e a suite esta em 2794 passed + 145 passed, zero falhas. Registrado porque um numero que caiu precisa dizer que caiu, e porque a licao de processo e que a contagem de fechamento tem de ser medida NO commit que fecha a fase, nunca antes dele. | fixed |  | 2026-08-31T04:42:21.312Z | 2026-08-31T04:42:27.578Z |
 
 ````json
 [
@@ -481,10 +483,34 @@ last_updated: 2026-08-31T04:17:44.268Z
     "file": "tests/test_mercado_leitura.py",
     "line": 534,
     "description": "test_as_duas_leitoras_sao_CHAMADAS_em_toda_linha_que_vira_LinhaLida vermelho na base f03eee80, tambem em isolamento; sem vinculo de import com o 03-02",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-31T04:17:44.268Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-31T04:42:26.745Z"
+  },
+  {
+    "id": 37,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "tests/test_mercado_leitura.py",
+    "line": 186,
+    "description": "REGRESSAO DA FASE 2 DIAGNOSTICADA E CONSERTADA (fecha a janela #36): test_as_duas_leitoras_sao_CHAMADAS_em_toda_linha_que_vira_LinhaLida caia com assert 5 == 6, e NAO por defeito de producao. LeitoraContadora anotava id(pixels) de recortes numpy TRANSITORIOS e o teste deduplicava com set(); o CPython recicla o endereco assim que o recorte de uma linha e liberado, entao recortes DIFERENTES apareciam com o mesmo id e o set os fundia num so. MEDIDO: um unico id chegou a carregar QUATRO conteudos (sha1) distintos, e len(set(vistos_2x)) deu 4, 5 ou 6 para as MESMAS seis chamadas, conforme o layout do heap. PRODUCAO INTACTA, provado por medida insensivel ao alocador e IDENTICA em 8b87eb3 (verde) e efcd73a (vermelho): linhas aceitas=6, barata.chamadas=6, conferencia.chamadas=6, len(vistos_2x)=len(vistos_3x)=6, vistos_2x==vistos_3x=True; e o sitio de producao e incondicional (mercado_leitura.py:1537-1538, barato=ler_texto(recorte_do_nome) seguido de caro=ler_texto_conferencia(recorte_do_nome), MESMO objeto, sem desvio que possa pular uma das duas). O corpo do teste e o LeitoraContadora.__call__ sao BYTE-IDENTICOS nos dois commits: efcd73a foi GATILHO (o estabilizador mudou a alocacao), nunca causa. Classe: Heisenbug — qualquer instrumentacao em __call__ deixava a suite VERDE, o que por si so ja refutava a hipotese de regressao de leitura. CONSERTO: LeitoraContadora passou a segurar referencia forte a cada recorte (self._vivos), o que impede a reciclagem e devolve a id() o significado que as afirmacoes sempre presumiram. NENHUMA afirmacao foi tocada — a invariante D-01/D-02 continua inteira, confirmada por MUTACAO: trocar a conferencia por leitura de escala unica mata 8 testes (o alvo com assert 0 == 6) e passar uma COPIA em vez do mesmo objeto mata 2. Estavel em 10 sementes de hash e em todos os contextos de isolamento.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-31T04:42:09.728Z",
+    "resolved_at": "2026-08-31T04:42:27.128Z"
+  },
+  {
+    "id": 38,
+    "kind": "deviation",
+    "phase": "02",
+    "file": ".planning/workstreams/mercado/phases/02-leitura-de-p-gina/02-05-SUMMARY.md",
+    "line": 368,
+    "description": "A CONTAGEM DE FECHAMENTO DO 02-05 NAO SE SUSTENTA. 02-05-SUMMARY.md:368 e 02-VERIFICATION.md:223 registram Suite 2605 passed, 2 skipped (sem test_agenda.py) mais 144 passed = zero falhas. MEDIDO agora NO PROPRIO COMMIT DE FECHAMENTO efcd73a, no Python global: 1 failed, 2551 passed, 14 skipped sem test_agenda.py, e 144 passed so com ele — ou seja 2695 passed, 14 skipped e UMA FALHA. Nem o total, nem os skips, nem o zero-falhas batem: aquela medicao nao foi tirada em efcd73a, foi tirada antes do commit final da fase, e a fase fechou VERMELHA sem saber. A falha era a janela #36 (o id() reciclado), agora consertada, e a suite esta em 2794 passed + 145 passed, zero falhas. Registrado porque um numero que caiu precisa dizer que caiu, e porque a licao de processo e que a contagem de fechamento tem de ser medida NO commit que fecha a fase, nunca antes dele.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-31T04:42:21.312Z",
+    "resolved_at": "2026-08-31T04:42:27.578Z"
   }
 ]
 ````

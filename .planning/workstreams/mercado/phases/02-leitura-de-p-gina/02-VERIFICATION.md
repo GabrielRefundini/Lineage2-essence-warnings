@@ -220,7 +220,7 @@ incidente 27x, e a fase respeitou.
 
 | Verificação | Comando | Resultado |
 |---|---|---|
-| Suíte principal | `pytest --ignore=tests/test_agenda.py -q` | **2605 passed, 2 skipped** em 140s |
+| Suíte principal | `pytest --ignore=tests/test_agenda.py -q` | ~~**2605 passed, 2 skipped**~~ **NÃO SE SUSTENTA** — remedido em `efcd73a`: **2551 passed, 14 skipped, 1 FAILED**. Ver a correção no `02-05-SUMMARY.md` e as janelas #36/#37/#38 |
 | Agenda (isolado, flake conhecido) | `pytest tests/test_agenda.py -q` | **144 passed** em 11s — não abortou |
 | Replay + regressão 27x | `pytest tests/test_mercado_replay.py tests/test_mercado_27x.py -q` | **63 passed** em 73s |
 | `calibration.json` não commitado | `git log -- calibration.json` | **vazio**; `.gitignore:45` |

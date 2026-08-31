@@ -365,5 +365,39 @@ Nenhum. `.mercado/` nasce sozinha no primeiro arranque.
 - `tests/test_mercado_replay.py` — FOUND
 - `.gitignore` com `.mercado/` — FOUND (1 ocorrencia)
 - Commits `472b346`, `69ce7da`, `3ee6a52`, `efcd73a`, `151d6f0` — todos FOUND em `git log --all`
-- Suite: **2605 passed, 2 skipped** (sem `test_agenda.py`) + **144 passed** (so ele) = zero falhas
+- Suite: ~~**2605 passed, 2 skipped** (sem `test_agenda.py`) + **144 passed** (so ele) = zero falhas~~ **ESTE NUMERO NAO SE SUSTENTA — ver a correcao logo abaixo**
+
+> ### CORRECAO (2026-08-31): a fase fechou VERMELHA, e o self-check nao viu
+>
+> A linha acima esta errada nos tres numeros. Remedido no **proprio commit de
+> fechamento `efcd73a`**, com o Python global:
+>
+> | | o que o self-check afirmou | o que a remedicao achou em `efcd73a` |
+> |---|---|---|
+> | sem `test_agenda.py` | 2605 passed, 2 skipped, zero falhas | **2551 passed, 14 skipped, 1 FAILED** |
+> | so `test_agenda.py` | 144 passed | 144 passed |
+> | total | 2749 passed, zero falhas | **2695 passed, 14 skipped, UMA FALHA** |
+>
+> Nem o total, nem os skips, nem o zero-falhas batem. A conclusao e que aquela
+> contagem **nao foi tirada em `efcd73a`** — foi tirada em algum ponto anterior
+> da fase, e o self-check a copiou como se valesse para o commit que fecha.
+>
+> A falha era `tests/test_mercado_leitura.py::TestOAcordoEntreAsDuasEscalas::test_as_duas_leitoras_sao_CHAMADAS_em_toda_linha_que_vira_LinhaLida`
+> (`assert 5 == 6`), registrada como janela **#36** e diagnosticada em
+> `.planning/workstreams/mercado/debug/resolved/mercado-duas-leitoras-ocr.md`.
+>
+> **A producao do 02-05 NAO regrediu.** O estabilizador de `efcd73a` foi
+> gatilho, nao causa: ele mudou o padrao de alocacao e expos um defeito que ja
+> estava dormindo no teste desde que ele nasceu — `LeitoraContadora` usava
+> `id(pixels)` de recortes transitorios como identidade estavel, e o CPython
+> recicla esses enderecos. As medidas insensiveis ao alocador sao **identicas**
+> antes (`8b87eb3`, verde) e depois (`efcd73a`, vermelho): 6 linhas aceitas,
+> `barata.chamadas == conferencia.chamadas == 6`, `vistos_2x == vistos_3x`.
+> Detalhe completo nas janelas **#37** e **#38**.
+>
+> Estado depois do conserto: **2794 passed, 2 skipped** (sem `test_agenda.py`)
+> + **145 passed** (so ele) = zero falhas.
+>
+> Licao de processo: a contagem de fechamento tem de ser medida **no commit que
+> fecha a fase**, nunca antes dele.
 - `calibration.json` md5 `1d6b9b6b051408e374c9ddbb288f1d28` ANTES e DEPOIS, 13 moldes / 3 ancoras / layout `negociacao` / versao 2 — **nao commitado, nao alterado**
