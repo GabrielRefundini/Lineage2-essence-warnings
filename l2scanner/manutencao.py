@@ -32,6 +32,7 @@ ja quebrou.
 
 from __future__ import annotations
 
+import difflib
 import logging
 import re
 from dataclasses import dataclass
@@ -61,7 +62,29 @@ ANTECEDENCIA = timedelta(minutes=5)
 FOLGA_APOS_A_MANUTENCAO = timedelta(minutes=10)
 
 # A raiz que cobre `maintence` (o typo do jogo) e `maintenance` de uma vez.
+# ELA NAO BASTA — ver `eh_banner_de_manutencao`. Continua aqui porque e o
+# CAMINHO RAPIDO: quando o OCR entrega a palavra inteira, nenhuma conta de
+# semelhanca precisa rodar.
 _RAIZ = "mainten"
+
+# As duas grafias inteiras, para a comparacao POR SEMELHANCA. O jogo escreve
+# `Maintence`; `Maintenance` esta aqui para o dia em que ele corrigir o typo.
+_GRAFIAS = ("maintence", "maintenance")
+
+# A ANCORA. Medida em 31/08 nas oito leituras reais: aparece em 8 de 8, e limpa
+# em 7. E o trecho mais confiavel do banner inteiro — mais que o titulo.
+_ANCORA = "avoid entering instance"
+
+# UM CORTE SO PARA OS DOIS RAMOS, e ele esta preso a uma colisao medida.
+# Ver a tabela em `eh_banner_de_manutencao`: `aintence` da 0,941, `aiptence` da
+# 0,824 e `main entrance` da 0,833. O corte tem de ficar ACIMA de 0,833, entao
+# 0,85. O `aiptence` fica de fora de proposito e e recuperado pela ancora.
+_CORTE_DA_SEMELHANCA = 0.85
+
+# Quanto a janela de comparacao pode encolher ou crescer em relacao ao alvo.
+# 2 caracteres cobrem o lixo que o OCR gruda nas bordas da palavra
+# (`Servergqaiptenceatl`, `"aintencea2J`) sem varrer a tela inteira.
+_FOLGA_DA_JANELA = 2
 
 # DOIS JOGOS DE PADROES, E A SEPARACAO E A CORRECAO INTEIRA.
 #
@@ -111,25 +134,6 @@ _TETO = timedelta(hours=24)
 _TROCAS = str.maketrans({"O": "0", "o": "0", "l": "1", "I": "1", "S": "5", "s": "5"})
 
 
-def eh_banner_de_manutencao(texto: str | None) -> bool:
-    """A primeira das TRES portas contra inventar uma manutencao.
-
-    As outras duas sao exigir uma duracao interpretavel (`interpretar_banner`)
-    e exigir o consenso de duas leituras (`VigiaDeManutencao`). Nenhuma delas
-    sozinha basta, e e por isso que sao tres.
-
-    A raiz `mainten` sozinha basta porque ela e o token mais RARO da tela: nem
-    o chat, nem um nome de personagem, nem o nome de um item a produzem por
-    acidente. Exigir tambem a palavra `server` seria PIOR, nao melhor — um
-    `5erver` mal lido pelo OCR derrubaria a deteccao inteira, e `server`
-    aparece em frases que nao sao o banner (`the server will restart in a few
-    minutes`, dos prints do usuario) sem trazer nenhum poder de discriminacao.
-    """
-    if not texto:
-        return False
-    return _RAIZ in texto.lower()
-
-
 def _normalizar_digitos(texto: str) -> str:
     """O/l/I/S viram digito SO em token que ja tem um digito de verdade.
 
@@ -142,6 +146,152 @@ def _normalizar_digitos(texto: str) -> str:
         token.translate(_TROCAS) if any(c.isdigit() for c in token) else token
         for token in texto.split()
     )
+
+
+def _semelhanca_maxima(alvo: str, texto: str) -> float:
+    """O melhor pedaco de `texto` que se parece com `alvo`, de 0,0 a 1,0.
+
+    JANELA DESLIZANTE, E NAO COMPARACAO POR TOKEN, porque o defeito que esta
+    funcao existe para vencer GRUDA palavras: o motor entregou
+    `Servergqaiptenceatl` e `"aintencea2J` como UM token so. Comparar token
+    contra token afogaria `aintence` no lixo colado nele.
+
+    A METRICA E `difflib.SequenceMatcher`, DA STDLIB, E NAO `rapidfuzz`.
+    Mesmo motivo ja registrado em `mercado_catalogo` (D-04): `rapidfuzz` NAO
+    esta instalado e NAO esta no `requirements.txt` deste projeto, e a arvore de
+    dependencias e guardada por `tests/test_firewall_escopo.py`. Sobre alvos de
+    9 a 23 caracteres as duas metricas dao praticamente o mesmo numero, e uma
+    dependencia nova para isso seria paga em risco sem nada em troca.
+
+    CUSTO MEDIDO: 3,4 ms para varrer um texto de ~100 caracteres contra as duas
+    grafias E a ancora. A cadencia e de 5 s e a passada de OCR que produz o
+    texto custa 23 ms, entao isto e ruido. E o caminho rapido de
+    `eh_banner_de_manutencao` nem chega aqui quando a palavra veio inteira.
+    """
+    alvo = alvo.lower()
+    texto = texto.lower()
+    tamanho = len(alvo)
+    melhor = 0.0
+    medidor = difflib.SequenceMatcher(autojunk=False)
+    medidor.set_seq1(alvo)
+    for largura in range(max(1, tamanho - _FOLGA_DA_JANELA), tamanho + _FOLGA_DA_JANELA + 1):
+        for inicio in range(0, max(1, len(texto) - largura + 1)):
+            medidor.set_seq2(texto[inicio : inicio + largura])
+            # Os dois limites SUPERIORES baratos do proprio difflib, na ordem
+            # de custo. E o que mantem a varredura em milissegundos.
+            if medidor.real_quick_ratio() <= melhor or medidor.quick_ratio() <= melhor:
+                continue
+            razao = medidor.ratio()
+            if razao > melhor:
+                melhor = razao
+    return melhor
+
+
+def parece_palavra_de_manutencao(texto: str | None) -> bool:
+    """`Maintence` mesmo com o OCR comendo letras. PUBLICA de proposito.
+
+    Ela e um dos DOIS ramos da porta 1 e tem uma medicao propria (a colisao com
+    `main entrance`), entao precisa poder ser cobrada sozinha por teste. Cobrar
+    so a porta inteira deixaria o ramo passar a valer por acidente, pela ancora.
+    """
+    if not texto:
+        return False
+    if _RAIZ in texto.lower():
+        return True  # caminho rapido: a palavra veio inteira
+    return any(
+        _semelhanca_maxima(grafia, texto) >= _CORTE_DA_SEMELHANCA
+        for grafia in _GRAFIAS
+    )
+
+
+def _tem_a_ancora(texto: str) -> bool:
+    """`avoid entering instance`, inteira ou embaralhada."""
+    if _ANCORA in texto.lower():
+        return True  # caminho rapido: 7 das 8 leituras de campo param aqui
+    return _semelhanca_maxima(_ANCORA, texto) >= _CORTE_DA_SEMELHANCA
+
+
+def _tem_contagem(texto: str) -> bool:
+    """Existe numero colado numa unidade de tempo neste texto?
+
+    Reusa as MESMAS capturas de `interpretar_banner` de proposito: se a porta 1
+    aceitasse uma forma de contagem que o parser nao entende, ela abriria a
+    porta para uma leitura que nunca vira aviso — barulho no log e nada mais.
+    """
+    normalizado = _normalizar_digitos(texto).lower()
+    return any(
+        padrao.search(normalizado) for padrao in (_HORAS, _MINUTOS, _SEGUNDOS)
+    )
+
+
+def eh_banner_de_manutencao(texto: str | None) -> bool:
+    """A primeira das TRES portas contra inventar uma manutencao.
+
+    As outras duas sao exigir uma duracao interpretavel (`interpretar_banner`)
+    e exigir consenso (`VigiaDeManutencao`). Nenhuma sozinha basta, e e por
+    isso que sao tres. Elas continuam sendo tres depois deste conserto.
+
+    A RAZAO ANTIGA CAIU EM CAMPO, ENTAO ELA FICA ESCRITA AQUI
+    =========================================================
+    Ate 31/08/2026 esta porta era `"mainten" in texto.lower()`, com o argumento
+    de que a raiz e o token mais RARO da tela. O raciocinio estava certo e o
+    TOKEN estava errado. Em 31/08 o servidor entrou em manutencao as ~18:20,
+    o banner ficou na tela por quase uma hora, o scanner nao anunciou NADA, e
+    quatro rodadas de `--testar-manutencao --janela` mediram por que:
+
+        escala  o que o motor leu, no trecho do titulo   contem `mainten`?
+        2x      `Servergqaiptenceatl`                    NAO
+        3x      `Server` (a palavra sumiu inteira)       NAO
+        2x      (a palavra sumiu inteira)                NAO
+        3x      (a palavra sumiu inteira)                NAO
+        2x      (a palavra sumiu inteira)                NAO
+        3x      `Server "aintencea2J`                    NAO
+        2x      (a palavra sumiu inteira)                NAO
+        3x      `Server "aintencea,QJ`                   NAO
+
+    O `M` maiusculo NUNCA sobreviveu: 8 leituras, 8 ausencias da raiz. A porta
+    1 nunca fechava, e as outras duas portas nem chegavam a ser consultadas.
+
+    DOIS RAMOS INDEPENDENTES, E CADA UM COBRE O QUE O OUTRO PERDE
+    =============================================================
+    RAMO A — a PALAVRA, por semelhanca (`parece_palavra_de_manutencao`).
+    Medido com `difflib` contra `maintence`/`maintenance`:
+
+        `aintence`       0,941  -> passa
+        `main entrance`  0,833  -> NAO passa
+        `aiptence`       0,824  -> NAO passa
+        `instance`       0,706  -> NAO passa
+
+    O corte e 0,85 porque tem de ficar ACIMA de 0,833. E NENHUM corte escalar
+    resolveria melhor: `aiptence` (0,824) esta ABAIXO de `main entrance`
+    (0,833), entao aceitar o embaralhado obrigaria a aceitar a colisao junto.
+    HONESTIDADE SOBRE A PROVENIENCIA: `aintence` e `aiptence` sao leituras
+    reais do jogo; `main entrance` e uma string ADVERSARIAL construida aqui, a
+    colisao mais proxima que consegui montar com texto plausivel de jogo. Ela
+    nao foi vista na tela, e mesmo assim manda no corte, porque o custo de uma
+    manutencao inventada e uma mensagem falsa no grupo.
+
+    RAMO B — a ANCORA `avoid entering instance` MAIS uma contagem.
+    Medida nas mesmas oito leituras: aparece em 8 de 8, limpa em 7, e na oitava
+    (`4—vvaÅZidentering instance`) da 0,889 por semelhanca. E o trecho mais
+    confiavel do banner inteiro, mais que o proprio titulo — e e ele que
+    recupera as leituras em que a palavra sumiu.
+
+    A CONTAGEM E OBRIGATORIA NESTE RAMO, e nao e detalhe: a frase sozinha JA
+    aparecia na lista de textos que NAO sao o banner
+    (`test_texto_que_nao_e_o_banner_nao_vira_nada`), porque o jogo a diz em
+    outros contextos. Ancora E contagem, nunca ancora sozinha.
+
+    O QUE NAO MUDOU, e continua valendo pelo mesmo motivo de antes: exigir a
+    palavra `server` seria PIOR, nao melhor. Um `5erver` mal lido derrubaria a
+    deteccao, e `server` aparece em frases que nao sao o banner (`the server
+    will restart in a few minutes`, dos prints do usuario).
+    """
+    if not texto:
+        return False
+    if parece_palavra_de_manutencao(texto):
+        return True
+    return _tem_a_ancora(texto) and _tem_contagem(texto)
 
 
 def interpretar_banner(texto: str | None) -> timedelta | None:
