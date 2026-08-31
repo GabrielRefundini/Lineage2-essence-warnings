@@ -450,3 +450,12 @@ rotuladas) continuam falhando FECHADAS — nada errado e gravado. E o portao hum
 ---
 *Phase: 02-leitura-de-p-gina*
 *Completed: 2026-08-31*
+
+## Self-Check: PASSED
+
+- `tools/medir_brilho_da_quantidade.py` — FOUND
+- `tests/test_medir_brilho_da_quantidade.py` — FOUND
+- `.planning/workstreams/mercado/phases/02-leitura-de-p-gina/02-07-SUMMARY.md` — FOUND
+- commits `e0e0083`, `d8c4711`, `d3fb336`, `e513219`, `61a339d`, `2aeb2bf`, `2cf27f2` — todos FOUND
+- `calibration.json` fora do git: `git status --short | grep -c` = 0, e ZERO ocorrencias em
+  `git log --name-only` de toda a onda
