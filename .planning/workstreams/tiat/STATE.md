@@ -105,3 +105,25 @@ Tiat disparar o aviso no WhatsApp, e ver a janela abrir 6h depois.
 A vigia esta calibrada na janela do Yazalaque (medida 2026-08-30 as 14:27,
 regioes tiat_chat 8,878 625x455 e tiat_alvo 350,772 160x24, provadas contra
 OCR real). A SEGUNDA instancia usa a mesma calibracao e NAO foi conferida.
+
+## Fase 3 (2026-08-30) — defeito de campo, fechado
+
+Seis mensagens para um nascimento viraram uma. Duas causas, as duas medidas:
+
+1. O aviso de nascimento era o UNICO do projeto sem marcador duravel, entao as
+   duas instancias anunciavam cada uma. Agora passa por `marcar()`, com a chave
+   ancorada no nascimento MAIS ANTIGO do episodio — nao no instante da
+   deteccao (as instancias ticam em minutos diferentes: 21:59 contra 22:01) e
+   nao na ancora mais recente (a remarcacao a reescreve).
+
+2. ACHADO DURANTE O PLANEJAMENTO, e pior que o spam: o chat ja era engolido
+   pelo alvo. `_armado[boss]` era um flag so, entao um boss segurado no alvo
+   descartava a frase do servidor DENTRO do vigia, antes de qualquer disco —
+   sem ancora, sem log, sem rastro. Era o inverso exato da regra do usuario
+   ("o chat sempre avisa, pois eu posso estar longe do computador"). O rearme
+   passou a ser por (canal, boss).
+
+Os sete testes de rearme atravessaram byte a byte: `git diff` sobre
+`tests/test_bosses.py` deu 126 adicoes e 0 remocoes.
+
+Suite: 2821 passando, zero falha.

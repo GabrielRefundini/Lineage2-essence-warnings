@@ -242,8 +242,8 @@ Não negociáveis, aprendidas em 10 fases entregues:
 
 Plans:
 
-- [ ] 03-01-PLAN.md — Tracer: o aviso de nascimento passa a ter marcador duravel por EPISODIO (`anuncio_<data>_<slug>-<HHMM>`), a ancora fica antes e fora do `if`, e os portoes AST contra a supressao virar perda — wave 1
-- [ ] 03-02-PLAN.md — O rearme em memoria deixa de ser um estado unico por boss e passa a ser por CANAL: o anuncio do servidor nao pode mais ser engolido pelo alvo segurado (wave 2 — o teste ponta a ponta depende do marcador que nasce em `03-01`)
+- [x] 03-01-PLAN.md — Tracer: o aviso de nascimento passa a ter marcador duravel por EPISODIO (`anuncio_<data>_<slug>-<HHMM>`), a ancora fica antes e fora do `if`, e os portoes AST contra a supressao virar perda — wave 1
+- [x] 03-02-PLAN.md — O rearme em memoria deixa de ser um estado unico por boss e passa a ser por CANAL: o anuncio do servidor nao pode mais ser engolido pelo alvo segurado (wave 2 — o teste ponta a ponta depende do marcador que nasce em `03-01`)
 
 **Nota de planejamento — as tres decisoes de discricao, resolvidas:** a chave do
 marcador e `anuncio_<YYYY-MM-DD>_<boss-slug>-<HHMM>` com o instante do **inicio do
