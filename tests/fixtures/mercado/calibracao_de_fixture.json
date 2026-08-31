@@ -283,6 +283,6 @@
   "mercado_piso_de_similaridade": 0.8837320574162679,
   "mercado_tolerancia_do_cruzamento": null,
   "mercado_minimo_de_linhas_comparadas": 7,
-  "mercado_limiar_de_brilho_da_quantidade": 180,
+  "mercado_limiar_de_brilho_da_quantidade": 161,
   "mercado_folga_de_cola_do_glifo": 1
 }

@@ -101,14 +101,51 @@ JANELA_F010 = FIXTURES / "janela_negociacao_f010.png"
 JANELA_F005 = FIXTURES / "janela_negociacao_f005.png"
 JANELA_F005_REPETIDA = FIXTURES / "janela_negociacao_f005_repetida.png"
 
-# As duas linhas de `frame_000010` que atravessam o caminho INTEIRO. Medidas,
-# nao supostas: as outras oito caem, e a docstring do modulo diz por que.
-LINHAS_QUE_ATRAVESSAM_F010 = {6: (1890, 2), 8: (1800, 3)}
+# As linhas de `frame_000010` que atravessam o caminho INTEIRO. Medidas, nao
+# supostas.
+#
+# ELAS CRESCERAM DE 2 PARA 6 NO 02-07, E O NUMERO E MEDIDO. Ate aqui a coluna
+# Quantity lia no piso compartilhado 180 e o tronco do `1` (V = 174 no censo)
+# ficava de fora: toda linha de quantidade `1` caia FECHADA. Com o piso PROPRIO
+# da coluna, MEDIDO em 161, as quatro linhas de quantidade `1` (4, 5, 7 e 9)
+# passam a atravessar. As DUAS que ja atravessavam continuam com os MESMOS
+# digitos — 6 vale (1890, 2) e 8 vale (1800, 3) —, e essa igualdade e o que
+# prova que o piso novo NAO vazou para a coluna de moeda.
+LINHAS_QUE_ATRAVESSAM_F010_ANTES_DO_PISO_PROPRIO = {6: (1890, 2), 8: (1800, 3)}
+LINHAS_QUE_ATRAVESSAM_F010 = {
+    4: (10000, 1),
+    5: (300, 1),
+    6: (1890, 2),
+    7: (750, 1),
+    8: (1800, 3),
+    9: (245, 1),
+}
 
-# As quatro linhas de `frame_000005` que atravessam. Este e o par de frames
-# PARADOS (005 e 006 mostram a mesma pagina), e por isso e ele que prova o
-# acordo entre dois frames.
-LINHAS_QUE_ATRAVESSAM_F005 = {1: (3666, 3), 3: (1500, 3), 5: (1139, 6), 6: (500, 2)}
+# As linhas de `frame_000005` que atravessam. Este e o par de frames PARADOS
+# (005 e 006 mostram a mesma pagina), e por isso e ele que prova o acordo entre
+# dois frames.
+#
+# ELAS CRESCERAM DE 4 PARA 10 NO 02-07, pela mesma medicao: as seis linhas novas
+# (0, 2, 4, 7, 8 e 9) tem todas quantidade `1`, e as quatro antigas continuam
+# com os MESMOS totais e as MESMAS quantidades.
+LINHAS_QUE_ATRAVESSAM_F005_ANTES_DO_PISO_PROPRIO = {
+    1: (3666, 3),
+    3: (1500, 3),
+    5: (1139, 6),
+    6: (500, 2),
+}
+LINHAS_QUE_ATRAVESSAM_F005 = {
+    0: (300, 1),
+    1: (3666, 3),
+    2: (498, 1),
+    3: (1500, 3),
+    4: (190, 1),
+    5: (1139, 6),
+    6: (500, 2),
+    7: (1400, 1),
+    8: (190, 1),
+    9: (190, 1),
+}
 
 
 def ler_fixtura(caminho: Path) -> np.ndarray:
@@ -1002,38 +1039,67 @@ class TestARecusaEPorLinhaNuncaPorPagina:
         distingue "recusa por linha" de "recusa por pagina": uma recusa por
         pagina daria a TODAS as dez linhas o mesmo motivo.
 
-        A razao de elas nao atravessarem esta medida e registrada na docstring de
-        `ler_celula_de_quantidade`: a quantidade destas duas linhas e `1`, e o
-        tronco do `1` da coluna Quantity e desenhado a V = 177, abaixo do piso
-        180 de `mascara_de_texto`. A falha e FECHADA, que e o comportamento
-        certo, e o conserto e um piso de brilho proprio da coluna, MEDIDO.
+        O CONSERTO CHEGOU NO 02-07, E ESTE TESTE MUDOU DE FORMA POR MEDICAO.
+        Ate aqui as duas linhas descobertas caiam pela peneira SEGUINTE — a
+        gramatica —, porque a quantidade delas e `1` e o tronco do `1` da coluna
+        Quantity e desenhado a V = 174 (remedido no censo do 02-07), abaixo do
+        piso compartilhado 180 de `mascara_de_texto`. Com o piso PROPRIO da
+        coluna, MEDIDO em 161, elas atravessam INTEIRAS e leem `1`. A afirmacao
+        que o teste protege nao mudou — a recusa e por LINHA e nunca por PAGINA
+        —, e agora ela e ainda mais forte: as descobertas nao aparecem entre as
+        descartadas de jeito nenhum, e TODA descartada caiu por oclusao.
         """
         leitor, _b, _c, _v2, _v3 = montar_leitor(
             cal, "Common Fafurion Doll", "Common Fafurion Doll"
         )
         leitor.observar(ler_fixtura(JANELA_TOOLTIP))
         leitura = leitor.ultima_leitura
-        por_indice = dict(zip(leitura.descartadas, leitura.motivos))
+        lidas = {linha.indice: linha.quantidade for linha in leitura.linhas}
         for indice in DESCOBERTAS_NO_TOOLTIP:
-            assert por_indice[indice] != MOTIVO_DA_OCLUSAO
-        assert set(leitura.motivos) == {MOTIVO_DA_OCLUSAO, MOTIVO_DA_GRAMATICA}
+            assert indice not in leitura.descartadas
+            assert lidas[indice] == 1
+        assert set(leitura.motivos) == {MOTIVO_DA_OCLUSAO}
 
     def test_a_pagina_com_tooltip_nao_para_no_primeiro_descarte(self, cal) -> None:
         leitor, _b, _c, _v2, _v3 = montar_leitor(
             cal, "Common Fafurion Doll", "Common Fafurion Doll"
         )
         leitor.observar(ler_fixtura(JANELA_TOOLTIP))
-        assert len(leitor.ultima_leitura.descartadas) == int(
+        leitura = leitor.ultima_leitura
+        # TODA linha da grade foi JULGADA — nenhuma ficou sem veredito. Ate o
+        # 02-07 as dez cabiam em `descartadas`; com o piso proprio da Quantity
+        # duas delas viram `LinhaLida`, e a soma e que continua sendo dez. E a
+        # soma que responde a pergunta do teste: a pagina nao parou no primeiro
+        # descarte.
+        assert len(leitura.descartadas) + len(leitura.linhas) == int(
             cal.mercado_grade["linhas_por_pagina"]
         )
+        assert len(leitura.descartadas) > 0
 
     def test_a_linha_descartada_NAO_entra_no_estabilizador(self, cal) -> None:
-        """Duas paginas so de descarte nunca viram `PaginaAceita`."""
+        """A descartada nunca chega a `PaginaAceita`, e agora isso se ve.
+
+        Ate o 02-07 esta fixtura nao produzia leitura nenhuma — as dez linhas
+        caiam — e a afirmacao so podia ser feita pela NEGATIVA (`is None`), que
+        e verdadeira tambem quando o estabilizador esta simplesmente quebrado.
+        Com o piso proprio da Quantity, MEDIDO em 161, as duas linhas
+        descobertas atravessam, a pagina e aceita no segundo frame, e o teste
+        passa a afirmar pelo POSITIVO: a pagina aceita contem exatamente as
+        descobertas, e NENHUMA das oito cobertas por tooltip.
+        """
         leitor, _b, _c, _v2, _v3 = montar_leitor(
             cal, "Common Fafurion Doll", "Common Fafurion Doll"
         )
         assert leitor.observar(ler_fixtura(JANELA_TOOLTIP)) is None
-        assert leitor.observar(ler_fixtura(JANELA_TOOLTIP)) is None
+        pagina = leitor.observar(ler_fixtura(JANELA_TOOLTIP))
+        assert isinstance(pagina, PaginaAceita)
+        assert {linha.indice for linha in pagina.linhas} == set(
+            DESCOBERTAS_NO_TOOLTIP
+        )
+        descartadas = set(leitor.ultima_leitura.descartadas)
+        assert descartadas and not (
+            descartadas & {linha.indice for linha in pagina.linhas}
+        )
 
 
 class TestALinhaVazia:
@@ -1071,7 +1137,12 @@ class TestALinhaVazia:
         leitor.observar(ler_fixtura(JANELA_COM_LINHAS_VAZIAS))
         leitura = leitor.ultima_leitura
         assert leitura.vazias == (1, 2, 3, 4, 5, 6, 7, 8, 9)
-        assert leitura.descartadas == (0,)
+        # A linha 0 tem quantidade `1` e, ate o 02-07, caia FECHADA no piso
+        # compartilhado. Com o piso proprio da Quantity, MEDIDO em 161, ela
+        # ATRAVESSA — e o que o teste afirma continua sendo o mesmo: as nove
+        # vazias marcam o fim da pagina e nenhuma delas vira descarte.
+        assert leitura.descartadas == ()
+        assert [linha.indice for linha in leitura.linhas] == [0]
 
     def test_linha_vazia_NAO_conta_como_perda(self, cal) -> None:
         """Tres estados distintos: lida, descartada, vazia."""
@@ -1120,7 +1191,13 @@ class TestOLogDaRecusa:
             leitor.observar(ler_fixtura(JANELA_TOOLTIP))
             leitor.observar(ler_fixtura(JANELA_TOOLTIP))
         recusas = [r for r in caplog.records if "RECUSADA" in r.getMessage()]
-        assert len(recusas) == 20
+        # UMA linha de log por linha descartada, em CADA uma das duas
+        # observacoes. O total e DERIVADO da leitura e nao escolhido a mao: com
+        # o piso proprio da Quantity duas das dez linhas passaram a atravessar,
+        # e um 20 gravado aqui viraria um numero que sobreviveu a propria razao.
+        descartadas = len(leitor.ultima_leitura.descartadas)
+        assert descartadas > 0
+        assert len(recusas) == 2 * descartadas
 
 
 # ---------------------------------------------------------------------------
