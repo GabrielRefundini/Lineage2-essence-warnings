@@ -2486,3 +2486,452 @@ class TestAFraseDoDryRunEVERDADE:
             assert mentira not in frase, (
                 f"a frase promete o que nao cumpre: o gravar NAO e simulado.\n{frase}"
             )
+
+
+# ---------------------------------------------------------------------------
+# BATI-04: O NOME QUE JA E DE OUTRA PESSOA
+# ---------------------------------------------------------------------------
+
+# A linha da fixture que vira a entrada A destes casos. A entrada B continua
+# sendo `LINHA_DA_FATIA`, que e a que o resto do arquivo ja usa.
+#
+# DUAS LINHAS DO MESMO FRAME REAL, e nao duas assinaturas fabricadas: o que
+# BATI-04 decide e sobre o NOME, mas o alvo continua sendo resolvido pelo
+# apelido, e um apelido so e realista se a chave vier de um recorte de verdade.
+LINHA_DE_A = 0
+
+
+def duas_entradas(tmp_path, pixels, calibracao, nome_de_a=None):
+    """As entradas A e B semeadas A MAO, e a garantia de que os apelidos diferem.
+
+    O par e semeado sem passar por caminho de escrita de producao nenhum, no
+    idioma de `semear`: o cenario de partida do BATI-04 nao pode depender da
+    feature que ele testa.
+
+    A AFIRMACAO DOS APELIDOS DISTINTOS NAO E ENFEITE. Se os seis digitos
+    empatassem, `resolver` devolveria `ambiguo` e todo caso desta secao passaria
+    a provar a recusa ERRADA, com cara de estar provando BATI-04.
+    """
+    chave_a = semear(
+        tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DE_A), nome_de_a
+    )
+    chave_b = semear(
+        tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+    )
+    assert apelido_da_chave(chave_a) != apelido_da_chave(chave_b), (
+        "os apelidos de A e B empataram nos seis digitos: estes casos "
+        "passariam a exercitar a recusa AMBIGUA e nao a de nome duplicado"
+    )
+    return chave_a, chave_b
+
+
+class TestONomeQueJaEDeOutraPessoa:
+    """BATI-04 e D-07: um nome e um recurso EXCLUSIVO a partir desta fase.
+
+    Dar um nome a uma entrada TIRA esse nome de todas as outras. Sem esta
+    recusa, duas assinaturas de pessoas DIFERENTES sairiam com o mesmo nome em
+    dois alertas, e nao haveria como saber qual e qual — a mentira plausivel de
+    sempre, chegando pela porta nova do batismo.
+    """
+
+    def test_batizar_B_com_o_nome_de_A_e_RECUSADO_e_nada_e_escrito(
+        self, tmp_path, pixels, calibracao
+    ):
+        """As TRES afirmacoes, e nao so a recusa.
+
+        Um caso que afirmasse apenas o texto deixaria passar uma implementacao
+        que recusa por fora e escreve por dentro.
+        """
+        chave_a, chave_b = duas_entradas(
+            tmp_path, pixels, calibracao, nome_de_a="Mostarda"
+        )
+        antes = retrato_da_pasta(tmp_path)
+
+        despachante = responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_b)} Mostarda",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+        )
+
+        assert not (tmp_path / f"{PREFIXO_NOME}{chave_b}").exists(), (
+            "a recusa escreveu o nome mesmo assim: as duas entradas ficariam "
+            "chamadas Mostarda e os alertas viravam ambiguos"
+        )
+        assert (tmp_path / f"{PREFIXO_NOME}{chave_a}").read_text(
+            encoding="utf-8"
+        ) == "Mostarda", "a entrada que JA tinha o nome nao pode ser tocada"
+        assert retrato_da_pasta(tmp_path) == antes, (
+            "a pasta mudou numa recusa. Nada, byte a byte, pode mudar quando "
+            "o batismo e recusado"
+        )
+        assert apelido_da_chave(chave_a) in despachante.textos[0]
+
+    def test_a_recusa_diz_QUAL_entrada_tem_o_nome_e_COMO_liberar(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A SAIDA DE T-02-07 mora aqui, e em nenhum outro lugar.
+
+        Um recorte contaminado (algo claro por cima do nome) pontua 0.0 contra
+        tudo, passa no veto de D-02 e pode ter sido aprendido. Se o usuario
+        responder a pergunta dele com `Mostarda`, o nome fica QUEIMADO: quando
+        a Mostarda de verdade for aprendida, o batismo dela cai exatamente
+        nesta recusa.
+
+        Nao ha comando de esquecer no v1 (adiado na Fase 1, e em Deferred Ideas
+        do CONTEXT), entao a unica saida e batizar a entrada de lixo com outro
+        nome. Esta mensagem e o unico lugar onde o usuario vai procurar por ela;
+        uma recusa que so dissesse "esse nome ja e de outra" seria um beco.
+        """
+        chave_a, chave_b = duas_entradas(
+            tmp_path, pixels, calibracao, nome_de_a="Mostarda"
+        )
+
+        texto = responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_b)} Mostarda",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+        ).textos[0]
+
+        assert apelido_da_chave(chave_a) in texto, (
+            "sem o apelido da entrada DONA o usuario nao tem sobre o que agir"
+        )
+        assert "/batizar" in texto, (
+            "a recusa tem de ensinar a saida com o unico comando que existe"
+        )
+        assert "com outro nome" in texto, (
+            "a saida e batizar a OUTRA entrada com outro nome; sem essa frase "
+            "a recusa e um beco sem saida num acervo sem comando de esquecer"
+        )
+        assert "Nada mudou" in texto
+
+    def test_a_recusa_carrega_a_leitura_de_T0218(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A divida T-02-18 vira LEGIVEL, e nao resolvida.
+
+        Medido na Fase 2: 42 celulas de drift dao 0.7531 e nada nasce; 43 dao
+        0.7492 e uma SEGUNDA entrada da mesma pessoa nasce. Quando isso
+        acontece, o usuario tenta dar o mesmo nome as duas e cai aqui. Sem a
+        frase que diz que a segunda ficar sem nome NAO FAZ MAL, ele conclui que
+        o scanner esta quebrado e fica tentando.
+        """
+        _, chave_b = duas_entradas(
+            tmp_path, pixels, calibracao, nome_de_a="Mostarda"
+        )
+
+        texto = responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_b)} Mostarda",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+        ).textos[0]
+
+        assert "aprendi o rosto dela duas vezes" in texto, (
+            "a recusa tem de dizer em voz alta o que provavelmente aconteceu"
+        )
+        assert "nunca vira sujeito de alerta" in texto, (
+            "e tem de dizer que a segunda sem nome nao faz mal: assinatura "
+            "anonima e reconhecida e nunca vira sujeito de alerta (APRE-03)"
+        )
+
+    def test_a_recusa_NAO_ecoa_no_grupo(self, tmp_path, pixels, calibracao):
+        """As recusas sao entre quem digitou e o scanner."""
+        _, chave_b = duas_entradas(
+            tmp_path, pixels, calibracao, nome_de_a="Mostarda"
+        )
+
+        despachante = responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_b)} Mostarda",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+        )
+
+        assert despachante.alvos == ["1"], (
+            f"a recusa vazou para o grupo: {despachante.alvos}"
+        )
+
+    def test_a_comparacao_IGNORA_a_caixa(self, tmp_path, pixels, calibracao):
+        """`mostarda` contra `Mostarda` tambem e recusado.
+
+        POR QUE SER MAIS ESTRITO AQUI NAO CONTRADIZ `carregar_identidades`, que
+        compara nomes por igualdade EXATA: la a pergunta e "esta entrada do
+        acervo duplica uma CALIBRADA?", e um erro para o lado frouxo custa
+        silencio. Aqui a pergunta e "este nome ja esta ocupado?", e um erro para
+        o lado frouxo custa duas entradas chamadas `Mostarda` e `mostarda` —
+        que qualquer humano lendo um alerta le como a MESMA pessoa. A regra
+        estrita e um subconjunto da frouxa: ela so RECUSA mais, e recusar mais
+        nao pode produzir um nome errado.
+        """
+        chave_a, chave_b = duas_entradas(
+            tmp_path, pixels, calibracao, nome_de_a="Mostarda"
+        )
+        antes = retrato_da_pasta(tmp_path)
+
+        texto = responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_b)} mostarda",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+        ).textos[0]
+
+        assert not (tmp_path / f"{PREFIXO_NOME}{chave_b}").exists(), (
+            "duas entradas chamadas Mostarda e mostarda produziriam dois "
+            "alertas com nomes que so diferem na caixa, e um humano lendo o "
+            "grupo nao tem como saber que sao pessoas diferentes"
+        )
+        assert apelido_da_chave(chave_a) in texto
+        assert retrato_da_pasta(tmp_path) == antes
+
+    def test_rebatizar_a_PROPRIA_entrada_em_outra_caixa_e_ACEITO(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A excecao de D-07 e o PROPRIO alvo, e sem ela nada se corrige.
+
+        A entrada X batizada `kaus` recusada como duplicata DELA MESMA deixaria
+        a correcao de caixa impossivel — e correcao de caixa e exatamente o
+        conserto mais provavel depois de um batismo digitado no celular.
+        """
+        chave_a, _ = duas_entradas(tmp_path, pixels, calibracao, nome_de_a="kaus")
+
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_a)} Kaus",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+        )
+
+        assert (tmp_path / f"{PREFIXO_NOME}{chave_a}").read_text(
+            encoding="utf-8"
+        ) == "Kaus", (
+            "a entrada foi recusada como duplicata dela mesma: a correcao de "
+            "caixa ficou impossivel (D-07)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# BATI-05: O BATISMO ERRADO SE CONSERTA PELA MESMA PORTA
+# ---------------------------------------------------------------------------
+
+
+class TestOBatismoErradoSeConsertaPelaMesmaPorta:
+    """BATI-05 e D-06: corrigir e a MESMA operacao, e nao um caminho segundo.
+
+    Um segundo comando `/corrigir-<apelido> <nick>` teria a MESMA
+    implementacao com outro nome, e os dois divergiriam na primeira vez que
+    alguem mexesse num deles sem lembrar do outro — a forma de defeito que este
+    projeto ja nomeou em `autorizado_para`, em `telefone_equivalente` e em
+    `membro_do_remetente`.
+
+    O que muda entre batizar e corrigir nao e a operacao, e a RESPOSTA.
+    """
+
+    def test_corrigir_grava_o_nome_novo_e_a_assinatura_fica_INTACTA(
+        self, tmp_path, pixels, calibracao
+    ):
+        chave_a, _ = duas_entradas(
+            tmp_path, pixels, calibracao, nome_de_a="Mostarda"
+        )
+        assinatura = tmp_path / f"{PREFIXO_ASSINATURA}{chave_a}.json"
+        antes = assinatura.read_bytes()
+        quantas_antes = len(AcervoDeIdentidades(tmp_path).chaves())
+
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_a)} Titander",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+        )
+
+        assert (tmp_path / f"{PREFIXO_NOME}{chave_a}").read_text(
+            encoding="utf-8"
+        ) == "Titander"
+        assert assinatura.read_bytes() == antes, (
+            "a correcao tocou a assinatura. Se ela muda, a chave muda, e o "
+            "acervo passa a ter DUAS entradas para a mesma pessoa (D-06)"
+        )
+        assert len(AcervoDeIdentidades(tmp_path).chaves()) == quantas_antes, (
+            "o numero de entradas mudou numa correcao: uma entrada por pessoa "
+            "e o criterio 5 inteiro"
+        )
+
+    def test_a_resposta_da_correcao_cita_o_nome_ANTIGO_e_o_NOVO(
+        self, tmp_path, pixels, calibracao
+    ):
+        """Sem o antigo, quem digitou nao confere que corrigiu a entrada certa.
+
+        O mesmo raciocinio ja escrito no `.pegou`, cuja resposta sempre diz o
+        DIA de volta para quem digitou conferir na hora que acertou o boss.
+        """
+        chave_a, _ = duas_entradas(
+            tmp_path, pixels, calibracao, nome_de_a="Mostarda"
+        )
+
+        texto = responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_a)} Titander",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+        ).textos[0]
+
+        assert "Mostarda" in texto, "a resposta nao diz o que a entrada ERA"
+        assert "Titander" in texto
+        assert "livre" in texto, (
+            "a resposta tem de dizer que o nome antigo ficou LIVRE: e a "
+            "informacao que fecha a saida de T-02-07"
+        )
+
+    def test_o_nome_antigo_e_LIBERADO_e_serve_para_a_outra_entrada(
+        self, tmp_path, pixels, calibracao
+    ):
+        """O criterio 5 inteiro, numa sequencia so.
+
+        Se o nome nao fosse liberado, a terceira chamada seria recusada — e o
+        usuario que errou uma vez ficaria com o nome queimado para sempre.
+        """
+        chave_a, chave_b = duas_entradas(
+            tmp_path, pixels, calibracao, nome_de_a="Mostarda"
+        )
+        acervo = AcervoDeIdentidades(tmp_path)
+
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_a)} Titander",
+            tmp_path,
+            acervo=acervo,
+        )
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_b)} Mostarda",
+            tmp_path,
+            acervo=acervo,
+            identificador=7778,
+        )
+
+        nomeados = AcervoDeIdentidades(tmp_path).nomeados()
+        assert nomeados == {chave_a: "Titander", chave_b: "Mostarda"}, (
+            "no fim tem de haver DUAS entradas, uma Titander e uma Mostarda: "
+            f"uma entrada por pessoa. Achado: {nomeados}"
+        )
+
+
+class TestACorrecaoValeNoMesmoTickNasDuasDirecoes:
+    """D-08 na correcao: o nome NOVO entra e o ANTIGO tem de SAIR da lista viva.
+
+    A metade que quase ninguem escreve e a segunda. Uma implementacao que
+    fizesse `append` em vez de substituir deixaria as duas convivendo, e duas
+    assinaturas quase iguais se sombreiam pela MARGEM: a pessoa pararia de ser
+    reconhecida, em silencio, que e a pior familia de defeito deste workstream.
+    """
+
+    def _cenario(self, tmp_path, pixels, calibracao):
+        chave_a, _ = duas_entradas(
+            tmp_path, pixels, calibracao, nome_de_a="Mostarda"
+        )
+        identidades = carregar_na_calibracao(calibracao, tmp_path)
+        vivos = [
+            a.nome
+            for a in calibracao.assinaturas
+            if chave_da_assinatura(a) == chave_a
+        ]
+        assert vivos == ["Mostarda"], (
+            f"premissa: a lista viva comeca com Mostarda. Achado: {vivos}"
+        )
+        rastreador = Rastreador(
+            nomes=list(calibracao.nomes),
+            nomes_reservados={"Mostarda"},
+            assinaturas_configuradas=identidades.configuradas,
+        )
+        return chave_a, rastreador
+
+    def test_a_lista_viva_troca_NO_LUGAR_e_o_nome_antigo_some(
+        self, tmp_path, pixels, calibracao
+    ):
+        chave_a, rastreador = self._cenario(tmp_path, pixels, calibracao)
+
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_a)} Titander",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+            assinaturas_vivas=calibracao.assinaturas,
+            rastreador=rastreador,
+        )
+
+        com_a_chave = [
+            a.nome
+            for a in calibracao.assinaturas
+            if chave_da_assinatura(a) == chave_a
+        ]
+        assert com_a_chave == ["Titander"], (
+            "a troca tem de ser NO LUGAR: um append deixaria duas assinaturas "
+            "quase iguais convivendo, elas se sombreariam pela margem e a "
+            f"pessoa pararia de ser reconhecida em silencio. Achado: "
+            f"{com_a_chave}"
+        )
+        assert not [a for a in calibracao.assinaturas if a.nome == "Mostarda"], (
+            "o nome ANTIGO continua na lista viva: o proximo extrair ainda "
+            "casaria a linha como Mostarda, e D-08 morreria pela metade"
+        )
+
+    def test_nomes_reservados_ganha_o_NOVO_e_NAO_perde_o_antigo(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A permanencia do antigo e DELIBERADA, e nao esquecimento.
+
+        `nomes_reservados` e um conservador: ele so diz "este nome nao serve de
+        rotulo por POSICAO", e nunca "esta pessoa esta aqui". Tirar `Mostarda`
+        de la faria aquele nome voltar a ser emprestado por posicao para
+        qualquer linha nao reconhecida — e um nome que ja pertenceu a uma
+        assinatura nunca deveria voltar a ser um palpite posicional. Errar para
+        o lado do silencio e a regra do projeto.
+        """
+        chave_a, rastreador = self._cenario(tmp_path, pixels, calibracao)
+
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_a)} Titander",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+            assinaturas_vivas=calibracao.assinaturas,
+            rastreador=rastreador,
+        )
+
+        assert "Titander" in rastreador.nomes_reservados
+        assert "Mostarda" in rastreador.nomes_reservados, (
+            "o nome antigo foi tirado do conservador e voltou a ser um palpite "
+            "posicional: qualquer linha nao reconhecida pode sair como "
+            "Mostarda de novo"
+        )
+
+
+class TestAGravacaoQueFalhaNaoMente:
+    """`falhou` nao atualiza a tela, e a resposta nao promete nada.
+
+    Um `falhou` que mexesse na lista viva faria a tela mostrar um nome que o
+    disco nao tem, e ele sumiria no proximo arranque sem explicacao nenhuma.
+    """
+
+    def test_com_falhou_a_resposta_nao_promete_e_os_vivos_ficam_intactos(
+        self, tmp_path, pixels, calibracao, monkeypatch
+    ):
+        chave_a, _ = duas_entradas(
+            tmp_path, pixels, calibracao, nome_de_a="Mostarda"
+        )
+        carregar_na_calibracao(calibracao, tmp_path)
+        rastreador = Rastreador(
+            nomes=list(calibracao.nomes),
+            nomes_reservados={"Mostarda"},
+            assinaturas_configuradas=True,
+        )
+        acervo = AcervoDeIdentidades(tmp_path)
+        monkeypatch.setattr(acervo, "nomear", lambda chave, nome: "falhou")
+
+        texto = responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_a)} Titander",
+            tmp_path,
+            acervo=acervo,
+            assinaturas_vivas=calibracao.assinaturas,
+            rastreador=rastreador,
+        ).textos[0]
+
+        assert "Titander" not in texto, (
+            f"a resposta prometeu um nome que o disco nao tem: {texto}"
+        )
+        assert "Nada mudou" in texto
+        assert [
+            a.nome
+            for a in calibracao.assinaturas
+            if chave_da_assinatura(a) == chave_a
+        ] == ["Mostarda"], "a lista viva foi atualizada num `falhou`"
+        assert "Titander" not in rastreador.nomes_reservados
