@@ -733,8 +733,22 @@ def registrar(self, linha: LinhaLida, agora: datetime) -> bool: ...
 
 ## Open Questions
 
+> **AS TRÊS ESTÃO RESOLVIDAS.** O planejamento da fase (2026-08-31) fechou as três; cada uma
+> carrega abaixo o marcador `(RESOLVED)` com a saída escolhida e onde ela vive.
+
 1. **A rede "termina em newline" deve descartar a última linha mesmo quando ela valida
-   inteira?**
+   inteira?** **(RESOLVED — nem descartar, nem reparar: RECUSAR o arquivo.)**
+   - **A saída escolhida, e ela é mais forte que a recomendação abaixo:** arquivo que não
+     termina em quebra de linha é **contrato quebrado** — a feature desliga alto, nada é lido
+     dele, e **nenhum byte é tocado**. Mesmo tratamento do cabeçalho divergente, na mesma função
+     de arranque e sobre o mesmo arquivo. Registrado como **D-17** em `03-01-PLAN.md`, com as
+     duas saídas recusadas escritas por extenso: (a) remover a cauda do disco apagaria dado bom
+     na metade dos casos que ela existe para tratar, e contradiz o D-12; (b) completar a cauda
+     com um newline **promove** a linha truncada a observação permanente — `'80'` cortado para
+     `'8'` tem 6 campos válidos e passa nas duas redes por linha para sempre.
+   - Custo aceito: uma queda de energia real desliga o registro até intervenção manual. A
+     mensagem diz ao usuário exatamente o que fazer para religar.
+   - *A recomendação original, mantida abaixo porque um número que caiu precisa dizer que caiu:*
    - O que sabemos: 5 de 5 truncagens medidas deixam o arquivo sem newline final; 2 delas
      produzem uma linha que valida.
    - O que não está claro: com que frequência o usuário vai editar à mão e salvar sem newline
@@ -745,11 +759,13 @@ def registrar(self, linha: LinhaLida, agora: datetime) -> bool: ...
      contradiz.
 
 2. **A coluna do nome sobrevive à importação no Sheets com nomes `+N`?** (Armadilha 1 / A3)
+   **(RESOLVED — não por código: virou passo 4 do roteiro humano do `03-03-PLAN.md`, Task 1.)**
    - Recomendação: **não resolver por código agora.** Acrescentar ao roteiro do portão humano
      do critério 2 um item explícito: *"confira a linha do `+6 Agathion Alpha Hunter Sealed` —
      a célula mostra o nome, ou um erro?"*. O portão já é humano; a pergunta é de graça lá.
 
-3. **`LEIAME.txt` entra nesta fase ou vira nota do portão?**
+3. **`LEIAME.txt` entra nesta fase ou vira nota do portão?** **(RESOLVED — entra: é a Task 2 do
+   `03-02-PLAN.md`, escrito uma vez na criação da pasta e nunca sobrescrito.)**
    - Recomendação: entra — 15 linhas, escrito uma vez ao criar a pasta, e é onde o roteiro de
      importação (`File > Import > Upload`, separador **Custom** `;`) fica onde o usuário vai
      olhar seis meses depois.
