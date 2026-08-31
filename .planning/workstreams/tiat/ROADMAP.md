@@ -199,5 +199,39 @@ Não negociáveis, aprendidas em 10 fases entregues:
 - **Prefixo novo entra em `_PREFIXOS_CONHECIDOS`**, ou nasce imortal.
 - **Tudo demonstrável com o jogo fechado e sem rede.** A suíte tem ~1650 testes e segura essa linha.
 
+### Phase 3: Um aviso por nascimento, com o chat mandando no alvo
+
+**Goal**: Um nascimento produz UMA mensagem, mesmo com as duas instancias do usuario rodando e mesmo que ele remarque o boss no alvo — e o anuncio do chat nunca e suprimido, porque e o unico sinal que existe quando ninguem esta olhando a tela
+
+**Origem**: DEFEITO DE CAMPO em 2026-08-30. As fases 1 e 2 passaram na verificacao; este defeito so aparece com duas instancias reais e um humano remarcando o alvo. Seis mensagens para um nascimento.
+
+**Requirements**: derivar em /gsd-plan-phase (familia `UNIC-*`)
+
+**Success Criteria** (o que tem que ser VERDADE):
+
+  1. Duas instancias sobre a mesma `.agenda/` produzem exatamente UMA mensagem por nascimento. Reiniciar qualquer uma delas nao reenvia. A decisao de despachar e a chamada de `marcar`, nunca uma checagem anterior — a docstring de `RegistroEmDisco.marcar` proibe por escrito, e a razao e que uma checagem anterior perde avisos em vez de duplica-los.
+  2. O anuncio do CHAT nunca e suprimido pela deduplicacao do alvo. E a regra que o usuario ditou com a razao junto: *"eu posso estar longe do computador"*. O anuncio do servidor e o caminho confiavel; o alvo exige alguem olhando a tela.
+  3. O ALVO so anuncia se o chat NAO anunciou aquele boss nesta janela. Com o chat tendo falado, remarcar o boss vinte vezes produz zero mensagem nova.
+  4. Sem o chat ter falado (scanner fechado na hora do anuncio, ou OCR falhou), o alvo anuncia — UMA vez. E o caso que o usuario descreveu e que justifica o fallback existir.
+  5. Depois de anunciado, o boss fica em silencio ate a janela de respawn dele passar. O que se perde e o mesmo boss nascendo duas vezes dentro da mesma janela, impossivel pela regra do servidor (8h a 10h).
+  6. A ANCORA nao muda de comportamento: continua sendo gravada como hoje, inclusive pelo alvo. D-15 e D-16 seguem valendo. Esta fase muda o ANUNCIO, nao a ancoragem — e ha teste que prova que a ancoragem por alvo continua acontecendo mesmo quando o anuncio e suprimido.
+  7. O prefixo novo entra em `_PREFIXOS_CONHECIDOS` e na poda, e o guarda derivado por introspecao continua verde.
+  8. Demonstravel com o jogo fechado e sem rede.
+
+**Riscos que o planejamento tem que encarar:**
+
+- **A supressao nao pode virar perda.** O criterio 4 e o oposto do criterio 3, e os dois moram na mesma decisao. Um gate estrito demais troca o spam de hoje por um silencio que ninguem percebe — que e pior, e e o mesmo modo de falha que a Fase 1 documentou sobre o padrao do anuncio.
+- **"Nesta janela" precisa de dono.** O `respawn.py` ja monta ancoras e janelas por boss; reimplementar a nocao de janela num segundo lugar faria as duas divergirem no primeiro ajuste, exatamente como o codigo ja registra sobre os dois lacos.
+- **O rearme em memoria do `VigiaDeBosses` continua util** como primeiro filtro barato (evita bater no disco a cada tick), mas deixa de ser a garantia. Nao remova sem medir o custo em I/O.
+
+**Plans**: TBD
+**Requirements**: TBD
+**Depends on:** Phase 2
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 3 to break down)
+
 ---
 *Roadmap criado: 2026-08-30*
