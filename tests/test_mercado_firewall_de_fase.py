@@ -207,9 +207,13 @@ class TestAAlavancaDeDETC02:
     def test_a_constante_diz_que_e_ESCOLHA_e_nao_medicao(self) -> None:
         """Um numero que nao foi medido precisa dizer que nao foi."""
         fonte = inspect.getsource(mercado_modo)
-        trecho = fonte[fonte.index("MS_ENTRE_FRAMES_DO_MERCADO") :][:2000]
+        # A razao mora ACIMA da atribuicao, no bloco de comentario que a
+        # antecede - e por isso a janela olha para tras e nao para a frente.
+        atribuicao = fonte.index("MS_ENTRE_FRAMES_DO_MERCADO = ")
+        trecho = fonte[:atribuicao][-2500:]
         assert "ESCOLHA" in trecho
-        assert "medicao" in trecho
+        assert "medicao" in trecho.lower()
+        assert "derivado" in trecho.lower()
 
 
 # ---------------------------------------------------------------------------

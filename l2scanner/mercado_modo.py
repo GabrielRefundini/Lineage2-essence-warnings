@@ -89,6 +89,29 @@ SAIDA_CEGA = 1
 # duas dezenas de minutos de painel aberto.
 PAGINAS_ENTRE_GRAVACOES_DO_CATALOGO = 20
 
+# O intervalo MINIMO, em milissegundos, entre frames que a WGC entrega a ESTE
+# modo. E a unica alavanca real de DETC-02 ("o modo mercado nao degrada o modo
+# party"), e ela e ligada SO aqui: `JanelaSource` mantem o padrao `None`, e o
+# caminho da party continua byte-identico ao de sempre.
+#
+# O QUE ELE COMPRA. A WGC entrega ~38 fps (medido) e este modo consome 1 por
+# segundo. Cada frame da JANELA INTEIRA custa um memcpy da ordem de 7,2 MB, ou
+# seja da ordem de 273 MB/s de copia jogada fora - numero DERIVADO (38 x 7,2 MB),
+# nao medido. A 250 ms a entrega cai para ~4 fps: cerca de 9,5x menos copia,
+# sem mudar nada para quem le a 1 Hz.
+#
+# POR QUE NAO 1000. Com atualizacao a cada ~1000 ms e leitura a cada ~1000 ms,
+# a deriva de fase entrega o MESMO buffer varias vezes seguidas;
+# `JANELAS_IGUAIS_PARA_CONGELAR` (tres) dispara e o console anuncia CAPTURA
+# CONGELADA com o jogo vivo na tela. 250 ms deixa quatro entregas por leitura,
+# que e a margem que impede o falso positivo.
+#
+# 250 E ESCOLHA, E NAO MEDICAO. Ninguem cronometrou 250 contra 200 ou 300 nesta
+# maquina; o que foi medido e a taxa da WGC, o tamanho do frame e o gatilho de
+# congelamento. Um numero que nao foi medido precisa dizer que nao foi, senao
+# vira folclore na proxima fase.
+MS_ENTRE_FRAMES_DO_MERCADO = 250
+
 # Quantos erros seguidos de captura ate desistir, copiado de
 # `__main__.laco_principal`: a captura falha PARCIALMENTE (a WGC perde a janela,
 # o usuario fecha o jogo), e um laco que insistisse para sempre gastaria a noite
@@ -272,6 +295,7 @@ def laco_do_mercado(
                 altura=int(carimbo["altura"]),
             ),
             relativa=True,
+            minimum_update_interval=MS_ENTRE_FRAMES_DO_MERCADO,
         )
 
     leitor = LeitorDePagina(

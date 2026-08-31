@@ -209,6 +209,24 @@ class JanelaSource:
 
     Implementa a mesma porta `FrameSource` do `MssSource`, entao o laco do
     scanner nao sabe qual dos dois esta usando.
+
+    `minimum_update_interval` (milissegundos) e o intervalo MINIMO entre frames
+    que a WGC entrega. O PADRAO `None` E O CONTRATO: sem o parametro, a
+    construcao fica byte-identica a de hoje e o caminho da party nao muda uma
+    virgula. Ha teste prendendo isso (`tests/test_mercado_firewall_de_fase.py`).
+
+    O QUE ELE COMPRA E O QUE ELE CUSTA. A WGC entrega ~38 fps (numero MEDIDO,
+    ja escrito no `on_frame_arrived` abaixo) e o scanner consome 1 por segundo,
+    entao 37 de cada 38 frames sao copiados e jogados fora. Para a JANELA
+    INTEIRA do mercado, cada frame custa um memcpy da ordem de 7,2 MB, o que da
+    da ordem de 273 MB/s de copia continua. ESSE NUMERO E DERIVADO (38 x 7,2 MB)
+    E NAO MEDIDO - esta escrito aqui que e derivado justamente para ninguem o
+    citar depois como medicao. Pedir 250 ms de intervalo minimo baixa a entrega
+    para ~4 fps, cerca de 9,5x menos copia, e nao muda nada para quem le a 1 Hz.
+
+    O QUE ELE NAO E: nao e um limitador de CPU do jogo, nao e garantia de
+    cadencia (a WGC entrega no MAXIMO nessa taxa, nunca no minimo) e nao serve
+    para o caminho da party, onde a regiao e pequena e a copia e barata.
     """
 
     def __init__(
@@ -217,6 +235,7 @@ class JanelaSource:
         regiao: Regiao,
         relativa: bool = False,
         extras: dict[str, Regiao] | None = None,
+        minimum_update_interval: int | None = None,
     ) -> None:
         from windows_capture import (
             Frame as FrameWGC,
@@ -255,6 +274,7 @@ class JanelaSource:
             draw_border=False,
             monitor_index=None,
             window_name=titulo_da_janela,
+            minimum_update_interval=minimum_update_interval,
         )
 
         @captura.event
