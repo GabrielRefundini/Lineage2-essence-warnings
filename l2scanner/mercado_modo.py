@@ -349,8 +349,12 @@ def laco_do_mercado(
         )
         modelo = ModeloDeMercado.de_observacoes([])
 
+    # AS DUAS LEITURAS ABAIXO OLHAM O `config.local.toml` ANTES do `config.toml`,
+    # pela precedencia que `ler_membros` ja estabeleceu. O usuario TEM o arquivo
+    # local, e uma watchlist ou uma receita escrita la era ignorada em silencio.
+    #
     # A WATCHLIST E FILTRO DE DESTAQUE, E NAO O PRODUTO - e por isso um
-    # `config.toml` quebrado NAO derruba a coleta. `ler_watchlist_do_mercado`
+    # config quebrado NAO derruba a coleta. `ler_watchlist_do_mercado`
     # LEVANTA de proposito para TOML invalido e para tipo errado (T-04-11),
     # porque do lado de quem edita o arquivo a recusa alta e o certo; aqui,
     # deixar esse `raise` escapar mataria o modo `--mercado` inteiro por causa
@@ -387,8 +391,12 @@ def laco_do_mercado(
         except ReceitaInvalida as erro:
             return _recusar(
                 [
-                    "MODO MERCADO NAO VAI SUBIR: um bloco [[receita]] do "
-                    "config.toml nao serve.",
+                    # O NOME DO ARQUIVO SAI DO `str(erro)` LOGO ABAIXO, e nao
+                    # daqui: a receita pode vir do `config.toml` OU do
+                    # `config.local.toml`, e cravar um dos dois nesta linha
+                    # mandaria metade dos usuarios editar o arquivo errado.
+                    "MODO MERCADO NAO VAI SUBIR: um bloco [[receita]] nao "
+                    "serve.",
                     str(erro),
                     "A margem de craft e uma conta: uma receita torta daria "
                     "um numero perfeitamente formatado e completamente falso. "

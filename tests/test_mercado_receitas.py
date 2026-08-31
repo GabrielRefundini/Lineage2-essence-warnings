@@ -341,6 +341,87 @@ class TestAReceitaValidaParseia:
         assert [r.produto for r in receitas] == ["Dragon Belt", "Leonard"]
 
 
+class TestAReceitaTambemVemDoConfigLocal:
+    """ANAL-04 no `config.local.toml`, pelo precedente que ja existe.
+
+    O usuario TEM um `config.local.toml` (28 linhas hoje, com os `[[membro]]`).
+    Um `[[receita]]` escrito la era SILENCIOSAMENTE IGNORADO, e o desfecho e o
+    pior possivel para esta funcionalidade: a secao MARGEM DE CRAFT
+    simplesmente nao aparece, que e EXATAMENTE o que o design manda acontecer
+    quando nao ha receita nenhuma. O usuario nao teria como distinguir "nao
+    configurei" de "configurei no arquivo errado".
+
+    O molde e `ler_membros`/`ler_personagem_do_jogo`, item por item: um arquivo
+    ou o outro, nunca a soma; o local vence; e com os dois o arranque AVISA.
+    """
+
+    LOCAL = (
+        '[[receita]]\nproduto = "Phantom Mask"\nrende = 1\n'
+        'componentes = [ { item = "Leonard", quantidade = 7 } ]\n'
+    )
+
+    def _arquivos(self, tmp_path, versionado, local):
+        caminho = tmp_path / "config.toml"
+        caminho_local = tmp_path / "config.local.toml"
+        if versionado is not None:
+            caminho.write_text(versionado, encoding="utf-8")
+        if local is not None:
+            caminho_local.write_text(local, encoding="utf-8")
+        return caminho, caminho_local
+
+    def test_receita_SO_NO_LOCAL_e_lida(self, tmp_path):
+        """O achado da verificacao da Fase 4, virado teste."""
+        caminho, local = self._arquivos(tmp_path, None, self.LOCAL)
+        receitas = ler_receitas(caminho, local)
+        assert [r.produto for r in receitas] == ["Phantom Mask"]
+        assert receitas[0].componentes[0].item == "Leonard"
+        assert receitas[0].componentes[0].quantidade == 7
+
+    def test_so_o_versionado_le_do_versionado(self, tmp_path):
+        caminho, local = self._arquivos(tmp_path, RECEITA_VALIDA, None)
+        assert [r.produto for r in ler_receitas(caminho, local)] == [
+            "Dragon Belt"
+        ]
+
+    def test_os_dois_o_local_VENCE_e_NAO_soma(self, tmp_path):
+        caminho, local = self._arquivos(tmp_path, RECEITA_VALIDA, self.LOCAL)
+        assert [r.produto for r in ler_receitas(caminho, local)] == [
+            "Phantom Mask"
+        ]
+
+    def test_os_dois_o_arranque_AVISA_nomeando_os_dois_arquivos(
+        self, tmp_path, caplog
+    ):
+        caminho, local = self._arquivos(tmp_path, RECEITA_VALIDA, self.LOCAL)
+        with caplog.at_level(logging.WARNING, logger="l2scanner"):
+            ler_receitas(caminho, local)
+        assert "config.toml" in caplog.text
+        assert "config.local.toml" in caplog.text
+
+    def test_so_o_versionado_NAO_avisa(self, tmp_path, caplog):
+        caminho, local = self._arquivos(tmp_path, RECEITA_VALIDA, None)
+        with caplog.at_level(logging.WARNING, logger="l2scanner"):
+            ler_receitas(caminho, local)
+        assert caplog.text == ""
+
+    def test_nenhum_dos_dois_e_lista_vazia_sem_excecao(self, tmp_path):
+        caminho, local = self._arquivos(tmp_path, None, None)
+        assert ler_receitas(caminho, local) == []
+
+    def test_a_validacao_vale_igual_vinda_do_LOCAL(self, tmp_path):
+        """Receita torta no local derruba o arranque igual, e nomeia o local."""
+        caminho, local = self._arquivos(
+            tmp_path, None, '[[receita]]\nrende = 1\ncomponentes = []\n'
+        )
+        with pytest.raises(ReceitaInvalida) as erro:
+            ler_receitas(caminho, local)
+        assert "config.local.toml" in str(erro.value)
+
+    def test_um_caminho_EXPLICITO_nao_arrasta_o_vizinho(self, tmp_path):
+        caminho, _ = self._arquivos(tmp_path, RECEITA_VALIDA, self.LOCAL)
+        assert [r.produto for r in ler_receitas(caminho)] == ["Dragon Belt"]
+
+
 class TestAGuardaDoBooleanoEstaNO_FONTE:
     """O criterio de `grep` do plano, com o discriminante ao lado.
 
@@ -1044,6 +1125,71 @@ class TestACadenciaDaSecao:
         # E ela SAI: no arranque, antes do primeiro tick, porque o historico
         # da sessao passada ja existe no disco.
         assert len(chamadas) >= 1
+
+    def test_uma_receita_SO_NO_config_local_CHEGA_AO_LACO(
+        self, cal, leituras, tmp_path, monkeypatch  # noqa: F811
+    ):
+        """O caminho de PRODUCAO, e nao so `ler_receitas` em isolamento.
+
+        O teste de `ler_receitas(caminho, local)` prova a precedencia da
+        funcao; este prova que o LACO a exerce — que ele chama sem argumento e
+        que o padrao sem argumento e o par de arquivos, e nao so o versionado.
+        Sem ele, a funcao poderia estar certa e o modo continuar mudo.
+        """
+        from l2scanner import config as config_mod
+        from l2scanner import mercado_modo
+
+        versionado = tmp_path / "config.toml"
+        local = tmp_path / "config.local.toml"
+        versionado.write_text('[jogo]\npersonagem = "Yaza"\n', encoding="utf-8")
+        local.write_text(
+            '[[receita]]\nproduto = "Phantom Mask"\nrende = 1\n'
+            'componentes = [ { item = "Leonard", quantidade = 7 } ]\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(config_mod, "ARQUIVO_CONFIG", versionado)
+        monkeypatch.setattr(config_mod, "ARQUIVO_CONFIG_LOCAL", local)
+
+        vistas = []
+
+        def espiao(receitas, modelo, agora):
+            vistas.append(receitas)
+            return ""
+
+        monkeypatch.setattr(mercado_modo, "secao_da_margem", espiao)
+
+        duas, tres, quadros = montar_as_leitoras(
+            cal, leituras, [PAGINA_CHEIA, PAGINA_CHEIA_VIZINHA]
+        )
+        laco_do_mercado(
+            argumentos(),
+            cal,
+            fonte=FonteFalsa(quadros),
+            ler_texto=duas,
+            ler_texto_conferencia=tres,
+            relogio=Relogio(),
+            pasta=tmp_path,
+            ticks_maximos=2,
+            watchlist=[],
+            # `receitas` NAO e injetada de proposito: e a leitura do arquivo
+            # que este teste existe para exercer.
+        )
+
+        # O DISCRIMINANTE, MEDIDO NO PROPRIO TESTE: ler SO o versionado - que e
+        # literalmente o comportamento antigo desta funcao - devolve VAZIO. Sem
+        # esta linha, o teste abaixo ficaria verde tambem numa arvore em que a
+        # receita viesse do arquivo errado, e nao provaria delta nenhum.
+        assert ler_receitas(versionado) == [], (
+            "o arquivo versionado nao pode ter receita: e ele que representa "
+            "o comportamento ANTIGO neste teste"
+        )
+
+        assert vistas, "a margem nao foi chamada nenhuma vez"
+        assert [r.produto for r in vistas[0]] == ["Phantom Mask"], (
+            "o [[receita]] do config.local.toml nao chegou ao laco - era o "
+            "desfecho MUDO: a secao MARGEM DE CRAFT nao apareceria, "
+            "indistinguivel de 'nao configurei'"
+        )
 
     def test_uma_receita_TORTA_recusa_o_ARRANQUE_nomeando_a_receita(
         self, cal, leituras, tmp_path, monkeypatch, caplog  # noqa: F811
