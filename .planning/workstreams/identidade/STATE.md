@@ -7,15 +7,15 @@ created: 2026-08-30
 
 ## Current Position
 
-**Status:** Fase 2 em andamento (plano 02-01 entregue, 02-02 pendente)
-**Current Phase:** Phase 2 - Aprender sozinho
+**Status:** Fase 3 em andamento (plano 03-01 entregue, 03-02 pendente)
+**Current Phase:** Phase 3 - Batismo pelo WhatsApp
 **Last Activity:** 2026-08-31
-**Last Activity Description:** 02-01 executado: l2scanner/aprendiz.py, o elo do assinaturas_configuradas e o auto-diagnostico de D-07
+**Last Activity Description:** 03-01 executado: l2scanner/batismo.py, os DOIS gatilhos da pergunta com UM marcador, e o nome valendo no mesmo tick nas tres metades
 
 ## Progress
 
-**Phases Complete:** 1/3
-**Current Plan:** 02-02
+**Phases Complete:** 2/3
+**Current Plan:** 03-02
 
 ## Accumulated Context
 
@@ -40,8 +40,8 @@ Nenhum.
 
 ## Session Continuity
 
-**Stopped At:** Completado 02-01-PLAN.md
-**Resume File:** .planning/workstreams/identidade/phases/02-aprender-sozinho/02-02-PLAN.md
+**Stopped At:** Completado 03-01-PLAN.md
+**Resume File:** .planning/workstreams/identidade/phases/03-batismo-pelo-whatsapp/03-02-PLAN.md
 
 ## Fase 1 entregue (2026-08-31)
 
@@ -199,3 +199,61 @@ apaga texto derruba a correlacao mais rapido.
   - O criterio 5 (replay duas vezes) e NECESSARIO e NAO SUFICIENTE: sozinho ele
     fica verde com D-03 desligado, porque o mesmo frame produz a mesma chave e
     recebe `ja_existia`. Quem prende D-03 sao os casos de sair-e-voltar.
+
+## Fase 3, plano 01 entregue (2026-08-31)
+
+O scanner PERGUNTA no WhatsApp quem e a pessoa que ele aprendeu sozinho, e o
+usuario responde do celular com `/batizar 15caec Mostarda`. A resposta cola o
+nome na assinatura que a pergunta PINOU, e o nome vale na leitura seguinte sem
+reiniciar nada. `l2scanner/batismo.py` nasceu SEM RELOGIO e ja esta na tupla
+`MODULOS` do portao AST.
+
+### A descoberta que definiu o tamanho da fase
+
+Um gatilho preso so ao evento "gravei uma assinatura nova" faria a feature
+funcionar perfeitamente na suite e NAO PERGUNTAR NADA no unico acervo real que
+existe. Uma entrada anonima que ja esta no disco entra em `cal.assinaturas` na
+carga do arranque, casa ~1.000 contra ela mesma, e `Casamento.nome` dela e a
+string VAZIA e nao `None` — e `_candidatas_para_aprender` exige `is None`. Ela
+nunca vira candidata.
+
+Por isso ha DOIS gatilhos (o aprendizado e a varredura de arranque) e UM
+marcador so (`perguntado_<chave>`, `O_CREAT|O_EXCL`). D-04 e por ASSINATURA, e
+nao por evento de aprendizado.
+
+### O estado de campo AGORA, e ele mudou desde o CONTEXT
+
+O acervo do usuario tem **TRES** entradas anonimas, e nao duas. O plano e o
+CONTEXT registraram `15caecfa...` (161 pixels) e `f19e3c92...` (79 pixels),
+medidas em 31/08/2026; o disco ganhou depois `0dcf6fc3...`. A pergunta que sai
+hoje cita as tres na MESMA mensagem, sem posicao nenhuma:
+
+    Aprendi 3 pessoas que ainda estao sem nome:
+
+      0dcf6f
+      15caec
+      f19e3c
+
+O plano 03-02 e a verificacao humana devem usar TRES como a contagem de campo.
+
+### O desvio deliberado do criterio 1
+
+A pergunta vinda do APRENDIZADO cita a posicao ("vi na linha 4", base 1) e
+cumpre o criterio 1 ao pe da letra. A pergunta vinda da VARREDURA DE ARRANQUE
+tem `indice=None` e NAO cita posicao, de proposito: aquela entrada foi
+aprendida numa sessao anterior, possivelmente por outra instancia, e nenhuma
+posicao de agora corresponde a ela. Inventar uma seria a primeira mentira do
+caminho. O preco esta em quem paga: as tres entradas reais serao perguntadas
+justamente SEM posicao.
+
+### Divida herdada pelo 03-02
+
+  - BATI-04 (recusa de nome duplicado) e BATI-05 (correcao). `acervo.nomeados()`
+    ja e lido dentro do `responder_batismo`, no lugar exato onde a comparacao
+    entra, com a excecao do proprio alvo (D-07) descrita no comentario.
+  - T-03-07 aceito: a instancia que nao obedeceu o comando so ve o nome no
+    proximo arranque. La a entrada continua ANONIMA, e anonima nao vira sujeito
+    de alerta (APRE-03). Ela cala, nunca mente. Falta o caso de ponta a ponta.
+  - O ramo do `BATIZAR` ainda nao tem portao AST proprio para o
+    `avisar_o_grupo`. A atribuicao esta la e comentada.
+  - O caso de ponta a ponta do criterio 6 (o party-mate recusado).

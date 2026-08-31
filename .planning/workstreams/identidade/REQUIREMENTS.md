@@ -51,11 +51,11 @@ evento sem sujeito". Ele cala em vez de mentir. O que sobra e o INCOMODO.
 
 ### Batismo pelo WhatsApp (BATI)
 
-- [ ] **BATI-01**: Ao aprender uma assinatura nova, o scanner PERGUNTA no
+- [x] **BATI-01**: Ao aprender uma assinatura nova, o scanner PERGUNTA no
       WhatsApp quem e, citando a posicao onde a viu.
-- [ ] **BATI-02**: O usuario responde por comando e a assinatura recebe o nome.
+- [x] **BATI-02**: O usuario responde por comando e a assinatura recebe o nome.
       A partir dali os alertas daquela pessoa saem com o nome certo.
-- [ ] **BATI-03**: A resposta e casada com a assinatura PINADA no momento da
+- [x] **BATI-03**: A resposta e casada com a assinatura PINADA no momento da
       pergunta, nunca com "a linha 3 de agora". A party se reorganiza entre a
       pergunta e a resposta, e resolver por posicao batizaria a pessoa errada —
       que e exatamente a mentira plausivel que o `identidade.py` existe para
@@ -85,7 +85,7 @@ evento sem sujeito". Ele cala em vez de mentir. O que sobra e o INCOMODO.
       sem nome.
 - [x] **OPER-02**: `--nomes` continua funcionando. Quem prefere digitar segue
       digitando; o aprendizado e adicional, nao substituto.
-- [ ] **OPER-03**: Demonstravel sem jogo aberto e sem rede.
+- [x] **OPER-03**: Demonstravel sem jogo aberto e sem rede.
 
 ## v2 Requirements
 
@@ -111,9 +111,9 @@ Preenchida na criacao do roadmap em 2026-08-30.
 | APRE-02 | Phase 2 | Complete (02-01) |
 | APRE-03 | Phase 1 | Complete |
 | APRE-04 | Phase 2 | Complete |
-| BATI-01 | Phase 3 | Pending |
-| BATI-02 | Phase 3 | Pending |
-| BATI-03 | Phase 3 | Pending |
+| BATI-01 | Phase 3 | Complete (03-01) |
+| BATI-02 | Phase 3 | Complete (03-01) |
+| BATI-03 | Phase 3 | Complete (03-01) |
 | BATI-04 | Phase 3 | Pending |
 | BATI-05 | Phase 3 | Pending |
 | DURA-01 | Phase 1 | Complete |
@@ -122,7 +122,7 @@ Preenchida na criacao do roadmap em 2026-08-30.
 | DURA-04 | Phase 1 | Complete |
 | OPER-01 | Phase 1 | Complete |
 | OPER-02 | Phase 1 | Complete |
-| OPER-03 | Phase 3 | Pending |
+| OPER-03 | Phase 3 | Complete (03-01) |
 
 APRE-03 caiu na Fase 1 (e nao na 2) porque o que ele exige e o TIPO — uma
 assinatura sem nome precisa existir e nao produzir nome — e nao o instante do

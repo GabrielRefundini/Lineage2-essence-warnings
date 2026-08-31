@@ -240,7 +240,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. O acervo e o silencio dele | 2/2 | Complete | 2026-08-31 |
 | 2. Aprender sozinho | 2/2 | Complete | 2026-08-31 |
-| 3. Batismo pelo WhatsApp | 0/2 | Planned | - |
+| 3. Batismo pelo WhatsApp | 1/2 | In Progress | - |
 
 ## Coverage
 
