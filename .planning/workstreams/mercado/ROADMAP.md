@@ -138,7 +138,7 @@ Plans:
   4. Com a escrita interrompida no meio de uma linha, a leitura seguinte descarta APENAS a linha truncada, com aviso — nunca trata o arquivo inteiro como corrompido, e nunca aceita o pedaço como observação válida
   5. Com o arquivo propositalmente quebrado (travado, read-only, ou pasta inexistente), o usuário vê o aviso alto de que a feature de mercado desligou — e os alertas de party continuam chegando normalmente
 
-**Plans**: 2/3 plans executed (3 waves — serial por compartilhamento de arquivo: os três tocam `mercado_registro.py` ou dependem do que ele expõe)
+**Plans**: 3/3 plans executed (3 waves — serial por compartilhamento de arquivo: os três tocam `mercado_registro.py` ou dependem do que ele expõe)
 
 **Wave 1**
 
@@ -150,7 +150,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 — usa a montagem do 03-02 para que o aviso alto que o usuário vê seja o MESMO texto da Fase 4)*
 
-- [ ] 03-03-PLAN.md - (wave 3) `tools/gerar_observacoes_do_censo.py`: o replay que produz o CSV real para os portões humanos dos critérios 1, 2, 3 e 5 — porque esta fase entrega o registro SEM chamador (DETC-02 é Fase 4), e sem ele o Sheets não teria o que importar
+- [x] 03-03-PLAN.md - (wave 3) `tools/gerar_observacoes_do_censo.py`: o replay que produz o CSV real para os portões humanos dos critérios 1, 2, 3 e 5 — porque esta fase entrega o registro SEM chamador (DETC-02 é Fase 4), e sem ele o Sheets não teria o que importar
 
 ### Phase 4: Modo --mercado, análise e console
 
@@ -176,7 +176,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Fundação — firewall, gravador e spike de campo | 5/5 | ✓ Complete | 2026-08-29 |
 | 2. Leitura de página | 8/8 | In Progress|  |
-| 3. Persistência de observações | 2/3 | In Progress|  |
+| 3. Persistência de observações | 3/3 | In Progress|  |
 | 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
 
 ## Coverage

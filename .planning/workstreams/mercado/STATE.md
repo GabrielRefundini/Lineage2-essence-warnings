@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1-mercado
 milestone_name: )
-current_phase: 2
-current_phase_name: Leitura de pagina
+current_phase: 3
+current_phase_name: Persistencia de observacoes
 status: verifying
-stopped_at: Completed 03-02-PLAN.md — montar_registro_de_mercado (+78 linhas no __main__.py, acrescimo puro) e o LEIAME.txt; 114 testes no arquivo do registro
-last_updated: "2026-08-31T04:19:03.463Z"
+stopped_at: Completed 03-03-PLAN.md — tools/gerar_observacoes_do_censo.py e os dois roteiros humanos; a Fase 3 executou inteira e aguarda os dois portoes humanos
+last_updated: "2026-08-31T05:08:46.493Z"
 last_activity: 2026-08-31
-last_activity_desc: "Fase 2 plano 06: a TERCEIRA leitura de numero (a coluna do unitario) entrou em ler_linha e esta provada por contagem (2/2 em f010, 4/4 em f005); a guarda de cruzamento foi construida e ficou DESLIGADA pela rota REPROVADA do 02-02, degradada para observacao com a refutacao escrita no fonte"
-state_head: 3dbe8eaf990ba3f38de6cb4990cf6642a94ea539
+last_activity_desc: "Fase 3 plano 03, a ULTIMA onda: tools/gerar_observacoes_do_censo.py, o replay de bancada que produz o observacoes.csv com dado REAL a partir das 8 gravacoes do censo. A pasta de producao e recusada como saida por comparacao de caminhos RESOLVIDOS (resolve + normcase), antes do primeiro mkdir; a montagem e o configurar_log do 03-02 fazem o aviso alto aparecer no console com o texto exato da Fase 4. Suite 2798 passed + 23 skipped e 145 no agenda, zero falhas. A Fase 3 executou inteira e aguarda os DOIS portoes humanos, escritos por extenso no 03-03-SUMMARY.md"
+state_head: b3be0be264d832d05e16c43ba53ab7a36d9291c4
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 16
-  completed_plans: 15
+  completed_plans: 16
   percent: 25
 ---
 
@@ -28,10 +28,12 @@ progress:
 
 ## Current Position
 
-Phase: 2 — Leitura de pagina
-Plan: 8 planos escritos, 8 FECHADOS — a Fase 2 esta completa
-Status: Verifying — a fase inteira executada; falta a verificacao humana de fim de fase
-Last activity: 2026-08-30 — Completed 02-05, a ULTIMA onda: o catalogo de nomes ganhou arquivo proprio em `.mercado/catalogo-de-nomes.csv` (atomico, sem poda, leitura defensiva) e o estabilizador ficou completo (congelamento pela JANELA INTEIRA, acordo pela INTERSECAO das posicoes aceitas em ambos, piso de 7 posicoes lido do disco). **O replay das 8 gravacoes do censo RODOU no checkout principal: 517 frames, 478 ticks com painel aberto, li 151 e perdi 189, 39 series, 1.007 linhas descartadas, ZERO frames congelados.** As 189 perdas: 136 abaixo do minimo comparado, 34 primeiro frame do par, 19 discordancia. Suite 2605 passed + 144.
+Phase: 3 — Persistencia de observacoes
+Plan: 3 planos escritos, 3 FECHADOS — a Fase 3 esta completa
+Status: Verifying — a fase inteira executada; faltam os DOIS portoes humanos, escritos por extenso no fim do `03-03-SUMMARY.md`
+Last activity: 2026-08-31 — Completed 03-03, a ULTIMA onda da Fase 3: `tools/gerar_observacoes_do_censo.py`, o replay de bancada que transforma as 8 gravacoes do censo num `observacoes.csv` com dado REAL. Ele fecha o buraco que a fase tinha por desenho — o registro nasceu sem chamador, e quatro dos cinco criterios do ROADMAP ("o usuario abre, importa, conta e ve") nao teriam material. **A recusa da pasta de producao como saida e MECANICA**: `resolve()` + `os.path.normcase`, comparando caminhos e nunca texto, rodando ANTES do primeiro `mkdir` — conferido a mao, `--saida .mercado` sai com codigo 2 sem criar a pasta. A ferramenta monta pela `montar_registro_de_mercado` do 03-02 e instala `configurar_log` antes, entao o aviso alto que o usuario ve aqui e byte a byte o que a Fase 4 vai mostrar. Suite 2798 passed + 23 skipped, e 145 no agenda. Zero falhas. **A varredura do censo NAO foi rodada pelo agente** — ela e do usuario, no checkout principal, pelo roteiro 1.
+
+Antes disso, 2026-08-30 — Completed 02-05, a ULTIMA onda da Fase 2: o catalogo de nomes ganhou arquivo proprio em `.mercado/catalogo-de-nomes.csv` (atomico, sem poda, leitura defensiva) e o estabilizador ficou completo (congelamento pela JANELA INTEIRA, acordo pela INTERSECAO das posicoes aceitas em ambos, piso de 7 posicoes lido do disco). **O replay das 8 gravacoes do censo RODOU no checkout principal: 517 frames, 478 ticks com painel aberto, li 151 e perdi 189, 39 series, 1.007 linhas descartadas, ZERO frames congelados.** As 189 perdas: 136 abaixo do minimo comparado, 34 primeiro frame do par, 19 discordancia. Suite 2605 passed + 144.
 
 Antes disso, 2026-08-31 — Completed 02-07: o piso de brilho PROPRIO da coluna Quantity foi MEDIDO em 161 e PROPOSTO (`PROPOSTO piso=161, folga ate o primeiro que erra=1, folga ate o tronco medido do 1=13, tronco=174, balde LE ERRADO do proprio piso VAZIO sobre 2247 celulas rotuladas`). O rendimento da coluna foi de 541 para 2133, o rotulo `1` (n=1680) de 0 para 1590, e as tres gravacoes que liam ZERO passaram a ler. A REPROVA de 30/08 caiu por REMOCAO DA CAUSA: as 14 celulas do balde do piso compartilhado eram o glifo COLADO, que o 02-08 consertou. Janela #16 FECHADA.
 
@@ -94,6 +96,9 @@ Progress: [███░░░░░░░] 25%
 - [Phase 2]: [Phase 3] A montagem do mercado captura ContratoDoArquivoQuebrado AO LADO do OSError: divergencia de UM tipo com a regra da casa, justificada no fonte — contrato quebrado nao e falha de sistema de arquivos, mas o desfecho e o mesmo (feature desligada, scanner de pe). Sem ela a excecao subiria do arranque como traceback cru
 - [Phase 2]: [Phase 3] O tipo de retorno de montar_registro_de_mercado NAO foi anotado, contra a letra do plano e a favor do vizinho: montar_vigia_do_mercado tambem nao anota, porque o tipo so existe atras do import ADIADO. Anotar deixaria um nome que typing.get_type_hints nao resolve, e resolve-lo exigiria um bloco TYPE_CHECKING no topo do __main__.py — arquivo disputado com o workstream tiat nesta wave
 - [Phase 2]: [Phase 3] O LEIAME.txt e escrito UMA VEZ, na criacao da pasta, e NUNCA sobrescrito: e um texto para humano, na pasta do humano, e reescreve-lo a cada arranque apagaria a anotacao do usuario calado. As duas alternativas foram RECUSADAS com motivo — instrucao no topo do CSV quebraria o cabecalho-contrato e o Sheets a importaria como dado; coluna total_exibido seria dois campos para o mesmo fato
+- [Phase 3]: 03-03: a recusa da pasta de producao como saida do replay e MECANICA — resolve() + os.path.normcase, comparando caminhos e nunca texto, e rodando antes do primeiro mkdir
+- [Phase 3]: 03-03: o codigo de saida diferente de zero significa 'nao viu observacao nenhuma', e nao 'nao gravou nova' — a leitura literal do plano faria a segunda rodada (a prova de campo do PERS-02) reportar falha ao dar certo
+- [Phase 3]: 03-03: a Contagem separa 'duplicada' de 'perdida' — registrar() devolve False por dois motivos, e somar os dois faria o relatorio afirmar dedup sobre uma feature morta
 
 ### Blockers
 
@@ -196,9 +201,9 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 
 ## Session Continuity
 
-**Last session:** 2026-08-31T04:19:03.213Z
+**Last session:** 2026-08-31T05:08:46.249Z
 
-**Stopped At:** Completed 03-02-PLAN.md — montar_registro_de_mercado (+78 linhas no __main__.py, acrescimo puro) e o LEIAME.txt; 114 testes no arquivo do registro
+**Stopped At:** Completed 03-03-PLAN.md — tools/gerar_observacoes_do_censo.py e os dois roteiros humanos; a Fase 3 executou inteira e aguarda os dois portoes humanos
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -217,3 +222,4 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 | Phase 02 P05 | 105 min | 3 tasks | 7 files |
 | Phase 03 P01 | 18min | 3 tasks | 2 files |
 | Phase 03 P02 | 18min | 2 tasks | 5 files |
+| Phase 03 P03 | 9min | 2 tasks | 2 files |
