@@ -67,7 +67,7 @@ o batismo contra um armazenamento que muda de chave depois significaria reescrev
 
 - [x] **Phase 1: O acervo e o silencio dele** - Onde a assinatura aprendida mora, como ela sobrevive a `calibrar.bat` e por que ela nao fala
 - [x] **Phase 2: Aprender sozinho** - A linha que ninguem reconhece deixa de ser misterio permanente
-- [ ] **Phase 3: Batismo pelo WhatsApp** - O usuario da nome, do celular, a assinatura que o scanner PERGUNTOU
+- [x] **Phase 3: Batismo pelo WhatsApp** - O usuario da nome, do celular, a assinatura que o scanner PERGUNTOU
 
 ## Phase Details
 
@@ -231,8 +231,8 @@ fase e merecem estar aqui:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — a pergunta que sai uma vez (nos dois gatilhos, com um marcador so), o comando que batiza, o pino provado contra uma party reorganizada, e o nome valendo sem reiniciar nas tres metades (BATI-01, BATI-02, BATI-03, OPER-03)
-- [ ] 03-02-PLAN.md — a recusa de nome duplicado com a saida escrita, a correcao pela mesma operacao, a fronteira de autorizacao, as dividas T-02-07 e T-02-18 afirmadas com numero, e as cinco ligacoes novas nao-mesclaveis por esquecimento (BATI-04, BATI-05, OPER-03)
+- [x] 03-01-PLAN.md — a pergunta que sai uma vez (nos dois gatilhos, com um marcador so), o comando que batiza, o pino provado contra uma party reorganizada, e o nome valendo sem reiniciar nas tres metades (BATI-01, BATI-02, BATI-03, OPER-03)
+- [x] 03-02-PLAN.md — a recusa de nome duplicado com a saida escrita, a correcao pela mesma operacao, a fronteira de autorizacao, as dividas T-02-07 e T-02-18 afirmadas com numero, e as cinco ligacoes novas nao-mesclaveis por esquecimento (BATI-04, BATI-05, OPER-03)
 
 ## Progress
 
@@ -240,7 +240,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. O acervo e o silencio dele | 2/2 | Complete | 2026-08-31 |
 | 2. Aprender sozinho | 2/2 | Complete | 2026-08-31 |
-| 3. Batismo pelo WhatsApp | 1/2 | In Progress | - |
+| 3. Batismo pelo WhatsApp | 2/2 | Complete | 2026-08-31 |
 
 ## Coverage
 

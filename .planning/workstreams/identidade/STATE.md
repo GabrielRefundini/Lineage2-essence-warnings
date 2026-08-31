@@ -7,15 +7,15 @@ created: 2026-08-30
 
 ## Current Position
 
-**Status:** Fase 3 em andamento (plano 03-01 entregue, 03-02 pendente)
+**Status:** Fase 3 entregue (03-01 e 03-02). Workstream `identidade` completo, aguardando verificacao
 **Current Phase:** Phase 3 - Batismo pelo WhatsApp
 **Last Activity:** 2026-08-31
-**Last Activity Description:** 03-01 executado: l2scanner/batismo.py, os DOIS gatilhos da pergunta com UM marcador, e o nome valendo no mesmo tick nas tres metades
+**Last Activity Description:** 03-02 executado: a recusa de nome duplicado com a saida escrita, a correcao pela mesma operacao, a fronteira de autorizacao nos dois telefones, as tres dividas herdadas afirmadas com numero, e as cinco ligacoes novas nao-mesclaveis por esquecimento
 
 ## Progress
 
-**Phases Complete:** 2/3
-**Current Plan:** 03-02
+**Phases Complete:** 3/3
+**Current Plan:** nenhum pendente
 
 ## Accumulated Context
 
@@ -29,6 +29,15 @@ created: 2026-08-30
 - **O comando de batismo e do nivel de DONO e fica FORA de `COMANDOS_DE_MEMBRO`.** Nome
   errado e corrupcao duravel num acervo que nunca e podado — mesma familia de `/corrigir`
   e `/pegou`, que ja sao de dono pela mesma razao (comandos.py:819-853).
+- **Um nome e um recurso EXCLUSIVO a partir da Fase 3, e a comparacao e por
+  `casefold()` contra `acervo.nomeados()`, com o PROPRIO alvo como excecao (D-07).**
+  Ser mais estrito aqui nao contradiz a igualdade exata de `carregar_identidades`:
+  a regra estrita e um SUBCONJUNTO da frouxa, ela so recusa mais, e recusar mais
+  nao pode produzir um nome errado.
+- **A recusa de nome duplicado E a documentacao da unica saida que existe.** Nao ha
+  comando de esquecer no v1, entao a saida para um nome QUEIMADO e batizar a outra
+  entrada com outro nome — e a mensagem de recusa e o unico lugar onde o usuario vai
+  procurar por isso. Apagar as duas frases do meio dela reabre T-02-07 e T-02-18.
 - **Ordem escolhida: durabilidade antes do aprendizado.** O aprendizado-primeiro nao so
   morreria na primeira `calibrar.bat`; gravando em `cal.assinaturas` com nome de mentira
   ele promoveria uma linha anonima a sujeito e mataria a degradacao `#linhaN` do
@@ -40,8 +49,8 @@ Nenhum.
 
 ## Session Continuity
 
-**Stopped At:** Completado 03-01-PLAN.md
-**Resume File:** .planning/workstreams/identidade/phases/03-batismo-pelo-whatsapp/03-02-PLAN.md
+**Stopped At:** Completado 03-02-PLAN.md (ultima onda do workstream `identidade`)
+**Resume File:** None
 
 ## Fase 1 entregue (2026-08-31)
 
@@ -234,7 +243,8 @@ hoje cita as tres na MESMA mensagem, sem posicao nenhuma:
       15caec
       f19e3c
 
-O plano 03-02 e a verificacao humana devem usar TRES como a contagem de campo.
+(Numero da onda 03-01. Ele mudou de novo desde entao: ver "O estado de campo
+mudou DE NOVO" mais abaixo — sao SEIS.)
 
 ### O desvio deliberado do criterio 1
 
@@ -246,14 +256,40 @@ posicao de agora corresponde a ela. Inventar uma seria a primeira mentira do
 caminho. O preco esta em quem paga: as tres entradas reais serao perguntadas
 justamente SEM posicao.
 
-### Divida herdada pelo 03-02
+### Divida herdada pelo 03-02, e o que sobrou dela
 
-  - BATI-04 (recusa de nome duplicado) e BATI-05 (correcao). `acervo.nomeados()`
-    ja e lido dentro do `responder_batismo`, no lugar exato onde a comparacao
-    entra, com a excecao do proprio alvo (D-07) descrita no comentario.
-  - T-03-07 aceito: a instancia que nao obedeceu o comando so ve o nome no
-    proximo arranque. La a entrada continua ANONIMA, e anonima nao vira sujeito
-    de alerta (APRE-03). Ela cala, nunca mente. Falta o caso de ponta a ponta.
-  - O ramo do `BATIZAR` ainda nao tem portao AST proprio para o
-    `avisar_o_grupo`. A atribuicao esta la e comentada.
-  - O caso de ponta a ponta do criterio 6 (o party-mate recusado).
+Tudo abaixo foi PAGO na onda 03-02 (ver `03-02-SUMMARY.md`):
+
+  - BATI-04 e BATI-05 implementados no ponto de extensao que o 03-01 marcou.
+    Nao nasceu comando novo nem simbolo publico novo: corrigir e a MESMA
+    operacao, e a diferenca esta so na resposta (D-06).
+  - T-03-07 afirmado por COMPORTAMENTO: duas listas vivas sobre a mesma pasta,
+    a que nao obedeceu fica com nome vazio, rotulo `Membro N` e ZERO eventos.
+  - O ramo do `BATIZAR` ganhou o portao AST do `avisar_o_grupo`, com o caso
+    irmao que prova que o detector acusaria um ramo sem a atribuicao.
+  - O caso de ponta a ponta do criterio 6 existe, com afirmacao TRIPLA do lado
+    do membro: nada obedecido, nada escrito e nenhum despacho.
+  - As cinco ligacoes novas de `__main__.py` tem portao de AST proprio, e as
+    seis mutacoes (as cinco mais o `avisar_o_grupo`) foram plantadas no fonte
+    de producao REAL: as seis deixam a suite VERMELHA.
+
+### O estado de campo mudou DE NOVO: sao SEIS anonimas
+
+Medido na onda 03-02, pelo caminho de producao sobre a `.identidades/` real:
+o disco tem **SEIS** entradas anonimas (`0dcf6f`, `15caec`, `70f0f1`,
+`94822d`, `bf53b2`, `f19e3c`), e nenhuma delas casa a chave de nenhuma das
+quatro calibradas. A linha de arranque diz
+`Identidades: 10 assinatura(s) conhecida(s), 6 sem nome`, e a pergunta de
+arranque lista as seis numa mensagem so.
+
+**A verificacao humana da Fase 3 deve usar SEIS apelidos, e nao tres.**
+
+### A unica pergunta aberta que a Fase 3 deixa
+
+Batizar uma entrada do acervo com um nome que ja e de uma assinatura
+CALIBRADA e ACEITO: `_dono_do_nome` compara contra `acervo.nomeados()`, que e
+exatamente o que D-07 manda. `carregar_identidades` entao descarta aquela
+entrada no proximo arranque pela regra do NOME (Fase 1), e o desfecho e seguro
+— a calibrada continua reconhecendo a pessoa. Nao esta coberto por caso e nao
+foi decidido para esta fase: alargar a comparacao para incluir `cal.nomes`
+seria mudar D-07 sem o usuario na mesa.

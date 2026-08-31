@@ -375,6 +375,20 @@ class TestAjuda:
         (`comandos_novos` -> `interpretar` -> `interpretar_dinamico`), com as
         cinco travas ligadas. Um parser paralelo montado aqui no teste provaria
         a coisa errada: provaria que o teste concorda consigo mesmo.
+
+        SAO TRES MARCADORES, E O TERCEIRO NASCEU COM O BATISMO. `<nick>` e
+        `<hora>` ja estavam aqui — o segundo entrou junto com o `.pegou` —, e
+        `<apelido>` entrou junto com o `/batizar`, pela mesma razao.
+
+        ACRESCENTAR UMA SUBSTITUICAO NAO E AFROUXAR O CASO, e a proxima pessoa
+        a ler o diff vai desconfiar que e. O caso continua rodando o caminho
+        real com as cinco travas ligadas e continua afirmando que a sintaxe
+        anunciada volta como o comando certo; o que mudou e que a TABELA passou
+        a ter um marcador a mais. A alternativa seria anunciar uma sintaxe sem
+        marcador, o que ensinaria uma forma que nao existe — exatamente o que
+        este tripwire impede. E cada marcador tem CHARSET proprio: substituir
+        `<apelido>` por um nick faria o parser recusar por charset, e o caso
+        passaria a afirmar que ninguem alcanca o comando, com cara de prova.
         """
         conhecidos = frozenset({apelido("J4guar")})
         for esperado, linha in _AJUDA.items():

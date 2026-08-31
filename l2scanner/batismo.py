@@ -369,6 +369,102 @@ def _recusa_desconhecida(acervo: AcervoDeIdentidades, apelido: str) -> str:
     return "\n".join(linhas)
 
 
+def _dono_do_nome(
+    nomeados: dict[str, str], nick: str, alvo: str
+) -> str | None:
+    """A chave DIFERENTE do alvo que ja tem este nome, ou None (BATI-04, D-07).
+
+    A EXCECAO E O PROPRIO ALVO, e ela nao e conveniencia. Rebatizar a entrada X
+    de `kaus` para `Kaus` recusado como duplicata DELA MESMA deixaria a
+    correcao de caixa impossivel, e correcao de caixa e o conserto mais
+    provavel depois de um nome digitado no celular.
+
+    POR QUE `casefold()` AQUI NAO CONTRADIZ A IGUALDADE EXATA DE
+    `carregar_identidades`, e a primeira leitura vai desconfiar que contradiz.
+    A diferenca e a DIRECAO do erro.
+
+    `carregar_identidades` compara nomes por igualdade EXATA para decidir se
+    uma entrada do acervo duplica uma CALIBRADA. La um erro para o lado frouxo
+    custa SILENCIO: a entrada entra, as duas se sombreiam pela margem, e a
+    linha cala em vez de mentir. A regra e conservadora de proposito.
+
+    Aqui a pergunta e outra: "este nome ja esta ocupado?". Um erro para o lado
+    frouxo custa DUAS entradas com nomes que so diferem na caixa, e dois
+    alertas que um humano le como a mesma pessoa. Ser MAIS ESTRITO aqui nunca
+    contradiz a regra de la, porque ele so RECUSA mais, e recusar mais nao pode
+    produzir um nome errado: a regra estrita e um SUBCONJUNTO da frouxa, entao
+    as duas nao discordam em nenhum caso em que a resposta importa.
+
+    E ISTO NAO E UM SEGUNDO CRITERIO DE IGUALDADE DE PESSOA, que a docstring de
+    `carregar_identidades` proibe. Nao ha comparacao de imagem, nao ha limiar e
+    nao ha "parecido o suficiente". A chave de conteudo continua sendo a unica
+    definicao de "mesma pessoa" (D-01); isto e uma regra sobre o NOME, no mesmo
+    registro da regra do nome que aquela funcao ja tem.
+    """
+    procurado = nick.casefold()
+    for chave, nome in nomeados.items():
+        if chave != alvo and nome.casefold() == procurado:
+            return chave
+    return None
+
+
+def _recusa_de_nome_ocupado(nick: str, gravado: str, dono: str) -> str:
+    """A recusa de BATI-04, e ela e a DOCUMENTACAO de duas dividas herdadas.
+
+    AS DUAS FRASES DO MEIO NAO SAO ENFEITE, e apaga-las reabre as duas dividas
+    que o `<threat_model>` do 03-01 registrou:
+
+    - T-03-12 (T-02-18): a mesma pessoa pode ter sido aprendida DUAS vezes,
+      quando a volta dela ficou abaixo de 0.75 contra a propria entrada
+      (medido na Fase 2: 42 celulas de drift dao 0.7531 e nada nasce, 43 dao
+      0.7492 e uma segunda entrada nasce). Sem a frase que diz que a segunda
+      ficar sem nome NAO FAZ MAL, o usuario conclui que o scanner esta
+      quebrado e fica tentando. Uma assinatura sem nome e reconhecida do mesmo
+      jeito e nunca vira sujeito de alerta (APRE-03).
+
+    - T-03-11 (T-02-07): um recorte CONTAMINADO pode ter virado entrada, e o
+      usuario pode ter respondido a pergunta dela. O nome fica QUEIMADO, e
+      quando a pessoa de verdade for aprendida o batismo dela cai exatamente
+      aqui. NAO HA COMANDO DE ESQUECER NO V1 (adiado na Fase 1, e em Deferred
+      Ideas do CONTEXT desta fase), entao a unica saida e batizar a entrada de
+      lixo com outro nome. Esta mensagem e o unico lugar onde o usuario vai
+      procurar por essa saida; uma recusa que so dissesse "esse nome ja e de
+      outra" seria um beco sem saida.
+
+    O NOME CITADO E O **GRAVADO**, E NUNCA O DIGITADO. Quem digita `mostarda`
+    e recusado por causa de uma entrada que se chama `Mostarda`; escrever
+    "o nome mostarda ja e da assinatura X" seria falso sobre o disco e mandaria
+    o usuario procurar por uma grafia que nao esta la — no recurso inteiro que
+    existe para nao mentir. Quando as duas grafias diferem, a razao vai junto:
+    sem ela o usuario le duas strings diferentes e conclui que o scanner esta
+    quebrado.
+
+    Sem acento e SEM TRAVESSAO: o texto passa por `cp1252` a caminho do
+    WhatsApp.
+    """
+    curto = apelido_da_chave(dono)
+    linhas = [
+        f"Nao batizei ninguem: o nome {gravado} ja e da assinatura {curto}. "
+        "Nada mudou, nem numa entrada nem na outra.",
+    ]
+    if nick != gravado:
+        linhas.append(
+            f"Para mim {nick} e {gravado} sao o mesmo nome, a caixa nao conta: "
+            "dois alertas que so diferem na caixa ninguem consegue distinguir."
+        )
+    linhas += [
+        "Se as duas forem a mesma pessoa, eu aprendi o rosto dela duas vezes. "
+        "Nesse caso a segunda pode ficar sem nome sem problema nenhum: "
+        "assinatura sem nome continua sendo reconhecida e nunca vira sujeito "
+        "de alerta.",
+        f"Para o nome {gravado} ficar livre aqui, batize a {curto} com outro "
+        "nome. Essa e a unica saida: nao existe comando de esquecer uma "
+        "assinatura.",
+        f"Exemplo: /batizar {curto} Fulano",
+    ]
+    return "\n".join(linhas)
+
+
 def _recusa_ambigua(apelido: str, resolucao: Resolucao) -> str:
     """Os candidatos, e o pedido de mais digitos. NUNCA um desempate."""
     candidatos = ", ".join(apelidos_para_escolher(resolucao.candidatos))
@@ -416,17 +512,22 @@ def responder_batismo(
         return RespostaDoBatismo(privado=_recusa_desconhecida(acervo, apelido))
     chave = resolucao.chave
 
-    # O MAPA `chave -> nome` E LIDO AQUI DE PROPOSITO, e ele e o ponto de
-    # extensao do BATI-04.
+    # O MAPA `chave -> nome` E LIDO UMA VEZ SO, e as DUAS perguntas saem dele.
     #
-    # O plano 03-02 acrescenta sobre ELE a recusa de nome duplicado, com a
-    # excecao do proprio alvo (D-07): rebatizar a entrada X de "Kaus" para
-    # "Kaus" nao pode ser recusado como duplicata dela mesma, senao a correcao
-    # de caixa fica impossivel. Implementar aqui METADE da regra deixaria este
-    # plano com uma condicao que se SABE errada, entao o que entra agora e a
-    # leitura e o uso honesto dela: dizer, na confirmacao, se este batismo
-    # TROCOU um nome que ja existia.
-    nome_anterior = acervo.nomeados().get(chave, "")
+    # Uma segunda leitura entre a recusa e a confirmacao abriria uma janela em
+    # que o disco mudou no meio (a outra instancia do usuario roda sobre a
+    # MESMA pasta), e a resposta descreveria um estado que nunca existiu.
+    nomeados = acervo.nomeados()
+
+    # BATI-04, NO LUGAR EXATO: depois de `resolver` ter dito `ok` e ANTES de
+    # `acervo.nomear`. Recusar depois de escrever seria escrever.
+    dono = _dono_do_nome(nomeados, nick, chave)
+    if dono is not None:
+        return RespostaDoBatismo(
+            privado=_recusa_de_nome_ocupado(nick, nomeados[dono], dono)
+        )
+
+    nome_anterior = nomeados.get(chave, "")
 
     desfecho = acervo.nomear(chave, nick)
     if desfecho != "nomeado":
@@ -472,12 +573,34 @@ def responder_batismo(
         # Mutar o snapshot em tempo de execucao e SEGURO: `calibracao.py`
         # constroi um `set` NOVO a cada leitura de `nomes_com_assinatura`,
         # entao ele nao e aliasado a nada dentro da `Calibracao`.
+        #
+        # E NUMA CORRECAO O NOME ANTIGO **NAO** SAI DAQUI, e isso e deliberado.
+        # Este conjunto e um CONSERVADOR: ele so diz "este nome nao serve de
+        # rotulo por POSICAO", e nunca "esta pessoa esta aqui". Tirar o antigo
+        # o faria voltar a ser emprestado por posicao para qualquer linha nao
+        # reconhecida, e um nome que ja pertenceu a uma assinatura nunca
+        # deveria voltar a ser um palpite posicional. Errar para o lado do
+        # silencio e a regra do projeto.
         nomes_reservados.add(nick)
 
     if nome_anterior:
+        # A CORRECAO (BATI-05), e a resposta e DERIVADA DO ESTADO — nao ha
+        # caminho segundo (D-06). A operacao foi a mesma; o que mudou e que
+        # havia um nome antes.
+        #
+        # O ANTIGO E CITADO porque e o unico jeito de quem digitou conferir na
+        # hora que corrigiu a entrada que queria, e nao a vizinha. Mesmo
+        # raciocinio ja escrito no `.pegou`, que sempre diz o DIA de volta.
+        #
+        # E A FRASE DO "LIVRE" SO SAI QUANDO ELE FICOU MESMO LIVRE. Corrigir
+        # `kaus` para `Kaus` e a excecao de D-07 sobre a MESMA entrada: o nome
+        # continua ocupado por ela, so que com outra caixa, e dizer que ele
+        # ficou livre mandaria o usuario tentar um batismo que sera recusado.
+        liberou = nome_anterior.casefold() != nick.casefold()
         privado = (
             f"Pronto: {apelido} era {nome_anterior} e agora e {nick}. "
-            "Os alertas dessa pessoa passam a sair com esse nome, sem "
+            + (f"O nome {nome_anterior} ficou livre. " if liberou else "")
+            + "Os alertas dessa pessoa passam a sair com esse nome, sem "
             "reiniciar nada."
         )
     else:
