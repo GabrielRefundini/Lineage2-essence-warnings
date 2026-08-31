@@ -604,6 +604,132 @@ class TestORearmeEPorBoss:
 
 
 # ---------------------------------------------------------------------------
+# D-24 (criterio 2 da Fase 3): o rearme deixa de ser um estado por BOSS e
+# passa a ser um estado por CANAL.
+# ---------------------------------------------------------------------------
+
+
+class TestOChatNaoEEngolidoPeloAlvo:
+    """O anuncio do servidor nao pode ser descartado dentro do vigia.
+
+    O modo de falha que esta classe impede e um alerta que NUNCA SAIU — a
+    mesma familia de defeito que
+    `test_o_south_alvejado_no_terceiro_tick_nao_e_engolido` ja nomeia, agora
+    num segundo eixo. Com um flag unico por boss, o usuario segurando
+    `Tiat North` no alvo por minutos deixava `_armado` em `False`, e a frase
+    do servidor chegando no chat era jogada fora antes de qualquer disco: sem
+    ancora, sem `ResultadoDoTick`, sem log. Nada para alguem notar.
+
+    A razao e do usuario e foi ditada junto com a regra (D-24): o chat SEMPRE
+    avisa, "pois eu posso estar longe do computador". O anuncio do servidor e
+    o unico sinal que existe quando ninguem esta olhando a tela; o alvo exige
+    alguem na frente do computador.
+    """
+
+    def test_o_anuncio_do_chat_atravessa_o_alvo_segurado(self):
+        """O caso de campo: o boss fica selecionado, e o servidor anuncia."""
+        v = vigia(
+            ["", "", ANUNCIO],
+            ["Tiat North", "Tiat North", "Tiat North"],
+        )
+
+        avisos = [
+            v.avaliar(PIXELS, PIXELS, AGORA + timedelta(seconds=segundo))
+            for segundo in range(3)
+        ]
+
+        assert [[a.boss for a in tick] for tick in avisos] == [
+            ["Tiat North"],
+            [],
+            ["Tiat North"],
+        ]
+
+    def test_a_origem_do_aviso_que_atravessa_vem_da_PRESENCA(self):
+        """D-31: a presenca decide a ORIGEM, o canal decide se HA aviso.
+
+        O aviso do terceiro tick e `CHAT_E_ALVO` e nao `CHAT`, porque os dois
+        sinais estao na tela. A origem vira nome de arquivo de ancora (D-18) e
+        ramifica o texto da mensagem de janela horas depois (D-16):
+        deriva-la de "qual canal armou" mudaria a distribuicao das ancoras sem
+        uma linha de `respawn.py` mudar e sem um teste de la ficar vermelho.
+        """
+        v = vigia(
+            ["", "", ANUNCIO],
+            ["Tiat North", "Tiat North", "Tiat North"],
+        )
+
+        avisos = [
+            v.avaliar(PIXELS, PIXELS, AGORA + timedelta(seconds=segundo))
+            for segundo in range(3)
+        ]
+
+        assert avisos[0][0].origem is OrigemDoAviso.ALVO
+        assert avisos[2][0].origem is OrigemDoAviso.CHAT_E_ALVO
+
+    def test_o_alvo_tambem_nao_e_engolido_pelo_chat(self):
+        """O caso SIMETRICO, para a mudanca nao valer num sentido so.
+
+        O efeito colateral aceito e uma ancora de origem `alvo` a mais, que e
+        o custo ja apresentado e aceito de D-15 (T-03-11). Nenhuma tarefa
+        desta fase toca `ancoras_mais_recentes` nem `_PESO_DA_ORIGEM`.
+        """
+        v = vigia(
+            [ANUNCIO, ANUNCIO, ANUNCIO],
+            ["", "", "Tiat North"],
+        )
+
+        avisos = [
+            v.avaliar(PIXELS, PIXELS, AGORA + timedelta(seconds=segundo))
+            for segundo in range(3)
+        ]
+
+        assert [[(a.boss, a.origem) for a in tick] for tick in avisos] == [
+            [("Tiat North", OrigemDoAviso.CHAT)],
+            [],
+            [("Tiat North", OrigemDoAviso.CHAT_E_ALVO)],
+        ]
+
+    def test_os_dois_canais_armados_produzem_UM_aviso_so(self):
+        """RECO-05 da Fase 1, intacto: um boss, no maximo um aviso por tick.
+
+        Partir o ESTADO em dois nao pode partir a SAIDA em dois — seriam duas
+        mensagens de WhatsApp para o mesmo nascimento, que e exatamente o
+        defeito que esta fase esta consertando.
+        """
+        v = vigia([ANUNCIO], ["Tiat North"])
+
+        avisos = v.avaliar(PIXELS, PIXELS, AGORA)
+
+        assert len(avisos) == 1
+        assert avisos[0].origem is OrigemDoAviso.CHAT_E_ALVO
+
+    def test_o_canal_desarmado_nao_rearma_com_o_outro_sinal_presente(self):
+        """A aritmetica do rearme e preservada byte a byte.
+
+        Sao as leituras LIMPAS DAQUELE CANAL que rearmam, e nunca a chegada do
+        outro sinal. Sem isto, o anuncio do chat no terceiro tick rearmaria o
+        alvo de graca e o alvo voltaria a falar sozinho no quarto — spam por
+        um caminho novo, no meio do plano que existe para tirar o spam.
+        """
+        v = vigia(
+            ["", "", ANUNCIO, ""],
+            ["Tiat North", "Tiat North", "Tiat North", "Tiat North"],
+        )
+
+        avisos = [
+            v.avaliar(PIXELS, PIXELS, AGORA + timedelta(seconds=segundo))
+            for segundo in range(4)
+        ]
+
+        assert [[a.boss for a in tick] for tick in avisos] == [
+            ["Tiat North"],
+            [],
+            ["Tiat North"],
+            [],
+        ]
+
+
+# ---------------------------------------------------------------------------
 # T-01-03: o `nome` do config chega ESCAPADO ao `re.compile`.
 # ---------------------------------------------------------------------------
 
