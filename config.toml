@@ -290,3 +290,64 @@ respawn_horas_max = 10
 nome = "Tiat South"
 respawn_horas_min = 8
 respawn_horas_max = 10
+
+# ---------------------------------------------------------------------------
+# MARGEM DE CRAFT — quanto sobra entre o produto e os componentes
+#
+# SEM NENHUM BLOCO AQUI A MARGEM SIMPLESMENTE NAO APARECE. Nao e erro e nao e
+# aviso: e uma secao opcional. O modo --mercado roda a noite inteira sem
+# receita nenhuma e continua respondendo "vale quanto agora?".
+#
+# O QUE A CONTA FAZ:
+#
+#   margem = (menor pedido visivel do PRODUTO x quanto a receita RENDE)
+#            menos a soma de (menor pedido visivel de cada COMPONENTE x a
+#            QUANTIDADE que a receita pede dele)
+#
+# OS DOIS LADOS SAO PEDIDOS VISIVEIS NO QUADRO, e nao transacoes. O scanner ve
+# OFERTAS — o que estao PEDINDO. Ele nao ve o que foi vendido nem por quanto,
+# e e por isso que a palavra "lucro" nao aparece em lugar nenhum aqui.
+#
+# O NUMERO E BRUTO. Ele ignora a comissao do World Exchange e ignora a chance
+# de o craft falhar. As duas coisas existem, e as duas comem a margem.
+#
+# A CONTA USA O UNITARIO, entao ela NAO lida com lote minimo. Se o menor pedido
+# de um componente for um lote de 100 e a sua receita pedir 20, quem comprar
+# leva 100. A simplificacao esta escrita aqui para o numero nao fingir que ela
+# nao existe.
+#
+# A OFERTA PODE JA TER SIDO COMPRADA. O programa nao registra desaparecimento:
+# o "menor pedido de 22 minutos atras" pode ter saido ha 21. NENHUMA MARGEM
+# DAQUI E ACIONAVEL SEM VOCE CONFERIR NA TELA.
+#
+# O PROGRAMA NAO CONHECE O CRAFTING DO JOGO. Ele nao sabe o que faz um Dragon
+# Belt: ele so le numeros do quadro e faz a conta que voce escreveu. Uma
+# receita errada produz um numero bem formatado e completamente falso, e a
+# unica defesa e voce ter escrito a receita certo.
+#
+# ESCREVA O NOME DE CADA ITEM EXATAMENTE COMO ELE APARECE NA TELA, com o
+# prefixo de encanto quando houver — a mesma regra da watchlist ali de cima e
+# pelo mesmo motivo: cada variante e uma serie de preco INDEPENDENTE. Um nome
+# que case com DUAS series quebra a margem listando as candidatas em vez de
+# escolher uma; um nome que nao case com nenhuma quebra tambem, dizendo qual
+# faltou. Quebrar e o desfecho certo: uma margem calculada com um buraco e um
+# numero plausivel e errado.
+#
+# `rende` E OBRIGATORIO e nao tem padrao. Um padrao silencioso de 1 daria uma
+# margem cinco vezes menor que a real para quem crafta cinco de cada vez,
+# perfeitamente formatada e sem uma linha de erro em lugar nenhum. Mesma razao
+# que tornou `respawn_horas_min` e `respawn_horas_max` obrigatorios.
+#
+# CADA COMPONENTE MOSTRA A PROPRIA IDADE no console, e a mais velha sobe para
+# a linha da margem. Uma margem com um ingrediente visto hoje e outro visto ha
+# uma semana nao e uma margem.
+#
+# UM BLOCO POR RECEITA: para uma segunda, repita o bloco inteiro.
+#
+# [[receita]]
+# produto = "Dragon Belt"
+# rende = 1
+# componentes = [
+#   { item = "Common Aztac", quantidade = 5 },
+#   { item = "Leonard", quantidade = 20 },
+# ]
