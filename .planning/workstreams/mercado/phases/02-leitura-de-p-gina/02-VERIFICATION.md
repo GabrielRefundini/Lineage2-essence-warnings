@@ -2,7 +2,7 @@
 phase: 02-leitura-de-p-gina
 workstream: mercado
 verified: 2026-08-30T23:40:00Z
-status: human_needed
+status: passed
 score: 2/3 criterios verificados
 behavior_unverified: 1
 overrides_applied: 0
@@ -257,3 +257,48 @@ pode afirmar sozinha, e `STATE.md:104` já o havia nomeado antes de eu chegar.
 ---
 
 _Verificado: 2026-08-30 · Verificador: Claude (gsd-verifier), workstream `mercado`_
+
+
+---
+
+## PORTOES HUMANOS FECHADOS — 2026-08-31, sessao real do usuario
+
+Os dois portoes que mantinham esta fase em `human_needed` foram exercitados na
+maquina do usuario, com o jogo aberto. **Status promovido a `passed`.**
+
+Eles so ficaram alcancaveis depois que a sessao de debug
+`sonda-do-fundo-recusa-nome-comprido` consertou a sonda de oclusao: ate entao a
+aba com nomes compridos descartava 129 linhas e nao aceitava pagina nenhuma.
+
+### 1. OCR real dentro do tick — FECHADO, e conferido contra a tela
+
+Aba Enhancement > Scrolls, `Protecting Scroll: Enchant C-grade Armor` — 40
+caracteres, o nome mais comprido que o mercado apresenta.
+
+**10 de 10 linhas exatas**: nome, total, quantidade e ORDEM identicos ao print,
+comparados linha a linha. Zero divergencia.
+
+O unico residuo nao-zero esta CORRETO e explicado: `35,00 / 9 = 3,8888...`, o
+jogo exibe `3,88` truncado, e `3500 - (388 x 9) = 8`. O residuo mede a truncagem
+do proprio jogo, que e a razao de o unitario exibido nunca ter virado coluna.
+
+Sessao: 13 paginas lidas, 1 perdida, **0 linhas descartadas**, 10 observacoes.
+
+### 2. Congelamento provocado — FECHADO
+
+Janela minimizada com o modo rodando. Saiu, literal:
+
+    CAPTURA CONGELADA: 3 janelas consecutivas bit-identicas. Nenhuma pagina do
+    mercado sera aceita ate a janela mudar.
+
+Comportamento exato do desenho: detecta em 3 janelas, recusa aceitar pagina, e
+avisa alto. O `TestOCongelamentoDeCaptura` afirmava isto por teste; agora esta
+afirmado por campo.
+
+### De quebra, ANAL-01/02 da Fase 4 provados com dado real
+
+Console: `ABAIXO DA MEDIANA: 2,50 por unidade (derivado), contra mediana de 3,89
+(derivado) com n=10`. Conferido: com n=10 (PAR), `median_low` devolve 388,89 —
+que ESTA na lista — enquanto `statistics.median` devolveria 394,44, que NAO
+esta. A decisao "um numero exibido tem de ter existido na tela", travada na
+Fase 4 e presa por um teste com n=6, comprovada em producao.
