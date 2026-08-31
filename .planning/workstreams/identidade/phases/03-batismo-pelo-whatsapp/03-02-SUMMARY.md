@@ -458,3 +458,8 @@ Nenhum. Zero dependencia nova, zero variavel de ambiente nova, zero passo de ins
 - `.planning/workstreams/identidade/phases/03-batismo-pelo-whatsapp/03-02-SUMMARY.md` — presente
 - Os cinco commits (`10940a3`, `e458f39`, `8661514`, `bd1e126`, `3780685`) existem no historico do worktree, na ordem RED/GREEN da Tarefa 1
 - `python -m pytest tests/ -q` -> **3744 passed, 23 skipped**
+
+## Self-Check: PASSED (conferido apos o commit final)
+
+- Suite completa no worktree: 3744 passed, 23 skipped
+- Os seis commits existem no historico: 10940a3, e458f39, 8661514, bd1e126, 3780685, 8d4b23d
