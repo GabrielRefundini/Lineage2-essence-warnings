@@ -52,13 +52,17 @@ import pytest
 
 import l2scanner.rastreador
 from l2scanner.acervo import AcervoDeIdentidades
-from l2scanner.agenda import RegistroEmDisco
+from l2scanner.agenda import AgendaInvalida, RegistroEmDisco
 from l2scanner.aprendiz import (
+    LEITURAS_PARA_APRENDER,
+    TETO_DE_CELULAS_TOLERADAS,
     AjustesDoAprendiz,
     Aprendiz,
     Candidata,
+    ToleranciaAlemDoTeto,
     distancia_de_hamming,
 )
+from l2scanner.config import ler_ajustes_do_aprendiz
 from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.identidade import (
@@ -1298,3 +1302,323 @@ class TestARecusaDizQuantoMediu:
         assert retrato.mediana is not None and retrato.mediana < 40, (
             "a mediana existe justamente para o outlier nao mandar sozinho"
         )
+
+
+# ---------------------------------------------------------------------------
+# O TETO QUE VEM DA MEDIDA, E A TOLERANCIA QUE O USUARIO CONSEGUE MEXER (D-06)
+# ---------------------------------------------------------------------------
+
+
+class TestOTetoEDerivadoENaoEscolhido:
+    """O codigo tem de dizer DE ONDE o numero veio.
+
+    A tolerancia diz "estas duas leituras sao a MESMA pessoa". O reconhecedor
+    tambem responde essa pergunta, e as duas respostas nao podem se contradizer.
+    """
+
+    def test_o_teto_e_doze(self):
+        assert TETO_DE_CELULAS_TOLERADAS == 12
+
+    def test_a_docstring_cita_os_tres_numeros_que_a_sustentam(self):
+        """Doze, vinte e QUARENTA E OITO.
+
+        O terceiro e a condicao de validade: sem ele o teto parece uma
+        propriedade do reconhecedor, quando e um limite aferido num nome de
+        tamanho medio.
+        """
+        fonte = (RAIZ / "l2scanner" / "aprendiz.py").read_text(encoding="utf-8")
+        bloco = fonte[fonte.index("TETO_DE_CELULAS_TOLERADAS") :][:4000]
+
+        for numero in ("12", "20", "48"):
+            assert numero in bloco, (
+                f"a docstring do teto tem de citar {numero}: sem os tres "
+                "numeros ele vira uma escolha em vez de uma derivacao"
+            )
+
+    def test_a_docstring_diz_que_os_48_pixels_sao_a_condicao_de_validade(self):
+        """Doze celulas sao 25% do sinal DAQUELA mascara.
+
+        Num nick curto, com 20 pixels de texto, as mesmas 12 celulas sao 60% do
+        sinal e destroem a assinatura muito antes de o reconhecedor chegar perto
+        da faixa medida. O teto protege contra o erro grosseiro — uma tolerancia
+        de 30, 50 celulas — e nao promete seguranca para todo nick.
+        """
+        fonte = (RAIZ / "l2scanner" / "aprendiz.py").read_text(encoding="utf-8")
+        bloco = fonte[fonte.index("TETO_DE_CELULAS_TOLERADAS") :][:4000].lower()
+
+        assert "condicao de validade" in bloco
+        assert "pixels de texto" in bloco
+        assert "nick" in bloco, (
+            "a docstring tem de dizer, em voz alta, que num nick curto as "
+            "mesmas celulas sao uma fracao MAIOR do sinal"
+        )
+
+
+class TestAValidacaoDosAjustes:
+    """A validacao mora no `__post_init__`, e nao no leitor do `config.toml`.
+
+    O teto nao e uma pergunta de sintaxe de arquivo: e uma propriedade MEDIDA do
+    reconhecedor, e ela tem de valer para TODO caminho de construcao — inclusive
+    um teste, um script ou um chamador futuro que nunca encoste no
+    `config.toml`. Validar so na leitura deixaria a porta aberta para todos os
+    outros.
+    """
+
+    def test_no_teto_exato_e_aceito(self):
+        """A recusa e sobre PASSAR do teto, e nao sobre chegar nele."""
+        ajustes = AjustesDoAprendiz(celulas_toleradas=TETO_DE_CELULAS_TOLERADAS)
+        assert ajustes.celulas_toleradas == TETO_DE_CELULAS_TOLERADAS
+
+    def test_um_acima_do_teto_e_recusado(self):
+        with pytest.raises(ToleranciaAlemDoTeto) as erro:
+            AjustesDoAprendiz(celulas_toleradas=TETO_DE_CELULAS_TOLERADAS + 1)
+
+        mensagem = str(erro.value)
+        assert str(TETO_DE_CELULAS_TOLERADAS + 1) in mensagem, "diz o RECEBIDO"
+        assert str(TETO_DE_CELULAS_TOLERADAS) in mensagem, "diz o TETO"
+        assert "celula" in mensagem.lower(), "diz a UNIDADE"
+        assert "—" not in mensagem, "travessao quebra o console cp1252"
+
+    def test_tolerancia_negativa_e_recusada(self):
+        with pytest.raises(ToleranciaAlemDoTeto) as erro:
+            AjustesDoAprendiz(celulas_toleradas=-1)
+        assert "celula" in str(erro.value).lower()
+
+    def test_leituras_para_aprender_menor_que_um_e_recusado(self):
+        """N igual a zero gravaria no primeiro frame.
+
+        Que e literalmente o que o APRE-02 proibe.
+        """
+        with pytest.raises(ToleranciaAlemDoTeto) as erro:
+            AjustesDoAprendiz(leituras_para_aprender=0)
+        assert "leitura" in str(erro.value).lower()
+
+
+class TestOLeitorDaSecaoIdentidade:
+    """A disciplina e a da secao vizinha, copiada linha por linha.
+
+    Arquivo ausente nao e erro, secao ausente nao e erro, chave ausente devolve
+    o default daquela chave, TOML quebrado E erro de arranque, e a mensagem
+    MOSTRA a secao pronta para copiar em vez de so descreve-la.
+    """
+
+    def test_arquivo_ausente_devolve_os_defaults(self, tmp_path):
+        ajustes = ler_ajustes_do_aprendiz(tmp_path / "nao-existe.toml")
+        assert ajustes == AjustesDoAprendiz()
+
+    def test_secao_ausente_devolve_os_defaults(self, tmp_path):
+        alvo = tmp_path / "config.toml"
+        alvo.write_text('[mercado]\nwatchlist = []\n', encoding="utf-8")
+        assert ler_ajustes_do_aprendiz(alvo) == AjustesDoAprendiz()
+
+    def test_chave_ausente_devolve_o_default_daquela_chave(self, tmp_path):
+        alvo = tmp_path / "config.toml"
+        alvo.write_text("[identidade]\ncelulas_toleradas = 4\n", encoding="utf-8")
+
+        ajustes = ler_ajustes_do_aprendiz(alvo)
+        assert ajustes.celulas_toleradas == 4
+        assert ajustes.leituras_para_aprender == LEITURAS_PARA_APRENDER
+
+    def test_toml_quebrado_levanta(self, tmp_path):
+        alvo = tmp_path / "config.toml"
+        alvo.write_text("[identidade\ncelulas = ", encoding="utf-8")
+        with pytest.raises(AgendaInvalida):
+            ler_ajustes_do_aprendiz(alvo)
+
+    def test_tipo_errado_levanta_mostrando_a_secao_pronta(self, tmp_path):
+        alvo = tmp_path / "config.toml"
+        alvo.write_text('[identidade]\ncelulas_toleradas = "tres"\n', encoding="utf-8")
+
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_ajustes_do_aprendiz(alvo)
+
+        mensagem = str(erro.value)
+        assert "[identidade]" in mensagem
+        assert "celulas_toleradas" in mensagem
+
+    def test_a_secao_precisa_ser_uma_secao(self, tmp_path):
+        alvo = tmp_path / "config.toml"
+        alvo.write_text('identidade = "nao sou secao"\n', encoding="utf-8")
+        with pytest.raises(AgendaInvalida):
+            ler_ajustes_do_aprendiz(alvo)
+
+    def test_um_booleano_nao_passa_por_inteiro(self, tmp_path):
+        """`True` valendo 1 e a armadilha classica do Python.
+
+        Uma tolerancia `true` significaria UMA celula, e o usuario que escreveu
+        `true` nao quis dizer isso.
+        """
+        alvo = tmp_path / "config.toml"
+        alvo.write_text("[identidade]\ncelulas_toleradas = true\n", encoding="utf-8")
+
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_ajustes_do_aprendiz(alvo)
+        assert "celulas_toleradas" in str(erro.value)
+
+    def test_o_teto_continua_valendo_pela_leitura(self, tmp_path):
+        alvo = tmp_path / "config.toml"
+        alvo.write_text(
+            f"[identidade]\ncelulas_toleradas = {TETO_DE_CELULAS_TOLERADAS + 1}\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ToleranciaAlemDoTeto):
+            ler_ajustes_do_aprendiz(alvo)
+
+
+class TestOCaminhoInteiro:
+    """Provado por COMPORTAMENTO, e nao por leitura do campo."""
+
+    def test_um_config_com_tolerancia_produz_um_aprendiz_que_de_fato_tolera(
+        self, tmp_path
+    ):
+        alvo = tmp_path / "config.toml"
+        alvo.write_text(
+            "[identidade]\nleituras_para_aprender = 4\ncelulas_toleradas = 3\n",
+            encoding="utf-8",
+        )
+
+        aprendiz = Aprendiz(
+            AcervoDeIdentidades(tmp_path / ".identidades"),
+            ler_ajustes_do_aprendiz(alvo),
+        )
+
+        base = mascara_cheia()
+        perto = mascaras_com_distancia(base, 2)
+        for volta in range(4):
+            aprendiz.observar(
+                (
+                    Candidata(
+                        indice=0,
+                        mascara=base if volta % 2 == 0 else perto,
+                        confianca=0.1,
+                    ),
+                )
+            )
+
+        assert len(assinaturas_gravadas(tmp_path / ".identidades")) == 1, (
+            "leituras a 2 celulas de distancia tem de somar quando o config "
+            "pede 3 de tolerancia"
+        )
+
+
+class TestARecusaAcontecENoARRANQUE:
+    """D-06 diz que o valor acima do teto e recusado NO ARRANQUE.
+
+    E arranque e COMPORTAMENTO, e nao topologia de codigo. Um teste que
+    afirmasse apenas "existe um `except ToleranciaAlemDoTeto` em `main()`"
+    provaria que o bloco EXISTE, nunca que a excecao CHEGA nele: ele
+    continuaria verde no dia em que alguem envolvesse a leitura de configuracao
+    num `try/except Exception` e a recusa parasse de subir.
+    """
+
+    def test_main_chamada_de_verdade_devolve_2_com_o_jogo_fechado(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """Roda com o jogo fechado e sem rede.
+
+        Isso so e verdade porque a leitura acontece ANTES de qualquer fonte de
+        captura ser construida. Dentro de `laco_principal` ela ficaria depois de
+        `MssSource` / `JanelaSource`, e este caso precisaria de tela viva.
+        """
+        import sys
+
+        import l2scanner.config
+        from l2scanner import __main__ as principal
+
+        alvo = tmp_path / "config.toml"
+        alvo.write_text(
+            f"[identidade]\ncelulas_toleradas = {TETO_DE_CELULAS_TOLERADAS + 1}\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(l2scanner.config, "ARQUIVO_CONFIG", alvo)
+
+        def nao_deveria_chegar(*_a, **_k):
+            raise AssertionError(
+                "a recusa tinha de acontecer ANTES do laco: um `except` que "
+                "existe nao e um `except` que recebe"
+            )
+
+        monkeypatch.setattr(principal, "laco_principal", nao_deveria_chegar)
+        monkeypatch.setattr(
+            principal, "ARQUIVO_CALIBRACAO", FIXTURES / "calibracao.json"
+        )
+        monkeypatch.setattr(sys, "argv", ["l2scanner", "--replay", "nao-usada"])
+
+        with caplog.at_level(logging.ERROR, logger=principal.log.name):
+            codigo = principal.main()
+
+        assert codigo == 2, "recusar a subir, e nao subir com a configuracao ruim"
+        assert str(TETO_DE_CELULAS_TOLERADAS) in caplog.text, (
+            "a mensagem tem de chegar ao console, e sem traceback"
+        )
+
+    def test_um_config_bom_nao_impede_o_arranque(self, tmp_path, monkeypatch):
+        """Guarda contra prova vazia: o caminho acima nao recusa tudo."""
+        import sys
+
+        import l2scanner.config
+        from l2scanner import __main__ as principal
+
+        alvo = tmp_path / "config.toml"
+        alvo.write_text(
+            f"[identidade]\ncelulas_toleradas = {TETO_DE_CELULAS_TOLERADAS}\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(l2scanner.config, "ARQUIVO_CONFIG", alvo)
+
+        recebidos = []
+
+        def registrar(args, cal, ajustes_do_aprendiz=None):
+            recebidos.append(ajustes_do_aprendiz)
+            return 0
+
+        monkeypatch.setattr(principal, "laco_principal", registrar)
+        monkeypatch.setattr(
+            principal, "ARQUIVO_CALIBRACAO", FIXTURES / "calibracao.json"
+        )
+        monkeypatch.setattr(sys, "argv", ["l2scanner", "--replay", "nao-usada"])
+
+        assert principal.main() == 0
+        assert recebidos == [
+            AjustesDoAprendiz(celulas_toleradas=TETO_DE_CELULAS_TOLERADAS)
+        ], "os ajustes JA VALIDADOS descem para o laco pelo parametro"
+
+
+class TestASecaoDoConfigToml:
+    """Uma secao que o usuario nunca preencheu tem de continuar funcionando.
+
+    Os dois valores entram COMENTADOS com os defaults, no molde do
+    `[mercado] watchlist`: um numero escrito no arquivo e um numero que alguem
+    vai achar que precisa ajustar.
+    """
+
+    def test_a_secao_identidade_existe_comentada(self):
+        texto = (RAIZ / "config.toml").read_text(encoding="utf-8")
+        assert "[identidade]" in texto
+
+        bloco = texto[texto.index("[identidade]") :][:2000]
+        for chave in ("leituras_para_aprender", "celulas_toleradas"):
+            linhas = [
+                linha
+                for linha in bloco.splitlines()
+                if chave in linha and "=" in linha
+            ]
+            assert linhas, f"{chave} tem de aparecer na secao"
+            assert all(linha.lstrip().startswith("#") for linha in linhas), (
+                f"{chave} tem de entrar COMENTADA com o default"
+            )
+
+    def test_o_comentario_diz_onde_achar_o_numero(self):
+        """Fecha o circuito de D-07: o log produz o numero, o comentario diz
+        onde coloca-lo."""
+        texto = (RAIZ / "config.toml").read_text(encoding="utf-8")
+        bloco = texto[texto.index("[identidade]") :][:2000]
+        assert "scanner.log" in bloco
+        assert str(TETO_DE_CELULAS_TOLERADAS) in bloco, (
+            "o teto e a razao dele cabem em uma linha"
+        )
+
+    def test_o_config_de_verdade_continua_lendo_os_defaults(self):
+        """O `config.toml` versionado tem a secao COMENTADA, entao ela nao muda
+        nada para quem nunca a preencheu."""
+        assert ler_ajustes_do_aprendiz(RAIZ / "config.toml") == AjustesDoAprendiz()
