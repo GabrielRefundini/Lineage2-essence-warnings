@@ -53,12 +53,14 @@ from l2scanner.mercado_catalogo import PASTA_DO_MERCADO, SEPARADOR
 from l2scanner.mercado_leitura import LinhaLida
 from l2scanner.mercado_registro import (
     ARQUIVO_DE_OBSERVACOES,
+    ARQUIVO_DO_LEIAME,
     COLUNAS,
     ContratoDoArquivoQuebrado,
     RegistroDeObservacoes,
     campos_da_observacao,
     chave_da_observacao,
     chave_dos_campos,
+    escrever_leiame,
     residuo_dos_campos,
 )
 
@@ -1422,3 +1424,109 @@ class TestOAvisoALTO_CHEGA_AO_CONSOLE:
                     manipulador.close()
             principal.log.handlers[:] = anteriores
             principal.log.setLevel(nivel)
+
+
+# ===========================================================================
+# O LEIAME AO LADO DO DADO (03-02)
+# ===========================================================================
+#
+# Ele e a saida (c) da pesquisa, e existe porque as outras duas foram RECUSADAS
+# com motivo: uma linha de instrucao no topo do CSV quebraria o
+# cabecalho-contrato e o Sheets a importaria como dado; uma coluna
+# `total_exibido` seria dois campos para o mesmo fato, e cai na mesma objecao
+# que derrubou a coluna do unitario.
+#
+# O TEXTO E CONFERIDO POR SUBSTRING, e nao por igualdade: o que estes testes
+# prendem sao os FATOS que o usuario vai procurar seis meses depois — o
+# separador, os centesimos, a diferenca entre a celula vazia e o zero, e a
+# pergunta em aberto do sinal de mais. Reescrever a prosa em volta deles e
+# livre; apagar um deles nao e.
+
+
+def _leiame(pasta: Path) -> str:
+    return (pasta / ARQUIVO_DO_LEIAME).read_text(encoding="utf-8")
+
+
+class TestOLeiameNasceComAPastaEnUNCA_E_REESCRITO:
+    def test_construir_numa_pasta_vazia_cria_o_leiame_ao_lado_do_csv(self, tmp_path):
+        pasta = tmp_path / ".mercado"
+        registro = RegistroDeObservacoes(pasta)
+
+        assert (pasta / ARQUIVO_DO_LEIAME).exists()
+        assert registro.arquivo.exists()
+
+    def test_o_leiame_NAO_TOCA_o_csv_nem_o_cabecalho_contrato(self, tmp_path):
+        """Ele nao entra na importacao: e um arquivo ao lado, nao uma linha
+        dentro. Era essa a objecao que derrubou a saida (b) da pesquisa."""
+        pasta = tmp_path / ".mercado"
+        RegistroDeObservacoes(pasta)
+
+        assert _linhas_cruas(pasta) == [SEPARADOR.join(COLUNAS)]
+
+    def test_um_leiame_EDITADO_A_MAO_sobrevive_ao_proximo_arranque(self, tmp_path):
+        """E um arquivo para humano, na pasta dele. Um programa que o
+        reescrevesse a cada arranque apagaria a anotacao calado — a mesma
+        familia de erro que o cabecalho-contrato existe para impedir do outro
+        lado."""
+        pasta = tmp_path / ".mercado"
+        RegistroDeObservacoes(pasta)
+        alvo = pasta / ARQUIVO_DO_LEIAME
+        alvo.write_text("minha anotacao: conferir o +6 no Sheets\n", encoding="utf-8")
+        antes = alvo.read_bytes()
+
+        RegistroDeObservacoes(pasta)
+
+        assert alvo.read_bytes() == antes
+
+    def test_escrever_leiame_diz_se_ESCREVEU_ou_se_ja_havia_um(self, tmp_path):
+        pasta = tmp_path / ".mercado"
+        pasta.mkdir(parents=True)
+
+        assert escrever_leiame(pasta) is True
+        assert escrever_leiame(pasta) is False
+
+
+class TestOTextoDoLeiameRESPONDE_SOZINHO:
+    def test_ele_ensina_o_separador_PERSONALIZADO_do_dialogo_do_sheets(self, tmp_path):
+        """O dialogo do Sheets oferece deteccao automatica, tabulacao, virgula e
+        personalizado — e NAO tem preset de ponto e virgula. Quem procurar um
+        vai perder tempo, entao o texto diz por extenso qual opcao usar."""
+        pasta = tmp_path / ".mercado"
+        RegistroDeObservacoes(pasta)
+        texto = _leiame(pasta)
+
+        assert '";"' in texto, "o separador tem de aparecer entre aspas"
+        assert "personalizado" in texto.lower()
+        assert "Importar" in texto, "o caminho pelo menu e o que abre o dialogo"
+
+    def test_ele_explica_os_centesimos_com_o_exemplo_CONCRETO(self, tmp_path):
+        pasta = tmp_path / ".mercado"
+        RegistroDeObservacoes(pasta)
+        texto = _leiame(pasta)
+
+        assert "6200" in texto
+        assert "62,00" in texto
+
+    def test_ele_distingue_a_celula_VAZIA_do_ZERO_no_residuo(self, tmp_path):
+        """As duas leituras por extenso: sao fatos diferentes, e uma planilha
+        que os tratasse como o mesmo estaria somando leituras que nunca
+        aconteceram."""
+        pasta = tmp_path / ".mercado"
+        RegistroDeObservacoes(pasta)
+        texto = _leiame(pasta)
+
+        assert "residuo_do_cruzamento" in texto
+        assert "VAZIA" in texto
+        assert "ZERO" in texto
+        assert "nao deu para medir" in texto
+        assert "conferi e bateu" in texto
+
+    def test_ele_carrega_o_sinal_de_mais_como_PERGUNTA_EM_ABERTO(self, tmp_path):
+        """Nao e defeito conhecido do arquivo: e uma suposicao NAO MEDIDA, e o
+        conserto seria na planilha, nunca no dado."""
+        pasta = tmp_path / ".mercado"
+        RegistroDeObservacoes(pasta)
+        texto = _leiame(pasta)
+
+        assert "+6 Agathion" in texto
+        assert "formula" in texto.lower()
