@@ -2792,3 +2792,378 @@ class TestAFronteiraDaDedupe:
         mascara = assinatura_do_frame(pixels, cal, LINHA_QUE_SAI).mascara
         fracao = CELULAS_LOGO_ABAIXO_DO_LIMIAR / mascara.size
         assert fracao < 0.03, fracao
+
+
+# ---------------------------------------------------------------------------
+# W-01: AS TRES LIGACOES QUE SO EXISTEM EM PRODUCAO
+# ---------------------------------------------------------------------------
+
+ELO_SESSAO = "a Sessao recebe o aprendiz"
+ELO_LISTA_VIVA = "o acervo entra na lista viva"
+ELO_AJUSTES = "o aprendiz recebe os ajustes lidos"
+
+
+def _alvo_da_chamada(no: ast.Call) -> str | None:
+    return getattr(no.func, "id", None) or getattr(no.func, "attr", None)
+
+
+def _nomes_ligados_a(arvore: ast.Module, construtor: str) -> set[str]:
+    """Os nomes locais que recebem o resultado de `construtor(...)`."""
+    ligados: set[str] = set()
+    for no in ast.walk(arvore):
+        if not isinstance(no, ast.Assign) or not isinstance(no.value, ast.Call):
+            continue
+        if _alvo_da_chamada(no.value) != construtor:
+            continue
+        ligados |= {t.id for t in no.targets if isinstance(t, ast.Name)}
+    return ligados
+
+
+def _cita_nome_de_fora(no: ast.expr) -> bool:
+    """A expressao menciona algo que nao seja o construtor de padroes.
+
+    `ajustes_do_aprendiz or AjustesDoAprendiz()` cita; `AjustesDoAprendiz()`
+    sozinho, nao. E exatamente essa a diferenca entre honrar o `[identidade]` do
+    `config.toml` e descarta-lo.
+    """
+    nomes = {n.id for n in ast.walk(no) if isinstance(n, ast.Name)}
+    return bool(nomes - {"AjustesDoAprendiz"})
+
+
+def _volta_para_a_lista_viva(arvore: ast.Module, ligados: set[str]) -> bool:
+    """Algum `<algo>.assinaturas = <ligado>.assinaturas` existe no modulo."""
+    for no in ast.walk(arvore):
+        if not isinstance(no, ast.Assign):
+            continue
+        escreve = any(
+            isinstance(alvo, ast.Attribute) and alvo.attr == "assinaturas"
+            for alvo in no.targets
+        )
+        if not escreve:
+            continue
+        valor = no.value
+        if (
+            isinstance(valor, ast.Attribute)
+            and valor.attr == "assinaturas"
+            and isinstance(valor.value, ast.Name)
+            and valor.value.id in ligados
+        ):
+            return True
+    return False
+
+
+def _elos_do_arranque(
+    fonte: str, arquivo: str
+) -> tuple[dict[str, list[str]], list[str]]:
+    """Devolve (o que foi ACHADO por elo, as QUEIXAS) lendo a arvore sintatica.
+
+    AST e nunca `grep`, pela mesma razao de `_modulos_do_pacote_importados`
+    logo acima: as docstrings deste projeto citam `aprendiz=` e
+    `cal.assinaturas` em prosa ao explicar as proprias regras, e uma busca
+    textual passaria verde lendo o comentario que sobrou depois de a linha
+    sumir.
+    """
+    arvore = ast.parse(fonte)
+    achados: dict[str, list[str]] = {
+        ELO_SESSAO: [],
+        ELO_LISTA_VIVA: [],
+        ELO_AJUSTES: [],
+    }
+    queixas: list[str] = []
+    aprendizes = _nomes_ligados_a(arvore, "Aprendiz")
+
+    for no in ast.walk(arvore):
+        if isinstance(no, ast.Call):
+            local = f"{arquivo}:{no.lineno}"
+            alvo = _alvo_da_chamada(no)
+
+            if alvo == "Sessao":
+                passado = next(
+                    (k.value for k in no.keywords if k.arg == "aprendiz"), None
+                )
+                if passado is None:
+                    queixas.append(
+                        f"{local}: este `Sessao(...)` nao passa `aprendiz=`, "
+                        "entao o aprendizado de identidades esta DESLIGADO em "
+                        "campo com a suite inteira verde"
+                    )
+                elif not (
+                    isinstance(passado, ast.Name) and passado.id in aprendizes
+                ):
+                    queixas.append(
+                        f"{local}: o `aprendiz=` desta `Sessao(...)` nao e um "
+                        "nome vindo de um `Aprendiz(...)` deste modulo. Passar "
+                        "`None` aqui desliga a feature inteira sem quebrar "
+                        "teste nenhum, e foi isso que a mutacao M19 provou"
+                    )
+                else:
+                    achados[ELO_SESSAO].append(local)
+
+            elif alvo == "Aprendiz":
+                ajustes: ast.expr | None = no.args[1] if len(no.args) >= 2 else None
+                ajustes = next(
+                    (k.value for k in no.keywords if k.arg == "ajustes"), ajustes
+                )
+                if ajustes is None:
+                    queixas.append(
+                        f"{local}: este `Aprendiz(...)` nao recebe ajustes, "
+                        "entao a secao `[identidade]` do config.toml nao chega "
+                        "nele e o usuario ajusta um numero que nao e lido"
+                    )
+                elif not _cita_nome_de_fora(ajustes):
+                    queixas.append(
+                        f"{local}: este `Aprendiz(...)` constroi os proprios "
+                        "ajustes no lugar, entao o que veio do config.toml foi "
+                        "descartado em silencio (mutacao M18)"
+                    )
+                else:
+                    achados[ELO_AJUSTES].append(local)
+
+        elif isinstance(no, ast.Assign) and isinstance(no.value, ast.Call):
+            if _alvo_da_chamada(no.value) != "carregar_identidades":
+                continue
+            local = f"{arquivo}:{no.lineno}"
+            ligados = {t.id for t in no.targets if isinstance(t, ast.Name)}
+            if ligados and _volta_para_a_lista_viva(arvore, ligados):
+                achados[ELO_LISTA_VIVA].append(local)
+            else:
+                queixas.append(
+                    f"{local}: `carregar_identidades(...)` e chamado e o "
+                    "resultado NUNCA volta para `.assinaturas`. O acervo em "
+                    "disco fica fora da lista viva, e tudo que o scanner "
+                    "aprendeu sozinho para de ser reconhecido no arranque "
+                    "seguinte (mutacao M21)"
+                )
+
+    return achados, queixas
+
+
+def _elos_em_producao() -> tuple[dict[str, list[str]], list[str]]:
+    achados: dict[str, list[str]] = {
+        ELO_SESSAO: [],
+        ELO_LISTA_VIVA: [],
+        ELO_AJUSTES: [],
+    }
+    queixas: list[str] = []
+    for caminho in sorted((RAIZ / "l2scanner").glob("*.py")):
+        parcial, reclamou = _elos_do_arranque(
+            caminho.read_text(encoding="utf-8"), caminho.name
+        )
+        for elo, locais in parcial.items():
+            achados[elo].extend(locais)
+        queixas.extend(reclamou)
+    return achados, queixas
+
+
+# O fonte fabricado que CUMPRE as tres regras, escrito no formato do
+# `laco_principal` real. As tres mutacoes plantadas mais abaixo sao os MESMOS
+# tres cortes que a verificacao da Fase 2 rodou contra o `__main__.py`, e e por
+# isso que eles moram aqui em vez de virarem prosa num relatorio.
+FONTE_QUE_CUMPRE = """
+def laco_principal(args, cal, ajustes_do_aprendiz=None):
+    acervo = AcervoDeIdentidades(PASTA_IDENTIDADES)
+    identidades = carregar_identidades(list(cal.assinaturas), acervo)
+    cal.assinaturas = identidades.assinaturas
+    aprendiz = Aprendiz(acervo, ajustes_do_aprendiz or AjustesDoAprendiz())
+    sessao = Sessao(cal=cal, rastreador=rastreador, aprendiz=aprendiz)
+    return sessao
+"""
+
+
+class TestNenhumaLigacaoDoAprendizSomeEmSilencio:
+    """Tres linhas de `__main__.py` que a suite inteira nao defendia.
+
+    A Fase 1 pagou por um defeito de FORMA, e nao de logica: `Rastreador` nascia
+    com `assinaturas_configuradas` no default, oito testes atribuiam o valor
+    certo, e o unico construtor de producao nao passava o argumento. A garantia
+    estava provada na suite e DESLIGADA no jogo. A guarda que nasceu dessa licao
+    e `tests/test_acervo.py::TestNenhumRastreadorNasceMudo`, e esta classe e o
+    molde dela aplicado ao aprendiz.
+
+    A Fase 2 repetiu a forma. A verificacao rodou tres mutacoes no fonte de
+    producao contra os 3514 casos, e as tres sobreviveram com 0 falhas:
+
+        `aprendiz=aprendiz` -> `aprendiz=None`            (M19, W-01a)
+        `cal.assinaturas = identidades.assinaturas` sai   (M21, W-01b)
+        `ajustes_do_aprendiz or AjustesDoAprendiz()`
+            -> `AjustesDoAprendiz()`                      (M18, W-01c)
+
+    A primeira desliga a feature INTEIRA em campo. A segunda faz o scanner
+    esquecer, a cada arranque, tudo que aprendeu sozinho. A terceira descarta o
+    `[identidade]` que o usuario editou a mao.
+
+    POR QUE UM PORTAO SOBRE O FONTE, E NAO UM CAMINHO DE EXECUCAO. O defeito
+    aqui nao e um comportamento errado: e ESQUECER de ligar. O que precisa ficar
+    nao-mesclavel e o esquecimento, e o esquecimento so e observavel na forma do
+    fonte. Um teste de execucao teria de atravessar `laco_principal`, que
+    constroi a fonte de captura e entra num laco infinito com tela viva; o unico
+    caminho de execucao que ja existe (`main()` chamada de verdade, em
+    `TestARecusaAcontecENoARRANQUE`) para ANTES dele com o jogo fechado, por
+    construcao e de proposito. O caso
+    `test_o_laco_real_ESCREVE_no_acervo_e_escreve_uma_vez_so` monta a `Sessao` a
+    mao, e por isso nao viu nenhuma das tres mutacoes.
+
+    O portao NAO conserta os defaults. Tornar `aprendiz` obrigatorio na `Sessao`
+    quebraria casos que passam, e esta correcao nao reescreve teste verde. Quem
+    quiser uma `Sessao` sem aprendiz continua podendo, em teste; o que nao pode
+    e um `Sessao(...)` de PRODUCAO nascer sem ele por esquecimento.
+    """
+
+    def test_as_tres_ligacoes_estao_no_fonte_de_producao(self):
+        _, queixas = _elos_em_producao()
+        assert not queixas, "\n".join(queixas)
+
+    def test_o_portao_nao_passa_por_vacuidade(self):
+        """Um portao que nao acha nada passa sem provar nada.
+
+        Mesma assercao, pela mesma razao, de
+        `TestNenhumRastreadorNasceMudo::test_o_portao_nao_passa_por_vacuidade`.
+        Se `laco_principal` for renomeado, movido para outro pacote, ou o
+        detector olhar para a pasta errada, e AQUI que aparece, em vez de os
+        tres elos ficarem verdes por ausencia.
+        """
+        achados, _ = _elos_em_producao()
+        vazios = [elo for elo, locais in achados.items() if not locais]
+        assert not vazios, (
+            "o detector nao encontrou NENHUMA ocorrencia destes elos em "
+            f"l2scanner/: {vazios}. O portao esta olhando para o lugar errado"
+        )
+
+    def test_o_detector_nao_acusa_o_fonte_que_cumpre(self):
+        """A outra metade: quem cumpriu a regra nao pode ser acusado."""
+        achados, queixas = _elos_do_arranque(FONTE_QUE_CUMPRE, "<fabricado>")
+        assert queixas == []
+        assert all(achados.values()), achados
+
+    def test_o_detector_acusa_o_aprendiz_arrancado_da_sessao(self):
+        """M19 plantada: a feature inteira desligada em campo."""
+        envenenado = FONTE_QUE_CUMPRE.replace("aprendiz=aprendiz", "aprendiz=None")
+        assert envenenado != FONTE_QUE_CUMPRE, "a mutacao plantada nao pegou"
+        achados, queixas = _elos_do_arranque(envenenado, "<fabricado>")
+        assert queixas, "o detector nao acusaria um `Sessao(aprendiz=None)`"
+        assert achados[ELO_SESSAO] == []
+
+    def test_o_detector_acusa_o_acervo_fora_da_lista_viva(self):
+        """M21 plantada: o scanner esquece o que aprendeu, a cada arranque."""
+        envenenado = FONTE_QUE_CUMPRE.replace(
+            "    cal.assinaturas = identidades.assinaturas\n", ""
+        )
+        assert envenenado != FONTE_QUE_CUMPRE, "a mutacao plantada nao pegou"
+        achados, queixas = _elos_do_arranque(envenenado, "<fabricado>")
+        assert queixas, (
+            "o detector nao acusaria um `carregar_identidades(...)` cujo "
+            "resultado nunca volta para a lista viva"
+        )
+        assert achados[ELO_LISTA_VIVA] == []
+
+    def test_o_detector_acusa_os_ajustes_do_config_descartados(self):
+        """M18 plantada: o `[identidade]` editado pelo usuario nao chega."""
+        envenenado = FONTE_QUE_CUMPRE.replace(
+            "ajustes_do_aprendiz or AjustesDoAprendiz()", "AjustesDoAprendiz()"
+        )
+        assert envenenado != FONTE_QUE_CUMPRE, "a mutacao plantada nao pegou"
+        achados, queixas = _elos_do_arranque(envenenado, "<fabricado>")
+        assert queixas, (
+            "o detector nao acusaria um `Aprendiz(...)` que constroi os "
+            "proprios ajustes e descarta o que veio de fora"
+        )
+        assert achados[ELO_AJUSTES] == []
+
+    def test_o_detector_acusa_uma_Sessao_sem_o_argumento(self):
+        """A porta que fica aberta depois de a linha ser apagada INTEIRA.
+
+        Apagar `aprendiz=aprendiz` e diferente de troca-lo por `None`: o
+        argumento simplesmente deixa de existir e o default da `Sessao` assume.
+        Sem esta metade o portao pegaria a mutacao da verificacao e deixaria
+        passar a versao mais provavel num diff de verdade.
+        """
+        envenenado = FONTE_QUE_CUMPRE.replace(", aprendiz=aprendiz", "")
+        assert envenenado != FONTE_QUE_CUMPRE, "a mutacao plantada nao pegou"
+        _, queixas = _elos_do_arranque(envenenado, "<fabricado>")
+        assert queixas, "o detector nao acusaria uma `Sessao(...)` sem `aprendiz=`"
+
+
+# ---------------------------------------------------------------------------
+# W-02: O NUMERO DE LEITURAS, E POR QUE ELE NAO E 1
+# ---------------------------------------------------------------------------
+
+
+class TestOCincoLeiturasEstaPreso:
+    """`LEITURAS_PARA_APRENDER = 5` e a unica defesa contra gravar lixo.
+
+    O acervo e IRREVERSIVEL: `AcervoDeIdentidades` grava e le, e nao existe
+    comando de esquecer. Uma entrada errada nao e um erro que o proximo tick
+    conserta; e uma pessoa que passa a NAO ser mais reconhecida, porque o
+    quase-duplicado sombreia a entrada boa pela margem e as duas caem no
+    silencio.
+
+    Todos os casos desta suite passavam `leituras_para_aprender=` explicito, e
+    por isso trocar o default por 1 deixava os 3514 verdes (W-02). Com 1 o
+    scanner gravaria na SEGUNDA leitura: cerca de 2 segundos a 1 Hz, dentro do
+    tempo em que um icone de buff, uma janela arrastada ou o inventario passando
+    por cima ainda estao parados no mesmo lugar. A estabilidade deixaria de ser
+    prova de coisa nenhuma.
+
+    O NUMERO NAO FOI ESCOLHIDO, FOI DERIVADO, e e por isso que esta classe
+    prende a derivacao e nao so o literal. `rastreador.Ajustes` tem duas
+    familias de confirmacao: as direcoes BARATAS de reverter custam 3 leituras
+    (morte, entrada) e as CARAS custam 5 (ressurreicao, saida). Gravar num
+    acervo sem desfazer e a direcao cara por definicao, entao paga o preco da
+    familia cara. Se um dia a familia cara mudar, este caso cobra a mudanca dos
+    dois lados juntos em vez de deixar os dois numeros divergirem calados.
+    """
+
+    def test_o_numero_e_o_da_familia_CARA_do_rastreador(self):
+        padroes = Ajustes()
+        assert LEITURAS_PARA_APRENDER == padroes.confirmacoes_para_ressurreicao, (
+            "o aprendizado deixou de custar o mesmo que a familia CARA do "
+            "rastreador. Se a mudanca foi deliberada, mude os dois lados e "
+            "reescreva a derivacao na docstring de LEITURAS_PARA_APRENDER"
+        )
+        assert LEITURAS_PARA_APRENDER == padroes.confirmacoes_para_saida
+        assert LEITURAS_PARA_APRENDER > padroes.confirmacoes_para_morte, (
+            "gravar num acervo sem desfazer nao pode custar menos do que "
+            "anunciar uma morte, que o proximo tick desmente de graca"
+        )
+        assert LEITURAS_PARA_APRENDER == 5
+
+    def test_o_default_do_dataclass_e_o_mesmo_numero(self):
+        """Um segundo literal aqui reabriria a porta pelo outro lado."""
+        assert AjustesDoAprendiz().leituras_para_aprender == LEITURAS_PARA_APRENDER
+
+    def test_com_o_default_quatro_leituras_ainda_nao_gravam(
+        self, tmp_path, pixels, tres_conhecidas
+    ):
+        """O caso que a suite nao tinha: NENHUM ajuste explicito.
+
+        Os irmaos de `TestAFatiaInteira` passam `leituras_para_aprender=5` a
+        mao, entao provam o MECANISMO e nao o NUMERO. Este roda o que o usuario
+        roda quando nao escreve nada no `config.toml`, e cai se o default virar
+        1, 2, 3 ou 4.
+        """
+        aprendiz, pasta = montar_aprendiz(tmp_path)
+        sessao = montar_sessao(tres_conhecidas, tmp_path, aprendiz=aprendiz)
+
+        rodar(sessao, pixels, 4)
+
+        assert assinaturas_gravadas(pasta) == [], (
+            "com o default, quatro leituras nao podem gravar. Se este caso "
+            "caiu, o default baixou e o scanner passou a gravar num acervo "
+            "irreversivel antes de a leitura estar provada estavel"
+        )
+
+    def test_com_o_default_a_quinta_leitura_grava(
+        self, tmp_path, pixels, tres_conhecidas
+    ):
+        """A outra metade: o default nao pode ser alto demais para gravar.
+
+        Sozinho, o caso das quatro leituras seria satisfeito por um default de
+        mil, que quebra a feature pelo lado oposto e tambem em silencio.
+        """
+        aprendiz, pasta = montar_aprendiz(tmp_path)
+        sessao = montar_sessao(tres_conhecidas, tmp_path, aprendiz=aprendiz)
+
+        resultado = rodar(sessao, pixels, 5)
+
+        assert len(assinaturas_gravadas(pasta)) == 1
+        assert len(resultado.aprendizados) == 1
