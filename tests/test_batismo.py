@@ -40,6 +40,7 @@ import ast
 import json
 import os
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
@@ -76,9 +77,15 @@ from l2scanner.comandos import (
     interpretar_dinamico,
 )
 from l2scanner.frames import Frame, SaudeDoFrame
-from l2scanner.identidade import Assinatura, criar_assinatura
+from l2scanner.identidade import (
+    LIMIAR_DE_CASAMENTO,
+    Assinatura,
+    _pontuar_mascara,
+    criar_assinatura,
+    mascara_de_texto,
+)
 from l2scanner.notificador import Categoria
-from l2scanner.rastreador import Rastreador
+from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
 from l2scanner.sessao import Sessao
 from l2scanner.visao import _recorte_do_nome, extrair
 
@@ -2935,3 +2942,599 @@ class TestAGravacaoQueFalhaNaoMente:
             if chave_da_assinatura(a) == chave_a
         ] == ["Mostarda"], "a lista viva foi atualizada num `falhou`"
         assert "Titander" not in rastreador.nomes_reservados
+
+
+# ---------------------------------------------------------------------------
+# CRITERIO 6: QUEM PODE BATIZAR, PELO CAMINHO REAL, NOS DOIS TELEFONES
+# ---------------------------------------------------------------------------
+
+
+class TestQuemPodeBatizar:
+    """A trava de autorizacao mora na COSTURA, e e la que ela e provada.
+
+    Os casos rodam por `comandos_novos` com as CINCO travas ligadas (tipo, nota
+    privada, id repetido, vocabulario e autorizacao), e nao por
+    `autorizado_para` isolado: a funcao sozinha ja tem teste unitario em
+    `tests/test_comandos.py`, e o que faltava era a prova de que ela esta
+    LIGADA no caminho que o usuario percorre.
+    """
+
+    def test_o_DONO_batiza_e_o_nome_e_gravado(self, tmp_path, pixels, calibracao):
+        chave = semear(
+            tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        )
+
+        despachante = responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave)} Mostarda",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+            telefone=DONO,
+        )
+
+        assert (tmp_path / f"{PREFIXO_NOME}{chave}").read_text(
+            encoding="utf-8"
+        ) == "Mostarda"
+        assert despachante.despachos, "o dono nao recebeu confirmacao nenhuma"
+
+    def test_o_MEMBRO_nao_obedece_nao_escreve_e_nao_despacha(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A afirmacao e TRIPLA, e as tres sao necessarias.
+
+        Afirmar so "nada foi obedecido" deixaria passar uma implementacao que
+        recusa no lugar errado e escreve antes; afirmar so o disco deixaria
+        passar uma que escreve nada e responde alguma coisa ao party-mate.
+
+        E A RECUSA E SILENCIOSA: comando nao autorizado morre no `continue` do
+        laco de `comandos_novos`, sem resposta de recusa nenhuma. Do lado de
+        quem tentou responder, isso e indistinguivel do bot ter caido — e e
+        exatamente por isso que o texto da pergunta (03-01) precisa dizer, em
+        uma linha, que so quem calibrou o scanner consegue responder.
+        """
+        chave = semear(
+            tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        )
+        antes = retrato_da_pasta(tmp_path)
+
+        despachante = responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave)} Mostarda",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+            telefone=TELEFONE_DE_MEMBRO,
+        )
+
+        assert not (tmp_path / f"{PREFIXO_NOME}{chave}").exists(), (
+            "um party-mate batizou alguem: nome errado e corrupcao duravel "
+            "num acervo que nunca e podado e nao tem comando de esquecer"
+        )
+        assert retrato_da_pasta(tmp_path) == antes
+        assert despachante.despachos == [], (
+            "a recusa do membro tem de ser SILENCIOSA: ela morre no `continue` "
+            f"da autorizacao. Saiu: {despachante.despachos}"
+        )
+
+    def test_o_BATIZAR_esta_na_lista_de_recusa_DERIVADA(self):
+        """A prova cresceu sozinha, e este caso so a torna legivel.
+
+        `tests/test_comandos.py::TestFronteiraDeAutorizacao` deriva a lista de
+        recusa de `set(Comando) - COMANDOS_DE_MEMBRO`, entao o comando novo
+        entrou nela sem uma linha de teste nova. Afirmar isso aqui em voz alta
+        e o que faz a decisao aparecer para quem le ESTE arquivo.
+        """
+        assert Comando.BATIZAR in set(Comando) - COMANDOS_DE_MEMBRO
+
+    def test_o_dono_alcanca_SEM_estar_declarado_membro(
+        self, tmp_path, pixels, calibracao
+    ):
+        """O nivel de dono e ADITIVO, no mesmo registro de `autorizado_para`.
+
+        O dono do scanner nao pode deixar de alcancar um comando so porque
+        aquele comando ganhou um segundo publico. A premissa e afirmada antes
+        do desfecho: se o DONO passasse a estar em `MEMBROS`, este caso viraria
+        uma tautologia sem ninguem perceber.
+        """
+        assert DONO not in [m.telefone for m in MEMBROS], (
+            "premissa: o telefone de dono NAO esta declarado em [[membro]]"
+        )
+        chave = semear(
+            tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        )
+
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave)} Mostarda",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+            telefone=DONO,
+        )
+
+        assert (tmp_path / f"{PREFIXO_NOME}{chave}").exists()
+
+
+class TestAAjudaEnsinaUmaSintaxeQueFUNCIONA:
+    """A ajuda nao tem como ensinar sintaxe que nao existe.
+
+    O tripwire de `tests/test_comandos.py` roda a tabela `_AJUDA` INTEIRA pelo
+    caminho real de leitura, substituindo os marcadores. Aqui a mesma sintaxe
+    anunciada e rodada com um APELIDO DE VERDADE, contra um acervo de verdade,
+    e a prova termina no disco: nao basta o parser aceitar, o batismo tem de
+    acontecer.
+    """
+
+    def _sintaxe(self, forma: str, apelido: str) -> str:
+        return forma.replace("<apelido>", apelido).replace("<nick>", "Mostarda")
+
+    def test_a_sintaxe_anunciada_batiza_de_verdade(
+        self, tmp_path, pixels, calibracao
+    ):
+        chave = semear(
+            tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        )
+
+        responder_pelo_whatsapp(
+            self._sintaxe(_AJUDA[Comando.BATIZAR].sintaxe, apelido_da_chave(chave)),
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+        )
+
+        assert (tmp_path / f"{PREFIXO_NOME}{chave}").read_text(
+            encoding="utf-8"
+        ) == "Mostarda", (
+            "a sintaxe que a ajuda ANUNCIA nao batizou ninguem: a ajuda estaria "
+            "ensinando uma forma que nao funciona"
+        )
+
+    def test_os_apelidos_anunciados_tambem_batizam(
+        self, tmp_path, pixels, calibracao
+    ):
+        """`/nomear` e SINONIMO exato, e a ajuda o anuncia. Ele tem de valer."""
+        for indice, forma in enumerate(_AJUDA[Comando.BATIZAR].apelidos):
+            pasta = tmp_path / f"acervo{indice}"
+            chave = semear(
+                pasta, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+            )
+
+            responder_pelo_whatsapp(
+                self._sintaxe(forma, apelido_da_chave(chave)),
+                pasta,
+                acervo=AcervoDeIdentidades(pasta),
+                identificador=8100 + indice,
+            )
+
+            assert (pasta / f"{PREFIXO_NOME}{chave}").exists(), (
+                f"a ajuda anuncia {forma!r} e ele nao batiza ninguem"
+            )
+
+
+# ---------------------------------------------------------------------------
+# AS DUAS DIVIDAS HERDADAS DA FASE 2, AFIRMADAS E NAO ESCONDIDAS
+# ---------------------------------------------------------------------------
+
+
+def recorte_contaminado(px: np.ndarray, cal: Calibracao, indice: int) -> np.ndarray:
+    """O MESMO frame com uma chapa CLARA por cima do nome daquela linha.
+
+    E a forma de T-02-07 escrita como pixel: "algo claro por cima do nome".
+    A mascara resultante acende a regiao inteira, entao o recorte pontua 0.0
+    contra todo mundo — passa no veto de D-02 (que so veta ACIMA do limiar) e
+    pode virar entrada.
+    """
+    regiao = cal.regiao_do_nome(indice)
+    copia = px.copy()
+    copia[
+        regiao.topo : regiao.topo + regiao.altura,
+        regiao.esquerda : regiao.esquerda + regiao.largura,
+    ] = (240, 240, 240)
+    return copia
+
+
+def virar_celulas_no_frame(
+    px: np.ndarray, cal: Calibracao, indice: int, quantas: int, semente: int = 42
+) -> np.ndarray:
+    """O MESMO frame com N celulas da mascara daquele nome viradas.
+
+    COPIADO de `tests/test_aprendiz.py`, e nao importado, pela razao que o topo
+    deste arquivo ja escreve. A virada e por BRILHO porque a mascara e so um
+    piso de brilho: branco puro acende a celula, preto puro a apaga. Isso torna
+    a perturbacao EXATA — o numero de celulas pedido e o numero de celulas
+    viradas —, e deterministica via `RandomState`. Um caso que perturbasse "um
+    pouco" provaria outra coisa a cada rodada.
+    """
+    regiao = cal.regiao_do_nome(indice)
+    mascara = mascara_de_texto(_recorte_do_nome(px, cal, indice))
+    alvos = np.random.RandomState(semente).choice(
+        mascara.size, size=quantas, replace=False
+    )
+    copia = px.copy()
+    for plano in alvos:
+        y, x = divmod(int(plano), mascara.shape[1])
+        copia[regiao.topo + y, regiao.esquerda + x] = (
+            (0, 0, 0) if mascara[y, x] else (255, 255, 255)
+        )
+    return copia
+
+
+def correlacao_contra(px, cal, indice, assinaturas) -> float:
+    """A melhor pontuacao CRUA daquela linha contra aquelas assinaturas.
+
+    Existe para a premissa ser MEDIDA antes do desfecho: afirmar "nasceu uma
+    segunda entrada" sem antes afirmar POR QUE deixaria o caso passar por
+    qualquer motivo, inclusive o errado.
+    """
+    return max(
+        _pontuar_mascara(
+            mascara_de_texto(_recorte_do_nome(px, cal, indice)), list(assinaturas)
+        )
+    )
+
+
+class TestADividaT0207AFirmadaEAceita:
+    """T-02-07: um nome dado a uma entrada de LIXO queima o nome.
+
+    A Fase 2 aceitou, com as tres consequencias escritas, que um recorte
+    contaminado pontua 0.0 contra tudo, passa no veto de D-02 e pode ser
+    aprendido (`02-01-PLAN.md`, a decisao do veto de D-02). A terceira
+    consequencia escrita era ESTA fase: a entrada gera uma pergunta pedindo ao
+    usuario que batize uma janela de navegador.
+
+    ELA FOI PAGA EM DOIS LUGARES, e nenhum deles finge que a divida sumiu:
+
+    1. o texto da pergunta (03-01) diz que, se aquilo nao for gente, e so nao
+       responder — e ignorar so e seguro porque D-04 garante que a pergunta
+       nao volta;
+    2. a recusa de BATI-04 (Tarefa 1) diz QUAL entrada tem o nome e COMO
+       liberar, que e a saida para quem RESPONDEU.
+
+    NAO "CONSERTE" ESTE CASO ACRESCENTANDO UM COMANDO DE ESQUECER. Ele foi
+    adiado na Fase 1, com o numero na mao, e esta em Deferred Ideas do
+    `03-CONTEXT.md`. A historia abaixo mostra que a saida existe SEM ele, com o
+    unico comando que ha.
+    """
+
+    def test_a_historia_inteira_em_cinco_passos(
+        self, tmp_path, pixels, calibracao
+    ):
+        contaminado = recorte_contaminado(pixels, calibracao, LINHA_DE_A)
+        chave_lixo = semear(
+            tmp_path, assinatura_da_linha(contaminado, calibracao, LINHA_DE_A)
+        )
+        real = assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        assert correlacao_contra(
+            contaminado, calibracao, LINHA_DE_A, [real]
+        ) == 0.0, (
+            "premissa de T-02-07: um recorte contaminado pontua 0.0 contra "
+            "tudo, e e por isso que o veto de D-02 nao o alcanca"
+        )
+        acervo = AcervoDeIdentidades(tmp_path)
+
+        # 1. o usuario responde a pergunta absurda e QUEIMA o nome
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_lixo)} Mostarda",
+            tmp_path,
+            acervo=acervo,
+            identificador=8201,
+        )
+        assert acervo.nomeados() == {chave_lixo: "Mostarda"}
+
+        # 2. a pessoa de verdade e aprendida depois
+        chave_real = semear(tmp_path, real)
+        assert apelido_da_chave(chave_real) != apelido_da_chave(chave_lixo)
+
+        # 3. o batismo dela e RECUSADO, e a recusa cita a entrada de lixo
+        texto = responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_real)} Mostarda",
+            tmp_path,
+            acervo=acervo,
+            identificador=8202,
+        ).textos[0]
+        assert apelido_da_chave(chave_lixo) in texto, (
+            "sem o apelido da entrada de lixo o usuario nao tem como agir: a "
+            "recusa vira um beco sem saida"
+        )
+        assert acervo.nomeados() == {chave_lixo: "Mostarda"}
+
+        # 4. batizar a entrada de lixo com OUTRO nome libera `Mostarda`
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_lixo)} Lixo",
+            tmp_path,
+            acervo=acervo,
+            identificador=8203,
+        )
+        assert acervo.nomeados() == {chave_lixo: "Lixo"}
+
+        # 5. e agora a pessoa de verdade passa
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_real)} Mostarda",
+            tmp_path,
+            acervo=acervo,
+            identificador=8204,
+        )
+        assert acervo.nomeados() == {chave_lixo: "Lixo", chave_real: "Mostarda"}, (
+            "a saida de T-02-07 deixou de funcionar: sem ela um nome queimado "
+            "por engano fica queimado para sempre, porque nao ha comando de "
+            "esquecer no v1"
+        )
+
+    def test_o_dano_RESIDUAL_e_afirmado_e_declarado_aceito(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A entrada de lixo conta em `Identidades.conhecidas` para SEMPRE.
+
+        Isto e conhecido e aceito, e nao um defeito a consertar aqui: consertar
+        exigiria o comando de esquecer, que foi adiado. O preco e uma linha de
+        arranque que diz um numero maior do que o de gente de verdade.
+        """
+        contaminado = recorte_contaminado(pixels, calibracao, LINHA_DE_A)
+        semear(tmp_path, assinatura_da_linha(contaminado, calibracao, LINHA_DE_A))
+        semear(tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA))
+
+        identidades = carregar_identidades([], AcervoDeIdentidades(tmp_path))
+
+        assert identidades.conhecidas == 2, (
+            "uma das duas e lixo, e mesmo assim ela conta: o acervo nao tem "
+            "poda nem comando de esquecer, e a contagem do arranque nao "
+            "distingue gente de janela de navegador"
+        )
+
+
+class TestADividaT0218AFirmadaEAceita:
+    """T-02-18: a mesma pessoa pode ter DUAS entradas, e ser perguntada duas vezes.
+
+    MEDIDO NA FASE 2, mascara de 2000 celulas com 60 pixels de texto, nick
+    `TioMad`: 42 celulas de drift dao correlacao 0.7531 (acima de 0.75, nada
+    nasce) e 43 dao 0.7492 (abaixo, uma SEGUNDA entrada da mesma pessoa nasce).
+    Uma unica celula separa as duas metades, e 43 celulas sao 2,15% da mascara
+    mas 71,7% do SINAL DE TEXTO daquele nick. Num nick curto a fronteira chega
+    muito antes, e o modelo de drift usado ACENDE celulas, entao a tabela e um
+    limite OTIMISTA.
+
+    NESTA FIXTURE, MEDIDO AQUI: a mascara tem 2000 celulas e 48 pixels de
+    texto, e a fronteira fica em 34 celulas (0.7515, acima) contra 35 (0.7467,
+    abaixo). Sao 1,75% da mascara e 72,9% do sinal de texto — a mesma leitura,
+    com o numero desta maquina e nao com o da Fase 2 repetido.
+
+    NAO HA CONSERTO HONESTO SEM MEDIDA DE CAMPO DO DRIFT ENTRE SESSOES, e ela
+    nao existe: as duas capturas de party window versionadas sao BYTE A BYTE
+    identicas, entao compara-las mede uma imagem consigo mesma. Esta fase nao
+    fecha essa porta e nao finge que fecha; ela troca o silencio por
+    LEGIBILIDADE em dois pontos, que sao os dois casos abaixo.
+
+    NAO "CONSERTE" ESTE CASO. O comportamento e conhecido e aceito; se ele
+    comecou a falhar, alguem MUDOU o codigo.
+    """
+
+    # As duas margens, MEDIDAS nesta fixture. Ver a docstring acima.
+    CELULAS_ACIMA = 34
+    CELULAS_ABAIXO = 35
+
+    def _duas_da_mesma_pessoa(self, tmp_path, pixels, calibracao):
+        primeira = assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        volta = virar_celulas_no_frame(
+            pixels, calibracao, LINHA_DA_FATIA, self.CELULAS_ABAIXO
+        )
+        segunda = assinatura_da_linha(volta, calibracao, LINHA_DA_FATIA)
+        chave_um = semear(tmp_path, primeira)
+        chave_dois = semear(tmp_path, segunda)
+        assert chave_um != chave_dois, (
+            "premissa: sao DUAS entradas. Uma celula ja bastaria para a chave "
+            "mudar, e e por isso que a dedupe da Fase 2 nao e por chave"
+        )
+        assert apelido_da_chave(chave_um) != apelido_da_chave(chave_dois)
+        return chave_um, chave_dois, primeira, volta
+
+    def test_a_fronteira_MEDIDA_e_a_razao_de_a_segunda_entrada_nascer(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A correlacao e afirmada ANTES do desfecho, nas DUAS margens."""
+        primeira = assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+
+        acima = correlacao_contra(
+            virar_celulas_no_frame(
+                pixels, calibracao, LINHA_DA_FATIA, self.CELULAS_ACIMA
+            ),
+            calibracao,
+            LINHA_DA_FATIA,
+            [primeira],
+        )
+        abaixo = correlacao_contra(
+            virar_celulas_no_frame(
+                pixels, calibracao, LINHA_DA_FATIA, self.CELULAS_ABAIXO
+            ),
+            calibracao,
+            LINHA_DA_FATIA,
+            [primeira],
+        )
+
+        assert acima >= LIMIAR_DE_CASAMENTO > abaixo, (
+            f"a fronteira MEDIDA mudou: {self.CELULAS_ACIMA} celulas deram "
+            f"{acima:.4f} e {self.CELULAS_ABAIXO} deram {abaixo:.4f}. Isto nao "
+            "e um teste a afrouxar; e o numero que o SUMMARY registra"
+        )
+        assert acima == pytest.approx(0.7515, abs=1e-3), acima
+        assert abaixo == pytest.approx(0.7467, abs=1e-3), abaixo
+        # 35 celulas sao 1,75% da mascara e 72,9% do sinal de texto: a fracao
+        # que importa e a do SINAL, e nao a da mascara.
+        assert self.CELULAS_ABAIXO / primeira.mascara.size < 0.03
+        assert self.CELULAS_ABAIXO / int(primeira.mascara.sum()) > 0.7
+
+    def test_as_duas_entradas_saem_como_DUAS_LINHAS_da_MESMA_pergunta(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A primeira metade da legibilidade.
+
+        Duas perguntas soltas seriam lidas como dois desconhecidos diferentes.
+        Uma mensagem com as duas linhas, uma embaixo da outra, e o que da ao
+        usuario a chance de perceber que pode ser a mesma pessoa.
+        """
+        chave_um, chave_dois, _, _ = self._duas_da_mesma_pessoa(
+            tmp_path, pixels, calibracao
+        )
+        acervo = AcervoDeIdentidades(tmp_path)
+
+        pergunta = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+
+        assert pergunta is not None
+        assert "Aprendi 2 pessoas" in pergunta, pergunta
+        assert apelido_da_chave(chave_um) in pergunta
+        assert apelido_da_chave(chave_dois) in pergunta
+        assert montar_pergunta(acervo, pendentes_do_acervo(acervo)) is None, (
+            "a segunda varredura nao pode perguntar de novo (D-04)"
+        )
+
+    def test_a_segunda_e_recusada_e_a_recusa_diz_que_isso_nao_faz_mal(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A segunda metade da legibilidade, e ela e o produto desta fase.
+
+        Sem a frase, o usuario que tenta dar o mesmo nome as duas conclui que o
+        scanner esta quebrado e fica tentando. Com ela, ele sabe que deixar a
+        segunda sem nome nao custa nada: assinatura sem nome e reconhecida do
+        mesmo jeito e nunca vira sujeito de alerta (APRE-03).
+        """
+        chave_um, chave_dois, _, _ = self._duas_da_mesma_pessoa(
+            tmp_path, pixels, calibracao
+        )
+        acervo = AcervoDeIdentidades(tmp_path)
+
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_um)} Mostarda",
+            tmp_path,
+            acervo=acervo,
+            identificador=8301,
+        )
+        texto = responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave_dois)} Mostarda",
+            tmp_path,
+            acervo=acervo,
+            identificador=8302,
+        ).textos[0]
+
+        assert acervo.nomeados() == {chave_um: "Mostarda"}
+        assert "aprendi o rosto dela duas vezes" in texto
+        assert "nunca vira sujeito de alerta" in texto, (
+            "a recusa nao diz que a segunda ficar sem nome nao faz mal, e essa "
+            "frase e a unica mitigacao que T-02-18 tem nesta fase"
+        )
+
+
+# ---------------------------------------------------------------------------
+# T-03-07: A INSTANCIA QUE NAO OBEDECEU O COMANDO CALA
+# ---------------------------------------------------------------------------
+
+
+def com_hp(obs, indice: int, hp: float):
+    linhas = list(obs.linhas)
+    linhas[indice] = replace(linhas[indice], hp=hp)
+    return replace(obs, linhas=tuple(linhas))
+
+
+def mortes_apos_zerar(obs, indice: int, configuradas: bool, nomes: list[str]):
+    """Roda o rastreador de verdade sobre uma sequencia que confirma morte.
+
+    COPIADO de `tests/test_acervo.py`, e nao importado, pela razao que o topo
+    deste arquivo escreve. Ele existe aqui para a metade COMPORTAMENTAL de
+    T-03-07: "continua anonima" sozinho seria uma afirmacao sobre um campo, e
+    nao sobre o que o usuario ve.
+    """
+    r = Rastreador(
+        nomes=list(nomes),
+        assinaturas_configuradas=configuradas,
+        ajustes=Ajustes(confirmacoes_para_morte=2),
+    )
+    for i in range(15):
+        r.observar(obs, -100 + i)
+    eventos = []
+    for i in range(6):
+        eventos.extend(r.observar(com_hp(obs, indice, 0.0), 10 + i))
+    return r, [e.membro for e in eventos if e.tipo is TipoDeEvento.MORREU]
+
+
+class TestAInstanciaQueNaoObedeceuContinuaAnonimaECALA:
+    """T-03-07, aceito, e afirmado por COMPORTAMENTO e nao por leitura de campo.
+
+    O usuario roda DUAS instancias sobre a MESMA pasta. O marcador
+    `comando_<id>` da `.agenda/` e compartilhado, entao exatamente UMA delas
+    obedece cada comando — e a outra fica com a assinatura ANONIMA na lista
+    viva ate o proximo arranque.
+
+    A DEGRADACAO E SEGURA, e e por isso que o preco e aceito: anonima CALA. A
+    linha continua sendo reconhecida, o rotulo continua `Membro N`, e ela nunca
+    vira sujeito de alerta nenhum (APRE-03). O disco JA tem o nome; o que falta
+    e so a instancia que nao obedeceu reler a pasta, e ela le de novo no
+    proximo arranque.
+    """
+
+    def test_a_segunda_lista_viva_continua_anonima_e_produz_ZERO_eventos(
+        self, tmp_path, pixels, calibracao
+    ):
+        chave = semear(
+            tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        )
+        # As DUAS instancias: duas cargas independentes sobre a MESMA pasta.
+        primeira = carregar_identidades([], AcervoDeIdentidades(tmp_path))
+        segunda = carregar_identidades([], AcervoDeIdentidades(tmp_path))
+        calibracao.assinaturas = segunda.assinaturas
+        assert [a.nome for a in primeira.assinaturas] == [""], "premissa"
+
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave)} Mostarda",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+            assinaturas_vivas=primeira.assinaturas,
+            rastreador=Rastreador(
+                nomes=list(calibracao.nomes),
+                assinaturas_configuradas=primeira.configuradas,
+            ),
+        )
+
+        assert [a.nome for a in primeira.assinaturas] == ["Mostarda"], (
+            "premissa: a instancia que OBEDECEU ficou com o nome no mesmo tick"
+        )
+        assert [a.nome for a in segunda.assinaturas] == [""], (
+            "a segunda instancia nao pode ter recebido o nome: elas nao "
+            "compartilham lista viva, e o marcador comando_<id> garante que "
+            "so uma obedeceu"
+        )
+
+        obs = observar_frame(pixels, calibracao)
+        linha = obs.linhas[LINHA_DA_FATIA]
+        assert linha.confianca_do_nome > 0.9, (
+            "ela continua RECONHECIDA na segunda instancia: o que falta e o "
+            "nome, e nao o reconhecimento"
+        )
+        assert linha.nome == ""
+
+        rastreador, mortes = mortes_apos_zerar(
+            obs, LINHA_DA_FATIA, segunda.configuradas, list(calibracao.nomes)
+        )
+        assert mortes == [], (
+            "a instancia que nao obedeceu ANUNCIOU alguem: anonima tem de "
+            "CALAR, nunca mentir. Este e o preco aceito do marcador "
+            "compartilhado, e o nome chega no proximo arranque"
+        )
+        identidade = rastreador._identidade_por_linha[LINHA_DA_FATIA]
+        assert (
+            rastreador._nome_exibido(identidade)
+            == f"Membro {LINHA_DA_FATIA + 1}"
+        )
+
+    def test_e_o_DISCO_ja_tem_o_nome_para_o_proximo_arranque(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A outra metade: o nome nao se perdeu, so ainda nao foi lido."""
+        chave = semear(
+            tmp_path, assinatura_da_linha(pixels, calibracao, LINHA_DA_FATIA)
+        )
+        primeira = carregar_identidades([], AcervoDeIdentidades(tmp_path))
+
+        responder_pelo_whatsapp(
+            f"/batizar {apelido_da_chave(chave)} Mostarda",
+            tmp_path,
+            acervo=AcervoDeIdentidades(tmp_path),
+            assinaturas_vivas=primeira.assinaturas,
+        )
+
+        arranque_seguinte = carregar_identidades([], AcervoDeIdentidades(tmp_path))
+        assert [a.nome for a in arranque_seguinte.assinaturas] == ["Mostarda"], (
+            "no proximo arranque a segunda instancia le a MESMA pasta e "
+            "encontra o nome: e por isso que a degradacao e temporaria"
+        )
