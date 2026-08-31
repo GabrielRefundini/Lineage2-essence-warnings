@@ -162,10 +162,21 @@ caminho do chat para o lado ERRADO (atrasado), que e o que faz perder o boss.
 MORT-01 (o comando `/morreu`) continua sendo a unica saida exata, e continua
 em v2 — agora com a razao mais forte: ele so vale a pena para quem NAO luta.
 
-## A medir, quando a janela vencer
+## Medido: os dois avisos chegaram (31/08)
 
-Tiat South nasceu 30/08 21:59 (chat) -> janela abre 31/08 05:59
-Tiat North ancorado 30/08 22:29 (alvo) -> janela abre 31/08 06:29
+Tiat South nasceu 30/08 21:59 (chat) -> janela abriu 31/08 05:59
+Tiat North ancorado 30/08 22:29 (alvo) -> janela abriu 31/08 06:29
 
-Sao os primeiros avisos de janela reais do projeto. Se chegarem, JANE-02 e
-JANE-05 ficam validados em campo.
+**CONFIRMADO PELO USUARIO em 31/08: os dois chegaram no WhatsApp.** JANE-02 e
+JANE-05 ficam validados EM CAMPO, e nao so por teste.
+
+O que isso prova, e que a suite nao provava: o caminho inteiro atravessou —
+ancora gravada na noite anterior por DOIS caminhos diferentes (o chat para o
+South, o alvo para o North), a conta de 8h+2h sobrevivendo a um scanner que
+dorme e acorda, e o despacho saindo com o jogo FECHADO. Este ultimo e o
+proposito declarado do JANE-05: quem mais precisa saber que a janela abriu e
+justamente quem nao esta com o jogo aberto.
+
+Fica de fora do que foi validado: se a janela ACERTOU o nascimento. O aviso
+chegou na hora certa da CONTA; se o boss nasceu perto dela e outra medicao, e
+ela precisa do proximo episodio com horario de morte conhecido.
