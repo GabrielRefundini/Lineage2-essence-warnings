@@ -65,7 +65,7 @@ o batismo contra um armazenamento que muda de chave depois significaria reescrev
 
 ## Phases
 
-- [ ] **Phase 1: O acervo e o silencio dele** - Onde a assinatura aprendida mora, como ela sobrevive a `calibrar.bat` e por que ela nao fala
+- [x] **Phase 1: O acervo e o silencio dele** - Onde a assinatura aprendida mora, como ela sobrevive a `calibrar.bat` e por que ela nao fala
 - [ ] **Phase 2: Aprender sozinho** - A linha que ninguem reconhece deixa de ser misterio permanente
 - [ ] **Phase 3: Batismo pelo WhatsApp** - O usuario da nome, do celular, a assinatura que o scanner PERGUNTOU
 
@@ -118,8 +118,8 @@ ja atravessada: os planos a implementam, nao a perguntam.
 **Plans:** 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — o acervo, o silencio de uma entrada sem nome, e o elo `assinaturas_configuradas` que hoje nao existe em producao (DURA-02, DURA-03, DURA-04, APRE-03, OPER-01)
-- [ ] 01-02-PLAN.md — a sobrevivencia a uma rodada real de `calibrar.bat` e a convivencia com `--nomes` (DURA-01, OPER-02)
+- [x] 01-01-PLAN.md — o acervo, o silencio de uma entrada sem nome, e o elo `assinaturas_configuradas` que hoje nao existe em producao (DURA-02, DURA-03, DURA-04, APRE-03, OPER-01)
+- [x] 01-02-PLAN.md — a sobrevivencia a uma rodada real de `calibrar.bat` e a convivencia com `--nomes` (DURA-01, OPER-02)
 
 ### Phase 2: Aprender sozinho
 
