@@ -472,15 +472,14 @@ class TestAViradaDoRegimeDaParty:
         # intencional. Sem assinatura nenhuma o nome por posicao e a unica
         # informacao que existe, e a morte sai com ele.
         rodar(sessao, pixels, 15)
-        antes = None
+        eventos = []
         for i in range(6):
             antes = sessao.tick(
                 Frame(pixels=morto, indice=100 + i, saude=SaudeDoFrame.OK),
                 momento=1_700_000_100 + i,
             )
-        mortes_antes = [
-            e.membro for e in antes.eventos if e.tipo is TipoDeEvento.MORREU
-        ]
+            eventos.extend(antes.eventos)
+        mortes_antes = [e.membro for e in eventos if e.tipo is TipoDeEvento.MORREU]
         assert mortes_antes == [NOME_DA_LINHA_ALVO], (
             "antes da virada a morte sai com o nome da lista por POSICAO; se "
             f"nao sair, a metade 1 nao prova nada. Saiu: {mortes_antes}"

@@ -24,6 +24,7 @@ from logging.handlers import RotatingFileHandler  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from .acervo import AcervoDeIdentidades, carregar_identidades  # noqa: E402
+from .aprendiz import AjustesDoAprendiz, Aprendiz  # noqa: E402
 from .calibracao import (  # noqa: E402
     Calibracao,
     CalibracaoInvalida,
@@ -1888,7 +1889,11 @@ def _registrar_evento_no_console(evento) -> None:
     log.info("%s", destacar(formatar_console(evento), evento.tipo, hora))
 
 
-def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
+def laco_principal(
+    args: argparse.Namespace,
+    cal: Calibracao,
+    ajustes_do_aprendiz: AjustesDoAprendiz | None = None,
+) -> int:
     """Captura, le, decide e entrega — nesta ordem, a 1 Hz.
 
     O laco e a prova de falhas: uma excecao em qualquer etapa vira log e a
@@ -2017,11 +2022,20 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
     # pode passar a ser. Escrever o acervo de volta no arquivo que o
     # `calibrar.bat` reescreve desfaria pelo lado de dentro a unica razao de a
     # pasta ser propria.
-    identidades = carregar_identidades(
-        list(cal.assinaturas), AcervoDeIdentidades(PASTA_IDENTIDADES)
-    )
+    acervo = AcervoDeIdentidades(PASTA_IDENTIDADES)
+    identidades = carregar_identidades(list(cal.assinaturas), acervo)
     cal.assinaturas = identidades.assinaturas
     log.info("%s", identidades.resumo)
+
+    # O APRENDIZ RECEBE A MESMA INSTANCIA DE ACERVO QUE A CARGA USOU. Construir
+    # uma segunda seriam duas verdades sobre a mesma pasta.
+    #
+    # OS AJUSTES CHEGAM DE FORA E NUNCA SAO LIDOS AQUI DENTRO. `laco_principal`
+    # constroi a fonte de captura logo acima, entao qualquer leitura de
+    # configuracao feita aqui so poderia ser exercitada com tela viva — e a
+    # recusa por tolerancia alem do teto (D-06) tem de ser demonstravel com o
+    # jogo fechado. Quem le e `main()`, antes de olhar para a tela.
+    aprendiz = Aprendiz(acervo, ajustes_do_aprendiz or AjustesDoAprendiz())
 
     rastreador = Rastreador(
         nomes=list(cal.nomes),
@@ -2134,6 +2148,11 @@ def laco_principal(args: argparse.Namespace, cal: Calibracao) -> int:
         # caixa do slug — o mesmo modo de falha que deixou o nivel de membro
         # inalcancavel no plano 10-01.
         membros=leitor_de_comandos.membros if leitor_de_comandos else (),
+        # O aprendizado de identidades. Ele entra por AQUI e sai no acervo e no
+        # `scanner.log`, e so: nenhum alerta novo nasce dele. O `rastreador` nao
+        # o recebe e nao o le — ver o tripwire de arquitetura em
+        # `tests/test_aprendiz.py`.
+        aprendiz=aprendiz,
     )
 
     ultimo_status = 0.0
@@ -2503,6 +2522,17 @@ def main() -> int:
             log.error("%s", erro)
             return 2
 
+    # OS AJUSTES DO APRENDIZ SAO LIDOS AQUI, E A POSICAO E METADE DO CONSERTO.
+    #
+    # ANTES de qualquer fonte de captura, e antes ate da calibracao: a recusa
+    # por configuracao tem de acontecer antes de o programa olhar para a tela,
+    # porque e antes de olhar para a tela que o usuario ainda esta no console.
+    # Dentro de `laco_principal` a leitura ficaria depois de `MssSource` /
+    # `JanelaSource`, e provar "codigo 2 e sem traceback" exigiria uma fonte de
+    # captura viva — quebrando "demonstravel com o jogo fechado" justamente onde
+    # essa linha custa alguma coisa.
+    ajustes_do_aprendiz = AjustesDoAprendiz()
+
     janela_pedida = args.janela == "AUTO"
 
     try:
@@ -2551,7 +2581,7 @@ def main() -> int:
             return 2
 
     try:
-        return laco_principal(args, cal)
+        return laco_principal(args, cal, ajustes_do_aprendiz)
     except JanelaNaoEncontrada as erro:
         log.error("%s", erro)
         return 2

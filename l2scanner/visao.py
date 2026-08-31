@@ -24,7 +24,7 @@ TRES DESCOBERTAS DA CALIBRACAO REAL que moldam o codigo aqui:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 import cv2
@@ -33,7 +33,7 @@ import numpy as np
 from .calibracao import Calibracao, LimiaresDeCor
 from .cliente import EstadoDoCliente
 from .frames import Frame, Regiao, SaudeDoFrame
-from .identidade import identificar_linhas
+from .identidade import identificar_linhas, mascara_de_texto
 
 
 class EstadoDaLinha(Enum):
@@ -150,6 +150,34 @@ class Observacao:
     # `tests/test_mercado_27x.py` tem o tripwire de arquitetura que quebra se
     # ele passar a ler.
     mercado_aberto_aparente: bool | None = None
+
+    # SO PARA APRENDER. Nenhuma DECISAO do rastreador pode sair deste campo,
+    # nunca.
+    #
+    # Ele carrega a mascara de texto do recorte do nome de cada linha, que e o
+    # material do qual uma assinatura nova e feita (D-04: a estabilidade e
+    # julgada sobre a mascara, nunca sobre os pixels crus — o painel e
+    # semitransparente e o cenario anda por tras do texto). A MASCARA, e nao o
+    # recorte cru, tambem por desenho: guardar o recorte aqui daria a um
+    # consumidor futuro a chance de julgar estabilidade por pixel, que e
+    # exatamente a leitura que D-04 proibe.
+    #
+    # A seguranca aqui NAO vem de guardas no rastreador — vem de esta leitura
+    # NAO EXISTIR para ele, a mesma protecao que `hp_proprio_aparente` e
+    # `mercado_aberto_aparente` ja tem, com o tripwire de arquitetura em
+    # `tests/test_aprendiz.py`.
+    #
+    # ESTE DICIONARIO PODE TER MAIS CHAVES DO QUE `linhas` TEM LINHAS OCUPADAS.
+    # Os recortes sao coletados enquanto o laco varre as posicoes, e
+    # `_truncar_no_primeiro_vao` so roda DEPOIS de `identificar_linhas`: uma
+    # posicao alem do primeiro vao pode ter deixado uma mascara aqui e ter
+    # virado `VAZIA` ali. A LEITURA CORRETA E SEMPRE
+    # `mascaras_de_nome[linha.indice]`, partindo de uma linha de
+    # `Observacao.linhas` — nunca iterar este dicionario e tratar cada chave
+    # como se fosse uma pessoa. Hoje isso e inerte porque quem consome parte das
+    # linhas; escrito aqui para que a Fase 3, que herda o campo, nao descubra
+    # sozinha.
+    mascaras_de_nome: dict[int, np.ndarray] = field(default_factory=dict)
 
     @property
     def membros_presentes(self) -> int:
@@ -680,6 +708,21 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
     # linhas, o membro roubado sumia do conjunto de identidades, e o rastreador
     # anunciava que ele saiu da party. Aconteceu 8 vezes numa sessao de 25
     # minutos com a party parada.
+    # A mascara de cada recorte, SO PARA APRENDER — ver o campo homonimo em
+    # `Observacao`. Ela e RECALCULADA aqui de proposito: `identificar_linhas` ja
+    # calcula a dela por dentro, mas devolver a de la exigiria mudar a
+    # assinatura publica de uma funcao que quatro arquivos de teste exercitam, e
+    # um `cvtColor` mais um limiar sobre um recorte de ~20x100 a 1 Hz nao
+    # aparece em perfil nenhum.
+    #
+    # `extrair` continua sendo uma FUNCAO PURA — mesmo frame, mesma saida — e
+    # isso nao pode mudar: nada de estado, nada de escrita, nada de acervo aqui
+    # dentro. Quem grava e o `aprendiz`, chamado pelo `sessao`.
+    mascaras_de_nome = {
+        indice: mascara_de_texto(recorte)
+        for indice, recorte in recortes_de_nome.items()
+    }
+
     casamentos = identificar_linhas(recortes_de_nome, cal.assinaturas)
     for pos, linha in enumerate(linhas):
         casamento = casamentos.get(linha.indice)
@@ -761,6 +804,7 @@ def extrair(frame: Frame, cal: Calibracao) -> Observacao:
         linhas=tuple(linhas),
         hp_proprio=hp_proprio,
         hp_proprio_aparente=hp_proprio_aparente,
+        mascaras_de_nome=mascaras_de_nome,
     )
 
 

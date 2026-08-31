@@ -1273,6 +1273,21 @@ class TestSemRelogioProprio:
     Adotar agora custa uma linha, porque o modulo ja cumpre a regra; adotar
     na Fase 2 seria adotar um modulo que ja pode ter violado a regra, e o
     portao nasceria vermelho ou nasceria afrouxado.
+
+    `aprendiz.py` entrou na Fase 2 do workstream `identidade`, e ele tambem
+    entra ANTES de ter uma linha de logica de tempo — a antecipacao E a decisao,
+    igual a de `bosses.py` e a de `acervo.py`. Contar LEITURAS e nao SEGUNDOS e
+    o coracao de D-09: o tick nao e garantido (a captura mira ~1 Hz, mas um
+    frame doente, uma cegueira ou uma varredura de mercado mudam o intervalo
+    real), e um `time.time()` que aparecesse aqui para "so aprender depois de 5
+    segundos" transformaria a UNICA logica nova da fase numa dependencia de
+    relogio.
+
+    O que se perde nesse caso e especifico e caro: o replay de uma gravacao
+    deixaria de produzir o mesmo acervo que a sessao ao vivo produziu, e o
+    acervo e IRREVERSIVEL — nao ha comando de esquecer no v1. Ou seja, a
+    divergencia entre o replay e o campo nao seria um teste instavel, seria uma
+    entrada permanente que ninguem consegue reproduzir para investigar.
     """
 
     MODULOS = (
@@ -1282,6 +1297,7 @@ class TestSemRelogioProprio:
         "bosses.py",
         "respawn.py",
         "acervo.py",
+        "aprendiz.py",
     )
 
     @staticmethod
