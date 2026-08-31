@@ -1539,3 +1539,169 @@ class TestAFatiaInteiraDaJanelaDeRespawn:
 
         assert len(r.avisos_de_janela) == 1
         assert not r.falhou_ao_analisar
+
+
+class TestUmNascimentoUmaMensagem:
+    """A FATIA VERTICAL DA FASE 3: duas instancias, uma mensagem.
+
+    O DEFEITO DE CAMPO, medido em 2026-08-30 com `Win32_Process` confirmando
+    DUAS instancias (`Yazalaque` e `Faerlina`) rodando desde as 21:28:47:
+
+        21:59  Tiat South nasceu! (visto no chat do jogo)      x3
+        22:01  Tiat South nasceu! (seu alvo virou Tiat South)
+        22:02  Tiat South nasceu! (seu alvo virou Tiat South)  x2
+
+    Seis mensagens para UM nascimento. A causa que esta classe fecha e a maior
+    das duas: o aviso de nascimento era o UNICO alerta do projeto que chamava
+    `_despachar` sem passar por `registro.marcar()`.
+
+    O `Boss` E CONSTRUIDO AQUI e nunca lido do `config.toml` do repositorio:
+    aquele arquivo e do usuario, ele o edita, e um teste ancorado nas horas de
+    la fica vermelho sem defeito nenhum.
+    """
+
+    NORTH = Boss(nome="Tiat North", respawn_horas_min=6, respawn_horas_max=8)
+    ANUNCIO = "Tiat North [Lv. 60] has spawned!"
+
+    NASCIMENTO = datetime(2026, 8, 30, 21, 59)
+
+    def quando(self, **desloc):
+        return (self.NASCIMENTO + timedelta(**desloc)).timestamp()
+
+    def vigia(self, chat, alvo):
+        """Le `chat` e `alvo` no primeiro tick e nada nos seguintes."""
+        restantes = [chat, alvo]
+
+        def ler(_pixels):
+            return restantes.pop(0) if restantes else ""
+
+        return VigiaDeBosses(
+            ler, bosses=(self.NORTH,), segundos_entre_leituras=1
+        )
+
+    def frame(self, frame_real):
+        recorte = np.zeros((5, 5, 3), dtype=np.uint8)
+        return replace(
+            frame_real, extras={"tiat_chat": recorte, "tiat_alvo": recorte}
+        )
+
+    def instancia(self, calibracao, tmp_path, pasta, chat=None, simulando=False):
+        """Uma `Sessao` NOVA sobre a MESMA pasta — o modelo do defeito.
+
+        Cada chamada e um processo diferente do usuario: vigia proprio (memoria
+        propria, logo o rearme em memoria nao ajuda em nada) e registro proprio
+        sobre o mesmo disco.
+        """
+        return nova_sessao(
+            calibracao,
+            tmp_path,
+            registro=RegistroEmDisco(pasta, simulando=simulando),
+            bosses=self.vigia(self.ANUNCIO if chat is None else chat, ""),
+            regras_de_respawn=[self.NORTH],
+        )
+
+    # -- o caminho unico ---------------------------------------------------
+
+    def test_a_primeira_instancia_anuncia_uma_vez(
+        self, calibracao, frame_real, tmp_path
+    ):
+        pasta = tmp_path / "agenda"
+        s = self.instancia(calibracao, tmp_path, pasta)
+
+        r = s.tick(self.frame(frame_real), momento=self.quando())
+
+        assert len(r.despachos) == 1
+        _texto, categoria, _alvo = r.despachos[0]
+        assert categoria is Categoria.SEMPRE
+        assert r.avisos_de_boss == [("Tiat North", OrigemDoAviso.CHAT)]
+        assert [
+            n for n in os.listdir(pasta) if n.startswith("nascimento_")
+        ] == ["nascimento_2026-08-30_tiat-north-2159_chat"]
+
+    def test_a_SEGUNDA_instancia_sobre_a_mesma_pasta_CALA(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """As tres mensagens das 21:59 viram uma."""
+        pasta = tmp_path / "agenda"
+        self.instancia(calibracao, tmp_path, pasta).tick(
+            self.frame(frame_real), momento=self.quando()
+        )
+
+        outra = self.instancia(calibracao, tmp_path, pasta)
+        r = outra.tick(self.frame(frame_real), momento=self.quando(seconds=1))
+
+        assert r.despachos == []
+        assert r.avisos_de_boss == []
+        assert r.nascimentos_calados == [("Tiat North", OrigemDoAviso.CHAT)]
+        assert [
+            n for n in os.listdir(pasta) if n.startswith("anuncio_")
+        ] == ["anuncio_2026-08-30_tiat-north-2159"]
+
+    def test_a_instancia_do_MINUTO_SEGUINTE_grava_ancora_e_continua_calada(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """As instancias ticam em minutos diferentes — 21:59 contra 22:01, foi
+        o que o campo mediu. A chave do episodio tem que ser a MESMA nas duas,
+        e a ancora tem que continuar sendo gravada assim mesmo (D-27).
+        """
+        pasta = tmp_path / "agenda"
+        self.instancia(calibracao, tmp_path, pasta).tick(
+            self.frame(frame_real), momento=self.quando()
+        )
+
+        outra = self.instancia(calibracao, tmp_path, pasta)
+        r = outra.tick(self.frame(frame_real), momento=self.quando(minutes=2))
+
+        assert r.despachos == []
+        assert r.ancoras_gravadas == [("Tiat North", OrigemDoAviso.CHAT)]
+        assert (pasta / "nascimento_2026-08-30_tiat-north-2201_chat").exists()
+        assert (
+            len([n for n in os.listdir(pasta) if n.startswith("anuncio_")]) == 1
+        )
+
+    def test_o_REINICIO_nao_reenvia(self, calibracao, frame_real, tmp_path):
+        """A terceira `Sessao` e o scanner subindo de novo: nada em memoria
+        sobrevive, e o marcador em disco e o que cala."""
+        pasta = tmp_path / "agenda"
+        for _ in range(2):
+            self.instancia(calibracao, tmp_path, pasta).tick(
+                self.frame(frame_real), momento=self.quando()
+            )
+
+        terceira = self.instancia(calibracao, tmp_path, pasta)
+        r = terceira.tick(self.frame(frame_real), momento=self.quando())
+
+        assert r.despachos == []
+
+    # -- as bordas ---------------------------------------------------------
+
+    def test_em_simulacao_tres_instancias_repetem_e_o_disco_fica_vazio(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """Herdado de `marcar` e ACEITO, no molde de
+        `TestOModoDeSimulacaoNaJanela`: o produto inteiro do `--dry-run` e a
+        mensagem aparecer no console."""
+        pasta = tmp_path / "agenda"
+        despachos = 0
+        for _ in range(3):
+            s = self.instancia(calibracao, tmp_path, pasta, simulando=True)
+            despachos += len(
+                s.tick(self.frame(frame_real), momento=self.quando()).despachos
+            )
+
+        assert despachos == 3
+        assert not pasta.exists()
+
+    def test_um_anuncio_lixo_na_pasta_nao_derruba_o_tick(
+        self, calibracao, frame_real, tmp_path
+    ):
+        pasta = tmp_path / "agenda"
+        pasta.mkdir(parents=True, exist_ok=True)
+        (pasta / "anuncio_lixo").touch()
+        (pasta / "nascimento_lixo").touch()
+
+        s = self.instancia(calibracao, tmp_path, pasta)
+        r = s.tick(self.frame(frame_real), momento=self.quando())
+
+        assert len(r.despachos) == 1
+        assert not r.falhou_ao_analisar

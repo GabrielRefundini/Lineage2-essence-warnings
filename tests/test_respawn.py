@@ -18,16 +18,25 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from l2scanner.agenda import PREFIXO_NASCIMENTO, RegistroEmDisco
+from l2scanner.agenda import (
+    PREFIXO_ANUNCIO,
+    PREFIXO_NASCIMENTO,
+    RegistroEmDisco,
+)
 from l2scanner.bosses import Boss, OrigemDoAviso
 from l2scanner.respawn import (
+    MARGEM_DO_EPISODIO,
     Ancora,
     AvisoDeJanela,
     TipoDeJanela,
     ancora_de_chave,
+    ancoras_do_boss,
     ancoras_mais_recentes,
     anunciar_janelas,
+    anunciar_nascimento,
+    chave_do_anuncio,
     chave_do_nascimento,
+    inicio_do_episodio,
     janelas_devidas,
     linhas_de_previsao,
     texto_da_janela,
@@ -911,3 +920,300 @@ class TestAsLinhasDePrevisaoDoConsole:
             linha.split(":")[0]
             for linha in linhas_de_previsao(ABRE_EM, [SOUTH, NORTH], so_north())
         ] == ["Tiat South", "Tiat North"]
+
+
+# ---------------------------------------------------------------------------
+# O EPISODIO — a nocao que faz UM nascimento produzir UMA mensagem (Fase 3).
+#
+# Um EPISODIO e um nascimento e TODAS as deteccoes dele: as do chat, as do
+# alvo, as das duas instancias do usuario, espalhadas por minutos. O campo
+# mediu isso em 2026-08-30 — tres deteccoes de chat as 21:59 e tres de alvo
+# entre 22:01 e 22:02, para um unico Tiat South, seis mensagens no grupo.
+# ---------------------------------------------------------------------------
+
+ANUNCIO_EM = datetime(2026, 8, 30, 21, 59)
+
+
+class TestAsAncorasDeUmBoss:
+    """`ancoras_do_boss` e o unico pedaco reusavel entre previsao e anuncio."""
+
+    def test_filtra_pelo_apelido_e_devolve_as_duas_do_mesmo_boss(self):
+        chaves = [
+            chave_do_nascimento("Tiat North", ANUNCIO_EM, OrigemDoAviso.CHAT),
+            chave_do_nascimento(
+                "Tiat North",
+                ANUNCIO_EM + timedelta(minutes=2),
+                OrigemDoAviso.ALVO,
+            ),
+            chave_do_nascimento("Tiat South", ANUNCIO_EM, OrigemDoAviso.CHAT),
+        ]
+
+        achadas = ancoras_do_boss(chaves, "tiat-north")
+
+        assert sorted(a.instante for a in achadas) == [
+            ANUNCIO_EM,
+            ANUNCIO_EM + timedelta(minutes=2),
+        ]
+
+    def test_uma_chave_torta_e_ignorada_e_nao_levanta(self):
+        """`.agenda/` e uma pasta que o usuario abre e edita a mao. Um nome
+        torto custa uma previsao; levantar custa o scanner inteiro (T-02-07).
+        """
+        chaves = [
+            "lixo",
+            "",
+            "2026-13-99_tiat-north-9999_chat",
+            chave_do_nascimento("Tiat North", ANUNCIO_EM, OrigemDoAviso.CHAT),
+        ]
+
+        assert [a.instante for a in ancoras_do_boss(chaves, "tiat-north")] == [
+            ANUNCIO_EM
+        ]
+
+    def test_sem_ancora_do_boss_devolve_lista_vazia(self):
+        chaves = [
+            chave_do_nascimento("Tiat South", ANUNCIO_EM, OrigemDoAviso.CHAT)
+        ]
+
+        assert ancoras_do_boss(chaves, "tiat-north") == []
+
+
+class TestOInicioDoEpisodio:
+    """D-28: a chave do anuncio sai da ancora MAIS ANTIGA do episodio.
+
+    E a unica candidata estavel. O instante da deteccao muda entre instancias
+    que ticam em minutos diferentes (21:59 contra 22:01, medido em campo), e a
+    ancora mais recente e REESCRITA a cada remarcacao de alvo (D-15, que D-27
+    manda preservar). Ancoras so sao escritas no presente, entao a mais antiga
+    de um episodio nunca muda depois que o episodio comeca.
+    """
+
+    def _ancoras(self, *instantes, origem=OrigemDoAviso.CHAT):
+        return [
+            Ancora(boss="tiat-north", instante=i, origem=origem)
+            for i in instantes
+        ]
+
+    def test_a_ancora_dentro_da_janela_abre_o_episodio(self):
+        assert (
+            inicio_do_episodio(
+                self._ancoras(ANUNCIO_EM),
+                agora=ANUNCIO_EM + timedelta(minutes=3),
+                horas_min=6,
+            )
+            == ANUNCIO_EM
+        )
+
+    def test_duas_ancoras_do_mesmo_episodio_devolvem_a_MAIS_ANTIGA(self):
+        """As tres deteccoes de chat e as tres de alvo do defeito de campo
+        colapsam numa unica chave — que e a fase inteira em uma linha."""
+        ancoras = self._ancoras(
+            ANUNCIO_EM + timedelta(minutes=2),
+            ANUNCIO_EM,
+            ANUNCIO_EM + timedelta(minutes=3),
+        )
+
+        assert (
+            inicio_do_episodio(
+                ancoras, agora=ANUNCIO_EM + timedelta(minutes=3), horas_min=6
+            )
+            == ANUNCIO_EM
+        )
+
+    def test_lista_vazia_devolve_None(self):
+        assert inicio_do_episodio([], agora=ANUNCIO_EM, horas_min=6) is None
+
+    def test_uma_ancora_do_ciclo_ANTERIOR_nao_entra_no_episodio(self):
+        """O silencio nao pode durar mais que a janela: um nascimento novo
+        `respawn_horas_min` depois AINDA tem que anunciar (UNIC-05)."""
+        assert (
+            inicio_do_episodio(
+                self._ancoras(ANUNCIO_EM),
+                agora=ANUNCIO_EM + timedelta(hours=6),
+                horas_min=6,
+            )
+            is None
+        )
+
+    def test_a_borda_INFERIOR_e_ESTRITA_a_ancora_no_limite_esta_FORA(self):
+        """Dois nascimentos consecutivos distam no MINIMO `horas_min` — a regra
+        do servidor conta da MORTE, e a morte vem sempre depois do nascimento.
+        Com o limite frouxo, dois nascimentos exatamente no minimo cairiam no
+        mesmo episodio e o segundo seria CALADO, sem deixar rastro.
+        """
+        agora = ANUNCIO_EM + timedelta(hours=6)
+        janela = timedelta(hours=6) - MARGEM_DO_EPISODIO
+
+        assert (
+            inicio_do_episodio(
+                self._ancoras(agora - janela), agora=agora, horas_min=6
+            )
+            is None
+        )
+        assert (
+            inicio_do_episodio(
+                self._ancoras(agora - janela + timedelta(minutes=1)),
+                agora=agora,
+                horas_min=6,
+            )
+            is not None
+        )
+
+    def test_uma_ancora_no_FUTURO_nao_entra(self):
+        """Relogio mexido ou arquivo plantado a mao (T-03-04): o teto e
+        `agora`, e nada depois dele abre episodio."""
+        assert (
+            inicio_do_episodio(
+                self._ancoras(ANUNCIO_EM + timedelta(minutes=1)),
+                agora=ANUNCIO_EM,
+                horas_min=6,
+            )
+            is None
+        )
+
+    def test_um_boss_com_respawn_menor_que_a_margem_vira_degenerado(self):
+        """`max(timedelta(0), ...)`: o boss volta a ser anunciado a cada
+        deteccao, que e o comportamento de HOJE — ruidoso e nao mudo, de novo
+        o lado certo do erro."""
+        assert (
+            inicio_do_episodio(
+                self._ancoras(ANUNCIO_EM), agora=ANUNCIO_EM, horas_min=0.01
+            )
+            is None
+        )
+
+
+class TestAChaveDoAnuncio:
+    """D-28: a forma do nome de arquivo do marcador de anuncio.
+
+    Escrita A MAO e nao gerada, pela mesma razao de `ANCORA_EM_DISCO` em
+    `tests/test_janela_no_relogio.py`: semear com o proprio produtor deixaria o
+    teste comparando o produtor consigo mesmo, verde para sempre.
+    """
+
+    def test_a_forma_e_data_apelido_e_hora_do_inicio_do_episodio(self):
+        assert (
+            chave_do_anuncio("tiat-north", ANUNCIO_EM)
+            == "2026-08-30_tiat-north-2159"
+        )
+
+    def test_nao_traz_o_prefixo_quem_o_poe_e_o_registro(self):
+        """Mesma divisao de `chave_do_nascimento` e de `cancelar`: o modulo que
+        escreve o namespace e o dono do prefixo."""
+        assert not chave_do_anuncio("tiat-north", ANUNCIO_EM).startswith(
+            PREFIXO_ANUNCIO
+        )
+
+    def test_nao_colide_com_a_chave_de_um_aviso_de_janela(self):
+        """A raiz `<data>_<apelido>-<HHMM>` e a mesma; os conjuntos de NOMES DE
+        ARQUIVO sao disjuntos por construcao — o anuncio sempre tem prefixo e
+        nunca tem sufixo de tipo, e a janela o contrario."""
+        aviso = AvisoDeJanela(
+            boss="Tiat North",
+            tipo=TipoDeJanela.ABRE,
+            ancora=Ancora(
+                boss="tiat-north",
+                instante=ANUNCIO_EM,
+                origem=OrigemDoAviso.CHAT,
+            ),
+            alvo=ANUNCIO_EM + timedelta(hours=6),
+            horas=6,
+        )
+
+        assert (
+            PREFIXO_ANUNCIO + chave_do_anuncio("tiat-north", ANUNCIO_EM)
+            != aviso.chave
+        )
+
+
+class TestAnunciarNascimento:
+    """A UMA implementacao da decisao, irma de `anunciar_janelas`."""
+
+    def _registro(self, tmp_path):
+        return RegistroEmDisco(tmp_path / "agenda")
+
+    def test_a_primeira_deteccao_anuncia_e_a_segunda_cala(self, tmp_path):
+        registro = self._registro(tmp_path)
+        registro.registrar_nascimento(
+            chave_do_nascimento("Tiat North", ANUNCIO_EM, OrigemDoAviso.CHAT)
+        )
+
+        primeira = anunciar_nascimento(
+            registro, "Tiat North", ANUNCIO_EM, [NORTH]
+        )
+        segunda = anunciar_nascimento(
+            registro,
+            "Tiat North",
+            ANUNCIO_EM + timedelta(minutes=2),
+            [NORTH],
+        )
+
+        assert primeira is True
+        assert segunda is False
+
+    def test_o_marcador_gravado_carrega_o_inicio_do_episodio(self, tmp_path):
+        registro = self._registro(tmp_path)
+        registro.registrar_nascimento(
+            chave_do_nascimento("Tiat North", ANUNCIO_EM, OrigemDoAviso.CHAT)
+        )
+
+        anunciar_nascimento(
+            registro, "Tiat North", ANUNCIO_EM + timedelta(minutes=2), [NORTH]
+        )
+
+        assert [
+            c.name
+            for c in (tmp_path / "agenda").iterdir()
+            if c.name.startswith(PREFIXO_ANUNCIO)
+        ] == ["anuncio_2026-08-30_tiat-north-2159"]
+
+    def test_um_boss_sem_regra_anuncia_prefere_o_duplicado_ao_perdido(
+        self, tmp_path
+    ):
+        """Sem a regra nao ha como saber o tamanho do episodio. A party ignora
+        uma repeticao; nao adivinha um nascimento que ninguem anunciou."""
+        registro = self._registro(tmp_path)
+
+        assert anunciar_nascimento(registro, "Tiat North", ANUNCIO_EM, []) is True
+
+    def test_o_episodio_e_por_boss_e_um_nao_cala_o_outro(self, tmp_path):
+        registro = self._registro(tmp_path)
+        for nome in ("Tiat North", "Tiat South"):
+            registro.registrar_nascimento(
+                chave_do_nascimento(nome, ANUNCIO_EM, OrigemDoAviso.CHAT)
+            )
+
+        assert anunciar_nascimento(
+            registro, "Tiat North", ANUNCIO_EM, [NORTH, SOUTH]
+        )
+        assert anunciar_nascimento(
+            registro, "Tiat South", ANUNCIO_EM, [NORTH, SOUTH]
+        )
+
+    def test_um_nascimento_novo_horas_min_depois_ANUNCIA_de_novo(self, tmp_path):
+        """A supressao nao pode virar perda: o silencio termina no instante em
+        que o proximo nascimento se torna POSSIVEL (T-03-01)."""
+        registro = self._registro(tmp_path)
+        registro.registrar_nascimento(
+            chave_do_nascimento("Tiat North", ANUNCIO_EM, OrigemDoAviso.CHAT)
+        )
+        anunciar_nascimento(registro, "Tiat North", ANUNCIO_EM, [NORTH])
+
+        depois = ANUNCIO_EM + timedelta(hours=6)
+        registro.registrar_nascimento(
+            chave_do_nascimento("Tiat North", depois, OrigemDoAviso.CHAT)
+        )
+
+        assert anunciar_nascimento(registro, "Tiat North", depois, [NORTH])
+
+    def test_em_simulacao_anuncia_sempre_e_nao_encosta_no_disco(self, tmp_path):
+        """Herdado de `marcar`, e ACEITO: o produto inteiro do `--dry-run` e a
+        mensagem aparecer no console."""
+        pasta = tmp_path / "agenda"
+        registro = RegistroEmDisco(pasta, simulando=True)
+
+        assert all(
+            anunciar_nascimento(registro, "Tiat North", ANUNCIO_EM, [NORTH])
+            for _ in range(3)
+        )
+        assert not pasta.exists()
