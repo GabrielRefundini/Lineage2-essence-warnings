@@ -61,14 +61,22 @@ FIXTURES = Path(__file__).parent / "fixtures" / "mercado"
 SONDA_MEDIDA = (180, 510, 2)
 
 # O trecho que a VARREDURA de `tools/medir_oclusao.py` escolheu sobre as 8
-# gravacoes (2026-08-30), e que ela gravou em `mercado_sonda_do_fundo`. Ele NAO
-# e o de cima: a pesquisa mediu [180, 510) em tres frames; a varredura, sobre
-# 478 frames de campo e contra o gabarito, achou [207, 417) com folga 7,7x
-# contra os 4,7x do trecho da pesquisa. O numero mora no `calibration.json` —
-# gitignored, e nenhum teste o le —, mas a RELACAO que ele produz fica prendida
-# aqui, para que uma mudanca na primitiva nao invalide calado o numero que os
-# planos 02-04 e 02-05 vao consumir.
-SONDA_ESCOLHIDA_PELA_VARREDURA = (207, 417, 2)
+# gravacoes, e que ela grava em `mercado_sonda_do_fundo`. Ele NAO e o de cima: a
+# pesquisa mediu [180, 510) em tres frames; a varredura mede sobre 478 frames de
+# campo e contra o gabarito. O numero mora no `calibration.json` — gitignored, e
+# nenhum teste o le —, mas a RELACAO que ele produz fica prendida aqui, para que
+# uma mudanca na primitiva nao invalide calado o numero que os planos 02-04 e
+# 02-05 consomem.
+#
+# ELE MUDOU EM 2026-08-31, de [207, 417) para [246, 396), e o motivo nao foi
+# refinamento: [207, 417) ficava EM CIMA da metade direita da coluna do NOME
+# (159 px de sobreposicao) e recusava toda linha de nome comprido como se
+# houvesse tooltip. O gabarito da varredura de 02-08-30 nao tinha um unico nome
+# longo — a tinta mais funda das quatro paginas limpas dele parava em x=178 —,
+# entao a sobreposicao nunca apareceu na medicao. Em campo apareceu: 31 paginas
+# perdidas na aba Enhancement > Scrolls. A varredura agora tem os frames de nome
+# comprido no gabarito e uma guarda que PARA quando eles faltam.
+SONDA_ESCOLHIDA_PELA_VARREDURA = (246, 396, 2)
 
 
 def _linha(nome: str) -> np.ndarray:
@@ -180,11 +188,21 @@ class TestNoTrechoQueAVarreduraESCOLHEU:
         assert coberta > 2.0 * limpa
 
     def test_as_linhas_limpas_ficam_no_chao(self) -> None:
+        """As duas ultimas so ficam no chao DEPOIS de 2026-08-31.
+
+        `linha_limpa_nome_longo_*_f060` sao as duas paridades de banda de
+        `Protecting Scroll: Enchant C-grade Armor` (40 caracteres, tinta ate
+        x=246), sem tooltip nenhuma. No trecho antigo [207, 417) elas liam
+        0,0276 — acima do limiar de producao de entao — porque a sonda estava
+        POR CIMA do nome. No trecho de agora leem 0,0007.
+        """
         for nome in (
             "linha_limpa_par_f010.png",
             "linha_limpa_impar_f010.png",
             "linha_limpa_no_frame_do_tooltip_f015.png",
             "linha_limpa_no_frame_do_alvo_f024.png",
+            "linha_limpa_nome_longo_par_f060.png",
+            "linha_limpa_nome_longo_impar_f060.png",
         ):
             _, dispersao = _sonda(_linha(nome), SONDA_ESCOLHIDA_PELA_VARREDURA)
             assert dispersao < 0.05, f"{nome} deu {dispersao:.4f}"

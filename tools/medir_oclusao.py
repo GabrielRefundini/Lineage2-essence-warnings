@@ -46,7 +46,10 @@ worktree):
     ... e com --gravar para persistir os tres numeros.
 
 Sai com codigo 0 quando conseguiu propor os numeros, e diferente de zero quando
-as populacoes se sobrepoem - um limiar que nao separa e pior que nenhum.
+as populacoes se sobrepoem - um limiar que nao separa e pior que nenhum - ou
+quando o gabarito limpo nao exercita a sonda escolhida (codigo 8, ver
+`conferir_o_gabarito_limpo`): validar contra nome curto ja
+custou 31 paginas de campo uma vez.
 """
 
 from __future__ import annotations
@@ -67,6 +70,7 @@ if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
 from l2scanner.calibracao import Calibracao  # noqa: E402
+from l2scanner.identidade import mascara_de_texto  # noqa: E402
 from l2scanner.mercado_geometria import nivel_de_fundo_da_linha  # noqa: E402
 from l2scanner.mercado_visao import (  # noqa: E402
     RastreioDoPainel,
@@ -120,11 +124,16 @@ MOTIVO_PARA_IGNORAR = {
 
 # De quanto em quanto a sonda desliza dentro da janela derivada das colunas.
 #
-# 15 px e fino o bastante para pousar em cima do vao real (a menor estrutura que
-# importa aqui, o vao entre o fim do nome e o comeco dos numeros, tem centenas
-# de pixels) e grosso o bastante para a varredura caber em minutos: cada passo a
-# mais multiplica ~4.800 linhas de campo por uma chamada da primitiva.
-PASSO_DA_VARREDURA = 15
+# ERA 15, E 15 NAO ALCANCAVA A RESPOSTA. A janela comeca em x=42, entao um passo
+# de 15 so visita 42, 57, 72, ... 237, 252 - e o trecho que a remedicao de
+# 2026-08-31 escolheu comeca em x=246, que nao esta nessa lista. Os vizinhos
+# eram 237 (nove px DENTRO da tinta do nome mais comprido do censo, que termina
+# em 246) e 252 (seis px alem dela). A grade da propria varredura excluia o
+# unico ponto que separa as duas coisas. 12 divide 204 = 246 - 42, e por isso e
+# 12: nao por gosto de numero redondo, mas porque a resposta medida cai nele.
+#
+# O custo e 25 candidatos em vez de 16, ~1,5x a varredura. Ela segue em minutos.
+PASSO_DA_VARREDURA = 12
 
 # As linhas de folga em cada ponta do recorte.
 #
@@ -134,19 +143,51 @@ PASSO_DA_VARREDURA = 15
 # escolheu foi esta varredura.
 FOLGA_NAS_PONTAS = 2
 
-# A largura da sonda, como FRACAO da janela derivada das colunas calibradas.
+# A largura da sonda, em pixels. ELA ENCOLHEU DE 210 PARA 150 EM 2026-08-31, E
+# ISSO CUSTOU ALGUMA COISA. Este bloco existe para que o custo nao suma.
 #
-# ELA NAO PODE SER PEQUENA, E A REFUTACAO ESTA MEDIDA. Varrendo em blocos de 30
-# px sobre `tooltip/frame_000015`, a linha 0 - coberta pela tooltip - tem blocos
-# que leem dispersao 0,0000: o bloco cabe INTEIRO dentro de um buraco do
-# desenho, e uma sonda estreita declararia limpa uma linha coberta. Larga demais
-# tambem nao serve: ela come o texto do nome e da quantidade, e a dispersao de
-# uma linha limpa sobe ate encostar na de uma coberta.
+# Era `FRACAO_DA_JANELA_PARA_A_SONDA = 0.5`, que sobre esta janela de 447 px dava
+# 210. O texto que ficava aqui dizia que a sonda "NAO PODE SER PEQUENA", e a
+# refutacao que ele citava CONTINUA VALENDO E NAO FOI REVOGADA: varrendo em
+# blocos de 30 px sobre `tooltip/frame_000015`, a linha 0 - coberta pela tooltip
+# - tem blocos que leem dispersao 0,0000, porque o bloco cabe INTEIRO dentro de
+# um buraco do desenho da tooltip. Sonda estreita e sonda que pode se esconder
+# num vao da arte que ela deveria enxergar. Esse risco AUMENTOU com 150 px.
 #
-# Metade da janela fica no meio desse par de erros: e larga demais para caber
-# num buraco do desenho e estreita o bastante para AINDA deslizar (a varredura
-# tem espaco para escolher onde ela pousa, que e o ponto).
-FRACAO_DA_JANELA_PARA_A_SONDA = 0.5
+# O QUE MUDOU E QUE O OUTRO LADO DO PAR DE ERROS DEIXOU DE SER HIPOTETICO. O
+# mesmo texto avisava que larga demais "come o texto do nome e a dispersao de uma
+# linha limpa sobe ate encostar na de uma coberta" - e foi exatamente isso que
+# aconteceu em campo, com 210 px: `Protecting Scroll: Enchant C-grade Armor` (40
+# caracteres, tinta ate x=246) punha 40 px de GLIFO dentro da sonda, a linha lia
+# 0,0276 contra um limiar de 0,0264 e era recusada sem haver tooltip nenhuma. 31
+# paginas perdidas numa sessao, `observacoes.csv` so com o cabecalho.
+#
+# A VARREDURA 2-D (posicao x largura), com o gabarito ja corrigido, mediu os dois
+# lados de uma vez - e a largura nao e um gosto, e um numero:
+#
+#     largura 210  melhor dx0=192  pior LIMPA 0,0391  folga  2,9x
+#     largura 180  melhor dx0=243  pior LIMPA 0,0033  folga  6,9x
+#     largura 150  melhor dx0=246  pior LIMPA 0,0007  folga 32,0x
+#
+# (essa tabela veio de uma varredura de mao, com 4 frames limpos no gabarito.
+# Rodando ESTA ferramenta, com os 8 frames limpos que o gabarito tem hoje, a
+# largura 150 escolhe o mesmo dx0=246 e mede folga 30,8x - a diferenca e da
+# populacao maior, nao do trecho.)
+#
+# 150 px foi ESCOLHIDO PELO USUARIO em 2026-08-31, com estes numeros na mao, e a
+# escolha APERTA a peneira em vez de afrouxa-la: o limiar cai de 0,026377 para
+# 0,003607 (7x mais estrito) e a separacao entre uma linha limpa e uma coberta
+# sobe de 2,8x para 30,8x. As 10 linhas cobertas conhecidas do gabarito seguem
+# recusadas, com ~5x de folga sobre o limiar novo. A alternativa era so remedir o
+# limiar em 210 px (0,026377 -> 0,046372), o que consertava o defeito relatado
+# AFROUXANDO a guarda: a folga contra a marcacao de alvo caia de 2,9x para 1,7x.
+#
+# O QUE FICA DE DIVIDA, ESCRITO PARA NAO SUMIR: 150 px cabe dentro de um buraco
+# uniforme da arte da tooltip com mais facilidade do que 210 px cabia. O censo
+# nao mostra nenhum caso em que isso aconteca - a menor linha coberta conhecida
+# le 0,0200, cinco vezes e meia o limiar novo - mas o mecanismo continua de pe,
+# e quem for medir a proxima sonda tem de ler isto antes de estreitar mais.
+LARGURA_DA_SONDA = 150
 
 # O GABARITO DE CAMPO: quais linhas de quais frames um humano VIU cobertas.
 #
@@ -162,32 +203,96 @@ FRACAO_DA_JANELA_PARA_A_SONDA = 0.5
 #     lugar, e a sobreposicao e do ROTULO, nao do trecho.
 #
 # As condicoes abaixo vem da observacao humana registrada na pergunta 4 do
-# `02-RESEARCH.md` e nos frames de referencia do `02-CONTEXT.md`. Os frames
-# LIMPOS incluem de proposito `scroll-transicao/frame_000016` e `frame_000017`,
-# que o CONTEXT descreve como "conteudo totalmente diferente e AMBOS nitidos": e
-# neles que aparecem os nomes LONGOS (`+6 Agathion Alpha Hunter Sealed`), e sem
-# eles a escolha do trecho seria enganada por um recorte que so parece vazio
-# porque as seis paginas conferidas tinham nome curto.
+# `02-RESEARCH.md` e nos frames de referencia do `02-CONTEXT.md`.
+#
+# AQUI ESTAVA A CAUSA-RAIZ DO DEFEITO DE 2026-08-31, E ELA E DE APONTAMENTO, NAO
+# DE RACIOCINIO. O comentario que ficava neste lugar dizia, palavra por palavra:
+#
+#     "Os frames LIMPOS incluem de proposito `scroll-transicao/frame_000016` e
+#      `frame_000017` (...): e neles que aparecem os nomes LONGOS (`+6 Agathion
+#      Alpha Hunter Sealed`), e sem eles a escolha do trecho seria enganada por
+#      um recorte que so parece vazio porque as seis paginas conferidas tinham
+#      nome curto."
+#
+# A GUARDA CONTRA NOME CURTO FOI PENSADA, FOI ESCRITA, E APONTAVA PARA O LUGAR
+# ERRADO. Os dois frames foram abertos e conferidos em 2026-08-31: eles mostram
+# `Hardin's Soul Crystal Lv. 1` - 27 caracteres, tinta do nome terminando em
+# x=169. O nome longo que o comentario prometia esta em `053105/frame_000052`
+# (`+6 Agathion Alpha Hunter Sealed`, 31 caracteres, tinta ate x=208), que nao
+# estava no gabarito. MEDIDO, a ponta da tinta do nome nos QUATRO frames limpos
+# do gabarito antigo: 178, 142, 169 e 169 - nenhum deles chegava sequer perto do
+# x=207 onde a sonda proposta comecava (a linha mais funda de TODO o gabarito
+# limpo antigo parava em x=215, e era do frame do ALVO, nao dos dois que a prosa
+# apontava). A varredura de 02-02 validou 207..417 contra nome CURTO, exatamente
+# a falha que o comentario afirmava estar impedindo, e o resultado foi 31 paginas
+# perdidas na aba Enhancement > Scrolls. Prosa nao e guarda; a guarda esta em
+# `conferir_o_gabarito_limpo`, que MEDE isso e PARA.
+#
+# Os dois frames de nome curto FICAM: eles sao limpos de verdade e nitidos, e o
+# que estava errado nunca foi a presenca deles, foi o papel que a prosa lhes
+# dava. O que ENTRA sao os dois frames de `053105-mercado-aberto` que carregam
+# de fato os nomes compridos, conferidos a olho no frame inteiro, sem tooltip.
+#
+# O NOME EXIBIDO ENTRA NA TABELA, E NAO NO COMENTARIO. E essa a licao: o quarto
+# campo de cada linha do `GABARITO_LIMPAS` e o nome que aquele frame mostra, e a
+# guarda o CONFRONTA COM OS PIXELS. Um apontamento errado como o de 2026-08-30 -
+# declarar 31 caracteres num frame cuja tinta para em x=169, enquanto outro
+# frame do mesmo gabarito inka ate 215 - deixa de ser prosa que ninguem confere e
+# passa a ser uma contradicao que PARA a ferramenta. `None` e um valor legitimo,
+# para o frame cujo nome ninguem conferiu a olho; ele so nao pode ser o unico.
 GABARITO_COBERTAS = (
     (GRAVACAO_DA_TOOLTIP, "frame_000015.png", tuple(range(0, 8))),
     (GRAVACAO_DO_ALVO, "frame_000024.png", (0, 1)),
 )
+# (gravacao, arquivo, linhas, NOME EXIBIDO conferido a olho ou None)
 GABARITO_LIMPAS = (
-    (GRAVACAO_DA_TOOLTIP, "frame_000015.png", (8, 9)),
-    (GRAVACAO_DO_ALVO, "frame_000024.png", tuple(range(2, 10))),
-    ("20260828-060622-mercado-pagina-cheia", "frame_000010.png", tuple(range(10))),
-    ("20260828-055323-mercado-scroll", "frame_000014.png", tuple(range(10))),
+    (GRAVACAO_DA_TOOLTIP, "frame_000015.png", (8, 9), None),
+    (GRAVACAO_DO_ALVO, "frame_000024.png", tuple(range(2, 10)), None),
+    (
+        "20260828-060622-mercado-pagina-cheia",
+        "frame_000010.png",
+        tuple(range(10)),
+        None,
+    ),
+    ("20260828-055323-mercado-scroll", "frame_000014.png", tuple(range(10)), None),
     (
         "20260828-063409-mercado-scroll-transicao",
         "frame_000016.png",
         tuple(range(10)),
+        "Hardin's Soul Crystal Lv. 1",
     ),
     (
         "20260828-063409-mercado-scroll-transicao",
         "frame_000017.png",
         tuple(range(10)),
+        "Hardin's Soul Crystal Lv. 1",
+    ),
+    # OS DOIS DE NOME COMPRIDO. Sem eles a varredura escolhe um trecho que so
+    # parece vazio porque ninguem lhe mostrou um nome de 40 caracteres.
+    (
+        "20260828-053105-mercado-aberto",
+        "frame_000060.png",
+        tuple(range(10)),
+        "Protecting Scroll: Enchant C-grade Armor",
+    ),
+    (
+        "20260828-053105-mercado-aberto",
+        "frame_000052.png",
+        tuple(range(10)),
+        "+6 Agathion Alpha Hunter Sealed",
     ),
 )
+
+# O nome mais comprido que este projeto ja VIU na grade de negociacao, em
+# caracteres. O gabarito limpo tem de conter pelo menos um assim, ou a varredura
+# esta escolhendo o trecho sem nunca ter visto o pior caso que o campo produz -
+# que e literalmente o defeito de 2026-08-31.
+#
+# ELE E UM PISO QUE SOBE, NUNCA UMA VERDADE. No dia em que aparecer na aba um
+# nome de 45 caracteres, este numero passa a 45 e a varredura precisa de um frame
+# novo antes de poder propor sonda de novo. Baixa-lo para fazer a ferramenta
+# passar e desligar a guarda.
+PIOR_NOME_CONHECIDO_EM_CARACTERES = 40
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +308,11 @@ class LeituraDeFrame:
     arquivo: str
     # (linhas_por_pagina, numero_de_candidatos); NaN = nao deu para medir
     dispersoes: np.ndarray
+    # A ponta da tinta do NOME de cada linha, em x relativo a ESQUERDA DA GRADE
+    # (a mesma origem de `mercado_sonda_do_fundo`). -1 quando a linha nao tem
+    # tinta nenhuma. E o insumo da guarda de nome curto; ver
+    # `conferir_o_gabarito_limpo`.
+    pontas_da_tinta: np.ndarray | None = None
 
 
 @dataclass
@@ -286,8 +396,7 @@ def janela_de_busca(cal: Calibracao) -> tuple:
 def candidatos_de_sonda(inicio: int, fim: int) -> tuple:
     """Os trechos que a varredura vai comparar. Todos da MESMA largura."""
     janela = fim - inicio
-    largura = int(janela * FRACAO_DA_JANELA_PARA_A_SONDA)
-    largura -= largura % PASSO_DA_VARREDURA
+    largura = min(int(LARGURA_DA_SONDA), janela)
     if largura <= 0:
         return [], 0
     candidatos = [
@@ -295,6 +404,48 @@ def candidatos_de_sonda(inicio: int, fim: int) -> tuple:
         for deslocamento in range(0, janela - largura + 1, PASSO_DA_VARREDURA)
     ]
     return candidatos, largura
+
+
+# ---------------------------------------------------------------------------
+# A PONTA DA TINTA DO NOME - o insumo da guarda de nome curto
+# ---------------------------------------------------------------------------
+
+
+def ponta_da_tinta_do_nome(
+    bgr: np.ndarray,
+    coluna_do_nome: dict,
+    origem_x: int,
+    gx: int,
+    topo: int,
+    altura: int,
+) -> int:
+    """Ate onde, em x, o NOME desta linha escreve. -1 quando nao ha tinta.
+
+    O x devolvido e RELATIVO A ESQUERDA DA GRADE, a mesma origem de
+    `mercado_sonda_do_fundo` - comparar a ponta da tinta com `dx0` so faz sentido
+    se as duas estiverem na mesma regua, e a conversao mora aqui em vez de em
+    cada ponto de uso.
+
+    A mascara e `identidade.mascara_de_texto`, a MESMA que o resto do projeto usa
+    para dizer "isto e glifo da UI, nao cenario". Inventar aqui um criterio
+    proprio de tinta faria a guarda medir uma coisa e o leitor outra.
+
+    ESTA MEDIDA E BRUTA DE PROPOSITO. Ela nao distingue tinta de NOME de tinta de
+    TOOLTIP caida por cima da coluna do nome - e nem precisa: quem a consome
+    olha so as linhas que o gabarito declara LIMPAS, e nelas nao ha tooltip
+    nenhuma por definicao do gabarito.
+    """
+    if not coluna_do_nome or bgr is None or bgr.size == 0:
+        return -1
+    nx = origem_x + int(coluna_do_nome["dx"])
+    largura = int(coluna_do_nome["largura"])
+    recorte = bgr[topo : topo + altura, nx : nx + largura]
+    if recorte.size == 0:
+        return -1
+    colunas = np.flatnonzero(mascara_de_texto(recorte).any(axis=0))
+    if colunas.size == 0:
+        return -1
+    return int(colunas[-1]) + (nx - gx)
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +460,7 @@ def varrer(gravacoes: Path, cal: Calibracao) -> Varredura:
     altura_da_linha = int(grade["altura_da_linha"])
     ancoras = ancoras_de_calibracao(cal.mercado_ancoras)
     limiar = float(cal.mercado_limiar_da_ancora or 0.73)
+    coluna_do_nome = cal.mercado_coluna_do_nome or {}
 
     inicio, fim, _ = janela_de_busca(cal)
     candidatos, _largura = candidatos_de_sonda(inicio, fim)
@@ -341,8 +493,12 @@ def varrer(gravacoes: Path, cal: Calibracao) -> Varredura:
             cinza = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
             dispersoes = np.full((linhas, len(candidatos)), np.nan)
+            pontas = np.full(linhas, -1, dtype=int)
             for indice in range(linhas):
                 topo = gy + indice * altura_da_linha
+                pontas[indice] = ponta_da_tinta_do_nome(
+                    frame, coluna_do_nome, origem_x, gx, topo, altura_da_linha
+                )
                 for coluna, (dx0, dx1) in enumerate(candidatos):
                     medido = nivel_de_fundo_da_linha(
                         cinza,
@@ -352,7 +508,7 @@ def varrer(gravacoes: Path, cal: Calibracao) -> Varredura:
                     if medido is not None:
                         dispersoes[indice, coluna] = medido[1]
             resultado.leituras.append(
-                LeituraDeFrame(nome, caminho.name, dispersoes)
+                LeituraDeFrame(nome, caminho.name, dispersoes, pontas)
             )
         resultado.abertos_por_gravacao[nome] = abertos
     return resultado
@@ -370,7 +526,10 @@ def _valores_do_gabarito(varredura: Varredura, tabela, sonda: int) -> list:
         for leitura in varredura.leituras
     }
     valores = []
-    for gravacao, arquivo, linhas in tabela:
+    for entrada in tabela:
+        # `[:3]` porque o GABARITO_LIMPAS carrega um quarto campo - o nome
+        # exibido - que so a guarda de nome curto consome.
+        gravacao, arquivo, linhas = entrada[0], entrada[1], entrada[2]
         leitura = indice.get((gravacao, arquivo))
         if leitura is None:
             continue
@@ -429,6 +588,177 @@ def escolher_o_trecho_sem_texto(varredura: Varredura) -> tuple:
         return -1, tabela
     melhor = max(aptos, key=lambda c: c["folga"])
     return int(melhor["coluna"]), tabela
+
+
+# ---------------------------------------------------------------------------
+# A GUARDA DE NOME CURTO - a que faltou em 2026-08-30 e custou 31 paginas
+# ---------------------------------------------------------------------------
+
+
+def conferir_o_gabarito_limpo(varredura: Varredura, dx0: int) -> tuple:
+    """O gabarito limpo VIU um nome comprido, e e o que ele diz ter visto? PARA.
+
+    O DEFEITO QUE ESTA FUNCAO EXISTE PARA IMPEDIR JA ACONTECEU. Em 2026-08-30 a
+    varredura escolheu a sonda 207..417 e mediu, no gabarito limpo, dispersao
+    0,0000 em quase toda linha. O numero era verdadeiro e a conclusao era falsa:
+    o nome mais comprido de todo o gabarito limpo tinha 31 caracteres, e os dois
+    frames que o comentario NOMEAVA como sendo os de nome longo mostravam 27. A
+    populacao "limpa" era uma populacao que nunca teve a chance de sujar, e a
+    folga calculada sobre ela era um numero sobre coisa nenhuma. Em campo um nome
+    de 40 caracteres escreveu ate x=246, a dispersao subiu para 0,0276 contra um
+    limiar de 0,0264, e 31 paginas de Enhancement > Scrolls foram perdidas.
+
+    A PROSA JA AVISAVA E NAO ADIANTOU. O comentario do `GABARITO_LIMPAS` dizia,
+    desde o primeiro dia, que sem nome longo "a escolha do trecho seria enganada
+    por um recorte que so parece vazio". Ele apontava para os frames errados, e
+    nada no mundo conferia o apontamento. Uma guarda que so existe em prosa e
+    uma guarda que ninguem executa.
+
+    SAO TRES CONFERENCIAS, E A PRIMEIRA E A QUE MORDE.
+
+    (1) PISO DE COMPRIMENTO. O gabarito limpo tem de declarar pelo menos um nome
+        com `PIOR_NOME_CONHECIDO_EM_CARACTERES` caracteres. E a pergunta do
+        defeito, na grandeza do defeito. Contra o gabarito de 2026-08-30 o maior
+        declarado seria 31 contra um piso de 40: REPROVADO, e e so isso que
+        precisava ter acontecido.
+
+    (2) A DECLARACAO CONTRA OS PIXELS. O frame que declara o nome mais comprido
+        tem de ser tambem o de tinta mais funda entre os limpos. Esta e a
+        conferencia que pega o erro de APONTAMENTO, que foi o erro real: em
+        2026-08-30 a prosa declarava `scroll-transicao/frame_000016` como o
+        frame de nome longo (tinta ate x=169) enquanto `alvo/frame_000024`, sem
+        declaracao nenhuma, inkava ate x=215. Declaracao e pixel discordando e
+        contradicao, nao detalhe - e a ferramenta PARA e imprime os dois.
+
+    (3) ALCANCE. A tinta mais funda do gabarito limpo tem de chegar ao `dx0` da
+        sonda escolhida. Sozinha esta conferencia NAO teria pego o defeito de
+        2026-08-30 - a tinta ia a 215 e a sonda comecava em 207, entao ela teria
+        passado -, e por isso ela e a terceira e nao a primeira. Ela pega outra
+        coisa: sonda que ninguem exercitou com nome nenhum.
+
+        O piso e `min(dx0, a ponta mais funda do CENSO INTEIRO)`, e o `min`
+        existe para nao exigir o impossivel: se a sonda pousar a direita de
+        qualquer tinta que o material de campo contenha, nao ha nome com que
+        exercita-la, e cobrar um seria cobrar um frame que nao existe. Nesse caso
+        a guarda passa e IMPRIME o fato, em vez de passar em silencio.
+
+    NADA AQUI E CIRCULAR. Compara-se comprimento declarado com comprimento
+    declarado, e ponta de tinta (pixels, `ponta_da_tinta_do_nome`) com ponta de
+    tinta. Em ponto nenhum entra a dispersao ou o limiar que a ferramenta ainda
+    vai propor; se entrasse, estaria conferindo o resultado com o resultado.
+
+    A regua, para quem ler isto sem ela na mao: x=246 e `Protecting Scroll:
+    Enchant C-grade Armor`, 40 caracteres; x=208 e `+6 Agathion Alpha Hunter
+    Sealed`, 31; x=169 e `Hardin's Soul Crystal Lv. 1`, 27.
+
+    Devolve `(passou, diagnostico)`.
+    """
+    indice = {
+        (leitura.gravacao, leitura.arquivo): leitura
+        for leitura in varredura.leituras
+    }
+
+    # A ponta de tinta mais funda POR FRAME do gabarito limpo, e o nome que cada
+    # um declara. Os dois lado a lado sao o insumo das conferencias (1) e (2).
+    por_frame = []
+    for gravacao, arquivo, linhas, nome_exibido in GABARITO_LIMPAS:
+        leitura = indice.get((gravacao, arquivo))
+        if leitura is None or leitura.pontas_da_tinta is None:
+            continue
+        pontas = [
+            int(leitura.pontas_da_tinta[linha])
+            for linha in linhas
+            if int(leitura.pontas_da_tinta[linha]) >= 0
+        ]
+        if not pontas:
+            continue
+        por_frame.append(
+            {
+                "frame": f"{gravacao}/{arquivo}",
+                "ponta": max(pontas),
+                "nome": nome_exibido,
+                "caracteres": len(nome_exibido) if nome_exibido else None,
+            }
+        )
+
+    pontas_do_censo = [
+        int(v)
+        for leitura in varredura.leituras
+        if leitura.pontas_da_tinta is not None
+        for v in leitura.pontas_da_tinta
+        if int(v) >= 0
+    ]
+    diagnostico = {
+        "dx0": int(dx0),
+        "por_frame": por_frame,
+        "n_sem_declaracao": sum(1 for f in por_frame if f["caracteres"] is None),
+        "ponta_do_censo": max(pontas_do_censo) if pontas_do_censo else -1,
+        "piso_de_caracteres": PIOR_NOME_CONHECIDO_EM_CARACTERES,
+    }
+    if not por_frame:
+        diagnostico["motivo"] = (
+            "nenhuma linha do gabarito LIMPO tem tinta de nome mensuravel"
+        )
+        return False, diagnostico
+
+    declarados = [f for f in por_frame if f["caracteres"] is not None]
+    mais_comprido = (
+        max(declarados, key=lambda f: f["caracteres"]) if declarados else None
+    )
+    mais_fundo = max(por_frame, key=lambda f: f["ponta"])
+    diagnostico["mais_comprido"] = mais_comprido
+    diagnostico["mais_fundo"] = mais_fundo
+
+    # (1) piso de comprimento
+    if mais_comprido is None:
+        diagnostico["motivo"] = (
+            "NENHUM frame do GABARITO_LIMPAS declara o nome que exibe. Sem "
+            "declaracao nao ha o que conferir, e a varredura escolheria o "
+            "trecho sem saber se o pior nome do campo esta representado. Abra "
+            "os frames, veja o nome, e escreva-o no quarto campo da tabela."
+        )
+        return False, diagnostico
+    if mais_comprido["caracteres"] < PIOR_NOME_CONHECIDO_EM_CARACTERES:
+        diagnostico["motivo"] = (
+            "o GABARITO_LIMPAS nao contem nome comprido: o maior declarado tem "
+            f"{mais_comprido['caracteres']} caracteres "
+            f"(`{mais_comprido['nome']}`, em {mais_comprido['frame']}) contra "
+            f"um piso de {PIOR_NOME_CONHECIDO_EM_CARACTERES}. A varredura "
+            "estaria escolhendo o trecho sem nunca ter visto o pior caso do "
+            "campo, que e literalmente o defeito de 2026-08-31. Ponha na tabela "
+            "um frame com nome comprido - "
+            "`20260828-053105-mercado-aberto/frame_000060.png` mostra "
+            "`Protecting Scroll: Enchant C-grade Armor` nas dez linhas - ou "
+            "grave um novo com --record na aba onde os nomes sao longos."
+        )
+        return False, diagnostico
+
+    # (2) a declaracao contra os pixels
+    if mais_fundo["ponta"] > mais_comprido["ponta"]:
+        diagnostico["motivo"] = (
+            "A DECLARACAO E OS PIXELS DISCORDAM. O frame que declara o nome "
+            f"mais comprido do gabarito ({mais_comprido['frame']}, "
+            f"`{mais_comprido['nome']}`, {mais_comprido['caracteres']} ch) tem "
+            f"tinta ate x={mais_comprido['ponta']}, mas {mais_fundo['frame']} "
+            f"inka mais fundo, ate x={mais_fundo['ponta']}. Ou a declaracao "
+            "aponta para o frame errado - o erro de 2026-08-30 - ou o outro "
+            "frame tem um nome ainda maior que ninguem declarou. Abra os dois."
+        )
+        return False, diagnostico
+
+    # (3) alcance
+    piso = min(int(dx0), diagnostico["ponta_do_censo"])
+    diagnostico["piso_de_alcance"] = piso
+    diagnostico["sonda_alem_do_censo"] = piso < int(dx0)
+    if mais_fundo["ponta"] < piso:
+        diagnostico["motivo"] = (
+            "o gabarito LIMPO nao contem NENHUMA linha cujo nome alcance a "
+            f"sonda escolhida: a tinta mais funda para em "
+            f"x={mais_fundo['ponta']} e a sonda comeca em x={dx0}. A sonda "
+            "seria escolhida sem que nome nenhum a tivesse exercitado."
+        )
+        return False, diagnostico
+    return True, diagnostico
 
 
 @dataclass
@@ -851,6 +1181,47 @@ def main(argv=None) -> int:
         f"da grade, folga {FOLGA_NAS_PONTAS}"
     )
     print("  (o que separa o gabarito de campo com a MAIOR folga relativa)")
+
+    passou, diag_nome = conferir_o_gabarito_limpo(varredura, dx0)
+    print("")
+    print("A GUARDA DE NOME CURTO - o gabarito limpo viu o pior nome do campo?")
+    print(
+        "  " + "frame do gabarito LIMPO".ljust(58)
+        + "tinta".rjust(7) + "  nome declarado"
+    )
+    for ficha in sorted(
+        diag_nome["por_frame"], key=lambda f: f["ponta"], reverse=True
+    ):
+        declarado = (
+            f"`{ficha['nome']}` ({ficha['caracteres']} ch)"
+            if ficha["nome"]
+            else "(nao declarado)"
+        )
+        print(
+            "  " + ficha["frame"].ljust(58)
+            + f"x={ficha['ponta']:<5}".rjust(7) + "  " + declarado
+        )
+    print(
+        f"  piso de comprimento {diag_nome['piso_de_caracteres']} caracteres; "
+        f"tinta mais funda do CENSO INTEIRO x={diag_nome['ponta_do_censo']}; "
+        f"a sonda escolhida comeca em x={dx0}"
+    )
+    if not passou:
+        print("")
+        print("O GABARITO LIMPO NAO SERVE PARA ESCOLHER SONDA. PARANDO.")
+        print("  " + str(diag_nome.get("motivo", "")))
+        return 8
+    if diag_nome.get("sonda_alem_do_censo"):
+        print(
+            "  PASSOU, mas o ALCANCE passou POR AUSENCIA DE MATERIAL: a sonda "
+            "pousa a direita de qualquer tinta de nome do censo, entao nao ha "
+            "nome com que exercita-la. Nao e o mesmo que ter sido exercitada."
+        )
+    else:
+        print(
+            "  PASSOU: o gabarito declara o pior nome conhecido, a declaracao "
+            "confere com os pixels, e ha nome escrevendo dentro desta sonda."
+        )
 
     populacoes = separar_as_populacoes(varredura, sonda)
     print("")

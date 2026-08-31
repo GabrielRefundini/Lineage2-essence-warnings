@@ -36,8 +36,13 @@ O QUE A MEDICAO REFUTOU DO PLANO, E ESTA ESCRITO AQUI PARA NAO VOLTAR
 O plano 02-04 afirmava que a LINHA 0 de `janela_negociacao_f010.png` sairia como
 `LinhaLida`. Ela NAO sai, e o motivo esta medido: naquele frame a tooltip cobre
 a coluna Total das linhas 0 a 3, e a sonda de oclusao NAO a ve — a sonda mede o
-trecho `dx 207..417` da grade, que fica na METADE ESQUERDA, e esta tooltip esta
+trecho `dx 246..396` da grade, que fica na METADE ESQUERDA, e esta tooltip esta
 na direita. Dispersao 0,0000 em todas as dez linhas.
+
+(O trecho era `dx 207..417` ate 2026-08-31. Ele encolheu e andou para a direita
+porque comecava DENTRO da coluna do nome e recusava linha de nome comprido; o
+`linha_ocluida` de `mercado_leitura.py` carrega a medicao. As dez linhas deste
+frame liam 0,0000 nos dois trechos, entao nada nesta pagina mudou de veredito.)
 
 Quem pega o buraco e a peneira seguinte, e e por isso que ela existe: os runs da
 coluna coberta nao passam no piso, a celula cai inteira (tudo-ou-nada de
@@ -833,6 +838,16 @@ LINHA_VAZIA_IMPAR = FIXTURES / "linha_vazia_impar.png"
 LINHA_CHEIA_PAR = FIXTURES / "linha_limpa_par_f010.png"
 LINHA_CHEIA_IMPAR = FIXTURES / "linha_limpa_impar_f010.png"
 
+# As duas paridades de banda de `mercado-aberto/frame_000060`, o pior caso de
+# NOME LONGO que o censo gravou: `Protecting Scroll: Enchant C-grade Armor`, 40
+# caracteres, nas dez linhas, e SEM tooltip nenhuma por cima — conferido a olho
+# no frame inteiro. A tinta do nome termina em x=247 do recorte da linha; a
+# sonda calibrada comeca em x=207. Sao 40 px de GLIFO dentro da sonda.
+LINHA_LIMPA_NOME_LONGO_PAR = FIXTURES / "linha_limpa_nome_longo_par_f060.png"
+LINHA_LIMPA_NOME_LONGO_IMPAR = (
+    FIXTURES / "linha_limpa_nome_longo_impar_f060.png"
+)
+
 # As oito primeiras linhas de `tooltip/frame_000012` estao COBERTAS e as duas
 # ultimas nao. Medido com a sonda calibrada; e o mesmo frame que D-15 descreve.
 COBERTAS_NO_TOOLTIP = (0, 1, 2, 3, 4, 5, 6, 7)
@@ -966,6 +981,40 @@ class TestASondaDeOclusao:
         assert (
             linha_ocluida(
                 em_cinza(LINHA_LIMPA_NO_ALVO),
+                cal.mercado_sonda_do_fundo,
+                float(cal.mercado_limiar_de_dispersao_do_fundo),
+            )
+            is False
+        )
+
+    @pytest.mark.parametrize(
+        "linha",
+        [LINHA_LIMPA_NOME_LONGO_PAR, LINHA_LIMPA_NOME_LONGO_IMPAR],
+        ids=["banda_par", "banda_impar"],
+    )
+    def test_a_linha_de_NOME_LONGO_sem_tooltip_nenhuma_PASSA(
+        self, cal, linha
+    ) -> None:
+        """O COMPRIMENTO DO NOME nao pode ser motivo de recusa.
+
+        A sonda responde "ha alguma coisa desenhada POR CIMA desta linha". O
+        texto que o proprio jogo escreve na coluna do nome NAO e alguma coisa
+        por cima: e o conteudo da linha. Recusar por causa dele e recusar a
+        linha por ser legivel demais.
+
+        MEDIDO em campo, 2026-08-31, aba Enhancement > Scrolls: as quatro
+        linhas de `Protecting Scroll: Enchant C-grade Armor` (40 caracteres)
+        foram recusadas em TODOS os 32 ticks, e as seis de nome curto passaram
+        em todos. Sobraram 6 linhas comparadas contra um piso de 7, e as 31
+        paginas do periodo foram perdidas — `observacoes.csv` saiu so com o
+        cabecalho.
+
+        AS DUAS PARIDADES entram porque a grade tem listra alternada (moda 48 e
+        66) e a sonda e auto-referente: uma so das duas provaria metade.
+        """
+        assert (
+            linha_ocluida(
+                em_cinza(linha),
                 cal.mercado_sonda_do_fundo,
                 float(cal.mercado_limiar_de_dispersao_do_fundo),
             )

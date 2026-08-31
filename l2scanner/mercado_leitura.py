@@ -1204,12 +1204,46 @@ def linha_ocluida(
     sobre as 8 gravacoes); a MEDICAO mora em `mercado_geometria`. Um corte
     escrito no fonte viajaria de layout em layout sem ser remedido.
 
-    ONDE ELA NAO ALCANCA, E ISSO E MEDIDO. A sonda ve o trecho `dx0..dx1` da
-    grade — a metade ESQUERDA, entre o fim dos nomes e o inicio dos numeros.
-    Uma tooltip inteiramente a DIREITA dela passa despercebida: em
+    ONDE ELA COMECA, E POR QUE EXATAMENTE ALI. A sonda ve o trecho `dx0..dx1` da
+    grade e ele e ESTREITO E ENCOSTADO NO FIM DO PIOR NOME CONHECIDO: 150 px
+    comecando logo depois de onde a tinta do nome mais comprido do censo termina.
+    Esse nome tem endereco, e o texto abaixo so vale enquanto ele for o pior:
+
+        `Protecting Scroll: Enchant C-grade Armor` — 40 caracteres, tinta ate
+        x=246, medido em `053105-mercado-aberto/frame_000060` nas dez linhas.
+
+    ATE 2026-08-31 ESTE PARAGRAFO DIZIA OUTRA COISA, E ERA MENTIRA. Ele afirmava
+    que a sonda ficava "entre o fim dos nomes e o inicio dos numeros". Nao havia
+    tal vao: a coluna do nome vai de 42 a 366 e a de quantidade comeca em 366,
+    coladas. A sonda calibrada de entao (207..417) ficava em cima da METADE
+    DIREITA da coluna do NOME — 159 px de sobreposicao, 49% da coluna. Enquanto
+    todo nome conferido foi curto, ninguem viu; na aba Enhancement > Scrolls o
+    nome de 40 caracteres pos 40 px de glifo dentro da sonda, as quatro linhas
+    dele foram recusadas em 32 ticks seguidos, sobraram 6 linhas contra um piso
+    de 7, e as 31 paginas da sessao morreram. Nao havia tooltip nenhuma.
+
+    Nem a nova posicao e "o vao entre nome e numero", porque ele nao existe. Ela
+    e o maior corredor que as linhas limpas do censo deixam livre — 172 px, de
+    x=248 a x=419 — e a sonda pousa dentro dele com a ponta esquerda encostada em
+    246. Estreitar foi o preco: 210 px nao cabiam em corredor nenhum sem comer
+    nome. Em troca o limiar ficou 7x mais apertado (0,026377 -> 0,003607) e a
+    separacao entre limpa e coberta subiu de 2,8x para 32,0x.
+
+    ONDE ELA NAO ALCANCA, E ISSO E MEDIDO. Sendo um trecho da metade esquerda,
+    uma tooltip inteiramente a DIREITA dela passa despercebida: em
     `pagina-cheia/frame_000010` a tooltip cobre a coluna Total das linhas 0 a 3
     e a dispersao le 0,0000 nas dez linhas. Quem pega esse caso e a peneira
     seguinte (tudo-ou-nada + gramatica), e e por isso que ha tres e nao uma.
+
+    E HA UM SEGUNDO BURACO, QUE NASCEU COM O ESTREITAMENTO E NAO PODE SUMIR DA
+    PROSA. Sonda estreita cabe mais facilmente INTEIRA dentro de um vao uniforme
+    do desenho da tooltip, e ali leria fundo limpo sobre linha coberta. A
+    refutacao original disso esta medida com blocos de 30 px em
+    `tooltip/frame_000015` e continua de pe; 150 px esta longe de 30 e as 10
+    linhas cobertas conhecidas seguem recusadas com ~5x de folga sobre o limiar
+    novo — mas a margem contra esse modo de falha DIMINUIU, e quem for estreitar
+    de novo precisa medi-la antes. O bloco `LARGURA_DA_SONDA` de
+    `tools/medir_oclusao.py` carrega a conta inteira.
 
     Sem sonda calibrada, ou com a medicao impossivel, a resposta e `True`:
     "nao da para medir" NAO e "esta limpa", e feature OFF e o unico default
