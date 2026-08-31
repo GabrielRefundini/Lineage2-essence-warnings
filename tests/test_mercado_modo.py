@@ -37,6 +37,7 @@ import numpy as np
 import pytest
 
 from l2scanner.__main__ import montar_catalogo_de_mercado
+from l2scanner.agenda import AgendaInvalida
 from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.mercado_analise import (
@@ -898,3 +899,95 @@ class TestODestaqueEContraAHistoriaDeANTES:
         import l2scanner.mercado_modo as modo
 
         assert "ANTES" in inspect.getsource(modo)
+
+
+class TestACadenciaDaSecaoDeAnalise:
+    """Ela nao repinta a cada segundo: ela muda quando uma serie ganha
+    observacao nova."""
+
+    def test_a_secao_sai_no_ARRANQUE_e_NAO_uma_vez_por_tick(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        escrever_um_csv(tmp_path, [("belt", 100, 1), ("belt", 200, 1)])
+        quadros = [
+            np.full((400, 400, 3), 20 + i * 7, dtype=np.uint8) for i in range(6)
+        ]
+        with caplog.at_level(logging.INFO):
+            laco_do_mercado(
+                argumentos(),
+                cal,
+                fonte=FonteFalsa(quadros),
+                ler_texto=LeitoraDeRecorte(),
+                ler_texto_conferencia=LeitoraDeRecorte(),
+                relogio=Relogio(),
+                pasta=tmp_path,
+                ticks_maximos=6,
+                watchlist=[],
+            )
+        secoes = [
+            r
+            for r in caplog.records
+            if "VALE QUANTO AGORA" in r.getMessage()
+        ]
+        # EXATAMENTE uma em seis ticks: no arranque. Um `>= 1` ficaria verde
+        # tambem com seis, que e o defeito - a secao repintando por tick
+        # afogaria a linha ao vivo que o LEIT-04 exige.
+        assert len(secoes) == 1, [r.getMessage()[:60] for r in secoes]
+
+    def test_a_watchlist_e_LIDA_DO_CONFIG_quando_ninguem_injeta(
+        self, cal, tmp_path, monkeypatch
+    ) -> None:
+        """Producao nao injeta nada: quem le o `config.toml` e o laco."""
+        import l2scanner.mercado_modo as modo
+
+        lidas = []
+
+        def falsa():
+            lidas.append(True)
+            return ["Dragon Belt"]
+
+        monkeypatch.setattr(modo, "ler_watchlist_do_mercado", falsa)
+        laco_do_mercado(
+            argumentos(),
+            cal,
+            fonte=FonteFalsa([]),
+            ler_texto=LeitoraDeRecorte(),
+            ler_texto_conferencia=LeitoraDeRecorte(),
+            relogio=Relogio(),
+            pasta=tmp_path,
+            ticks_maximos=0,
+        )
+        assert len(lidas) == 1
+
+    def test_config_toml_QUEBRADO_nao_derruba_a_COLETA(
+        self, cal, tmp_path, monkeypatch, caplog
+    ) -> None:
+        """A watchlist e um FILTRO DE DESTAQUE, e nao o produto. Recusar a
+        subir por causa dela desligaria a coleta por causa da vista.
+
+        NAO ESTAVA NO PLANO: `ler_watchlist_do_mercado` LEVANTA de proposito
+        para TOML quebrado (T-04-11), e um `raise` escapando aqui mataria o
+        modo `--mercado` inteiro por uma virgula no `config.toml`.
+        """
+        import l2scanner.mercado_modo as modo
+
+        def explodindo():
+            raise AgendaInvalida("config.toml nao e um TOML valido")
+
+        monkeypatch.setattr(modo, "ler_watchlist_do_mercado", explodindo)
+        with caplog.at_level(logging.INFO):
+            codigo = laco_do_mercado(
+                argumentos(),
+                cal,
+                fonte=FonteFalsa([]),
+                ler_texto=LeitoraDeRecorte(),
+                ler_texto_conferencia=LeitoraDeRecorte(),
+                relogio=Relogio(),
+                pasta=tmp_path,
+                ticks_maximos=0,
+            )
+        assert codigo == 0, "a coleta tem de continuar de pe"
+        assert "COLETA CONTINUA" in caplog.text, (
+            "as duas mensagens da casa: o que quebrou, e o que continua "
+            "funcionando"
+        )

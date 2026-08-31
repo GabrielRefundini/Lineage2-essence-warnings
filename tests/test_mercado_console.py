@@ -32,13 +32,18 @@ from datetime import datetime, timedelta
 import pytest
 
 import l2scanner.config as config_mod
+import l2scanner.mercado_console as mercado_console
+import l2scanner.mercado_modo as mercado_modo
 from l2scanner.agenda import AgendaInvalida
 from l2scanner.config import ler_watchlist_do_mercado
 from l2scanner.mercado_analise import (
+    N_MINIMO_PARA_MEDIANA,
+    N_MINIMO_PARA_TENDENCIA,
     SERIES_NO_TOPO,
     ModeloDeMercado,
     ordenar_para_o_console,
 )
+from l2scanner.mercado_console import secao_do_vale_quanto
 from l2scanner.mercado_registro import ObservacaoLida
 
 # AS EXPRESSOES PROIBIDAS, escritas UMA vez no topo do modulo.
@@ -296,3 +301,240 @@ class TestAOrdenacaoParaOConsole:
         a divergencia precisa ser visivel para quem verificar a fase."""
         fonte = inspect.getsource(ordenar_para_o_console)
         assert "criterio 3" in fonte or "ROADMAP" in fonte
+
+
+# ---------------------------------------------------------------------------
+# "VALE QUANTO AGORA?" -- o desenho, com a evidencia colada ao numero
+# ---------------------------------------------------------------------------
+
+AGORA = datetime(2026, 8, 31, 18, 2, 0)
+
+
+def serie_rica(chave: str = "belt", *, nome: str = "Dragon Belt"):
+    """Doze ofertas: a mais BARATA por unidade e a mais ANTIGA.
+
+    O cenario e montado para os DOIS carimbos diferirem -- o da oferta escolhida
+    (10:00) e o `max(primeira_vez)` da serie (18:00). Sem isso, um teste de
+    recencia ficaria verde sobre a implementacao errada.
+    """
+    barata = observacao(
+        chave,
+        4500,
+        100,
+        nome=nome,
+        quando=datetime(2026, 8, 31, 10, 0, 0),
+    )
+    caras = [
+        observacao(
+            chave,
+            900_000 + i * 1000,
+            1,
+            nome=nome,
+            quando=datetime(2026, 8, 31, 18, 0, 0) - (10 - i) * UM_MINUTO,
+        )
+        for i in range(11)
+    ]
+    return [barata] + caras
+
+
+def serie_magra(chave: str = "raro", *, nome: str = "Item Raro"):
+    """Tres ofertas: acima do piso do menor (1) e abaixo do da mediana (5)."""
+    return [
+        observacao(
+            chave,
+            700 + i * 100,
+            1,
+            nome=nome,
+            quando=datetime(2026, 8, 31, 17, 0, 0) + i * UM_MINUTO,
+        )
+        for i in range(3)
+    ]
+
+
+def linha_com(texto: str, marca: str) -> str:
+    """A UNICA linha do texto que contem `marca`. Falha se nao houver uma so.
+
+    Assercao sobre a LINHA e nao sobre o texto inteiro: `"10:00" in texto` fica
+    verde quando o carimbo certo aparece em QUALQUER outro lugar do bloco, que
+    e exatamente o engano que o criterio da recencia existe para pegar.
+    """
+    achadas = [linha for linha in texto.splitlines() if marca in linha]
+    assert len(achadas) == 1, f"esperava UMA linha com {marca!r}, achei {achadas}"
+    return achadas[0]
+
+
+class TestANomenclaturaEstaPresa:
+    """T-04-16: o scanner ve OFERTAS, nao transacoes."""
+
+    def test_nenhuma_EXPRESSAO_PROIBIDA_no_texto_devolvido(self) -> None:
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes(serie_rica() + serie_magra()),
+            [],
+            AGORA,
+        )
+        baixo = texto.lower()
+        for proibida in EXPRESSOES_PROIBIDAS:
+            assert proibida.lower() not in baixo, (
+                f"a secao usou a expressao proibida {proibida!r}. O scanner ve "
+                f"OFERTAS, nao transacoes: a palavra do requisito e "
+                f"'menor pedido visivel'"
+            )
+
+    def test_nenhuma_EXPRESSAO_PROIBIDA_no_FONTE_dos_dois_modulos(self) -> None:
+        """A varredura do RETORNO nao alcanca `linha_ao_vivo` nem
+        `resumo_da_sessao`, escritas no plano 04-01: nenhum outro teste desta
+        fase as varre. E ela tambem nao alcanca rotulo de outra funcao,
+        comentario nem docstring -- os tres lugares de onde a expressao volta."""
+        for modulo in (mercado_console, mercado_modo):
+            fonte = inspect.getsource(modulo).lower()
+            for proibida in EXPRESSOES_PROIBIDAS:
+                assert proibida.lower() not in fonte, (
+                    f"a expressao proibida {proibida!r} aparece no fonte de "
+                    f"{modulo.__name__}"
+                )
+
+    def test_o_rotulo_do_requisito_ESTA_no_texto(self) -> None:
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes(serie_rica()), [], AGORA
+        )
+        assert "menor pedido visivel" in texto.lower()
+
+
+class TestAEvidenciaViajaColadaAoNumero:
+    def test_o_n_e_o_TOTAL_com_a_QUANTIDADE_ao_lado(self) -> None:
+        """Nunca um total solto: um lote de 100 custa mais que um de 1 sem que
+        nenhum dos dois seja mais caro. Foi assim que a leitura de `4,50` para
+        um item de `1.480,00` virou um pitfall nomeado na pesquisa."""
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes(serie_rica()), [], AGORA
+        )
+        menor = linha_com(texto, "menor pedido visivel")
+        assert "n=12" in texto
+        assert "45,00" in menor, "o TOTAL daquela oferta tem de aparecer"
+        assert "100" in menor, "a QUANTIDADE tem de aparecer ao lado do total"
+
+    def test_o_unitario_aparece_MARCADO_COMO_DERIVADO(self) -> None:
+        """Ele nao esta no CSV de proposito (D-02): o que o jogo exibe e
+        derivacao arredondada, e a marca e o que impede alguem de o tratar como
+        dado gravado."""
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes(serie_rica()), [], AGORA
+        )
+        assert "derivado" in linha_com(texto, "menor pedido visivel")
+
+    def test_o_carimbo_do_menor_e_o_DAQUELA_OFERTA_e_nao_o_da_serie(
+        self,
+    ) -> None:
+        """A oferta escolhida foi vista as 10:00; a mais NOVA da serie, as
+        18:00. Um minimo de manha ao lado da recencia de agora e a mentira
+        plausivel que este projeto inteiro combate."""
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes(serie_rica()), [], AGORA
+        )
+        menor = linha_com(texto, "menor pedido visivel")
+        assert "10:00" in menor
+        assert "18:00" not in menor, (
+            "a linha do menor esta carregando o max(primeira_vez) da SERIE"
+        )
+
+    def test_a_recencia_sai_nas_DUAS_formas_relativa_e_absoluta(self) -> None:
+        """O relativo e o que o olho le; o absoluto e o que sobrevive a copiar
+        a linha para o WhatsApp."""
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes(serie_rica()), [], AGORA
+        )
+        menor = linha_com(texto, "menor pedido visivel")
+        assert "ha " in menor, "falta a forma RELATIVA"
+        assert "31/08 10:00" in menor, "falta a forma ABSOLUTA"
+
+
+class TestAbaixoDoPisoOTextoDIZ_O_QUE_FALTA:
+    def test_serie_de_TRES_informa_a_contagem_e_o_PISO_sem_imprimir_mediana(
+        self,
+    ) -> None:
+        """Uma mediana de tres observacoes e um numero que engana."""
+        observacoes = serie_magra()
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes(observacoes), [], AGORA
+        )
+        mediana = linha_com(texto, "mediana")
+        assert "3" in mediana, "a contagem ATUAL tem de aparecer"
+        assert str(N_MINIMO_PARA_MEDIANA) in mediana, "o PISO tem de aparecer"
+        # O valor que `median_low` devolveria se o piso fosse ignorado: 800
+        # centesimos por unidade -> `8,00`. Ele NAO pode ser impresso.
+        assert "8,00" not in texto, (
+            "um valor de mediana foi impresso para uma serie abaixo do piso"
+        )
+
+    def test_a_tendencia_carrega_o_TAMANHO_DA_JANELA(self) -> None:
+        """Sem o tamanho, a reta de 3 pontos parece a de 300."""
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes(serie_rica()), [], AGORA
+        )
+        tendencia = linha_com(texto, "tendencia")
+        assert "12" in tendencia, "o n da janela tem de aparecer"
+        assert "ofertas distintas" in tendencia, (
+            "a unidade tem de designar OFERTAS DISTINTAS, e nao instantes: o "
+            "CSV nao tem serie temporal de preco"
+        )
+
+    def test_com_menos_que_o_piso_da_tendencia_o_texto_diz_o_que_falta(
+        self,
+    ) -> None:
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes(serie_magra()), [], AGORA
+        )
+        tendencia = linha_com(texto, "tendencia")
+        assert str(N_MINIMO_PARA_TENDENCIA) in tendencia
+
+
+class TestOAvisoDoRelogioSaiUMA_VEZ:
+    def test_relogio_SEM_ANCORA_avisa_exatamente_uma_vez(self) -> None:
+        """Sem esse aviso, "ha 12 min" pode estar tres horas errado num dual
+        boot -- que e o defeito que o `Relogio` existe para corrigir."""
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes(serie_rica() + serie_magra()),
+            [],
+            AGORA,
+            relogio_confiavel=False,
+        )
+        assert texto.count(mercado_console.AVISO_DO_RELOGIO_SEM_ANCORA) == 1
+
+    def test_relogio_ANCORADO_nao_avisa_nada(self) -> None:
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes(serie_rica()),
+            [],
+            AGORA,
+            relogio_confiavel=True,
+        )
+        assert mercado_console.AVISO_DO_RELOGIO_SEM_ANCORA not in texto
+
+
+class TestASecaoNaoQuebraEMarcaAWatchlist:
+    def test_modelo_VAZIO_diz_que_ainda_nao_ha_nada_em_vez_de_sair_em_branco(
+        self,
+    ) -> None:
+        """Bloco em branco parece defeito; o usuario precisa ver que o modo
+        esta vivo e ainda nao achou nada."""
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes([]), [], AGORA
+        )
+        assert "nenhuma observacao" in texto.lower()
+
+    def test_a_serie_da_watchlist_vem_PRIMEIRA_e_MARCADA_no_texto(self) -> None:
+        modelo = ModeloDeMercado.de_observacoes(serie_rica() + serie_magra())
+        texto = secao_do_vale_quanto(modelo, ["Item Raro"], AGORA)
+        assert mercado_console.MARCA_DA_WATCHLIST in linha_com(
+            texto, "Item Raro"
+        )
+        assert texto.index("Item Raro") < texto.index("Dragon Belt")
+
+    def test_o_residuo_do_cruzamento_NAO_aparece(self) -> None:
+        """A guarda de cruzamento esta DESLIGADA por medicao: o residuo e
+        observacao e nao veredito, e ja esta no CSV para o usuario olhar no
+        Sheets. Mostrar um numero que o proprio projeto declarou nao-decidivel
+        e convidar a interpretacao errada."""
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes(serie_rica()), [], AGORA
+        )
+        assert "residuo" not in texto.lower()
