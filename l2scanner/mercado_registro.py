@@ -560,12 +560,49 @@ class RegistroDeObservacoes:
             return False
 
         campos = campos_da_observacao(linha, agora)
+
+        # O `try` envolve a ABERTURA, a ESCRITA e o `flush` — os tres, porque a
+        # medicao mostrou que os erros nascem em pontos diferentes: o
+        # `PermissionError` de arquivo somente-leitura nasce no `open`, e o
+        # `ENOSPC` de disco cheio nasce no `flush`. Envolver so um dos dois
+        # deixaria metade dos modos de falha subir.
+        #
+        # `except OSError` E SO, e a justificativa e medida: os quatro modos
+        # desta maquina sao `PermissionError` (errno 13) para arquivo
+        # somente-leitura e para nome ocupado por diretorio,
+        # `FileNotFoundError` (errno 2) para pasta inexistente, e
+        # `FileExistsError` (errno 17, winerror 183) para `mkdir` sobre nome de
+        # arquivo — todas subclasses de `OSError`, e um `except` so cobre as
+        # quatro. NAO `except Exception`: o analog do `Gravador` o usa e ele e
+        # largo demais para o que a medicao mostrou — esconderia um
+        # `AttributeError` de refactor como se fosse disco cheio.
         try:
             with self.arquivo.open("a", encoding="utf-8", newline="") as destino:
                 csv.writer(destino, delimiter=SEPARADOR).writerow(campos)
                 destino.flush()
-        except OSError:
+        except OSError as erro:
+            # DEFINITIVO PARA A SESSAO, e nao ha nova tentativa: um retry por
+            # tick a 1 Hz encheria o log com o mesmo erro e daria ao usuario a
+            # impressao de que ainda esta gravando. Quem religa e o proximo
+            # arranque, depois de o usuario consertar o arquivo.
+            self.ligado = False
+            log.error(
+                "MERCADO DESLIGADO — nao consegui escrever a observacao em "
+                "%s: %s. O registro de mercado PAROU nesta sessao e nao vai "
+                "tentar de novo; quem religa e o proximo arranque, depois de "
+                "voce consertar o arquivo ou a pasta.",
+                self.arquivo,
+                erro,
+            )
+            log.error(
+                "Todo o resto do scanner continua igual: morte, saida e "
+                "ressurreicao seguem sendo detectadas e entregues."
+            )
             return False
 
+        # A CHAVE SO ENTRA DEPOIS DE A LINHA CHEGAR AO ARQUIVO. O indice e a
+        # promessa de "isto ja esta no disco": uma chave la sem linha no arquivo
+        # bloquearia PARA SEMPRE a gravacao da observacao correta — seria a
+        # dedup trabalhando contra o proprio dado.
         self.chaves.add(chave)
         return True
