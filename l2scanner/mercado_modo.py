@@ -245,8 +245,9 @@ def laco_do_mercado(
                     "MODO MERCADO NAO VAI SUBIR: o motor de OCR nao respondeu "
                     "neste interpretador.",
                     str(ocr.motivo_indisponivel()),
-                    "Rode pelo .venv (vigiar-party.bat ja faz isso). Sem OCR "
-                    "nao ha nome de item, e sem nome nao ha serie.",
+                    "Rode pelo vigiar-mercado.bat — ele usa o .venv e "
+                    "reinstala sozinho. Sem OCR nao ha nome de item, e sem "
+                    "nome nao ha serie.",
                 ]
             )
         ler_texto = ocr.ler_texto

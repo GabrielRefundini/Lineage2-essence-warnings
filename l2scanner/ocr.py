@@ -87,7 +87,9 @@ IDIOMA = "en-US"
 
 SEM_BINDINGS = (
     "As bibliotecas de OCR do Windows nao estao instaladas neste ambiente.\n"
-    "  Conserto: rode o vigiar-party.bat uma vez — ele reinstala sozinho\n"
+    "  Conserto: rode uma vez o .bat do modo que voce quer -- o\n"
+    "  vigiar-party.bat para a party, o vigiar-mercado.bat para o\n"
+    "  mercado. Os dois reinstalam sozinhos\n"
     "  (ou, na mao: pip install -r requirements.txt)."
 )
 
