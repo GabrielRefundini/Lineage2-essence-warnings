@@ -72,9 +72,19 @@ PECAS_DO_MERCADO = (
 )
 
 
+def cal_de_fixtura() -> Calibracao:
+    """A calibracao versionada, como FUNCAO e nao so como fixtura.
+
+    `tests/test_mercado_firewall_de_fase.py` precisa dela dentro de um teste que
+    ja recebe `monkeypatch` e `tmp_path`, e uma fixtura de outro modulo nao se
+    importa - se importa a funcao que ela chama.
+    """
+    return Calibracao.carregar(CALIBRACAO)
+
+
 @pytest.fixture(scope="module")
 def cal() -> Calibracao:
-    return Calibracao.carregar(CALIBRACAO)
+    return cal_de_fixtura()
 
 
 @pytest.fixture(scope="module")
