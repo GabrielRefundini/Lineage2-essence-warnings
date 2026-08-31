@@ -216,6 +216,29 @@ class Comando(Enum):
     DESATIVAR_LISTA = "desativar_lista"
     ATIVAR_LISTA = "ativar_lista"
 
+    # A janela de respawn dos bosses vigiados, sob demanda. O bot ja anuncia
+    # sozinho quando cada janela vence; isto responde a mesma coisa na hora em
+    # que alguem pergunta, sem esperar o proximo vencimento.
+    #
+    # O NOME E GENERICO DE PROPOSITO, E NAO PODE SER `TIAT`. Todo o workstream
+    # da janela foi construido sobre os blocos `[[boss]]` do config.toml,
+    # porque o usuario disse desde o inicio que no futuro o mesmo codigo serve
+    # para outro mob. Um membro chamado `TIAT` seria o UNICO lugar do sistema
+    # preso a um boss especifico — o unico ponto onde trocar de boss exigiria
+    # editar codigo em vez de editar configuracao.
+    #
+    # `/tiat` FUNCIONA MESMO ASSIM, e e a forma que o usuario pediu com todas
+    # as letras. Ela entra no `_VOCABULARIO` como uma das formas escritas, do
+    # mesmo jeito que `scanner` alcanca o `STATUS`: o simbolo e generico e a
+    # palavra que a mao digita no meio do farm e concreta. Nenhuma das duas
+    # precisa ceder para a outra.
+    #
+    # NAO ACEITA ARGUMENTO. Responde sobre TODOS os bosses vigiados, na ordem
+    # do config.toml, e por isso mora aqui e nao em `interpretar_dinamico`.
+    # Filtrar por boss custaria uma sintaxe nova para escolher entre os DOIS
+    # itens que a lista tem hoje, e a resposta inteira cabe numa tela.
+    JANELA = "janela"
+
     # O UNICO comando que nao muda estado nenhum, e o unico cujo conteudo e
     # DERIVADO dos outros: ele le a tabela `_AJUDA` e devolve o que os demais
     # membros deste enum dizem sobre si mesmos. Por isso ele e o unico que
@@ -234,7 +257,26 @@ class Comando(Enum):
 #
 # O teste da fronteira deriva a lista de RECUSA daqui — `set(Comando) -
 # COMANDOS_DE_MEMBRO` — entao a prova cresce sozinha quando o enum crescer.
-COMANDOS_DE_MEMBRO: frozenset[Comando] = frozenset({Comando.JOIN, Comando.LEAVE})
+#
+# CADA ENTRADA PRECISA DIZER POR QUE MERECE ESTAR AQUI, e a disciplina vale
+# tambem para a que nao muda estado nenhum:
+#
+# - `JOIN` e `LEAVE`: mexem numa linha da lista de UMA ocorrencia, e quem
+#   digitou ve o efeito na hora. Sao a razao de este conjunto existir.
+#
+# - `JANELA`: e o primeiro comando SOMENTE-LEITURA da lista, e o argumento e
+#   diferente dos dois de cima. Ele nao escreve nada, nao fala do remetente e
+#   nao muda o que o grupo recebe. E o que ele revela, o proprio bot JA
+#   ANUNCIA ao grupo por conta propria quando cada janela vence — entao um
+#   party-mate que digita `/tiat` nao fica sabendo nada que ele nao fosse
+#   receber sozinho daqui a pouco. O comando so adianta, sob demanda, um texto
+#   que ja e publico para exatamente esta plateia. Recusa-lo teria o custo
+#   ja documentado no `_VOCABULARIO`: comando nao autorizado morre no
+#   `continue` do laco, sem resposta de recusa, e o silencio e indistinguivel
+#   do bot ter caido.
+COMANDOS_DE_MEMBRO: frozenset[Comando] = frozenset(
+    {Comando.JOIN, Comando.LEAVE, Comando.JANELA}
+)
 
 
 # As formas escritas que valem para cada comando. Varias por comando porque
@@ -322,6 +364,39 @@ _VOCABULARIO: dict[str, Comando] = {
     "desativarpresenca": Comando.DESATIVAR_LISTA,
     "ativarlista": Comando.ATIVAR_LISTA,
     "ativarpresenca": Comando.ATIVAR_LISTA,
+    # A JANELA DE RESPAWN, e aqui a lista de formas escritas e MAIOR que as
+    # duas por comando do resto do dicionario. A razao e que o simbolo e
+    # generico e a palavra que a mao digita nao e: quem esta no farm pensa no
+    # BOSS ("tiat"), quem leu a ajuda pensa no conceito ("janela"), e quem
+    # decorou o config.toml pensa no campo ("respawn"). Sao tres vocabularios
+    # diferentes para a mesma pergunta, e uma forma que morre no `continue` do
+    # laco de autorizacao nao produz recusa nenhuma — do lado de quem digitou,
+    # e indistinguivel do bot ter caido.
+    #
+    # `tiat` E A UNICA PALAVRA DESTE DICIONARIO PRESA A UM BOSS, e ela e uma
+    # FORMA ESCRITA e nao um simbolo: o dia em que o usuario vigiar outro mob,
+    # apagar esta linha nao mexe em mais nada. O simbolo `Comando.JANELA` ja
+    # nasceu generico exatamente para isso.
+    #
+    # AUDITORIA DE COLISAO com `_NICK_VALIDO` ([A-Za-z0-9]{2,16}), feita como o
+    # comentario do topo deste dicionario manda:
+    #
+    #   tiat     4 letras  casa  -> "Tiat" perde o /<nick>
+    #   janela   6 letras  casa  -> "Janela" perde o /<nick>
+    #   janelas  7 letras  casa  -> "Janelas" perde o /<nick>
+    #   boss     4 letras  casa  -> "Boss" perde o /<nick>
+    #   bosses   6 letras  casa  -> "Bosses" perde o /<nick>
+    #   respawn  7 letras  casa  -> "Respawn" perde o /<nick>
+    #
+    # Preco aceito e documentado, o mesmo ja pago por `desativarboss`. Nenhuma
+    # delas colide com o roster real, e `Tiat` como nome de PERSONAGEM seria
+    # uma escolha estranha justamente por ja ser o nome do boss.
+    "tiat": Comando.JANELA,
+    "janela": Comando.JANELA,
+    "janelas": Comando.JANELA,
+    "boss": Comando.JANELA,
+    "bosses": Comando.JANELA,
+    "respawn": Comando.JANELA,
     "help": Comando.AJUDA,
     "ajuda": Comando.AJUDA,
     "comandos": Comando.AJUDA,
@@ -372,6 +447,24 @@ _AJUDA: dict[Comando, LinhaDeAjuda] = {
     ),
     Comando.PARTY: LinhaDeAjuda(
         "Vigilancia", "/party", "Volto a vigiar a party inteira", ("/pt",)
+    ),
+    # A SINTAXE ANUNCIADA E `/tiat`, e nao a generica, embora o simbolo do enum
+    # seja generico. A ajuda existe para a mao que digita no meio do farm, e
+    # essa mao pensa no BOSS. Anunciar so `/janela` faria o usuario que pediu
+    # este comando com o nome `/tiat` procurar na lista uma palavra que ele nao
+    # usa. O apelido generico vai junto, na mesma linha, para o dia em que o
+    # boss vigiado for outro — demovida da vitrine, a forma nunca some dela, que
+    # e a mesma disciplina de `/join` e `/leave`.
+    #
+    # A DESCRICAO DIZ AS TRES COISAS que a resposta entrega, e nao so a
+    # primeira. Quem le "quando a janela abre" e recebe tres frases por boss
+    # conclui que o bot falou demais; quem le a linha inteira sabe o que vem.
+    Comando.JANELA: LinhaDeAjuda(
+        "Vigilancia",
+        "/tiat",
+        "Quando a janela de cada boss vigiado abre, de que nascimento sai a "
+        "conta, e quanto dela e sorteio",
+        ("/janela", "/boss"),
     ),
     Comando.CANCELAR_SILENCIO: LinhaDeAjuda(
         "Silencio", "/cancelar", "Tira o silencio de TvT/Prime que estiver rolando"
