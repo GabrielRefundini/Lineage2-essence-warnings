@@ -26,9 +26,11 @@ from __future__ import annotations
 
 import argparse
 import copy
+import inspect
 import logging
 import re
 from collections import Counter
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -37,14 +39,26 @@ import pytest
 from l2scanner.__main__ import montar_catalogo_de_mercado
 from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
+from l2scanner.mercado_analise import (
+    ABAIXO_DA_MEDIANA,
+    ACIMA_DA_MEDIANA,
+    N_MINIMO_PARA_MEDIANA,
+    SEM_DESTAQUE,
+    ModeloDeMercado,
+)
 from l2scanner.mercado_catalogo import ARQUIVO_DO_CATALOGO
 from l2scanner.mercado_leitura import (
     MOTIVO_DA_GRAMATICA,
     MOTIVO_DA_OCLUSAO,
+    LinhaLida,
 )
 from l2scanner.mercado_modo import Contagem, laco_do_mercado
 from l2scanner.mercado_pagina import pecas_de_calibracao_de_mercado_faltando
-from l2scanner.mercado_registro import ARQUIVO_DE_OBSERVACOES
+from l2scanner.mercado_registro import (
+    ARQUIVO_DE_OBSERVACOES,
+    ObservacaoLida,
+    RegistroDeObservacoes,
+)
 from l2scanner.relogio import Relogio
 from tests.test_mercado_replay import (
     CALIBRACAO,
@@ -612,3 +626,275 @@ class TestOAntiSpamDoPainelFechado:
         # tambem com ZERO, que e o modo de falha oposto - silencio
         # indistinguivel de travamento.
         assert len(transicoes) == 1, [r.getMessage() for r in transicoes]
+
+
+# ---------------------------------------------------------------------------
+# O MODELO NO LACO: carga UNICA, acrescimo por observacao, destaque ANTES
+# ---------------------------------------------------------------------------
+
+
+UM_MINUTO = timedelta(minutes=1)
+COMECO = datetime(2026, 8, 31, 10, 0, 0)
+
+
+def linha_de_grade(
+    chave: str,
+    total: int,
+    quantidade: int,
+    *,
+    indice: int = 0,
+    nome: str | None = None,
+) -> LinhaLida:
+    """Uma linha da grade, do jeito que a Fase 2 a entrega ao laco."""
+    return LinhaLida(
+        indice=indice,
+        chave_da_serie=chave,
+        nome_exibido=nome if nome is not None else chave,
+        total_em_centesimos=total,
+        quantidade=quantidade,
+        serie_nova=False,
+        residuo_do_cruzamento=None,
+    )
+
+
+def observacao_lida(
+    chave: str, total: int, quantidade: int, *, quando=None
+) -> ObservacaoLida:
+    return ObservacaoLida(
+        chave_da_serie=chave,
+        nome_exibido=chave,
+        primeira_vez=quando or COMECO,
+        total_em_centesimos=total,
+        quantidade=quantidade,
+        residuo_do_cruzamento=None,
+    )
+
+
+def escrever_um_csv(pasta: Path, linhas) -> None:
+    """Um `observacoes.csv` REAL, escrito pelo unico escritor que existe.
+
+    Escrever o CSV a mao no teste seria um segundo formatador do arquivo, e o
+    portao de contrato da Fase 3 existe justamente porque duas escritas
+    divergem. Aqui o material de entrada e o que a producao produziria.
+    """
+    registro = RegistroDeObservacoes(pasta)
+    for i, (chave, total, quantidade) in enumerate(linhas):
+        registro.registrar(
+            linha_de_grade(chave, total, quantidade, indice=i),
+            COMECO + i * UM_MINUTO,
+        )
+
+
+@pytest.fixture
+def modelos_montados(monkeypatch):
+    """Todo `ModeloDeMercado` que o laco montar, na ordem em que montou.
+
+    E o que permite afirmar CARGA UNICA sem acrescentar um parametro de
+    producao so para o teste espiar: a lista com UM elemento e literalmente a
+    prova de que o modelo nasceu uma vez.
+    """
+    montados: list[ModeloDeMercado] = []
+    original = ModeloDeMercado.de_observacoes.__func__
+
+    def espiao(cls, observacoes):
+        modelo = original(cls, observacoes)
+        montados.append(modelo)
+        return modelo
+
+    monkeypatch.setattr(ModeloDeMercado, "de_observacoes", classmethod(espiao))
+    return montados
+
+
+class TestOModeloCarregaUmaVezESoCresce:
+    def test_o_modelo_conhece_o_CSV_PRE_EXISTENTE_antes_do_primeiro_tick(
+        self, cal, tmp_path, modelos_montados
+    ) -> None:
+        """`ticks_maximos=0` e a prova mais forte de "antes do primeiro tick":
+        nenhum tick chega a rodar, e o modelo ja sabe o que o arquivo diz."""
+        escrever_um_csv(
+            tmp_path,
+            [("belt", 100, 1), ("belt", 200, 1), ("bota", 50, 1)],
+        )
+
+        laco_do_mercado(
+            argumentos(),
+            cal,
+            fonte=FonteFalsa([]),
+            ler_texto=LeitoraDeRecorte(),
+            ler_texto_conferencia=LeitoraDeRecorte(),
+            relogio=Relogio(),
+            pasta=tmp_path,
+            ticks_maximos=0,
+        )
+
+        assert len(modelos_montados) == 1, (
+            "o modelo tem de nascer UMA vez, no arranque"
+        )
+        modelo = modelos_montados[0]
+        assert sorted(modelo.series()) == ["belt", "bota"]
+        assert modelo.contagem_de("belt") == 2
+
+    def test_o_arquivo_de_observacoes_e_lido_UMA_VEZ_em_varios_ticks(
+        self, cal, tmp_path, monkeypatch
+    ) -> None:
+        """Reler a 1 Hz seria desperdicio sobre milhares de linhas e, pior,
+        abriria corrida com o usuario editando o CSV no Sheets."""
+        import l2scanner.mercado_registro as registro_mod
+
+        chamadas = []
+        original = registro_mod.observacoes_do_arquivo
+
+        def contando(arquivo):
+            chamadas.append(arquivo)
+            return original(arquivo)
+
+        monkeypatch.setattr(registro_mod, "observacoes_do_arquivo", contando)
+
+        quadros = [
+            np.full((400, 400, 3), 20 + i * 7, dtype=np.uint8) for i in range(6)
+        ]
+        laco_do_mercado(
+            argumentos(),
+            cal,
+            fonte=FonteFalsa(quadros),
+            ler_texto=LeitoraDeRecorte(),
+            ler_texto_conferencia=LeitoraDeRecorte(),
+            relogio=Relogio(),
+            pasta=tmp_path,
+            ticks_maximos=6,
+        )
+        assert len(chamadas) == 1, (
+            f"o CSV foi lido {len(chamadas)} vezes em seis ticks; o contrato "
+            f"do arquivo e 'lido no arranque', e a analise segue o mesmo"
+        )
+
+    def test_a_MESMA_linha_duas_vezes_sobe_a_contagem_do_modelo_em_UM(
+        self, cal, tmp_path, modelos_montados
+    ) -> None:
+        """`registrar` devolve `False` para duplicada, e so o `True` acrescenta.
+
+        Acrescentar sem esse portao faria a mesma oferta contar duas vezes no
+        `n` -- e o `n` e o que a fase inteira existe para nao mentir.
+        """
+        laco_do_mercado(
+            argumentos(),
+            cal,
+            fonte=FonteFalsa([]),
+            ler_texto=LeitoraDeRecorte(),
+            ler_texto_conferencia=LeitoraDeRecorte(),
+            relogio=Relogio(),
+            pasta=tmp_path,
+            ticks_maximos=0,
+        )
+        modelo = modelos_montados[0]
+        registro = RegistroDeObservacoes(tmp_path)
+        linha = linha_de_grade("belt", 4500, 100)
+
+        antes = modelo.contagem_de("belt")
+        for _ in range(2):
+            if registro.registrar(linha, COMECO):
+                modelo.acrescentar(
+                    observacao_lida("belt", 4500, 100, quando=COMECO)
+                )
+        assert modelo.contagem_de("belt") - antes == 1
+
+
+class TestODestaqueEContraAHistoriaDeANTES:
+    """ANAL-02: o item nunca se compara consigo mesmo."""
+
+    def test_abaixo_da_mediana_e_DESTAQUE_e_acima_NAO_E(self) -> None:
+        modelo = ModeloDeMercado.de_observacoes(
+            [
+                observacao_lida("belt", 100 + i * 10, 1, quando=COMECO + i * UM_MINUTO)
+                for i in range(N_MINIMO_PARA_MEDIANA)
+            ]
+        )
+        # unitarios 100, 110, 120, 130, 140 -> mediana (median_low) = 120
+        barata = modelo.veredito_do_destaque(linha_de_grade("belt", 50, 1))
+        cara = modelo.veredito_do_destaque(linha_de_grade("belt", 900, 1))
+
+        assert barata.estado == ABAIXO_DA_MEDIANA
+        assert cara.estado == ACIMA_DA_MEDIANA
+        assert barata.mediana_de_referencia == 120
+
+    def test_a_referencia_e_a_mediana_de_ANTES_e_nao_a_de_DEPOIS(self) -> None:
+        """O TESTE CENTRAL DA ORDEM DO TICK.
+
+        Cinco ofertas (o piso exato) de unitarios 100, 110, 120, 130, 140 dao
+        `median_low` = 120. Acrescentar uma sexta muito barata (unitario 1) faz
+        a mediana de SEIS elementos -- 1, 100, 110, 120, 130, 140 -- cair para
+        `median_low` = 110.
+
+        Os dois numeros sao DIFERENTES, e e isso que faz este teste
+        discriminar: uma implementacao que gravasse antes de julgar devolveria
+        110 como referencia. O teste compara com 120, o valor que a mediana
+        tinha ANTES da linha nova.
+        """
+        historia = [
+            observacao_lida("belt", 100 + i * 10, 1, quando=COMECO + i * UM_MINUTO)
+            for i in range(N_MINIMO_PARA_MEDIANA)
+        ]
+        modelo = ModeloDeMercado.de_observacoes(historia)
+
+        nova = linha_de_grade("belt", 1, 1)
+        veredito = modelo.veredito_do_destaque(nova)
+
+        depois = ModeloDeMercado.de_observacoes(
+            historia + [observacao_lida("belt", 1, 1, quando=COMECO + 9 * UM_MINUTO)]
+        )
+        mediana_de_depois = depois.veredito_do_destaque(
+            linha_de_grade("belt", 1, 1)
+        ).mediana_de_referencia
+
+        assert mediana_de_depois == 110, (
+            "o cenario nao discrimina: as duas medianas tem de DIFERIR"
+        )
+        assert veredito.mediana_de_referencia == 120, (
+            "o destaque foi calculado contra a mediana que JA CONTEM a linha "
+            "nova -- o item esta se comparando consigo mesmo"
+        )
+
+    def test_ABAIXO_DO_PISO_o_veredito_e_SEM_DESTAQUE_e_nao_abaixo_nem_acima(
+        self,
+    ) -> None:
+        """Destacar contra uma mediana que nao vale seria pintar de vermelho um
+        numero inventado."""
+        modelo = ModeloDeMercado.de_observacoes(
+            [
+                observacao_lida("belt", 100 + i * 10, 1, quando=COMECO + i * UM_MINUTO)
+                for i in range(N_MINIMO_PARA_MEDIANA - 1)
+            ]
+        )
+        veredito = modelo.veredito_do_destaque(linha_de_grade("belt", 1, 1))
+        assert veredito.estado == SEM_DESTAQUE
+        assert veredito.mediana_de_referencia is None
+        assert veredito.evidencia.faltam == 1
+
+    def test_serie_DESCONHECIDA_nao_levanta_e_sai_SEM_DESTAQUE(self) -> None:
+        modelo = ModeloDeMercado.de_observacoes([])
+        assert (
+            modelo.veredito_do_destaque(linha_de_grade("nunca-visto", 1, 1)).estado
+            == SEM_DESTAQUE
+        )
+
+    def test_quantidade_NAO_POSITIVA_na_linha_nova_nao_derruba_o_veredito(
+        self,
+    ) -> None:
+        """A grade e leitura de tela e `quantidade=0` e leitura possivel; um
+        `ZeroDivisionError` aqui derrubaria o modo no meio do farm."""
+        modelo = ModeloDeMercado.de_observacoes(
+            [
+                observacao_lida("belt", 100 + i * 10, 1, quando=COMECO + i * UM_MINUTO)
+                for i in range(N_MINIMO_PARA_MEDIANA)
+            ]
+        )
+        assert (
+            modelo.veredito_do_destaque(linha_de_grade("belt", 100, 0)).estado
+            == SEM_DESTAQUE
+        )
+
+    def test_a_RAZAO_DA_ORDEM_esta_escrita_no_laco(self) -> None:
+        """E o tipo de ordem que um refactor futuro desfaz sem perceber."""
+        import l2scanner.mercado_modo as modo
+
+        assert "ANTES" in inspect.getsource(modo)
