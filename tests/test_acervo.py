@@ -944,9 +944,25 @@ class TestQuemConheceOAcervoEOQueOLacoFazComEle:
       certo" ancorada em COMPORTAMENTO, e nao em texto.
 
     Estes dois casos continuam afirmando uma fronteira de FASE, e nao uma
-    invariante do projeto. A Fase 3 (batizar) vai acrescentar a escrita do irmao
-    `nome_<chave>`, e o conjunto de quem conhece o acervo pode crescer de novo —
-    pelo mesmo tipo de razao, e com a mesma exigencia de ser deliberado.
+    invariante do projeto.
+
+    A FASE 3 CHEGOU, E O CONJUNTO CRESCEU DE NOVO PELO MOTIVO QUE ESTA
+    DOCSTRING JA MANDAVA. Ela dizia, escrita na Fase 2 para este momento: "A
+    Fase 3 (batizar) vai acrescentar a escrita do irmao `nome_<chave>`, e o
+    conjunto de quem conhece o acervo pode crescer de novo — pelo mesmo tipo de
+    razao, e com a mesma exigencia de ser deliberado".
+
+    O que mudou, e o que NAO mudou:
+
+    - `l2scanner/batismo.py` entrou. Ele e quem ESCREVE o nome (`nomear`) e
+      quem MARCA a pergunta (`marcar_pergunta`), que sao as duas capacidades
+      novas do acervo nesta fase.
+    - `sessao.py` e `visao.py` continuam presos do lado de FORA, que sempre foi
+      o ponto do portao. A sessao fala com o `batismo`, e nao com o acervo — o
+      mesmo desenho que ela ja tinha com o `aprendiz`. O portao pergunta quem
+      IMPORTA, lido da arvore sintatica, e essa distincao E o desenho: a sessao
+      SEGURA um `AcervoDeIdentidades` que o `__main__` construiu, e nunca
+      constroi um.
     """
 
     def test_so_dois_modulos_conhecem_o_acervo(self):
@@ -976,12 +992,18 @@ class TestQuemConheceOAcervoEOQueOLacoFazComEle:
                     if any(a.name.split(".")[-1] == "acervo" for a in no.names):
                         conhecem.add(caminho.name)
 
-        assert conhecem == {"acervo.py", "aprendiz.py", "__main__.py"}, (
-            "a Fase 2 LE o acervo no arranque (`__main__.py`) e ESCREVE nele "
-            "por inferencia (`aprendiz.py`), e mais nada. `sessao.py` e "
-            "`visao.py` continuam de FORA de proposito: a sessao fala com o "
-            "aprendiz e nao com o acervo, e a visao e uma funcao pura que nao "
-            "fala com nenhum dos dois. Achado: " + str(conhecem)
+        assert conhecem == {
+            "acervo.py",
+            "aprendiz.py",
+            "batismo.py",
+            "__main__.py",
+        }, (
+            "o acervo e LIDO no arranque (`__main__.py`), ESCRITO por "
+            "inferencia (`aprendiz.py`, Fase 2) e NOMEADO pelo batismo "
+            "(`batismo.py`, Fase 3), e mais nada. `sessao.py` e `visao.py` "
+            "continuam de FORA de proposito: a sessao fala com o aprendiz e "
+            "com o batismo, e nunca com o acervo, e a visao e uma funcao pura "
+            "que nao fala com nenhum dos tres. Achado: " + str(conhecem)
         )
 
     def test_o_laco_real_ESCREVE_no_acervo_e_escreve_uma_vez_so(
