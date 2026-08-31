@@ -17,20 +17,11 @@ ele sai bonito no console.
 from __future__ import annotations
 
 import inspect
-import logging
-from datetime import datetime, timedelta
-from fractions import Fraction
+from datetime import datetime
 
 import pytest
 
-from l2scanner import mercado_analise as analise
-from l2scanner.config import (
-    ComponenteDaReceita,
-    Receita,
-    ReceitaInvalida,
-    ler_receitas,
-)
-from l2scanner.mercado_registro import ObservacaoLida
+from l2scanner.config import ReceitaInvalida, ler_receitas
 
 # Ingenuos, hora local, sem `tzinfo` — e o que `Relogio.agora()` devolve e o que
 # `campos_da_observacao` escreve com `.isoformat()`.
