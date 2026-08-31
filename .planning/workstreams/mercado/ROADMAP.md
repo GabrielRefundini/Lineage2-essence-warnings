@@ -165,7 +165,16 @@ Plans:
   4. Com o mercado aberto, linhas abaixo da mediana histórica aparecem destacadas no console na hora
   5. Tendência por item e margem de craft (receitas do `config.toml`) aparecem com o tamanho da janela de dados explícito, e cada componente da margem mostra sua própria staleness
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — (wave 1) o laco de producao: `--mercado` liga os TRES fios sem chamador (leitor, registro e catalogo), console ao vivo e resumo das duas metades [DETC-02, LEIT-04]
+- [ ] 04-02-PLAN.md — (wave 1) a estatistica PURA: unitario em `Fraction`, `median_low`, tendencia sobre ordinal, pisos de evidencia declarados como escolha [ANAL-01, ANAL-03]
+- [ ] 04-03-PLAN.md — (wave 2) "vale quanto agora?": a watchlist como filtro de destaque, o modelo no laco e o destaque calculado contra a mediana de ANTES do tick [ANAL-01, ANAL-02, ANAL-03]
+- [ ] 04-04-PLAN.md — (wave 3) a margem de craft: `[[receita]]` validado, resolucao de nome que quebra em vez de adivinhar, staleness por componente [ANAL-04]
+- [ ] 04-05-PLAN.md — (wave 4) o fecho: `vigiar-mercado.bat` e o bloco `[[receita]]` comentado no FIM do `config.toml` (arquivo disputado, task isolada e por ultimo) [DETC-02, ANAL-04]
+
+**Waves:** 1 (04-01 ∥ 04-02) → 2 (04-03) → 3 (04-04) → 4 (04-05). O paralelismo da wave 1 existe porque o modulo de analise e PURO: zero sobreposicao de `files_modified` com o laco.
 
 ## Progress
 
@@ -177,7 +186,7 @@ Plans:
 | 1. Fundação — firewall, gravador e spike de campo | 5/5 | ✓ Complete | 2026-08-29 |
 | 2. Leitura de página | 8/8 | In Progress|  |
 | 3. Persistência de observações | 3/3 | In Progress|  |
-| 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
+| 4. Modo --mercado, análise e console | 0/5 | Planned | - |
 
 ## Coverage
 
