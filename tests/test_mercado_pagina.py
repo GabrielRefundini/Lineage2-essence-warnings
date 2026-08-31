@@ -50,7 +50,15 @@ from l2scanner.mercado_leitura import (
     layout_confere,
     ler_linha,
 )
-from l2scanner.mercado_pagina import LeitorDePagina
+from l2scanner.mercado_leitura import LinhaLida
+from l2scanner.mercado_pagina import (
+    JANELAS_IGUAIS_PARA_CONGELAR,
+    LeituraDaPagina,
+    LeitorDePagina,
+    paginas_concordam,
+    posicoes_comparaveis,
+    tupla_comparavel,
+)
 from l2scanner.mercado_visao import (
     RastreioDoPainel,
     ancoras_de_calibracao,
@@ -70,6 +78,8 @@ JANELA_NEGOCIACAO = FIXTURES / "janela_negociacao_f010.png"
 JANELA_ADENA = FIXTURES / "janela_adena_f014.png"
 JANELA_TOOLTIP = FIXTURES / "janela_tooltip_f012.png"
 JANELA_F005 = FIXTURES / "janela_negociacao_f005.png"
+JANELA_F005_REPETIDA = FIXTURES / "janela_negociacao_f005_repetida.png"
+JANELA_F010 = JANELA_NEGOCIACAO
 
 # Os totais que o TRACER do 02-04 ja lia, escritos por valor. Se um deles mudar
 # depois desta onda, o piso da Quantity VAZOU para a coluna de moeda — que e a
@@ -116,6 +126,35 @@ def montar_leitor(cal):
         cal,
     )
     return leitor, barata, conferencia
+
+
+def _leitura_falsa(
+    por_indice: dict[int, tuple[int, int]], descartadas: tuple[int, ...] = ()
+) -> LeituraDaPagina:
+    """Uma `LeituraDaPagina` sintetica: indice -> (total, quantidade).
+
+    Ela existe para afirmar os PREDICADOS de comparacao sem montar pixels — do
+    mesmo jeito que os testes de `agrupar` afirmam a regra sem montar um frame.
+    O nome e o `serie_nova` variam de proposito entre as duas leituras de um
+    par, porque nenhum dos dois entra na tupla comparavel.
+    """
+    linhas = tuple(
+        LinhaLida(
+            indice=indice,
+            chave_da_serie=f"item-{indice}#0",
+            nome_exibido=f"Item {indice}",
+            total_em_centesimos=total,
+            quantidade=quantidade,
+            serie_nova=False,
+            residuo_do_cruzamento=None,
+        )
+        for indice, (total, quantidade) in sorted(por_indice.items())
+    )
+    return LeituraDaPagina(
+        linhas=linhas,
+        descartadas=descartadas,
+        motivos=tuple("sintetico" for _ in descartadas),
+    )
 
 
 class TestOCasamentoDoCabecalho:
@@ -540,3 +579,360 @@ class TestAFolgaDeColaChegaAProducaoPeloPORTAO_POR_AUSENCIA:
         assert (
             parametros["folga_de_cola"].default is inspect.Parameter.empty
         )
+
+
+# ===========================================================================
+# O ESTABILIZADOR COMPLETO (02-05)
+# ===========================================================================
+#
+# As duas guardas que faltavam: o CONGELAMENTO de captura, que olha a JANELA
+# INTEIRA, e o ACORDO entre dois frames sobre a TUPLA PARSEADA das posicoes
+# aceitas em AMBOS — com o minimo de posicoes comparadas lido do
+# `calibration.json`.
+#
+# O QUE ESTE ARQUIVO NAO PRENDE, DE PROPOSITO: os valores exatos de score e de
+# dispersao. Eles mudam com a convencao de recorte e com a calibracao do
+# usuario. O que se afirma aqui e RELACAO e BORDA — duas janelas iguais nao
+# congelam, tres congelam — e nunca um numero absoluto escolhido a mao.
+
+
+class TestOCongelamentoDeCaptura:
+    """Tres janelas consecutivas bit-identicas = captura congelada (D-19).
+
+    A COMPARACAO E SOBRE A JANELA INTEIRA, E ISSO CONTRADIZ A LEITURA INGENUA
+    DE LEIT-03. Medido na secao 9 do spike: o painel e BIT-ESTAVEL — o mundo
+    atras mudou completamente e o retangulo da ancora nao mudou um bit. Grade
+    identica entre frames e o caso NORMAL de uma pagina parada, e usa-la como
+    sinal de congelamento daria falso alarme o tempo todo.
+    """
+
+    def test_a_regra_e_TRES_e_esta_escrita_como_constante(self) -> None:
+        assert JANELAS_IGUAIS_PARA_CONGELAR == 3
+
+    def test_DUAS_janelas_bit_identicas_ainda_NAO_congelam(self, cal) -> None:
+        """A borda de baixo. Uma pagina parada produz janelas quase iguais."""
+        leitor, _b, _c = montar_leitor(cal)
+        janela = ler_fixtura(JANELA_F005)
+        leitor.observar(janela)
+        leitor.observar(janela.copy())
+        assert leitor.frames_congelados == 0
+
+    def test_TRES_janelas_bit_identicas_CONGELAM(self, cal) -> None:
+        """A borda de cima, no mesmo teste-irmao da de baixo."""
+        leitor, _b, _c = montar_leitor(cal)
+        janela = ler_fixtura(JANELA_F005)
+        for _ in range(3):
+            leitor.observar(janela.copy())
+        assert leitor.frames_congelados >= 1
+
+    def test_congelada_NENHUMA_pagina_e_aceita(self, cal) -> None:
+        """Mesmo com o acordo trivial de um frame consigo mesmo."""
+        leitor, _b, _c = montar_leitor(cal)
+        janela = ler_fixtura(JANELA_F005)
+        aceitas = [leitor.observar(janela.copy()) for _ in range(5)]
+        assert aceitas[2:] == [None, None, None]
+
+    def test_o_aviso_do_congelamento_e_ALTO_e_diz_o_que_houve(
+        self, cal, caplog
+    ) -> None:
+        leitor, _b, _c = montar_leitor(cal)
+        janela = ler_fixtura(JANELA_F005)
+        with caplog.at_level("WARNING", logger="l2scanner.mercado_pagina"):
+            for _ in range(3):
+                leitor.observar(janela.copy())
+        assert "congelada" in caplog.text.lower()
+
+    def test_depois_de_uma_janela_DIFERENTE_a_contagem_zera(self, cal) -> None:
+        """A corrida de iguais e um run, e ele quebra na primeira diferenca."""
+        leitor, _b, _c = montar_leitor(cal)
+        janela = ler_fixtura(JANELA_F005)
+        outra = ler_fixtura(JANELA_F010)
+        leitor.observar(janela)
+        leitor.observar(janela.copy())
+        leitor.observar(outra)
+        congelados_antes = leitor.frames_congelados
+        leitor.observar(outra.copy())
+        assert leitor.frames_congelados == congelados_antes
+
+    def test_janelas_de_TAMANHOS_diferentes_nunca_sao_iguais(self, cal) -> None:
+        """`np.array_equal` responde False para formas diferentes, sem levantar.
+
+        O usuario redimensiona a janela do jogo, e o tick seguinte chega com
+        outra forma. Um `==` elemento a elemento levantaria aqui dentro.
+        """
+        leitor, _b, _c = montar_leitor(cal)
+        janela = ler_fixtura(JANELA_F005)
+        leitor.observar(janela)
+        leitor.observar(janela[:-10, :-10].copy())
+        leitor.observar(janela)
+        assert leitor.frames_congelados == 0
+
+    def test_a_janela_guardada_e_uma_COPIA_e_nao_o_buffer_do_chamador(
+        self, cal
+    ) -> None:
+        """Um backend que REUSA o proprio buffer criaria um congelamento eterno.
+
+        Se guardassemos a referencia, escrever o frame seguinte por cima do
+        mesmo array faria a comparacao dar sempre igual — o falso positivo
+        exato que este detector existe para nao produzir, invertido.
+        """
+        leitor, _b, _c = montar_leitor(cal)
+        buffer = ler_fixtura(JANELA_F005)
+        leitor.observar(buffer)
+        buffer[:] = ler_fixtura(JANELA_F010)
+        leitor.observar(buffer)
+        buffer[:] = ler_fixtura(JANELA_F005)
+        leitor.observar(buffer)
+        assert leitor.frames_congelados == 0
+
+    def test_o_modulo_NAO_usa_hash_para_comparar_janela(self) -> None:
+        """MEDIDO: `np.array_equal` 0,89 ms contra sha256 3,70 e blake2b 6,81.
+
+        Hash e 4 a 15 vezes mais caro e nao compra nada, porque a regra exige
+        lembrar de UM frame e um contador, e nao de muitos.
+        """
+        import l2scanner.mercado_pagina as modulo
+
+        fonte = inspect.getsource(modulo)
+        assert "hashlib" not in fonte
+        assert "array_equal" in fonte
+
+
+class TestOMinimoDePosicoesComparadas:
+    """T-02-26: o acordo trivial sobre pouquissimas linhas nao aceita pagina."""
+
+    def test_a_chave_NULA_desliga_a_leitura_com_aviso_alto(
+        self, cal, caplog
+    ) -> None:
+        """Um piso ausente valeria ZERO, que e o acordo trivial de volta."""
+        sem_piso = copy.deepcopy(cal)
+        sem_piso.mercado_minimo_de_linhas_comparadas = None
+        leitor, barata, conferencia = montar_leitor(sem_piso)
+        with caplog.at_level("WARNING", logger="l2scanner.mercado_pagina"):
+            assert leitor.observar(ler_fixtura(JANELA_F005)) is None
+        assert leitor.ultima_leitura is None
+        assert barata.chamadas == conferencia.chamadas == 0
+        assert "mercado_minimo_de_linhas_comparadas" in caplog.text
+
+    def test_um_piso_ALTO_DEMAIS_recusa_a_pagina_que_de_outro_modo_passaria(
+        self, cal
+    ) -> None:
+        """O ramo e DERIVADO: a mesma pagina, so o piso muda.
+
+        Nenhum numero e escolhido pelo teste — ele compara o valor gravado com
+        um piso maior que a pagina inteira e cobra a diferenca de veredito.
+        """
+        leitor, _b, _c = montar_leitor(cal)
+        assert leitor.observar(ler_fixtura(JANELA_F005)) is None
+        assert leitor.observar(ler_fixtura(JANELA_F005_REPETIDA)) is not None
+
+        exigente = copy.deepcopy(cal)
+        exigente.mercado_minimo_de_linhas_comparadas = int(
+            cal.mercado_grade["linhas_por_pagina"]
+        )
+        duro, _b, _c = montar_leitor(exigente)
+        duro.observar(ler_fixtura(JANELA_F005))
+        assert duro.observar(ler_fixtura(JANELA_F005_REPETIDA)) is None
+        assert duro.paginas_perdidas >= 1
+
+    def test_a_pagina_recusada_pelo_minimo_reporta_o_MOTIVO(self, cal) -> None:
+        exigente = copy.deepcopy(cal)
+        exigente.mercado_minimo_de_linhas_comparadas = int(
+            cal.mercado_grade["linhas_por_pagina"]
+        )
+        leitor, _b, _c = montar_leitor(exigente)
+        leitor.observar(ler_fixtura(JANELA_F005))
+        leitor.observar(ler_fixtura(JANELA_F005_REPETIDA))
+        assert leitor.ultimo_motivo_de_perda is not None
+        assert "minimo" in leitor.ultimo_motivo_de_perda.lower()
+
+    def test_o_piso_da_fixtura_e_copia_VERBATIM_da_producao(self, cal) -> None:
+        valor = cal.mercado_minimo_de_linhas_comparadas
+        assert isinstance(valor, int) and not isinstance(valor, bool)
+        assert 1 <= valor <= int(cal.mercado_grade["linhas_por_pagina"])
+
+
+class TestOAcordoSobreAsPosicoesACEITAS_EM_AMBOS:
+    """D-15: a linha DESCARTADA fica FORA da comparacao e nao e desacordo."""
+
+    def test_tupla_comparavel_e_a_PARSEADA_e_nao_o_indice_nem_o_nome(
+        self,
+    ) -> None:
+        """O `nome_exibido` fica de fora: o OCR oscila um caractere sem mudar
+        a serie, e a serie e o que a Fase 3 grava. O `serie_nova` fica de fora
+        porque ele e True no primeiro frame e False no segundo POR CONSTRUCAO —
+        inclui-lo tornaria o acordo impossivel."""
+        linha = LinhaLida(
+            indice=3,
+            chave_da_serie="item#0",
+            nome_exibido="Item",
+            total_em_centesimos=1234,
+            quantidade=2,
+            serie_nova=True,
+            residuo_do_cruzamento=0,
+        )
+        outra = LinhaLida(
+            indice=3,
+            chave_da_serie="item#0",
+            nome_exibido="Ilem",
+            total_em_centesimos=1234,
+            quantidade=2,
+            serie_nova=False,
+            residuo_do_cruzamento=80,
+        )
+        assert tupla_comparavel(linha) == tupla_comparavel(outra)
+
+    def test_tupla_comparavel_SEPARA_totais_diferentes(self) -> None:
+        base = dict(
+            indice=3,
+            chave_da_serie="item#0",
+            nome_exibido="Item",
+            quantidade=2,
+            serie_nova=False,
+            residuo_do_cruzamento=None,
+        )
+        assert tupla_comparavel(
+            LinhaLida(total_em_centesimos=1234, **base)
+        ) != tupla_comparavel(LinhaLida(total_em_centesimos=1235, **base))
+
+    def test_posicoes_comparaveis_e_a_INTERSECAO_e_nao_a_uniao(self) -> None:
+        a = _leitura_falsa({0: (1, 1), 1: (2, 2), 3: (4, 4)})
+        b = _leitura_falsa({1: (2, 2), 3: (4, 4), 5: (6, 6)})
+        assert posicoes_comparaveis(a, b) == [1, 3]
+
+    def test_posicoes_comparaveis_sai_ORDENADA(self) -> None:
+        a = _leitura_falsa({5: (1, 1), 0: (2, 2), 3: (3, 3)})
+        b = _leitura_falsa({3: (3, 3), 5: (1, 1), 0: (2, 2)})
+        assert posicoes_comparaveis(a, b) == [0, 3, 5]
+
+    def test_a_linha_DESCARTADA_num_dos_frames_nao_e_desacordo(
+        self, cal
+    ) -> None:
+        """O caso vivo: a tooltip cobre a linha 3 no frame A e sai no frame B.
+
+        As duas listas tem TAMANHOS diferentes, e a leitura fiel de D-15 e
+        comparar so as posicoes aceitas em AMBOS. Comparar as listas inteiras
+        faria uma tooltip passageira impedir para sempre o acordo de uma pagina
+        parada.
+        """
+        com_a_linha_3 = _leitura_falsa({0: (1, 1), 1: (2, 2), 3: (4, 4)})
+        sem_a_linha_3 = _leitura_falsa({0: (1, 1), 1: (2, 2)}, descartadas=(3,))
+        assert paginas_concordam(com_a_linha_3, sem_a_linha_3) is True
+
+    def test_um_valor_DIFERENTE_numa_posicao_comum_E_desacordo(self) -> None:
+        a = _leitura_falsa({0: (1, 1), 1: (2, 2)})
+        b = _leitura_falsa({0: (1, 1), 1: (2, 9)})
+        assert paginas_concordam(a, b) is False
+
+
+class TestOsContadoresDasDuasMetades:
+    """`paginas_lidas` e `paginas_perdidas` — a superficie que LEIT-04 exibe.
+
+    Esta fase PRODUZ o numero e NAO desenha console.
+    """
+
+    def test_os_contadores_nascem_em_ZERO(self, cal) -> None:
+        leitor, _b, _c = montar_leitor(cal)
+        assert leitor.paginas_lidas == 0
+        assert leitor.paginas_perdidas == 0
+        assert leitor.frames_congelados == 0
+        assert leitor.linhas_descartadas == 0
+
+    def test_a_pagina_aceita_sobe_LIDAS_e_o_primeiro_frame_sobe_PERDIDAS(
+        self, cal
+    ) -> None:
+        """O primeiro frame nao tem anterior para comparar: ele nao foi lido.
+
+        Contar isso como perda e honesto — aquele tick realmente nao produziu
+        pagina — e e o que fecha a soma. A 1 Hz com o painel aberto por uma
+        hora, isso e UM tick em 3.600.
+        """
+        leitor, _b, _c = montar_leitor(cal)
+        leitor.observar(ler_fixtura(JANELA_F005))
+        assert (leitor.paginas_lidas, leitor.paginas_perdidas) == (0, 1)
+        leitor.observar(ler_fixtura(JANELA_F005_REPETIDA))
+        assert (leitor.paginas_lidas, leitor.paginas_perdidas) == (1, 1)
+
+    def test_uma_pagina_de_outro_LAYOUT_nao_conta_como_lida_nem_perdida(
+        self, cal
+    ) -> None:
+        leitor, _b, _c = montar_leitor(cal)
+        leitor.observar(ler_fixtura(JANELA_ADENA))
+        assert leitor.paginas_lidas == 0
+        assert leitor.paginas_perdidas == 0
+        assert leitor.paginas_de_outro_layout == 1
+
+    def test_linhas_descartadas_ACUMULA_entre_ticks(self, cal) -> None:
+        leitor, _b, _c = montar_leitor(cal)
+        leitor.observar(ler_fixtura(JANELA_TOOLTIP))
+        primeira = leitor.linhas_descartadas
+        leitor.observar(ler_fixtura(JANELA_TOOLTIP))
+        assert leitor.linhas_descartadas >= primeira
+        assert primeira == len(leitor.ultima_leitura.descartadas)
+
+    def test_a_SOMA_dos_baldes_cobre_todo_tick_com_painel_aberto(
+        self, cal
+    ) -> None:
+        """A identidade que faz a contagem ser afirmavel, e nao so plausivel.
+
+        Um tick com o painel aberto cai em EXATAMENTE um balde: outro layout,
+        vazia, perdida ou lida. O congelamento e contado a parte porque ele
+        recusa ANTES de procurar o painel — captura congelada e propriedade da
+        CAPTURA, e nao da pagina.
+        """
+        leitor, _b, _c = montar_leitor(cal)
+        for caminho in (
+            JANELA_F005,
+            JANELA_F005_REPETIDA,
+            JANELA_ADENA,
+            JANELA_TOOLTIP,
+            JANELA_F010,
+            JANELA_NEGOCIACAO,
+        ):
+            leitor.observar(ler_fixtura(caminho))
+        assert leitor.ticks_com_painel_aberto == (
+            leitor.paginas_de_outro_layout
+            + leitor.paginas_vazias
+            + leitor.paginas_perdidas
+            + leitor.paginas_lidas
+        )
+        assert leitor.ticks_com_painel_aberto > 0
+
+
+class TestAOrdemDaPaginaAceita:
+    """A ordem e CONTRATO: a Fase 3 grava uma observacao por linha."""
+
+    def test_as_linhas_saem_de_CIMA_para_BAIXO(self, cal) -> None:
+        leitor, _b, _c = montar_leitor(cal)
+        leitor.observar(ler_fixtura(JANELA_F005))
+        pagina = leitor.observar(ler_fixtura(JANELA_F005_REPETIDA))
+        assert pagina is not None
+        indices = [linha.indice for linha in pagina.linhas]
+        assert indices == sorted(indices)
+        assert len(set(indices)) == len(indices)
+
+
+class TestAPaginaQUE_MUDOU:
+    """Rolagem: as linhas mudaram, e o frame novo vira a nova referencia."""
+
+    def test_paginas_diferentes_nao_produzem_acordo(self, cal) -> None:
+        leitor, _b, _c = montar_leitor(cal)
+        assert leitor.observar(ler_fixtura(JANELA_F005)) is None
+        assert leitor.observar(ler_fixtura(JANELA_F010)) is None
+
+    def test_o_frame_NOVO_vira_a_nova_referencia(self, cal) -> None:
+        """Depois da rolagem, dois frames da pagina NOVA fecham o acordo."""
+        leitor, _b, _c = montar_leitor(cal)
+        leitor.observar(ler_fixtura(JANELA_F010))
+        leitor.observar(ler_fixtura(JANELA_F005))
+        assert leitor.observar(ler_fixtura(JANELA_F005_REPETIDA)) is not None
+
+    def test_perder_o_PAINEL_apaga_a_memoria_do_frame_anterior(
+        self, cal
+    ) -> None:
+        """Comparar a pagina de antes com a de depois de o painel sumir
+        afirmaria estabilidade sobre uma DESCONTINUIDADE."""
+        leitor, _b, _c = montar_leitor(cal)
+        leitor.observar(ler_fixtura(JANELA_F005))
+        leitor.observar(np.zeros((1392, 1720, 3), dtype=np.uint8))
+        assert leitor.observar(ler_fixtura(JANELA_F005_REPETIDA)) is None
