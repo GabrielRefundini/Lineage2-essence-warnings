@@ -73,9 +73,9 @@ território da Fase 4 (ANAL-01, ANAL-02). Nenhum requisito novo é criado aqui p
 > redação anterior (SQLite + WAL + `INSERT OR IGNORE`) está superada. O histórico da
 > decisão fica abaixo porque o raciocínio importa mais que a conclusão.
 
-- [ ] **PERS-01**: Observações gravadas como linhas num arquivo CSV com carimbo do relógio ancorado, uma linha por observação, legível a olho nu e importável no Google Sheets sem conversão
-- [ ] **PERS-02**: Revisitar uma página não duplica observações — dedup por chave de conteúdo, conferida em memória antes de escrever
-- [ ] **PERS-03**: Falha de escrita desliga só a feature de mercado e avisa alto — nunca derruba o núcleo de alertas
+- [x] **PERS-01**: Observações gravadas como linhas num arquivo CSV com carimbo do relógio ancorado, uma linha por observação, legível a olho nu e importável no Google Sheets sem conversão
+- [x] **PERS-02**: Revisitar uma página não duplica observações — dedup por chave de conteúdo, conferida em memória antes de escrever
+- [x] **PERS-03**: Falha de escrita desliga só a feature de mercado e avisa alto — nunca derruba o núcleo de alertas
 
 #### Por que CSV, e por que a decisão mudou duas vezes
 
@@ -172,9 +172,9 @@ Preenchida na criação do roadmap (2026-08-27).
 | LEIT-03 | Phase 2 | Complete |
 | LEIT-04 | Phase 4 | Pending |
 | LEIT-05 | Phase 2 | Complete |
-| PERS-01 | Phase 3 | Pending |
-| PERS-02 | Phase 3 | Pending |
-| PERS-03 | Phase 3 | Pending |
+| PERS-01 | Phase 3 | Complete |
+| PERS-02 | Phase 3 | Complete |
+| PERS-03 | Phase 3 | Complete |
 | ANAL-01 | Phase 4 | Pending |
 | ANAL-02 | Phase 4 | Pending |
 | ANAL-03 | Phase 4 | Pending |

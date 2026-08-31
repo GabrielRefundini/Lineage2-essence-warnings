@@ -138,11 +138,11 @@ Plans:
   4. Com a escrita interrompida no meio de uma linha, a leitura seguinte descarta APENAS a linha truncada, com aviso — nunca trata o arquivo inteiro como corrompido, e nunca aceita o pedaço como observação válida
   5. Com o arquivo propositalmente quebrado (travado, read-only, ou pasta inexistente), o usuário vê o aviso alto de que a feature de mercado desligou — e os alertas de party continuam chegando normalmente
 
-**Plans**: 3 plans (3 waves — serial por compartilhamento de arquivo: os três tocam `mercado_registro.py` ou dependem do que ele expõe)
+**Plans**: 1/3 plans executed (3 waves — serial por compartilhamento de arquivo: os três tocam `mercado_registro.py` ou dependem do que ele expõe)
 
 **Wave 1**
 
-- [ ] 03-01-PLAN.md - (wave 1) `l2scanner/mercado_registro.py` inteiro: a metade pura (chave de dedup e campos do CSV) e a metade de disco (`RegistroDeObservacoes`) — cabeçalho-contrato, as TRÊS redes da leitura de arranque na ordem MEDIDA (o arquivo termina em newline vem ANTES da contagem de campos, que aprova 2 de 5 truncagens), append com `flush` e a escrita que nunca levanta
+- [x] 03-01-PLAN.md - (wave 1) `l2scanner/mercado_registro.py` inteiro: a metade pura (chave de dedup e campos do CSV) e a metade de disco (`RegistroDeObservacoes`) — cabeçalho-contrato, as TRÊS redes da leitura de arranque na ordem MEDIDA (o arquivo termina em newline vem ANTES da contagem de campos, que aprova 2 de 5 truncagens), append com `flush` e a escrita que nunca levanta
 
 **Wave 2** *(blocked on Wave 1 — compartilha `mercado_registro.py` e `tests/test_mercado_registro.py` com o 03-01)*
 
@@ -176,7 +176,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Fundação — firewall, gravador e spike de campo | 5/5 | ✓ Complete | 2026-08-29 |
 | 2. Leitura de página | 8/8 | In Progress|  |
-| 3. Persistência de observações | 0/3 | Planned | - |
+| 3. Persistência de observações | 1/3 | In Progress|  |
 | 4. Modo --mercado, análise e console | 0/TBD | Not started | - |
 
 ## Coverage
