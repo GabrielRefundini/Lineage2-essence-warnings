@@ -210,7 +210,29 @@ do batismo os alertas daquela pessoa saem com o nome certo.
      despacho capturado, resposta entrando pela funcao pura de interpretacao de comandos,
      tempo por parametro. (OPER-03)
 
-**Plans**: TBD
+**As oito decisoes do 03-CONTEXT.md (D-01 a D-08) estao FECHADAS** e os planos as
+implementam sem as reabrir. Duas descobertas do planejamento mudam o tamanho da
+fase e merecem estar aqui:
+
+- **O gatilho do aprendizado NAO alcanca o que ja esta no disco.** O acervo real
+  do usuario tem duas entradas anonimas (`15caecfa...` e `f19e3c92...`, aprendidas
+  em campo em 31/08). Elas entram em `cal.assinaturas` no arranque, a linha delas
+  casa ~1.000, e `Casamento.nome` de uma anonima e a string VAZIA — entao
+  `linha.nome is None` e falso, elas nunca sao candidatas, e nenhum `Aprendizado`
+  nasce. Um gatilho preso so ao evento "gravei uma assinatura nova" ficaria verde
+  na suite e nao perguntaria nada no unico acervo real que existe. Por isso ha
+  DOIS gatilhos (aprendizado e arranque) desembocando no MESMO marcador de D-04.
+- **O nome vivo tem TRES metades, e nao uma.** Alem do disco e da lista viva,
+  `rastreador.nomes_reservados` e um snapshot do arranque; sem acrescentar o nome
+  batizado a ele, um nick que tambem esteja em `cal.nomes` continua sendo
+  emprestado por POSICAO para qualquer linha nao reconhecida — dois nomes iguais
+  na tela, e um deles mentira.
+
+**Plans:** 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — a pergunta que sai uma vez (nos dois gatilhos, com um marcador so), o comando que batiza, o pino provado contra uma party reorganizada, e o nome valendo sem reiniciar nas tres metades (BATI-01, BATI-02, BATI-03, OPER-03)
+- [ ] 03-02-PLAN.md — a recusa de nome duplicado com a saida escrita, a correcao pela mesma operacao, a fronteira de autorizacao, as dividas T-02-07 e T-02-18 afirmadas com numero, e as cinco ligacoes novas nao-mesclaveis por esquecimento (BATI-04, BATI-05, OPER-03)
 
 ## Progress
 
@@ -218,7 +240,7 @@ do batismo os alertas daquela pessoa saem com o nome certo.
 |-------|----------------|--------|-----------|
 | 1. O acervo e o silencio dele | 2/2 | Complete | 2026-08-31 |
 | 2. Aprender sozinho | 2/2 | Complete | 2026-08-31 |
-| 3. Batismo pelo WhatsApp | 0/? | Not started | - |
+| 3. Batismo pelo WhatsApp | 0/2 | Planned | - |
 
 ## Coverage
 

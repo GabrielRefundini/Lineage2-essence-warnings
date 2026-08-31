@@ -43,10 +43,10 @@ evento sem sujeito". Ele cala em vez de mentir. O que sobra e o INCOMODO.
 - [x] **APRE-02**: A assinatura so e gravada depois de estavel por N frames.
       O texto e transparente e o cenario anda por tras dele; gravar no primeiro
       frame guardaria terreno junto com o nome.
-- [ ] **APRE-03**: Uma assinatura recem-aprendida NAO recebe nome automatico e
+- [x] **APRE-03**: Uma assinatura recem-aprendida NAO recebe nome automatico e
       NAO vira sujeito de alerta. Ate ser batizada ela e uma linha anonima, e
       o comportamento de calar continua valendo.
-- [ ] **APRE-04**: Aprender a mesma pessoa duas vezes (ela sai e volta) nao
+- [x] **APRE-04**: Aprender a mesma pessoa duas vezes (ela sai e volta) nao
       cria duas assinaturas: o casamento contra as ja gravadas vem antes.
 
 ### Batismo pelo WhatsApp (BATI)
@@ -66,24 +66,24 @@ evento sem sujeito". Ele cala em vez de mentir. O que sobra e o INCOMODO.
 
 ### Durabilidade (DURA)
 
-- [ ] **DURA-01**: As assinaturas aprendidas SOBREVIVEM a `calibrar.bat`.
+- [x] **DURA-01**: As assinaturas aprendidas SOBREVIVEM a `calibrar.bat`.
       ISTO E O REQUISITO QUE MATA A FEATURE SE FALHAR. Ver WINDOWS #13,
       confirmado em campo em 2026-08-30: `calibrar.py` monta uma `Calibracao`
       do zero e grava por cima do arquivo inteiro; o usuario rodou
       `calibrar.bat` e perdeu 13 moldes de glifo e 3 ancoras do mercado. Uma
       assinatura aprendida por semanas nao pode morrer numa recalibracao de
       party.
-- [ ] **DURA-02**: Sobrevivem a reinicio do scanner.
-- [ ] **DURA-03**: As duas instancias do usuario (Yazalaque e Faerlina)
+- [x] **DURA-02**: Sobrevivem a reinicio do scanner.
+- [x] **DURA-03**: As duas instancias do usuario (Yazalaque e Faerlina)
       aprendem sobre o mesmo acervo sem corromper nem duplicar.
-- [ ] **DURA-04**: O acervo NAO e podado por tempo. Assinatura e igual a
+- [x] **DURA-04**: O acervo NAO e podado por tempo. Assinatura e igual a
       estatistica de loot: "quem e o Fulano" e uma pergunta sobre meses.
 
 ### Operacao (OPER)
 
-- [ ] **OPER-01**: O arranque diz quantas assinaturas conhece e quantas estao
+- [x] **OPER-01**: O arranque diz quantas assinaturas conhece e quantas estao
       sem nome.
-- [ ] **OPER-02**: `--nomes` continua funcionando. Quem prefere digitar segue
+- [x] **OPER-02**: `--nomes` continua funcionando. Quem prefere digitar segue
       digitando; o aprendizado e adicional, nao substituto.
 - [ ] **OPER-03**: Demonstravel sem jogo aberto e sem rede.
 
