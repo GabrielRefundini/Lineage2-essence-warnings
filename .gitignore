@@ -31,10 +31,10 @@ recordings/
 # .loot/ guarda o registro de loot do Solo Boss — estado local e DURAVEL
 # (nunca podado). Versionar misturaria a estatistica de maquinas diferentes.
 .loot/
-# .mercado/ guarda o catalogo de nomes do World Exchange — pelo mesmo motivo
-# do .loot/: estado local, DURAVEL e sem poda, porque estatistica de item e
-# para sempre. Versionar misturaria o que duas maquinas viram na tela, e
-# nenhuma das duas saberia dizer qual metade e sua.
+# .mercado/ guarda os DOIS arquivos do World Exchange, com donos distintos: o
+# catalogo de nomes (leitura de pagina) e as observacoes de anuncio (registro).
+# Pelo mesmo motivo do .loot/: estado local, DURAVEL e sem poda, porque
+# estatistica de item e para sempre — versionar misturaria duas maquinas.
 .mercado/
 outbox.jsonl
 events.jsonl
