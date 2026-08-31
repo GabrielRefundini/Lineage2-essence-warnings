@@ -465,6 +465,84 @@ def montar_vigia_do_mercado(cal: Calibracao, na_janela: bool):
     return RastreioDoPainel(ancoras, limiar=limiar)
 
 
+def montar_registro_de_mercado(pasta: Path | None = None):
+    """Monta o registro de observacoes, ou diz por que nao montou.
+
+    Devolve um `RegistroDeObservacoes` ou `None`, e NUNCA levanta. Mesmo trilho
+    de `montar_gravador` e de `montar_vigia_do_mercado` logo acima: tenta,
+    degrada com log alto, devolve `None` e deixa o scanner subir. O recurso e
+    opcional; o scanner nao e.
+
+    O TIPO DE RETORNO NAO E ANOTADO, pelo mesmo motivo de
+    `montar_vigia_do_mercado`: ele so existe atras do import ADIADO, e anota-lo
+    aqui deixaria no modulo um nome que `typing.get_type_hints` nao resolve.
+
+    O CONSTRUTOR NAO SE DEFENDE, DE PROPOSITO, e esta escrito na docstring dele.
+    Medido nesta maquina: o `mkdir(parents=True, exist_ok=True)` dele levanta
+    `FileExistsError` (errno 17, winerror 183) quando um ARQUIVO ocupa o nome da
+    pasta, e isso roda antes de qualquer `try`. Sem esta funcao esse traceback
+    subiria cru do arranque e levaria a deteccao de morte da party junto com o
+    mercado — o modo de falha exato que `montar_gravador` foi escrito para
+    consertar e que o PERS-03 proibe. Por isso o `try` envolve o construtor
+    INTEIRO, `mkdir` incluido.
+
+    A CAPTURA DIVERGE DA REGRA DA CASA EM UM TIPO, E A DIVERGENCIA E
+    DELIBERADA. `OSError` cobre os quatro modos medidos: `PermissionError`
+    (errno 13) para arquivo somente-leitura e para nome ocupado por diretorio,
+    `FileNotFoundError` (errno 2) para pasta inexistente, e o `FileExistsError`
+    acima. `ContratoDoArquivoQuebrado` nao e nenhum deles — nao e falha de
+    sistema de arquivos, e uma recusa DELIBERADA de escrever desalinhado, ou de
+    ler um arquivo cujo fim o programa nao consegue afirmar, sobre dado que o
+    usuario acumulou e edita a mao. Ela chega por DOIS motivos, cabecalho
+    divergente (D-12) e arquivo que nao termina em quebra de linha (D-17), e
+    como o desfecho e o mesmo — feature desligada, scanner de pe — o tratamento
+    e o mesmo. A captura continua ESTREITA: dois tipos NOMEADOS, nunca
+    `except Exception`, que esconderia um `AttributeError` de refactor futuro
+    como se fosse disco cheio.
+
+    O texto do contrato quebrado ja saiu no log do proprio modulo, com as duas
+    hipoteses por extenso e a instrucao de conserto que o 03-01 escreveu. Esta
+    funcao NAO O REESCREVE: ela so acrescenta por cima as duas mensagens da
+    casa, e `configurar_log` faz as tres chegarem ao console E ao arquivo.
+
+    ERROR e nao WARNING pelo precedente ja escrito em `montar_gravador`:
+    `warning` e para linha descartada, `error` e para feature desligada — e quem
+    esta lendo o console precisa saber que nao vai ter dado no fim da sessao.
+
+    ELA NASCE SEM CHAMADOR, E ISSO E DESENHO. `montar_gravador` tem um portao de
+    curto-circuito na entrada (`if not args.record`) porque existe a flag
+    `--record`; aqui nao ha flag, porque `--mercado` e DETC-02, Fase 4. Quem
+    ligar isto la vai encontrar a funcao pronta e no trilho.
+    """
+    from .mercado_registro import (
+        ARQUIVO_DE_OBSERVACOES,
+        PASTA_DO_MERCADO,
+        ContratoDoArquivoQuebrado,
+        RegistroDeObservacoes,
+    )
+
+    # A pasta padrao e resolvida em tempo de CHAMADA, e nao no topo do modulo: e
+    # o que permite ao teste apontar para `tmp_path` sem nunca tocar a
+    # `.mercado/` do usuario, que e dado acumulado e sem desfazer.
+    destino = PASTA_DO_MERCADO if pasta is None else pasta
+
+    try:
+        registro = RegistroDeObservacoes(destino)
+    except (OSError, ContratoDoArquivoQuebrado) as erro:
+        log.error(
+            "REGISTRO DE MERCADO DESLIGADO — nao consegui abrir %s: %s",
+            destino / ARQUIVO_DE_OBSERVACOES,
+            erro,
+        )
+        log.error(
+            "Todo o resto do scanner continua igual: morte, saida e "
+            "ressurreicao seguem sendo detectadas e entregues."
+        )
+        return None
+
+    return registro
+
+
 def _duracao_legivel(segundos: float) -> str:
     """Segundos viram "3h02min" — "10920s" nao ajuda ninguem a reconhecer o
     proprio problema de dual boot."""
