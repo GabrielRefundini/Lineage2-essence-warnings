@@ -39,7 +39,7 @@ from .agenda import (  # noqa: E402
     avisos_devidos,
     HORAS_PARA_CANCELAR_ANTECIPADO,
     NOME_DO_SOLO_BOSS,
-    nomes_calados,
+    nomes_dos_eventos,
     proxima_ocorrencia,
     responder_silenciamento,
     silencio_ativo,
@@ -1315,7 +1315,7 @@ def _obedecer_status(registro, eventos, agora, rastreador=None) -> str:
     # O `/desativarsoloboss` sobrevive a reiniciar o scanner, entao esta linha
     # e a unica coisa entre o usuario que esqueceu que desligou e um boss
     # perdido em silencio.
-    calados = nomes_calados(eventos, registro.eventos_calados())
+    calados = nomes_dos_eventos(eventos, registro.eventos_calados())
     if calados:
         partes.append("avisos DESATIVADOS de " + ", ".join(calados))
     if proximo:

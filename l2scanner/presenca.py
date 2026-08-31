@@ -44,6 +44,7 @@ from .agenda import (
     TOLERANCIA_MINUTOS,
     EventoAgendado,
     RegistroEmDisco,
+    apelido_do_evento,
     chave_da_ocorrencia,
     ocorrencias_do_dia,
     proxima_ocorrencia,
@@ -224,6 +225,47 @@ def _sem_chamada_na_agenda() -> RespostaDePresenca:
     )
 
 
+def _evento_com_lista_desligada(
+    eventos: list[EventoAgendado], desligadas: frozenset[str] | set[str]
+) -> str | None:
+    """O nome do primeiro evento COM CHAMADA cuja lista foi desligada, ou None.
+
+    Sobre `_com_chamada`, e nao sobre `eventos`: um marcador gravado para um
+    evento sem `chamar_minutos_antes` nao desligaria lista nenhuma, e recusar
+    um `/entrar` por causa dele seria calar por um estado que nao existe.
+
+    Devolve o NOME e nao o apelido, porque quem chama vai escrever a resposta —
+    a mesma disciplina do D-10, com o slug parando na fronteira do disco.
+    """
+    for evento in _com_chamada(eventos):
+        if apelido_do_evento(evento.nome) in desligadas:
+            return evento.nome
+    return None
+
+
+def _lista_desligada(nome: str) -> RespostaDePresenca:
+    """A recusa do `/entrar` e do `/sair` com a lista desligada.
+
+    UM TEXTO SO PARA OS DOIS COMANDOS, e por isso ele fala do ESTADO da lista
+    em vez do que a pessoa tentou fazer: "voce nao entrou" leria errado para
+    quem mandou `/sair`, e vice-versa.
+
+    NAO PROMETE NADA SOBRE O LEMBRETE DE 10 MINUTOS, de proposito. Quem sabe se
+    o boss tambem esta calado e o responder do dono, que le as duas chaves;
+    esta superficie nao tem esse fato e por isso nao faz a promessa.
+
+    `grupo=None`: a recusa e assunto de quem digitou. Ecoar no grupo repetiria
+    a mesma informacao a cada dedo nervoso de 4 a 8 pessoas.
+    """
+    return RespostaDePresenca(
+        privado=(
+            f"A lista de presenca do {nome} esta desligada: ninguem entra e "
+            f"ninguem sai enquanto estiver assim. Quem religa e o dono, com "
+            f"/ativarlista."
+        )
+    )
+
+
 def responder_join(
     registro: RegistroEmDisco,
     eventos: list[EventoAgendado],
@@ -254,6 +296,21 @@ def responder_join(
     dentro da tolerancia um `.join` atrasado pela ponte fala do boss que acabou
     de nascer, e nao do de daqui a duas horas. Ver a docstring de la.
     """
+    # PREPENDIDO, E A POSICAO E A DECISAO. Um guarda posto depois do
+    # `if not nick` deixaria o DONO sem bloco `[[membro]]` recebendo "Adicione
+    # um bloco [[membro]]..." com a lista desligada — uma mensagem que manda a
+    # pessoa consertar um arquivo que nao esta quebrado. Aqui em cima, toda
+    # entrada responde a verdade, e o caminho com a lista LIGADA fica byte a
+    # byte o de hoje (o helper devolve None e nada abaixo muda de lugar).
+    #
+    # LIDO DO `registro` POR DENTRO, e nao por parametro: esta funcao ja recebe
+    # o `RegistroEmDisco` e ja toca disco na linha seguinte. Um parametro aqui
+    # nao compraria pureza nenhuma — compraria mais dois pontos de edicao no
+    # `__main__.py` e no `sessao.py`.
+    desligada = _evento_com_lista_desligada(eventos, registro.listas_desligadas())
+    if desligada is not None:
+        return _lista_desligada(desligada)
+
     if not nick:
         return _sem_nick()
 
@@ -318,6 +375,21 @@ def responder_leave(
     joinou nao e erro — e quase sempre engano de quem achou que tinha entrado —
     e por isso responde, no privado, exatamente isso.
     """
+    # PREPENDIDO, E A POSICAO E A DECISAO. Um guarda posto depois do
+    # `if not nick` deixaria o DONO sem bloco `[[membro]]` recebendo "Adicione
+    # um bloco [[membro]]..." com a lista desligada — uma mensagem que manda a
+    # pessoa consertar um arquivo que nao esta quebrado. Aqui em cima, toda
+    # entrada responde a verdade, e o caminho com a lista LIGADA fica byte a
+    # byte o de hoje (o helper devolve None e nada abaixo muda de lugar).
+    #
+    # LIDO DO `registro` POR DENTRO, e nao por parametro: esta funcao ja recebe
+    # o `RegistroEmDisco` e ja toca disco na linha seguinte. Um parametro aqui
+    # nao compraria pureza nenhuma — compraria mais dois pontos de edicao no
+    # `__main__.py` e no `sessao.py`.
+    desligada = _evento_com_lista_desligada(eventos, registro.listas_desligadas())
+    if desligada is not None:
+        return _lista_desligada(desligada)
+
     if not nick:
         return _sem_nick()
 
@@ -419,7 +491,20 @@ def fechar_ocorrencias(
     e `chamar_minutos_antes > 0`, o mesmo que criou a lista.
     """
     fechados: list[Fechamento] = []
+    # UMA leitura de disco para o tick inteiro, e ela vem ANTES do laco: sao
+    # ate duas ocorrencias por tick e reler por iteracao so daria chance de as
+    # duas discordarem entre si.
+    desligadas = registro.listas_desligadas()
     for nome, alvo in ocorrencias_na_janela(agora, eventos):
+        if apelido_do_evento(nome) in desligadas:
+            # O `continue` VEM ANTES DO `fechar`, e a posicao e a decisao —
+            # exatamente o mesmo argumento que esta docstring ja faz para a
+            # lista vazia: UM TICK QUE NAO FALA NAO PODE QUEIMAR O MARCADOR.
+            # Queimando-o aqui, o usuario que religasse a lista dentro dos 5
+            # minutos de tolerancia encontraria a ocorrencia ja fechada, e
+            # aquela lista ficaria muda PARA SEMPRE, sem nada explicando por
+            # que. Pulando antes, religar dentro da janela ainda fecha.
+            continue
         chave = chave_da_ocorrencia(nome, alvo)
         presentes = registro.presentes(chave)
         if not presentes:
