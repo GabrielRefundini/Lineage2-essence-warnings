@@ -174,7 +174,7 @@ aprendizado.
 **Plans:** 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — a linha desconhecida vira UMA entrada sem nome e continua calada; instabilidade recusada com a distancia medida; o teto derivado da medida da Fase 1 (APRE-01, APRE-02)
+- [x] 02-01-PLAN.md — a linha desconhecida vira UMA entrada sem nome e continua calada; instabilidade recusada com a distancia medida; o teto derivado da medida da Fase 1 (APRE-01, APRE-02)
 - [ ] 02-02-PLAN.md — aprender a mesma pessoa duas vezes nao acontece por nenhum dos quatro caminhos: ja reconhecida, falha por margem, sai e volta, reinicio e replay (APRE-04)
 
 ### Phase 3: Batismo pelo WhatsApp
@@ -217,7 +217,7 @@ do batismo os alertas daquela pessoa saem com o nome certo.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. O acervo e o silencio dele | 2/2 | Complete | 2026-08-31 |
-| 2. Aprender sozinho | 0/2 | Planned | - |
+| 2. Aprender sozinho | 1/2 | In progress | - |
 | 3. Batismo pelo WhatsApp | 0/? | Not started | - |
 
 ## Coverage

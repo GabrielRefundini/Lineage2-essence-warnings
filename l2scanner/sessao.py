@@ -42,6 +42,11 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 from .agenda import avisos_devidos, texto_do_aviso
+# `Candidata` vem do `aprendiz` e nao o contrario: `aprendiz` fala `Assinatura`,
+# `AcervoDeIdentidades` e stdlib, e NUNCA `sessao` (D-09, com portao AST em
+# `tests/test_aprendiz.py`). Declarar a candidata aqui obrigaria o aprendiz a
+# importar a sessao, e o ciclo fecharia no primeiro uso.
+from .aprendiz import Candidata
 from .console import moldurar
 from .frames import Frame, SaudeDoFrame
 from .loot import Designacao, nick_para_o_aviso
@@ -138,6 +143,22 @@ class ResultadoDoTick:
     # zero mensagem (D-12).
     presencas_fechadas: list = field(default_factory=list)
 
+    # As assinaturas que ESTE tick gravou no acervo (`aprendiz.Aprendizado`).
+    # Estruturado, e nao texto, pelo mesmo motivo de `despachos` existir: o
+    # teste precisa afirmar QUE chave nasceu, de QUAL linha e com QUE confianca,
+    # e casar isso com a redacao do log quebraria na primeira melhoria de frase.
+    #
+    # LISTA VAZIA E O ESTADO NORMAL, e nao um erro: na esmagadora maioria dos
+    # ticks a party inteira ja e conhecida e nao ha nada a aprender.
+    aprendizados: list = field(default_factory=list)
+
+    # As recusas por instabilidade deste tick (`aprendiz.RecusaPorInstabilidade`),
+    # com a DISTANCIA MEDIDA em celulas. E a peca de D-07: sem ela o desfecho de
+    # um `celulas_toleradas` errado seria a feature nao acontecer, em silencio.
+    #
+    # LISTA VAZIA TAMBEM E O ESTADO NORMAL, pela mesma razao da vizinha.
+    recusas_de_aprendizado: list = field(default_factory=list)
+
     # A extração falhou e o tick não concluiu nada sobre a party.
     falhou_ao_analisar: bool = False
 
@@ -167,6 +188,7 @@ class Sessao:
         mercado=None,
         bosses=None,
         regras_de_respawn=(),
+        aprendiz=None,
     ) -> None:
         self.cal = cal
         self.rastreador = rastreador
@@ -219,6 +241,25 @@ class Sessao:
         # `mercado`: toda construcao de `Sessao` que ja existe continua valida
         # sem edicao, e sem regra nenhuma o tick simplesmente nao preve nada.
         self.regras_de_respawn = regras_de_respawn
+        # O `aprendiz.Aprendiz`. Default None pela mesma razao do `loot`, do
+        # `manutencao`, do `mercado` e do `bosses`: toda construcao de `Sessao`
+        # que ja existe continua valida sem edicao, e sem ele o tick
+        # simplesmente nao aprende nada e nada mais muda.
+        self.aprendiz = aprendiz
+        # Ja avisamos que o aprendiz explodiu? Uma vez por sessao, e so uma.
+        #
+        # Mesmo trilho dos dois vizinhos do mercado, e pela mesma razao: um
+        # recurso ligado que nunca produz nada e degradacao SILENCIOSA, e
+        # repetir o aviso a cada tick e a outra forma de nao ser lido.
+        self._ja_avisou_da_falha_do_aprendiz = False
+        # Ja avisamos que o regime da party virou? Uma vez, no instante da
+        # virada. Sinalizador PROPRIO, e nao a flag do rastreador: quem decide
+        # se o aviso ja saiu e esta sessao, e ler a decisao no objeto de outro
+        # faria o aviso repetir se alguem mexesse na flag por fora.
+        self._ja_avisou_da_virada_de_identidade = False
+        # O ultimo retrato de recusas que ja foi para o log. A linha de resumo
+        # so sai quando ele MUDA — ver `_registrar_recusas`.
+        self._ultimo_retrato_de_recusas = None
         # Ja avisamos que o recorte da janela nao chega? Uma vez, e so uma.
         #
         # Um vigia ligado que nunca recebe pixels e degradacao SILENCIOSA — o
@@ -354,6 +395,18 @@ class Sessao:
         else:
             self.ticks_cego = 0
             self._contar_linhas_sem_nome(observacao)
+
+        # O APRENDIZADO ENTRA DEPOIS DO RASTREADOR JA TER DECIDIDO, e pela mesma
+        # razao escrita no bloco do mercado logo acima: nesta posicao e
+        # ESTRUTURALMENTE IMPOSSIVEL o aprendizado influenciar a lista de
+        # eventos deste tick, porque ela ja existe.
+        #
+        # O preco disso esta escrito e e aceito: nas N leituras ate a primeira
+        # assinatura existir, `assinaturas_configuradas` ainda e `False`, e uma
+        # instalacao sem assinatura nenhuma continua, nessa janela, com o
+        # comportamento de hoje. Esta fase ENCURTA para N leituras uma janela
+        # que hoje dura a sessao inteira; ela nao a fecha.
+        self._aprender(observacao, resultado)
 
         for evento in eventos:
             self.total_eventos += 1
@@ -532,6 +585,229 @@ class Sessao:
             else:
                 log.debug("Leitura do mercado falhou neste tick", exc_info=True)
             return None
+
+    # -- o aprendizado (Fase 2 do workstream identidade) --------------------
+
+    def _candidatas_para_aprender(self, observacao: Observacao) -> tuple:
+        """As linhas que o scanner esta vendo e nao sabe de quem sao (D-01).
+
+        A CONDICAO E `linha.nome is None`, E NUNCA `not linha.nome`.
+
+        `Casamento.nome` de uma entrada anonima do acervo e a string VAZIA, e
+        nao `None`. `""` significa "reconheci esta pessoa e ninguem a batizou";
+        `None` significa "nao sei quem e". Escrever `not linha.nome` colapsaria
+        os dois: toda pessoa ja aprendida voltaria a ser candidata em todo tick,
+        o recorte dela mudaria por uma celula aqui e ali, e o acervo ganharia
+        uma entrada nova a cada N ticks — para a MESMA pessoa. E o inchaco que o
+        APRE-04 existe para proibir, escrito num operador.
+
+        `ui_visivel` E O PORTAO CERTO, e nao um portao a mais. Ele ja cai quando
+        a moldura da barra some (outra janela do jogo por cima) e quando a party
+        window aparece sem nenhum icone, que sao exatamente os dois casos em que
+        os pixels da linha nao sao a pessoa. Aprender sob cegueira gravaria a
+        janela do navegador como se fosse gente, e a gravacao e IRREVERSIVEL: o
+        acervo nao tem comando de esquecer no v1.
+
+        A leitura do dicionario de mascaras parte SEMPRE de uma linha de
+        `observacao.linhas`, e nunca itera as chaves do dicionario: ele pode ter
+        mais chaves do que ha linhas ocupadas, porque `_truncar_no_primeiro_vao`
+        roda depois da coleta dos recortes. Ver o comentario do campo em
+        `visao.py`.
+
+        Metodo PURO: nao grava, nao registra e nao decide nada. So diz quem
+        pode ser considerado.
+        """
+        if not observacao.ui_visivel:
+            return ()
+
+        candidatas = []
+        for linha in observacao.linhas:
+            if linha.estado is not EstadoDaLinha.COM_MEMBRO:
+                continue
+            if linha.nome is not None:
+                continue
+            mascara = observacao.mascaras_de_nome.get(linha.indice)
+            if mascara is None:
+                continue
+            candidatas.append(
+                Candidata(
+                    indice=linha.indice,
+                    mascara=mascara,
+                    confianca=linha.confianca_do_nome,
+                )
+            )
+        return tuple(candidatas)
+
+    def _aprender(self, observacao: Observacao, resultado: ResultadoDoTick) -> None:
+        """Grava a assinatura de quem ficou parado tempo suficiente.
+
+        SAI CEDO SOB CEGUEIRA, e o portao repete de proposito o que
+        `_candidatas_para_aprender` ja faz: nao chamar o aprendiz e o que CONGELA
+        a contagem em vez de zera-la, exatamente como `_contar_linhas_sem_nome`.
+        Nao dava para ver, entao nao da para afirmar nada — nem que reconheceu,
+        nem que deixou de reconhecer. O congelamento e seguro justamente porque
+        a contagem e por CONTEUDO: se a pessoa mudou durante a cegueira, a
+        mascara muda e o vigia cai na primeira leitura visivel.
+
+        NUNCA LEVANTA, no precedente ja escrito para o mercado: uma falha aqui
+        nao pode derrubar o farm, e tambem nao pode ficar muda para sempre.
+
+        NADA E DESPACHADO. Esta fase e CALADA por decisao de escopo: perguntar e
+        a Fase 3 inteira (BATI-01).
+        """
+        if self.aprendiz is None or not observacao.ui_visivel:
+            return
+
+        try:
+            saida = self.aprendiz.observar(
+                self._candidatas_para_aprender(observacao)
+            )
+        except Exception:
+            if not self._ja_avisou_da_falha_do_aprendiz:
+                self._ja_avisou_da_falha_do_aprendiz = True
+                log.warning(
+                    "O aprendizado de identidades falhou neste frame e "
+                    "provavelmente nos proximos. Nenhuma assinatura nova sera "
+                    "gravada. Todo o resto do scanner continua igual.",
+                    exc_info=True,
+                )
+            else:
+                log.debug("Aprendizado falhou neste tick", exc_info=True)
+            return
+
+        resultado.aprendizados.extend(saida.aprendizados)
+        resultado.recusas_de_aprendizado.extend(saida.recusas)
+        self._registrar_recusas(saida.recusas)
+
+        for aprendizado in saida.aprendizados:
+            if aprendizado.desfecho not in ("criado", "ja_existia"):
+                continue
+
+            # O `log.info` DO APRENDIZADO SAI ANTES DO `log.warning` DA VIRADA,
+            # e a ordem nao e estetica: as duas linhas caem no MESMO tick, e com
+            # o aviso primeiro o `scanner.log` da primeira sessao real anuncia a
+            # mudanca de regime da party ANTES de dizer o que a causou.
+            #
+            # O PIXEL e a CONFIANCA nao sao enfeite. O pixel torna
+            # diagnosticavel, depois, um aprendizado de recorte contaminado
+            # (T-02-07, aceito e registrado). A confianca torna diagnosticavel
+            # uma SEGUNDA entrada da MESMA pessoa nascida abaixo do limiar, que
+            # D-02 nao guarda (T-02-18): uma sequencia de aprendizados com
+            # confianca em torno de 0.70 e a assinatura desse caso, e sem o
+            # numero no log ele e invisivel.
+            log.info(
+                "Aprendi uma assinatura nova (%s) da linha %d: chave %s, "
+                "%d pixels de texto, confianca %.4f. Ela entra sem nome; "
+                "a linha continua aparecendo como Membro %d.",
+                aprendizado.desfecho,
+                aprendizado.indice + 1,
+                aprendizado.chave,
+                aprendizado.assinatura.pixels_de_texto,
+                aprendizado.confianca,
+                aprendizado.indice + 1,
+            )
+
+            # A LISTA VIVA (D-03). Sem esta insercao a mesma pessoa voltaria a
+            # ser candidata no tick seguinte, o recorte mudaria por uma celula
+            # aqui e ali, e o acervo ganharia uma entrada nova a cada N ticks
+            # para a MESMA pessoa — o inchaco que o APRE-04 proibe. Com ela na
+            # lista, o proximo `extrair` casa ~1.000 contra ela mesma e a linha
+            # deixa de ser candidata por D-02.
+            self.cal.assinaturas.append(aprendizado.assinatura)
+
+            # O ELO QUE FALTAVA, e sem ele esta fase entrega o defeito que a
+            # Fase 1 acabou de consertar, por outra porta: numa instalacao que
+            # comecou sem assinatura nenhuma, `_rotular` continuaria caindo em
+            # `nome_de(indice)`, e a pessoa que o scanner acabou de aprender
+            # como ANONIMA seria anunciada com o nome de OUTRA.
+            virou = not self.rastreador.assinaturas_configuradas
+            self.rastreador.assinaturas_configuradas = True
+            if virou and not self._ja_avisou_da_virada_de_identidade:
+                # A VIRADA NAO PODE SER MUDA. Ela muda o comportamento da party
+                # INTEIRA, e nao so o da linha aprendida: a partir daqui
+                # `_rotular` devolve "Membro N" para toda linha nao reconhecida,
+                # `_e_so_uma_posicao` VETA MORREU e RESSUSCITOU para toda
+                # identidade `#linhaN`, e a purga da chave posicional passa a
+                # valer. Para quem nunca calibrou assinatura mas preencheu a
+                # lista de nomes, o efeito visivel e o scanner PARAR de anunciar
+                # mortes por nome no meio do farm.
+                #
+                # A virada continua sendo a decisao certa — silencio vence
+                # mentira plausivel, e e a mesma regra que ja vale hoje para
+                # qualquer instalacao que tenha uma assinatura — mas o usuario
+                # nao pode descobri-la pela ausencia de alertas.
+                self._ja_avisou_da_virada_de_identidade = True
+                log.warning(
+                    "A partir de agora ha identidade visual em jogo: o scanner "
+                    "gravou a primeira assinatura sozinho. Linhas que ele nao "
+                    "reconhecer passam a aparecer como Membro N, em vez de "
+                    "pegar o nome da lista por posicao, e nenhum alerta sai em "
+                    "nome delas. Isso vale para a party inteira, e nao so para "
+                    "a linha aprendida."
+                )
+
+    def _registrar_recusas(self, recusas: list) -> None:
+        """O auto-diagnostico de D-07, com a cadencia que nao foi inventada.
+
+        CADA RECUSA VAI PARA `log.debug`, para quem estiver depurando ter a
+        serie inteira. O RESUMO sai so quando o RETRATO MUDA — a primeira
+        recusa, e depois so quando aparece um minimo ou um maximo novo.
+
+        Escolher a emissao por MUDANCA, e nao a cada K recusas, e deliberado:
+        qualquer K seria um numero inventado, e este plano nao pode acrescentar
+        um. A emissao por mudanca e auto-limitada — as primeiras leituras
+        registram, e assim que as distancias convergem ela cala sozinha — e
+        ainda entrega exatamente o que o usuario precisa: a faixa real das
+        distancias, uma vez, no comeco do log. Uma linha por segundo no
+        `scanner.log` e a outra forma de nao ser lido, e a razao ja esta escrita
+        nos sinalizadores `_ja_avisou_*` do mercado (T-02-10).
+
+        O TEXTO DIZ O QUE FAZER COM O NUMERO. Um campo estruturado que so o
+        teste ve nao ajuda ninguem a escolher a tolerancia dele.
+        """
+        if not recusas:
+            return
+
+        for recusa in recusas:
+            log.debug(
+                "Recusei aprender a linha %d por instabilidade: %s, "
+                "tolerancia atual %d celula(s)",
+                recusa.indice + 1,
+                (
+                    f"{recusa.distancia} celula(s) de diferenca"
+                    if recusa.distancia is not None
+                    else "formas diferentes, distancia nao existe"
+                ),
+                recusa.tolerado,
+            )
+
+        retrato = self.aprendiz.retrato()
+        assinatura_do_retrato = (retrato.menor, retrato.maior)
+        if assinatura_do_retrato == self._ultimo_retrato_de_recusas:
+            return
+        self._ultimo_retrato_de_recusas = assinatura_do_retrato
+
+        if retrato.menor is None:
+            faixa = (
+                "sem distancia medida ainda (as leituras tinham formas "
+                "diferentes)"
+            )
+        else:
+            faixa = (
+                f"as leituras diferem de {retrato.menor} a {retrato.maior} "
+                f"celula(s), mediana {retrato.mediana:.1f}"
+            )
+
+        log.info(
+            "Nao aprendi assinatura nova por instabilidade: %d recusa(s) nesta "
+            "sessao, %s, e a tolerancia atual e %d. Para o scanner aceitar "
+            "essas leituras como a mesma pessoa, suba [identidade] "
+            "celulas_toleradas no config.toml para um valor dentro dessa "
+            "faixa. Este numero e medido na SUA tela, e nao um palpite.",
+            retrato.recusas,
+            faixa,
+            self.aprendiz.ajustes.celulas_toleradas,
+        )
 
     def _contar_linhas_sem_nome(self, observacao: Observacao) -> None:
         """Quanto tempo cada linha ocupada esta sem ser reconhecida.

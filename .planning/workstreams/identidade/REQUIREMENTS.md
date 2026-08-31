@@ -37,10 +37,10 @@ evento sem sujeito". Ele cala em vez de mentir. O que sobra e o INCOMODO.
 
 ### Aprendizado (APRE)
 
-- [ ] **APRE-01**: Ao ver uma linha cuja imagem de nome nao casa com nenhuma
+- [x] **APRE-01**: Ao ver uma linha cuja imagem de nome nao casa com nenhuma
       assinatura conhecida, o scanner GRAVA essa assinatura sozinho, sem
       calibracao e sem intervencao.
-- [ ] **APRE-02**: A assinatura so e gravada depois de estavel por N frames.
+- [x] **APRE-02**: A assinatura so e gravada depois de estavel por N frames.
       O texto e transparente e o cenario anda por tras dele; gravar no primeiro
       frame guardaria terreno junto com o nome.
 - [ ] **APRE-03**: Uma assinatura recem-aprendida NAO recebe nome automatico e
@@ -107,8 +107,8 @@ Preenchida na criacao do roadmap em 2026-08-30.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| APRE-01 | Phase 2 | Pending |
-| APRE-02 | Phase 2 | Pending |
+| APRE-01 | Phase 2 | Complete (02-01) |
+| APRE-02 | Phase 2 | Complete (02-01) |
 | APRE-03 | Phase 1 | Pending |
 | APRE-04 | Phase 2 | Pending |
 | BATI-01 | Phase 3 | Pending |

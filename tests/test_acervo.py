@@ -922,24 +922,31 @@ def _retrato_da_pasta(pasta: Path) -> dict[str, bytes]:
     return {c.name: c.read_bytes() for c in sorted(pasta.iterdir())}
 
 
-class TestEstaFaseLeENaoAprende:
-    """Os dois portoes de FRONTEIRA DE FASE deste arquivo.
+class TestQuemConheceOAcervoEOQueOLacoFazComEle:
+    """Os dois portoes de FRONTEIRA DE FASE deste arquivo, DEPOIS da Fase 2.
 
-    LEIA ISTO ANTES DE CONSERTAR UM DELES. A Fase 2 vai APAGAR
-    `test_o_laco_real_nao_encosta_no_acervo` e AJUSTAR
-    `test_so_dois_modulos_conhecem_o_acervo`, DE PROPOSITO — aprender assinaturas
-    no laco e literalmente o objetivo da Fase 2. Estes dois casos afirmam uma
-    fronteira de FASE, e nao uma invariante do projeto.
+    A FASE 2 CHEGOU, E OS DOIS FORAM ALTERADOS PELO MOTIVO QUE A DOCSTRING
+    ANTERIOR JA MANDAVA. Ela dizia, escrita na Fase 1 para este momento: "A Fase
+    2 vai APAGAR `test_o_laco_real_nao_encosta_no_acervo` e AJUSTAR
+    `test_so_dois_modulos_conhecem_o_acervo`, DE PROPOSITO — aprender
+    assinaturas no laco e literalmente o objetivo da Fase 2".
 
-    Sem esta frase escrita, o executor da Fase 2 encontra um teste vermelho e o
-    interpreta como regressao — e ou desfaz o proprio trabalho, ou afrouxa o
-    portao sem entender que estava afrouxando o certo.
+    O que mudou, e o que NAO mudou:
 
-    Por que eles existem mesmo sendo temporarios: esta fase precisa ser
-    verificavel SOZINHA. Um tracer que comecasse a gravar entradas rouba o
-    trabalho da Fase 2 e torna impossivel dizer se o criterio "uma entrada posta
-    a mao se comporta certo" foi cumprido ou se o proprio scanner escreveu a
-    entrada que ele depois leu.
+    - `l2scanner/aprendiz.py` entrou no conjunto de quem conhece o acervo. Ele e
+      o consumidor novo, e o unico que escreve por inferencia.
+    - `sessao.py` e `visao.py` continuam presos do lado de FORA, que era o ponto
+      do portao desde sempre. O `sessao.py` fala com o `aprendiz`, e nao com o
+      acervo; o `visao.py` nao fala com nenhum dos dois e continua sendo uma
+      funcao pura.
+    - o caso comportamental foi SUBSTITUIDO pelo oposto, e nao so removido: o
+      par de casos e o que mantem a afirmacao "o laco toca o acervo do jeito
+      certo" ancorada em COMPORTAMENTO, e nao em texto.
+
+    Estes dois casos continuam afirmando uma fronteira de FASE, e nao uma
+    invariante do projeto. A Fase 3 (batizar) vai acrescentar a escrita do irmao
+    `nome_<chave>`, e o conjunto de quem conhece o acervo pode crescer de novo —
+    pelo mesmo tipo de razao, e com a mesma exigencia de ser deliberado.
     """
 
     def test_so_dois_modulos_conhecem_o_acervo(self):
@@ -969,32 +976,44 @@ class TestEstaFaseLeENaoAprende:
                     if any(a.name.split(".")[-1] == "acervo" for a in no.names):
                         conhecem.add(caminho.name)
 
-        assert conhecem == {"acervo.py", "__main__.py"}, (
-            "a Fase 1 LE o acervo no arranque e mais nada; se a lista mudou, ou "
-            "alguem comecou a aprender cedo demais, ou a Fase 2 chegou e este "
-            "portao precisa ser AJUSTADO de proposito. Achado: " + str(conhecem)
+        assert conhecem == {"acervo.py", "aprendiz.py", "__main__.py"}, (
+            "a Fase 2 LE o acervo no arranque (`__main__.py`) e ESCREVE nele "
+            "por inferencia (`aprendiz.py`), e mais nada. `sessao.py` e "
+            "`visao.py` continuam de FORA de proposito: a sessao fala com o "
+            "aprendiz e nao com o acervo, e a visao e uma funcao pura que nao "
+            "fala com nenhum dos dois. Achado: " + str(conhecem)
         )
 
-    def test_o_laco_real_nao_encosta_no_acervo(self, tmp_path, pixels, calibracao):
-        """A prova COMPORTAMENTAL, que vale mais que a textual.
+    def test_o_laco_real_ESCREVE_no_acervo_e_escreve_uma_vez_so(
+        self, tmp_path, pixels, calibracao
+    ):
+        """A prova COMPORTAMENTAL, virada pela Fase 2. Vale mais que a textual.
 
-        Uma `Sessao` de verdade roda sobre um frame de verdade, e a pasta do
-        acervo fica byte a byte identica. Isso continua verdadeiro mesmo se um
-        caminho de escrita chegar por um nome que nenhuma busca por texto
-        anteciparia.
+        Este caso SUBSTITUI `test_o_laco_real_nao_encosta_no_acervo`, que a
+        Fase 1 escreveu ja mandando apaga-lo aqui. Aprender no laco e o objetivo
+        desta fase; o que precisa continuar sendo afirmado por comportamento e
+        que ele escreve DO JEITO CERTO — uma linha desconhecida, uma entrada, e
+        nao uma por tick.
 
-        A Fase 2 APAGA este caso. Ver a docstring da classe.
+        A escrita chega por um caminho que nenhuma busca por texto anteciparia:
+        `sessao.tick` -> `aprendiz.Aprendiz.observar` -> `acervo.gravar`. E
+        justamente por isso a prova e comportamental.
         """
+        from l2scanner.acervo import PREFIXO_ASSINATURA, PREFIXO_NOME
         from l2scanner.agenda import RegistroEmDisco
+        from l2scanner.aprendiz import AjustesDoAprendiz, Aprendiz
         from l2scanner.sessao import Sessao
 
         acervo_pasta = tmp_path / ".identidades"
-        for indice in range(4):
+        # TRES das quatro linhas semeadas: a quarta e a que o laco tem de
+        # aprender sozinho. Semear as quatro faria o caso passar sem que
+        # NENHUMA escrita acontecesse.
+        conhecidas = [i for i in range(4) if i != LINHA_DA_FATIA]
+        for indice in conhecidas:
             semear(acervo_pasta, assinatura_da_linha(pixels, calibracao, indice))
         identidades = carregar_identidades([], AcervoDeIdentidades(acervo_pasta))
         calibracao.assinaturas = identidades.assinaturas
-        antes = _retrato_da_pasta(acervo_pasta)
-        assert len(antes) == 4, "premissa: ha o que estragar"
+        assert len(_retrato_da_pasta(acervo_pasta)) == 3, "premissa: tres conhecidas"
 
         class SilencioParado:
             def ativo(self):
@@ -1003,6 +1022,7 @@ class TestEstaFaseLeENaoAprende:
             def atualizar(self, agora):
                 return None
 
+        acervo = AcervoDeIdentidades(acervo_pasta)
         sessao = Sessao(
             cal=calibracao,
             rastreador=Rastreador(
@@ -1012,24 +1032,42 @@ class TestEstaFaseLeENaoAprende:
             eventos_agendados=[],
             registro=RegistroEmDisco(tmp_path / ".agenda"),
             silencio=SilencioParado(),
+            aprendiz=Aprendiz(
+                acervo, AjustesDoAprendiz(leituras_para_aprender=3)
+            ),
         )
-        for indice in range(5):
+        for indice in range(20):
             resultado = sessao.tick(
                 Frame(pixels=pixels, indice=indice, saude=SaudeDoFrame.OK),
                 momento=1_700_000_000 + indice,
             )
-        # NAO VACUIDADE: o laco rodou de verdade e USOU o acervo. Um tick que
-        # falhasse na analise deixaria a pasta intacta pelo motivo errado, e o
-        # portao passaria sem nunca ter chegado perto de uma escrita.
+
+        # NAO VACUIDADE, a mesma guarda da Fase 1: o laco rodou de verdade e
+        # USOU o acervo. Um tick que falhasse na analise deixaria a pasta com
+        # tres entradas pelo motivo errado, e o portao passaria sem nunca ter
+        # chegado perto de uma escrita.
         assert resultado.observacao is not None
         assert any(
             linha.nome == "" and linha.confianca_do_nome > 0.9
             for linha in resultado.observacao.linhas
         ), "as assinaturas do acervo tem de estar em jogo neste tick"
 
-        assert _retrato_da_pasta(acervo_pasta) == antes, (
-            "o laco escreveu no acervo; aprender e trabalho da Fase 2"
+        depois = [
+            nome
+            for nome in _retrato_da_pasta(acervo_pasta)
+            if nome.startswith(PREFIXO_ASSINATURA)
+        ]
+        # UMA entrada nova, e nao uma a cada N ticks. Vinte ticks sobre o mesmo
+        # frame com N igual a tres dariam ate seis entradas para a MESMA pessoa
+        # sem a insercao na lista VIVA (D-03) — o inchaco que o APRE-04 proibe.
+        assert len(depois) == 4, (
+            "o laco tinha de aprender a quarta linha sozinho, UMA vez so. "
+            f"Achado: {depois}"
         )
+        assert not [
+            nome for nome in _retrato_da_pasta(acervo_pasta)
+            if nome.startswith(PREFIXO_NOME)
+        ], "esta fase grava ANONIMO: batizar e a Fase 3"
 
 
 # ---------------------------------------------------------------------------

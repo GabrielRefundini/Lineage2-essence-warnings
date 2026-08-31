@@ -351,3 +351,47 @@ respawn_horas_max = 10
 #   { item = "Common Aztac", quantidade = 5 },
 #   { item = "Leonard", quantidade = 20 },
 # ]
+
+# ---------------------------------------------------------------------------
+# IDENTIDADE — o scanner aprendendo sozinho quem ele nao conhece
+#
+# Quando uma linha da party window fica varias leituras seguidas SEM casar com
+# nenhuma assinatura conhecida, e com a imagem do nome ESTAVEL, o scanner grava
+# a assinatura dela sozinho, sem nome. A linha continua exatamente tao calada
+# quanto era: ela aparece como "Membro N" e nenhum alerta sai em nome dela.
+#
+# ESTA SECAO E OPCIONAL. Sem ela o scanner usa os padroes abaixo, que sao os
+# valores certos para a esmagadora maioria das maquinas. Os dois numeros entram
+# COMENTADOS de proposito: um numero escrito no arquivo e um numero que alguem
+# vai achar que precisa ajustar.
+#
+#   leituras_para_aprender   quantas leituras seguidas com a imagem estavel
+#                            bastam para gravar. Padrao 5, que a ~1 leitura por
+#                            segundo sao ~5 segundos. Subir deixa o scanner mais
+#                            desconfiado (demora mais para aprender, e uma linha
+#                            que pisca nunca e gravada); descer o deixa mais
+#                            afoito. Menos de 1 e recusado no arranque: com zero
+#                            ele gravaria no primeiro frame, sem confirmacao
+#                            nenhuma.
+#
+#   celulas_toleradas        quantas celulas da imagem do nome podem diferir
+#                            entre duas leituras e elas ainda contarem como "a
+#                            mesma". Padrao 0, ou seja a imagem tem de sair
+#                            IDENTICA nas leituras seguidas.
+#
+# ONDE ACHAR O NUMERO CERTO PARA A SUA TELA, e ele nao e um palpite: rode o
+# scanner uma vez e abra logs/scanner.log. Quando ele recusa aprender por
+# instabilidade, ele escreve uma linha dizendo quantas celulas as leituras
+# diferiram entre si, com o minimo, o maximo e a mediana medidos NA SUA
+# maquina. Escreva aqui um numero dentro dessa faixa. Se essa linha nunca
+# aparece, nao ha nada a ajustar.
+#
+# O TETO E 12, E ELE NAO E UMA OPINIAO. Acima de 12 celulas o proprio
+# reconhecimento por imagem ja trata as duas leituras como pessoas DIFERENTES,
+# entao uma tolerancia maior faria o scanner gravar uma assinatura que e a
+# media de duas pessoas. O acervo de assinaturas nao tem comando de esquecer,
+# entao um valor acima do teto e recusado no arranque, com mensagem.
+#
+# [identidade]
+# leituras_para_aprender = 5
+# celulas_toleradas = 0
