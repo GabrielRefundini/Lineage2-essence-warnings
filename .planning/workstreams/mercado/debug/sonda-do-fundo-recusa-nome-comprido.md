@@ -2,17 +2,13 @@
 slug: sonda-do-fundo-recusa-nome-comprido
 workstream: mercado
 created: 2026-08-31
-status: awaiting_human_verify
+status: resolved
 severity: alta
 hypothesis: >
   A sonda de oclusao (mercado_sonda_do_fundo) esta geometricamente EM CIMA da
   metade direita da coluna do nome. Nome comprido invade a faixa, o fundo deixa
   de ser uniforme, e a linha e recusada como "ocluida" sem haver tooltip nenhuma.
-next_action: >
-  CONSERTO APLICADO (opcao B). Falta o usuario rodar
-  `python tools/medir_oclusao.py --gravar` no checkout principal para gravar os
-  numeros no `calibration.json` (que e gitignored e nenhum agente toca), e
-  depois conferir em campo na aba Enhancement > Scrolls.
+next_action: nenhuma — conserto aplicado e PROVADO EM CAMPO
 ---
 
 # A sonda de oclusao recusa linhas de nome comprido
@@ -357,3 +353,54 @@ Sai 0 e grava os tres numeros por load-mutate-save (os moldes atravessam
 intactos). Depois: abrir a aba Enhancement > Scrolls e conferir que as linhas de
 `Protecting Scroll: Enchant C-grade Armor` passam a ser lidas e que o
 `observacoes.csv` deixa de sair so com o cabecalho.
+
+
+## RESOLVIDO — provado em campo 2026-08-31 15:48 e 16:03
+
+O usuario gravou a nova calibracao (`python tools\medir_oclusao.py --gravar`) e
+rodou o modo na MESMA aba que falhava (Enhancement > Scrolls).
+
+    ANTES                        DEPOIS
+    paginas lidas         0      13
+    paginas perdidas     31       1
+    linhas descartadas  129       0
+    observacoes           0      10
+
+`calibration.json` gravado com `246..396` / `0,003607`, piso 7 REDERIVADO pela
+varredura (faixa possivel (5,9), folga 3 para cada lado). Os 13 moldes cortados
+a mao e as 3 ancoras passaram intactos pelo load-mutate-save; a calibracao de
+party tambem.
+
+### A leitura foi conferida CONTRA A TELA: 10 de 10 linhas exatas
+
+Print do usuario comparado linha a linha com o `observacoes.csv`: nome, total,
+quantidade e ORDEM identicos. Zero divergencia.
+
+O unico residuo nao-zero esta explicado e CORRETO: `35,00 / 9 = 3,8888...`, o jogo
+exibe `3,88` truncado, e `3500 - (388 x 9) = 8`. O residuo mede exatamente a
+truncagem do jogo — e a razao de o unitario exibido nunca ter virado coluna:
+reconstruir o total a partir de `3,88` devolveria `34,92`, um numero que nunca
+existiu.
+
+### Uma suspeita minha que a medicao derrubou
+
+Eu desconfiei da ORDEM das linhas por elas nao subirem por unitario. Errado: quem
+nao esta ordenado por unitario e a LISTA DO JOGO (3,00 / 3,00 / 3,25 / 10,00 /
+3,88 / 2,50 ...), apesar da seta em `Unit price`. O scanner reproduziu a ordem da
+tela fielmente.
+
+### Portoes humanos da Fase 2 — os DOIS fechados nesta sessao
+
+1. **OCR real dentro do tick** — 10/10 conferidas contra a tela, com o nome mais
+   comprido do mercado (40 caracteres).
+2. **Congelamento provocado** — janela minimizada, e saiu
+   `CAPTURA CONGELADA: 3 janelas consecutivas bit-identicas`, recusando aceitar
+   pagina. Comportamento exato do desenho.
+
+### ANAL-01/02 provados com dado real
+
+Console: `ABAIXO DA MEDIANA: 2,50 por unidade (derivado), contra mediana de 3,89
+(derivado) com n=10`. Conferido: com n=10 (PAR), `median_low` devolve 388,89 —
+que ESTA na lista — enquanto `statistics.median` devolveria 394,44, que NAO esta.
+A decisao travada na Fase 4 ("um numero exibido tem de ter existido na tela")
+comprovada em producao.
