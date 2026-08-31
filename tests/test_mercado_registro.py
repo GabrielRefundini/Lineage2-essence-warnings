@@ -35,7 +35,9 @@ nenhum precisa ser saneado — sanear alteraria o rotulo que o usuario le.
 
 from __future__ import annotations
 
+import ast
 import csv
+import inspect
 import subprocess
 import sys
 from datetime import datetime
@@ -48,6 +50,7 @@ from l2scanner.mercado_leitura import LinhaLida
 from l2scanner.mercado_registro import (
     ARQUIVO_DE_OBSERVACOES,
     COLUNAS,
+    ContratoDoArquivoQuebrado,
     RegistroDeObservacoes,
     campos_da_observacao,
     chave_da_observacao,
@@ -551,3 +554,418 @@ class TestOConteudoHostilDoOCR:
         segunda = RegistroDeObservacoes(pasta)
         assert segunda.chaves == {chave_da_observacao(_linha())}
         assert segunda.registrar(_linha(nome_exibido=nome), AGORA) is False
+
+
+# ===========================================================================
+# O PORTAO DE CONTRATO E AS DUAS REDES POR LINHA
+# ===========================================================================
+#
+# A ORDEM E O ACHADO CENTRAL DA PESQUISA, e ela e: portao do TERMINADOR, portao
+# do CABECALHO, depois as duas redes por linha. Inverter a ordem devolve o
+# defeito que o D-17 existe para nao ter.
+#
+# A DIFERENCA DE NIVEL E DE ALCANCE ENTRE AS DUAS FAMILIAS E DELIBERADA:
+#   - contrato quebrado  -> `log.error`   -> `ContratoDoArquivoQuebrado`, nada
+#                                            e lido, a feature DESLIGA
+#   - linha ruim no meio -> `log.warning` -> so ela cai, o arquivo carrega
+
+# A linha de seis colunas que a `03-RESEARCH.md` cortou byte a byte.
+LINHA_MEDIDA = b"k;nome;2026-08-30T14:03:21;6200;48;80\r\n"
+
+# corte -> quantos campos o `csv.reader` devolve daquela cauda (medido)
+CORTES_MEDIDOS = [(36, 6), (35, 6), (34, 5), (33, 5), (31, 4)]
+IDS_DOS_CORTES = [f"corte-{corte}" for corte, _ in CORTES_MEDIDOS]
+
+
+def _fabricar(pasta: Path, corpo: bytes) -> Path:
+    """Escreve o arquivo em BYTES, sem traducao nenhuma de quebra de linha.
+
+    `write_text` traduziria `\\n` para `\\r\\n` no Windows e destruiria
+    justamente a propriedade que estes testes medem.
+    """
+    pasta.mkdir(parents=True, exist_ok=True)
+    (pasta / ARQUIVO_DE_OBSERVACOES).write_bytes(corpo)
+    return pasta
+
+
+def _cabecalho() -> bytes:
+    return SEPARADOR.join(COLUNAS).encode("utf-8") + b"\r\n"
+
+
+class TestOPortaoDoTerminador:
+    """Os CINCO cortes medidos. Arquivo sem quebra final e contrato quebrado."""
+
+    @pytest.mark.parametrize(
+        ("corte", "campos_daquela_cauda"), CORTES_MEDIDOS, ids=IDS_DOS_CORTES
+    )
+    def test_os_cinco_cortes_byte_a_byte_LEVANTAM(
+        self, tmp_path, caplog, corte, campos_daquela_cauda
+    ):
+        """5 de 5 recusados. A contagem de campos aprovaria DOIS deles.
+
+        Os cortes 36 e 35 devolvem SEIS campos — o numero certo — com o ultimo
+        campo PARCIAL: `80` vira `8` e depois vira `''`. Um residuo de 8
+        centesimos onde o disco dizia 80 e dado parcial com aparencia plausivel,
+        e pior: viraria CHAVE DE DEDUP, bloqueando para sempre a gravacao da
+        observacao correta. O `campos_daquela_cauda` do parametro esta aqui
+        justamente para o teste AFIRMAR que a rede de contagem os aprovaria.
+        """
+        pasta = _fabricar(tmp_path / ".mercado", _cabecalho() + LINHA_MEDIDA[:corte])
+
+        cauda = LINHA_MEDIDA[:corte].decode("utf-8")
+        assert (
+            len(list(csv.reader([cauda], delimiter=SEPARADOR))[0])
+            == campos_daquela_cauda
+        )
+
+        with caplog.at_level("ERROR", logger=LOGGER):
+            with pytest.raises(ContratoDoArquivoQuebrado):
+                RegistroDeObservacoes(pasta)
+
+    @pytest.mark.parametrize(
+        "corte", [corte for corte, _ in CORTES_MEDIDOS], ids=IDS_DOS_CORTES
+    )
+    def test_NENHUM_byte_do_arquivo_do_usuario_e_tocado_na_recusa(
+        self, tmp_path, corte
+    ):
+        """T-03-01b: o arranque nunca escreve sobre dado existente.
+
+        As duas saidas que mexeriam no arquivo — truncar a cauda, ou completa-la
+        com uma quebra de linha — estao refutadas por escrito no fonte. Este
+        teste e a prova de que a refutacao virou comportamento.
+        """
+        pasta = _fabricar(tmp_path / ".mercado", _cabecalho() + LINHA_MEDIDA[:corte])
+        antes = (pasta / ARQUIVO_DE_OBSERVACOES).read_bytes()
+
+        with pytest.raises(ContratoDoArquivoQuebrado):
+            RegistroDeObservacoes(pasta)
+
+        assert (pasta / ARQUIVO_DE_OBSERVACOES).read_bytes() == antes
+
+    def test_o_conteudo_CRU_da_cauda_aparece_no_log(self, tmp_path, caplog):
+        """A unica coisa que o usuario tem para reconstruir a linha."""
+        pasta = _fabricar(tmp_path / ".mercado", _cabecalho() + LINHA_MEDIDA[:36])
+
+        with caplog.at_level("ERROR", logger=LOGGER):
+            with pytest.raises(ContratoDoArquivoQuebrado):
+                RegistroDeObservacoes(pasta)
+
+        assert "k;nome;2026-08-30T14:03:21;6200;48;8" in caplog.text
+
+    def test_a_mensagem_nomeia_as_DUAS_hipoteses_e_diz_o_que_fazer(
+        self, tmp_path, caplog
+    ):
+        """O criterio nao distingue truncagem de estilo de editor, e o aviso
+        tem de dizer isso — senao o usuario conserta a hipotese errada."""
+        pasta = _fabricar(tmp_path / ".mercado", _cabecalho() + LINHA_MEDIDA[:36])
+
+        with caplog.at_level("ERROR", logger=LOGGER):
+            with pytest.raises(ContratoDoArquivoQuebrado):
+                RegistroDeObservacoes(pasta)
+
+        texto = caplog.text.lower()
+        assert "nao termina em quebra de linha" in texto
+        assert "interrompida" in texto  # hipotese 1
+        assert "editado a mao" in texto  # hipotese 2
+        assert "quebra de linha no fim" in texto  # o que fazer
+        assert "proximo arranque" in texto  # o que isso religa
+
+    def test_o_nivel_da_recusa_por_contrato_e_ERROR_e_nao_WARNING(
+        self, tmp_path, caplog
+    ):
+        """Precedente explicito da casa: `warning` e linha descartada, `error`
+        e feature desligada."""
+        pasta = _fabricar(tmp_path / ".mercado", _cabecalho() + LINHA_MEDIDA[:36])
+
+        with caplog.at_level("DEBUG", logger=LOGGER):
+            with pytest.raises(ContratoDoArquivoQuebrado):
+                RegistroDeObservacoes(pasta)
+
+        assert any(r.levelname == "ERROR" for r in caplog.records)
+
+    def test_so_o_CABECALHO_sem_quebra_final_tambem_e_contrato_quebrado(self, tmp_path):
+        """Criacao interrompida. O programa NAO completa o cabecalho a mao."""
+        corpo = SEPARADOR.join(COLUNAS).encode("utf-8")  # sem `\r\n`
+        pasta = _fabricar(tmp_path / ".mercado", corpo)
+
+        with pytest.raises(ContratoDoArquivoQuebrado):
+            RegistroDeObservacoes(pasta)
+
+        assert (pasta / ARQUIVO_DE_OBSERVACOES).read_bytes() == corpo
+
+    def test_a_cauda_pode_ser_uma_linha_INTEIRA_sem_terminador_e_ainda_levanta(
+        self, tmp_path
+    ):
+        """'Linha inteira, so sem o \\n' e a hipotese do editor — e ela cai pelo
+        mesmo portao, porque o criterio nao consegue distinguir as duas."""
+        pasta = _fabricar(
+            tmp_path / ".mercado",
+            _cabecalho() + b"k;nome;2026-08-30T14:03:21;6200;48;80",
+        )
+        with pytest.raises(ContratoDoArquivoQuebrado):
+            RegistroDeObservacoes(pasta)
+
+    def test_um_arquivo_INTEGRO_carrega_TODAS_as_linhas(self, tmp_path):
+        pasta = _fabricar(
+            tmp_path / ".mercado",
+            _cabecalho()
+            + b"a#0;Item A;2026-08-30T21:15:00;6200;48;\r\n"
+            + b"b#0;Item B;2026-08-30T21:16:00;4000;12;80\r\n",
+        )
+        registro = RegistroDeObservacoes(pasta)
+        assert registro.chaves == {("a#0", 6200, 48), ("b#0", 4000, 12)}
+        assert registro.ligado is True
+
+
+class TestOArquivoDeZeroBytes:
+    """O UNICO caso que nao passa pelo portao — e o comentario diz por que."""
+
+    def test_zero_bytes_recebe_o_cabecalho_e_carrega_VAZIO_sem_levantar(
+        self, tmp_path, caplog
+    ):
+        """Nao ha dado a preservar num arquivo vazio.
+
+        O que aconteceu ali foi uma CRIACAO INTERROMPIDA, nao uma escrita
+        perdida: nenhum byte do usuario existe para ser destruido, entao
+        escrever o cabecalho nao viola o T-03-01b. Qualquer arquivo NAO vazio
+        que nao case com o contrato — inclusive um que contenha so o cabecalho
+        sem a quebra final — desliga a feature.
+        """
+        pasta = _fabricar(tmp_path / ".mercado", b"")
+
+        with caplog.at_level("WARNING", logger=LOGGER):
+            registro = RegistroDeObservacoes(pasta)
+
+        assert registro.chaves == set()
+        assert registro.ligado is True
+        assert _linhas_cruas(pasta)[0] == SEPARADOR.join(COLUNAS)
+        assert caplog.records  # o aviso sai: zero bytes nao e o normal
+
+
+class TestOCabecalhoEContrato:
+    """D-12: divergiu, DESLIGA ALTO. Nenhuma migracao automatica."""
+
+    def test_coluna_TROCADA_levanta(self, tmp_path):
+        trocado = (
+            "chave_da_serie",
+            "nome_exibido",
+            "primeira_vez",
+            "total",  # era `total_em_centesimos`: a unidade sumiu do cabecalho
+            "quantidade",
+            "residuo_do_cruzamento",
+        )
+        pasta = _fabricar(
+            tmp_path / ".mercado", SEPARADOR.join(trocado).encode("utf-8") + b"\r\n"
+        )
+        with pytest.raises(ContratoDoArquivoQuebrado):
+            RegistroDeObservacoes(pasta)
+
+    def test_as_mesmas_colunas_em_OUTRA_ORDEM_levanta(self, tmp_path):
+        """A ORDEM e contrato tanto quanto o conjunto: o append escreveria os
+        valores nas colunas erradas e ninguem veria."""
+        outra = (COLUNAS[1], COLUNAS[0]) + COLUNAS[2:]
+        pasta = _fabricar(
+            tmp_path / ".mercado", SEPARADOR.join(outra).encode("utf-8") + b"\r\n"
+        )
+        with pytest.raises(ContratoDoArquivoQuebrado):
+            RegistroDeObservacoes(pasta)
+
+    def test_arquivo_NAO_VAZIO_sem_cabecalho_levanta(self, tmp_path):
+        pasta = _fabricar(
+            tmp_path / ".mercado", b"a#0;Item A;2026-08-30T21:15:00;6200;48;\r\n"
+        )
+        with pytest.raises(ContratoDoArquivoQuebrado):
+            RegistroDeObservacoes(pasta)
+
+    def test_a_recusa_por_cabecalho_tambem_nao_toca_BYTE_nenhum(self, tmp_path):
+        corpo = b"a#0;Item A;2026-08-30T21:15:00;6200;48;\r\n"
+        pasta = _fabricar(tmp_path / ".mercado", corpo)
+        with pytest.raises(ContratoDoArquivoQuebrado):
+            RegistroDeObservacoes(pasta)
+        assert (pasta / ARQUIVO_DE_OBSERVACOES).read_bytes() == corpo
+
+    def test_o_cabecalho_com_ESPACOS_ao_redor_ainda_serve(self, tmp_path):
+        """`strip` em cada campo, igual ao analog — um editor que alinhou as
+        colunas nao e um arquivo corrompido."""
+        pasta = _fabricar(
+            tmp_path / ".mercado",
+            SEPARADOR.join(f" {coluna} " for coluna in COLUNAS).encode("utf-8")
+            + b"\r\n",
+        )
+        registro = RegistroDeObservacoes(pasta)
+        assert registro.chaves == set()
+
+    def test_a_mensagem_do_cabecalho_diz_o_que_esperava_e_o_que_ACHOU(
+        self, tmp_path, caplog
+    ):
+        pasta = _fabricar(tmp_path / ".mercado", b"a;b;c;d;e;f\r\n")
+        with caplog.at_level("ERROR", logger=LOGGER):
+            with pytest.raises(ContratoDoArquivoQuebrado):
+                RegistroDeObservacoes(pasta)
+        assert "chave_da_serie" in caplog.text  # o esperado
+        assert "'a'" in caplog.text  # o encontrado, cru
+
+
+class TestAsDuasRedesPorLinha:
+    """D-14: uma linha ruim do MEIO cai sozinha. O arquivo nunca e condenado."""
+
+    def test_linha_do_meio_com_campos_A_MENOS_cai_e_as_demais_CARREGAM(
+        self, tmp_path, caplog
+    ):
+        pasta = _fabricar(
+            tmp_path / ".mercado",
+            _cabecalho()
+            + b"a#0;Item A;2026-08-30T21:15:00;6200;48;\r\n"
+            + b"b#0;Item B;2026-08-30T21:16:00\r\n"
+            + b"c#0;Item C;2026-08-30T21:17:00;4000;12;0\r\n",
+        )
+        with caplog.at_level("DEBUG", logger=LOGGER):
+            registro = RegistroDeObservacoes(pasta)
+
+        assert registro.chaves == {("a#0", 6200, 48), ("c#0", 4000, 12)}
+        assert registro.ligado is True
+        assert "linha 3" in caplog.text
+        assert "b#0" in caplog.text  # o conteudo CRU
+        assert any(r.levelname == "WARNING" for r in caplog.records)
+        assert not any(r.levelname == "ERROR" for r in caplog.records)
+
+    def test_linha_com_campos_A_MAIS_tambem_cai_sozinha(self, tmp_path, caplog):
+        pasta = _fabricar(
+            tmp_path / ".mercado",
+            _cabecalho()
+            + b"a#0;Item A;2026-08-30T21:15:00;6200;48;;sobra\r\n"
+            + b"c#0;Item C;2026-08-30T21:17:00;4000;12;0\r\n",
+        )
+        with caplog.at_level("WARNING", logger=LOGGER):
+            registro = RegistroDeObservacoes(pasta)
+        assert registro.chaves == {("c#0", 4000, 12)}
+
+    @pytest.mark.parametrize(
+        "corpo",
+        [
+            b"b#0;Item B;2026-08-30T21:16:00;seis mil;12;\r\n",
+            b"b#0;Item B;2026-08-30T21:16:00;4000;doze;\r\n",
+            b"b#0;Item B;ontem de tarde;4000;12;\r\n",
+            b"   ;Item B;2026-08-30T21:16:00;4000;12;\r\n",
+            b"b#0;Item B;2026-08-30T21:16:00;4000;12;quase\r\n",
+        ],
+        ids=["total", "quantidade", "carimbo", "chave-vazia", "residuo"],
+    )
+    def test_a_rede_de_TIPO_pega_cada_campo_e_as_demais_carregam(
+        self, tmp_path, caplog, corpo
+    ):
+        pasta = _fabricar(
+            tmp_path / ".mercado",
+            _cabecalho()
+            + b"a#0;Item A;2026-08-30T21:15:00;6200;48;\r\n"
+            + corpo
+            + b"c#0;Item C;2026-08-30T21:17:00;4000;12;0\r\n",
+        )
+        with caplog.at_level("WARNING", logger=LOGGER):
+            registro = RegistroDeObservacoes(pasta)
+
+        assert registro.chaves == {("a#0", 6200, 48), ("c#0", 4000, 12)}
+        assert "linha 3" in caplog.text
+        assert registro.ligado is True
+
+    def test_uma_linha_de_residuo_ZERO_carrega_normalmente(self, tmp_path):
+        """`0` e valor legitimo — 'conferi e bateu' — e nao motivo de descarte."""
+        pasta = _fabricar(
+            tmp_path / ".mercado",
+            _cabecalho() + b"a#0;Item A;2026-08-30T21:15:00;6200;48;0\r\n",
+        )
+        assert RegistroDeObservacoes(pasta).chaves == {("a#0", 6200, 48)}
+
+    def test_linhas_em_BRANCO_no_meio_sao_ignoradas_sem_aviso(self, tmp_path, caplog):
+        pasta = _fabricar(
+            tmp_path / ".mercado",
+            _cabecalho()
+            + b"a#0;Item A;2026-08-30T21:15:00;6200;48;\r\n"
+            + b"\r\n"
+            + b"c#0;Item C;2026-08-30T21:17:00;4000;12;0\r\n",
+        )
+        with caplog.at_level("WARNING", logger=LOGGER):
+            registro = RegistroDeObservacoes(pasta)
+        assert registro.chaves == {("a#0", 6200, 48), ("c#0", 4000, 12)}
+        assert not caplog.records
+
+
+class TestAChaveRepetidaComNomeDiferente:
+    """D-08: a escolha e ANUNCIADA, nunca calada. E a feature NAO desliga."""
+
+    CORPO = (
+        b"a#0;Item Alfa;2026-08-30T21:15:00;6200;48;\r\n"
+        b"a#0;Item Beta;2026-08-30T21:16:00;6200;48;\r\n"
+    )
+
+    def test_sai_em_ERROR_nomeando_as_DUAS_linhas_e_os_DOIS_nomes(
+        self, tmp_path, caplog
+    ):
+        """A chave E o conteudo — chave igual so pode significar que o ROTULO
+        oscilou no OCR. Quem decide entre duas etiquetas e o usuario."""
+        pasta = _fabricar(tmp_path / ".mercado", _cabecalho() + self.CORPO)
+
+        with caplog.at_level("DEBUG", logger=LOGGER):
+            registro = RegistroDeObservacoes(pasta)
+
+        assert [r for r in caplog.records if r.levelname == "ERROR"], caplog.text
+        assert "Item Alfa" in caplog.text
+        assert "Item Beta" in caplog.text
+        assert "linha 2" in caplog.text
+        assert "linha 3" in caplog.text
+        assert registro.chaves == {("a#0", 6200, 48)}
+
+    def test_a_PRIMEIRA_e_a_mantida_e_a_mensagem_diz_isso(self, tmp_path, caplog):
+        """A primeira e tambem a mais antiga."""
+        pasta = _fabricar(tmp_path / ".mercado", _cabecalho() + self.CORPO)
+        with caplog.at_level("ERROR", logger=LOGGER):
+            RegistroDeObservacoes(pasta)
+        assert "Item Alfa" in caplog.text
+        assert "mantida" in caplog.text.lower()
+
+    def test_a_feature_NAO_desliga_e_o_arquivo_continua_INTACTO(self, tmp_path):
+        """O arquivo esta legivel; o que esta errado e uma etiqueta."""
+        pasta = _fabricar(tmp_path / ".mercado", _cabecalho() + self.CORPO)
+        antes = (pasta / ARQUIVO_DE_OBSERVACOES).read_bytes()
+
+        registro = RegistroDeObservacoes(pasta)
+
+        assert registro.ligado is True
+        assert (pasta / ARQUIVO_DE_OBSERVACOES).read_bytes() == antes
+
+    def test_chave_repetida_com_o_MESMO_nome_e_silenciosa(self, tmp_path, caplog):
+        """Isso e so a mesma observacao duas vezes — nao ha etiqueta em disputa."""
+        pasta = _fabricar(
+            tmp_path / ".mercado",
+            _cabecalho()
+            + b"a#0;Item Alfa;2026-08-30T21:15:00;6200;48;\r\n"
+            + b"a#0;Item Alfa;2026-08-30T21:16:00;6200;48;\r\n",
+        )
+        with caplog.at_level("ERROR", logger=LOGGER):
+            registro = RegistroDeObservacoes(pasta)
+        assert not caplog.records
+        assert registro.chaves == {("a#0", 6200, 48)}
+
+
+class TestALeituraNAO_ESCREVE:
+    """T-03-01b por inspecao de AST, para um comentario nunca a satisfazer."""
+
+    def test_o_modulo_nao_chama_truncate_em_lugar_nenhum(self):
+        """As duas saidas recusadas do D-17, presas estruturalmente.
+
+        (a) truncar a cauda apagaria bytes do usuario num caminho de LEITURA — e
+        uma das duas hipoteses do proprio aviso e 'linha boa salva sem quebra
+        final', entao apagaria dado bom em metade dos casos que a saida existe
+        para tratar. (b) completar a cauda com uma quebra de linha e pior ainda:
+        preserva a linha possivelmente truncada E a PROMOVE — na leitura
+        seguinte ela passa nas duas redes por linha e vira observacao permanente.
+        """
+        from l2scanner import mercado_registro
+
+        arvore = ast.parse(inspect.getsource(mercado_registro))
+        chamadas = {
+            no.func.attr
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.Call) and isinstance(no.func, ast.Attribute)
+        }
+        assert "truncate" not in chamadas, chamadas
