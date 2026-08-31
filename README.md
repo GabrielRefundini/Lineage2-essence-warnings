@@ -223,6 +223,60 @@ python -m l2scanner --replay recordings/20260824-120000-farm --dry-run
 O replay usa os **horários gravados**, não o relógio: uma sessão de uma hora
 reproduzida em trinta segundos produz exatamente os mesmos eventos.
 
+## Mercado — ler o World Exchange
+
+O modo `--mercado` é uma **terceira invocação**, ao lado das duas de party. Ele
+não vigia party nenhuma e não manda alerta: só lê o painel do World Exchange e
+grava o que viu.
+
+Ele precisa do OCR, que mora no `.venv` — rodar pelo Python global falha com uma
+mensagem dizendo isso:
+
+```bash
+.\.venv\Scripts\python.exe -m l2scanner --mercado --janela "Yazalaque - XM Essence"
+```
+
+Use o título **exato**, com o nome do personagem. Sem valor, o `--janela`
+escolhe sozinho, mas só quando há **uma única** janela do jogo aberta — com as
+duas instâncias de party rodando ele não tem como saber qual é.
+
+Ele grava dois arquivos, com papéis diferentes:
+
+| Arquivo | O que é |
+|---|---|
+| `.mercado/observacoes.csv` | O registro: uma linha por anúncio visto, com preço e quantidade |
+| `.mercado/catalogo-de-nomes.csv` | O vocabulário: cada item já visto, quantas vezes e quando |
+
+### Qual aba ele lê
+
+Hoje ele lê **uma** aba do painel: a **Equipment**, cujas colunas são
+`Goods | Quantity | Total | Unit price`. É a que foi calibrada, e é o layout
+que o `calibration.json` chama de `negociacao`.
+
+A aba **Adena** é uma grade **diferente** — `Auction List | Total Price |
+5 mln increment`, sem coluna de quantidade nenhuma. Ela ainda **não é lida**, e
+o scanner **recusa** as páginas dela de propósito, em vez de tentar encaixá-las
+na grade errada. Se o resumo da sessão mostrar muitas "paginas de outro layout",
+é isso — não é defeito.
+
+### Abrir o CSV no Google Sheets
+
+**Arquivo → Importar → Enviar upload**, e então:
+
+- separador: **Personalizado**, com `;` — não existe preset "Ponto e vírgula", e
+  o separador é `;` porque os preços usam vírgula decimal (`62,00`), que num CSV
+  separado por vírgula colapsaria tudo numa coluna só;
+- **DESMARQUE** "Converter texto em números, datas e fórmulas".
+
+Essa segunda caixa não é preciosismo. Na primeira sessão real, **8 das 36
+linhas** tinham nome começando com `+` — `+1`, `+2` e `+3 Phantom Mask Sealed`.
+Com a conversão ligada, o Sheets lê `+1 Phantom Mask Sealed` como **fórmula** e
+a célula vira erro, justamente nas séries mais caras do arquivo.
+
+O nome **não é higienizado** de propósito: `+1 Phantom Mask Sealed` é o nome
+real do item no jogo, e adulterá-lo para caber numa planilha faria o arquivo
+mentir sobre o que estava na tela.
+
 ## Opções
 
 | Opção | O que faz |
