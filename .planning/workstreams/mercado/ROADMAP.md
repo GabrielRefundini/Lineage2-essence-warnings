@@ -169,7 +169,7 @@ Plans:
 
 Plans:
 
-- [ ] 04-01-PLAN.md — (wave 1) o laco de producao: `--mercado` liga os TRES fios sem chamador (leitor, registro e catalogo), console ao vivo e resumo das duas metades [DETC-02, LEIT-04]
+- [x] 04-01-PLAN.md — (wave 1) o laco de producao: `--mercado` liga os TRES fios sem chamador (leitor, registro e catalogo), console ao vivo e resumo das duas metades [DETC-02, LEIT-04]
 - [x] 04-02-PLAN.md — (wave 1) a estatistica PURA: unitario em `Fraction`, `median_low`, tendencia sobre ordinal, pisos de evidencia declarados como escolha [ANAL-01, ANAL-03]
 - [ ] 04-03-PLAN.md — (wave 2) "vale quanto agora?": a watchlist como filtro de destaque, o modelo no laco e o destaque calculado contra a mediana de ANTES do tick [ANAL-01, ANAL-02, ANAL-03]
 - [ ] 04-04-PLAN.md — (wave 3) a margem de craft: `[[receita]]` validado, resolucao de nome que quebra em vez de adivinhar, staleness por componente [ANAL-04]

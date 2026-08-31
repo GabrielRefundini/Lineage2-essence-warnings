@@ -382,14 +382,38 @@ class TestAsCosturasDoModulo:
         assert "agora" in chamadas, chamadas
 
     def test_a_ferramenta_nao_acrescenta_flag_ao_scanner(self) -> None:
-        """Ela e de bancada: o modo `--mercado` e DETC-02, Fase 4.
+        """Ela e de bancada, e o scanner nao sabe que ela existe.
+
+        ATUALIZADO NA FASE 4. A forma original tambem afirmava que
+        `"--mercado"` NAO aparecia no `__main__.py`, porque quando ela foi
+        escrita o modo era DETC-02 e ainda nao existia. Ele existe agora
+        (04-01), entao aquela metade virou uma afirmacao sobre o calendario e
+        nao sobre a ferramenta - e foi trocada pelo que ela sempre quis dizer:
+        a flag, quando nascesse, nasceria do modo de mercado e NUNCA desta
+        ferramenta de bancada.
 
         A conferencia e sobre o FONTE do scanner, e nao sobre a arvore de
         trabalho, que pode estar suja de outro plano ou de outro workstream.
         """
         principal = (RAIZ / "l2scanner" / "__main__.py").read_text(encoding="utf-8")
-        assert '"--mercado"' not in principal
         assert "gerar_observacoes_do_censo" not in principal
+        assert "razao_para_recusar_a_saida" not in principal
+        # A flag existe, e ela desce para o LACO DE PRODUCAO. Se um dia ela
+        # chamar a ferramenta de bancada, este teste cai.
+        assert '"--mercado"' in principal
+        assert "mercado_modo" in principal
+
+    def test_a_ferramenta_continua_exigindo_a_propria_saida(self) -> None:
+        """A guarda que o `--mercado` NAO pode ter, e por isso ela e daqui.
+
+        `--saida` sem padrao existe para impedir que uma linha derivada de
+        replay entre na `.mercado/` com carimbo de agora sobre um preco visto
+        dias atras. O modo ao vivo nao ganha flag de destino nenhuma, senao a
+        mesma protecao seria furada pelo outro lado.
+        """
+        modo = (RAIZ / "l2scanner" / "mercado_modo.py").read_text(encoding="utf-8")
+        assert "add_argument" not in modo
+        assert "--saida" in inspect.getsource(ferramenta)
 
 
 # ===========================================================================
