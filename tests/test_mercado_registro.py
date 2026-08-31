@@ -38,6 +38,7 @@ from __future__ import annotations
 import ast
 import csv
 import inspect
+import logging
 import os
 import shutil
 import stat
@@ -1155,3 +1156,269 @@ class TestAsCapturasSaoESTREITAS:
             if isinstance(no, ast.Call) and isinstance(no.func, ast.Attribute)
         }
         assert chamadas.isdisjoint({"fsync", "replace", "now"}), chamadas
+
+
+# ===========================================================================
+# A METADE DE MONTAGEM (03-02): a porta de entrada que a casa exige
+# ===========================================================================
+#
+# `import l2scanner.__main__` fica DENTRO de cada funcao de teste, e nao no topo
+# do arquivo, pelo mesmo motivo de `tests/test_gravador_honesto.py:484`:
+# importar o ponto de entrada declara consciencia de DPI e arrasta `cv2`, e a
+# metade de cima deste arquivo prova justamente que o modulo de registro NAO faz
+# isso. Um import no topo apagaria essa prova sem nenhum aviso.
+#
+# A FORMA DE FALHA PREFERIDA E O NOME OCUPADO POR ARQUIVO, com a justificativa
+# copiada do analog: ela e deterministica em todo sistema operacional e nao
+# depende de permissao, que varia entre maquinas. Onde a permissao e inevitavel
+# — o unico arranque que PRECISA escrever — quem e marcado somente-leitura e o
+# ARQUIVO e nunca a PASTA: a medicao desta pesquisa mostrou que o bit e inerte
+# sobre pasta no Windows, e um teste escrito assim passaria por acidente.
+
+# `__main__.py:152` nomeia o logger `"l2scanner"`, e nao `__name__`. Filtrar
+# pelo NOME importa porque o modulo de registro TAMBEM grita por conta propria
+# nos dois casos de contrato quebrado: sem o filtro, estes testes provariam a
+# mensagem que o 03-01 escreveu em vez da que a montagem escreve.
+LOGGER_DA_MONTAGEM = "l2scanner"
+
+
+def _erros_da_montagem(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [
+        r
+        for r in caplog.records
+        if r.levelno >= logging.ERROR and r.name == LOGGER_DA_MONTAGEM
+    ]
+
+
+class TestAMontagemDoRegistroDeMercado:
+    """Tenta, degrada com log alto, devolve `None` — e o scanner sobe sempre.
+
+    As cinco regras do padrao da casa (`montar_gravador`, `__main__.py:227-262`)
+    estao cobertas aqui uma a uma: o `try` sobre o construtor INTEIRO (o teste
+    do nome ocupado prova o `mkdir`), a captura estreita e nomeada, `error` e
+    nao `warning`, as DUAS mensagens com a segunda dizendo o que continua, e o
+    `return None` que nunca vira `raise`.
+    """
+
+    def test_uma_pasta_normal_devolve_o_registro_e_nao_grita(self, tmp_path, caplog):
+        import l2scanner.__main__ as principal
+
+        with caplog.at_level(logging.DEBUG, logger=LOGGER_DA_MONTAGEM):
+            registro = principal.montar_registro_de_mercado(tmp_path / ".mercado")
+
+        assert isinstance(registro, RegistroDeObservacoes)
+        assert registro.arquivo.exists()
+        assert not _erros_da_montagem(caplog), "o caminho feliz nao grita"
+
+    def test_um_ARQUIVO_ocupando_o_nome_da_pasta_devolve_None(self, tmp_path, caplog):
+        """O `mkdir` do construtor levanta `FileExistsError` (errno 17) FORA de
+        qualquer rede — e o bug que `montar_gravador` foi escrito para consertar.
+
+        Quem o defende e a montagem, envolvendo o construtor INTEIRO.
+        """
+        import l2scanner.__main__ as principal
+
+        ocupado = tmp_path / ".mercado"
+        ocupado.write_text("nao sou uma pasta", encoding="utf-8")
+
+        with caplog.at_level(logging.ERROR, logger=LOGGER_DA_MONTAGEM):
+            registro = principal.montar_registro_de_mercado(ocupado)
+
+        assert registro is None, "o mercado desliga; o scanner segue"
+        assert _erros_da_montagem(
+            caplog
+        ), "sair calado faria o usuario farmar uma sessao inteira sem dado"
+
+    def test_a_SEGUNDA_mensagem_diz_o_que_CONTINUA_funcionando(self, tmp_path, caplog):
+        """`error` e nao `warning`, e DUAS mensagens: a segunda E o PERS-03.
+
+        A frase e a mesma de `montar_gravador` (`__main__.py:255-258`), e por
+        isso e conferida por substring: ela nao e decoracao, e o requisito
+        escrito uma vez.
+        """
+        import l2scanner.__main__ as principal
+
+        ocupado = tmp_path / ".mercado"
+        ocupado.write_text("nao sou uma pasta", encoding="utf-8")
+
+        with caplog.at_level(logging.ERROR, logger=LOGGER_DA_MONTAGEM):
+            principal.montar_registro_de_mercado(ocupado)
+
+        erros = _erros_da_montagem(caplog)
+        assert len(erros) == 2
+        assert any("continua igual" in r.getMessage() for r in erros)
+        assert any(A_PROMESSA in r.getMessage() for r in erros)
+
+    def test_o_cabecalho_divergente_desliga_pela_MONTAGEM(self, tmp_path, caplog):
+        """`ContratoDoArquivoQuebrado` NAO e `OSError`, e nao pode subir cru.
+
+        Esta e a divergencia declarada com a regra 2 da casa: a captura ganha um
+        segundo tipo NOMEADO. Sem ela, a excecao sobe do arranque como traceback
+        cru — o modo de falha que a montagem existe para consertar.
+        """
+        import l2scanner.__main__ as principal
+
+        pasta = _fabricar(tmp_path / ".mercado", b"chave;nome;preco\r\n")
+
+        with caplog.at_level(logging.ERROR, logger=LOGGER_DA_MONTAGEM):
+            registro = principal.montar_registro_de_mercado(pasta)
+
+        assert registro is None
+        assert _erros_da_montagem(caplog)
+
+    def test_o_arquivo_SEM_QUEBRA_FINAL_desliga_e_o_disco_fica_INTOCADO(
+        self, tmp_path, caplog
+    ):
+        """O SEGUNDO motivo de `ContratoDoArquivoQuebrado` (D-17).
+
+        E o assert que importa nao e so o `None`: e que nenhum byte do arquivo
+        do usuario mudou. A montagem nao repara, nao trunca e nao completa cauda.
+        """
+        import l2scanner.__main__ as principal
+
+        pasta = _fabricar(
+            tmp_path / ".mercado", _cabecalho() + LINHA_MEDIDA[: -len(b"\r\n")]
+        )
+        alvo = pasta / ARQUIVO_DE_OBSERVACOES
+        antes = alvo.read_bytes()
+
+        with caplog.at_level(logging.ERROR, logger=LOGGER_DA_MONTAGEM):
+            registro = principal.montar_registro_de_mercado(pasta)
+
+        assert registro is None
+        assert _erros_da_montagem(caplog)
+        assert alvo.read_bytes() == antes, "D-17: nenhum byte e tocado"
+
+    def test_o_CSV_somente_leitura_no_arranque_que_PRECISA_escrever(
+        self, tmp_path, caplog
+    ):
+        """ZERO BYTES mais somente-leitura: o unico arranque que ESCREVE.
+
+        Com o arquivo cheio e valido o arranque so LE, e o bit seria inerte —
+        mesma familia da armadilha do `chmod` sobre pasta. O arquivo de zero
+        bytes e o estado em que o cabecalho precisa nascer, e e ai que o
+        `PermissionError` (errno 13) tem o que impedir.
+        """
+        import l2scanner.__main__ as principal
+
+        pasta = _fabricar(tmp_path / ".mercado", b"")
+        alvo = pasta / ARQUIVO_DE_OBSERVACOES
+        _travar(alvo)
+        try:
+            with caplog.at_level(logging.ERROR, logger=LOGGER_DA_MONTAGEM):
+                registro = principal.montar_registro_de_mercado(pasta)
+        finally:
+            _destravar(alvo)
+
+        assert registro is None
+        assert _erros_da_montagem(caplog)
+
+    def test_SEM_argumento_a_pasta_e_a_de_PRODUCAO_do_modulo_de_registro(
+        self, tmp_path, monkeypatch
+    ):
+        """A pasta padrao e resolvida em tempo de CHAMADA, e nao de import.
+
+        E isso que permite ao teste apontar para `tmp_path` sem nunca tocar a
+        `.mercado/` real, que e dado acumulado e sem desfazer.
+        """
+        import l2scanner.__main__ as principal
+        from l2scanner import mercado_registro
+
+        producao = tmp_path / "producao" / ".mercado"
+        monkeypatch.setattr(mercado_registro, "PASTA_DO_MERCADO", producao)
+
+        registro = principal.montar_registro_de_mercado()
+
+        assert registro is not None
+        assert registro.arquivo == producao / ARQUIVO_DE_OBSERVACOES
+        assert registro.arquivo.exists()
+        assert registro.arquivo.is_relative_to(tmp_path)
+
+    def test_a_assinatura_tem_pasta_OPCIONAL(self):
+        import l2scanner.__main__ as principal
+
+        parametros = inspect.signature(principal.montar_registro_de_mercado).parameters
+        assert parametros["pasta"].default is None
+
+
+class TestAMontagemNUNCA_LEVANTA:
+    """Conferencia por AST: um comentario nunca a invalida nem a satisfaz."""
+
+    def _arvore(self):
+        import l2scanner.__main__ as principal
+
+        return ast.parse(inspect.getsource(principal.montar_registro_de_mercado))
+
+    def test_nao_ha_raise_em_lugar_nenhum_da_montagem(self):
+        """A regra 5 do padrao: `return None`, nunca `raise`. O chamador da
+        Fase 4 trata `None` como feature desligada."""
+        levantamentos = [
+            no for no in ast.walk(self._arvore()) if isinstance(no, ast.Raise)
+        ]
+        assert not levantamentos, [no.lineno for no in levantamentos]
+
+    def test_a_captura_e_ESTREITA_e_os_dois_tipos_sao_NOMEADOS(self):
+        """A divergencia com a regra 2 e de UM tipo a mais, nao de largura.
+
+        `except Exception` esconderia um `AttributeError` de refactor futuro
+        como se fosse disco cheio — o mesmo motivo pelo qual o modulo de
+        registro recusou o `except Exception` do analog do `Gravador`.
+        """
+        maus = [
+            tratador
+            for no in ast.walk(self._arvore())
+            if isinstance(no, ast.Try)
+            for tratador in no.handlers
+            if tratador.type is None
+            or (
+                isinstance(tratador.type, ast.Name)
+                and tratador.type.id in ("Exception", "BaseException")
+            )
+        ]
+        assert not maus, [t.lineno for t in maus]
+
+
+class TestOAvisoALTO_CHEGA_AO_CONSOLE:
+    """A metade do D-13 que o `caplog` nao ve.
+
+    `caplog` prova que o `log.error` SAIU; ele nao prova que o usuario o LE.
+    Esta classe fecha a outra metade: `configurar_log` instala um manipulador de
+    fluxo sobre `sys.stdout` alem do arquivo rotativo, entao o aviso da montagem
+    chega ao console E ao log sem nenhuma linha de codigo nova.
+    """
+
+    def test_configurar_log_instala_console_sobre_stdout_e_arquivo_rotativo(
+        self, tmp_path, monkeypatch
+    ):
+        from logging.handlers import RotatingFileHandler
+
+        import l2scanner.__main__ as principal
+
+        monkeypatch.setattr(principal, "PASTA_LOGS", tmp_path / "logs")
+        anteriores = list(principal.log.handlers)
+        nivel = principal.log.level
+        try:
+            principal.configurar_log(verboso=False)
+            instalados = principal.log.handlers
+
+            arquivos = [h for h in instalados if isinstance(h, RotatingFileHandler)]
+            consoles = [
+                h
+                for h in instalados
+                if isinstance(h, logging.StreamHandler)
+                and not isinstance(h, RotatingFileHandler)
+                and getattr(h, "stream", None) is sys.stdout
+            ]
+
+            assert arquivos, "sem arquivo, um farm de tres horas morre calado"
+            assert (
+                consoles
+            ), "sem console, 'avisar alto' seria so um arquivo que ninguem abre"
+        finally:
+            # Devolver o logger global exatamente como estava: um manipulador
+            # sobrando faria os testes seguintes gravarem dentro de `tmp_path`.
+            for manipulador in list(principal.log.handlers):
+                if manipulador not in anteriores:
+                    manipulador.close()
+            principal.log.handlers[:] = anteriores
+            principal.log.setLevel(nivel)
