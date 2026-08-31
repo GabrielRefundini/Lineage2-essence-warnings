@@ -91,6 +91,111 @@ log = logging.getLogger(__name__)
 JANELAS_IGUAIS_PARA_CONGELAR = 3
 
 
+# ---------------------------------------------------------------------------
+# A VERDADE UNICA SOBRE "CALIBRADO PARA MERCADO"
+# ---------------------------------------------------------------------------
+
+
+def _peca_ausente(valor) -> bool:
+    """Ausente e `None` ou vazio, e vazio conta como ausente de proposito.
+
+    Um `{}` gravado no lugar de uma grade nao e uma grade pequena: e a mesma
+    falta escrita de outro jeito. `hasattr(valor, "__len__")` deixa numero e
+    booleano passarem pela primeira metade sem levantar.
+    """
+    return valor is None or (hasattr(valor, "__len__") and len(valor) == 0)
+
+
+def pecas_de_calibracao_de_mercado_faltando(cal) -> list[str]:
+    """Que chaves faltam no `calibration.json` para LER o mercado. Em ordem.
+
+    ESTA E A UNICA VERDADE SOBRE "CALIBRADO PARA MERCADO", e ela existe porque
+    ate agora havia DUAS: `LeitorDePagina._calibrado` conferia as doze chaves do
+    tick, e o arranque do scanner conferia outras tres em tres lugares
+    diferentes do `__main__.py`. Duas listas parecidas sobre a mesma pergunta
+    divergem, e a divergencia aqui significa um modo `--mercado` que sobe
+    dizendo que esta calibrado e nao le uma linha.
+
+    Ela NAO levanta e NAO avisa: e uma pergunta, e quem chama decide o desfecho.
+    O leitor transforma a resposta em feature OFF com aviso; o modo `--mercado`
+    transforma a mesma resposta em recusa de subir, porque la a feature E o
+    produto.
+
+    NOTA DE CONTAGEM, porque um numero que caiu precisa dizer que caiu: o plano
+    da Fase 4 falava em ONZE chaves do leitor e QUATORZE no total. Sao DOZE e
+    QUINZE. Os comentarios do 02-07 e do 02-05 aqui embaixo numeram a "decima" e
+    a "decima primeira" sem contar `mercado_grade`, que entra na conferencia
+    assim mesmo, e o plano herdou a conta.
+
+    AS RAZOES, chave por chave:
+
+    - `mercado_grade`, `mercado_sonda_do_fundo`, `mercado_cabecalho_de_coluna`,
+      `mercado_limiar_do_cabecalho`, `mercado_templates_de_digito`: sem geometria,
+      sem sonda de fundo, sem molde de cabecalho e sem molde de digito nao ha o
+      que fatiar nem com que comparar.
+    - `mercado_limiar_de_leitura_de_glifo`, `mercado_margem_de_leitura_de_glifo`,
+      `mercado_corte_de_similaridade`, `mercado_piso_de_similaridade`: os quatro
+      limiares que decidem se um glifo foi lido. Um valor de fabrica aqui seria a
+      constante magica que o `calibration.json` existe para nao ter.
+    - `mercado_coluna_do_unitario` (02-06): sem ela a TERCEIRA leitura de numero
+      nao acontece e a fatia da linha levantaria dentro do tick.
+    - `mercado_limiar_de_brilho_da_quantidade` (02-07): `ler_celula_de_quantidade`
+      o exige SEM valor de fabrica; o portao por AUSENCIA transforma a falta em
+      feature OFF com aviso em vez de `TypeError` no meio do tick.
+    - `mercado_minimo_de_linhas_comparadas` (02-05): ela ENTRA, ao contrario da
+      folga de cola, porque a ausencia dela NAO degrada para mais seguro. Degrada
+      para o ACORDO TRIVIAL (T-02-26), que aceita como lida uma pagina em que
+      quase nada atravessou.
+    - `mercado_ancoras` e `mercado_limiar_da_ancora` (NOVAS aqui): sem as duas
+      nao ha `RastreioDoPainel`, e sem ele ninguem sabe ONDE o painel esta na
+      janela. O painel anda 827x831 px nas gravacoes de campo.
+    - `mercado_geometria_da_captura` (NOVA aqui): sem ela nao ha `Regiao` para
+      pedir a JANELA INTEIRA a captura, e o mercado precisa da janela inteira
+      justamente porque o painel anda.
+
+    A `mercado_folga_de_cola_do_glifo` continua FORA, e isso e o 02-08: a
+    ausencia dela degrada para MAIS SEGURO (a guarda de glifo colado liga e a
+    celula duvidosa cai fechada), entao desligar a leitura inteira por causa dela
+    seria trocar uma falha fechada por outra, maior.
+    """
+    return [
+        nome
+        for nome, valor in (
+            ("mercado_grade", cal.mercado_grade),
+            ("mercado_sonda_do_fundo", cal.mercado_sonda_do_fundo),
+            ("mercado_templates_de_digito", cal.mercado_templates_de_digito),
+            ("mercado_cabecalho_de_coluna", cal.mercado_cabecalho_de_coluna),
+            ("mercado_limiar_do_cabecalho", cal.mercado_limiar_do_cabecalho),
+            (
+                "mercado_limiar_de_leitura_de_glifo",
+                cal.mercado_limiar_de_leitura_de_glifo,
+            ),
+            (
+                "mercado_margem_de_leitura_de_glifo",
+                cal.mercado_margem_de_leitura_de_glifo,
+            ),
+            ("mercado_corte_de_similaridade", cal.mercado_corte_de_similaridade),
+            ("mercado_piso_de_similaridade", cal.mercado_piso_de_similaridade),
+            ("mercado_coluna_do_unitario", cal.mercado_coluna_do_unitario),
+            (
+                "mercado_limiar_de_brilho_da_quantidade",
+                cal.mercado_limiar_de_brilho_da_quantidade,
+            ),
+            (
+                "mercado_minimo_de_linhas_comparadas",
+                cal.mercado_minimo_de_linhas_comparadas,
+            ),
+            ("mercado_ancoras", cal.mercado_ancoras),
+            ("mercado_limiar_da_ancora", cal.mercado_limiar_da_ancora),
+            (
+                "mercado_geometria_da_captura",
+                cal.mercado_geometria_da_captura,
+            ),
+        )
+        if _peca_ausente(valor)
+    ]
+
+
 def tupla_comparavel(linha: LinhaLida) -> tuple:
     """O que de uma linha entra na comparacao entre dois frames (D-18).
 
@@ -702,46 +807,28 @@ class LeitorDePagina:
         `raise`: um `raise` derrubaria o scanner inteiro — que existe para avisar
         que alguem da party morreu — por causa de uma feature de mercado nao
         calibrada.
+
+        A LISTA NAO MORA MAIS AQUI: ela e
+        `pecas_de_calibracao_de_mercado_faltando`, no topo do modulo, porque o
+        modo `--mercado` da Fase 4 precisa da MESMA resposta antes de subir e
+        duas listas parecidas divergiriam. O que continua sendo daqui e o
+        DESFECHO — feature OFF, aviso uma vez so — e ele e diferente do de la,
+        onde a mesma falta e recusa de subir.
+
+        AS DUAS PECAS DECODIFICADAS SAO CONFERIDAS DE NOVO, e isso nao e
+        repeticao: a funcao de modulo le o `calibration.json` cru, e um molde de
+        cabecalho presente mas com hex CORROMPIDO passa por ela e chega aqui como
+        `None`, porque `cabecalho_de_calibracao` levantou no construtor. Sem esta
+        segunda conferencia o leitor recusaria toda pagina para sempre sem uma
+        linha dizendo por que.
         """
-        faltando = [
-            nome
-            for nome, valor in (
-                ("mercado_grade", self._grade),
-                ("mercado_sonda_do_fundo", self._sonda),
-                ("mercado_templates_de_digito", self._moldes),
-                ("mercado_cabecalho_de_coluna", self._molde_do_cabecalho),
-                ("mercado_limiar_do_cabecalho", self._limiar_do_cabecalho),
-                ("mercado_limiar_de_leitura_de_glifo", self._piso),
-                ("mercado_margem_de_leitura_de_glifo", self._margem),
-                ("mercado_corte_de_similaridade", self._corte),
-                ("mercado_piso_de_similaridade", self._piso_de_similaridade),
-                (
-                    "mercado_coluna_do_unitario",
-                    self._cal.mercado_coluna_do_unitario,
-                ),
-                # A DECIMA, do 02-07. Sem ela nao ha piso para passar a
-                # `ler_celula_de_quantidade`, que o exige SEM valor de fabrica —
-                # e o portao por AUSENCIA e o que transforma isso em feature OFF
-                # com aviso alto, em vez de um `TypeError` dentro do tick. NAO
-                # ha ramo de fallback: um piso implicito aqui seria a constante
-                # magica que o parametro obrigatorio existe para impedir.
-                (
-                    "mercado_limiar_de_brilho_da_quantidade",
-                    self._valor_minimo_da_quantidade,
-                ),
-                # A DECIMA PRIMEIRA, do 02-05: o piso de posicoes comparadas.
-                # Ela ENTRA aqui, ao contrario da folga de cola, porque a
-                # ausencia dela NAO degrada para mais seguro — degrada para o
-                # ACORDO TRIVIAL (T-02-26), que aceita como lida uma pagina em
-                # que quase nada atravessou. Feature OFF e o unico default
-                # seguro para uma chave assim.
-                (
-                    "mercado_minimo_de_linhas_comparadas",
-                    self._minimo_comparado,
-                ),
-            )
-            if valor is None or (hasattr(valor, "__len__") and len(valor) == 0)
-        ]
+        faltando = pecas_de_calibracao_de_mercado_faltando(self._cal)
+        for nome, decodificado in (
+            ("mercado_templates_de_digito", self._moldes),
+            ("mercado_cabecalho_de_coluna", self._molde_do_cabecalho),
+        ):
+            if _peca_ausente(decodificado) and nome not in faltando:
+                faltando.append(nome)
         if faltando:
             if not self._falta_ja_avisada:
                 log.warning(

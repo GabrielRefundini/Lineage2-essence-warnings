@@ -543,6 +543,37 @@ def montar_registro_de_mercado(pasta: Path | None = None):
     return registro
 
 
+def montar_catalogo_de_mercado(pasta: Path | None = None):
+    """Monta o catalogo de nomes, ou diz por que nao montou. NUNCA levanta.
+
+    Trilho IDENTICO ao de `montar_registro_de_mercado` logo acima, e pelo mesmo
+    motivo medido: o `mkdir(parents=True, exist_ok=True)` do `Catalogo.__init__`
+    roda HOJE fora de qualquer `try`, e levanta `FileExistsError` (errno 17,
+    winerror 183) quando um ARQUIVO ocupa o nome da pasta. Por isso o `try`
+    envolve o construtor INTEIRO, `mkdir` incluido.
+
+    O tipo de retorno nao e anotado pelo mesmo motivo de la: o nome so existe
+    atras do import ADIADO. A pasta padrao resolve em tempo de CHAMADA, para o
+    teste apontar `tmp_path` sem tocar a `.mercado/` do usuario.
+    """
+    from .mercado_catalogo import ARQUIVO_DO_CATALOGO, Catalogo, PASTA_DO_MERCADO
+
+    destino = PASTA_DO_MERCADO if pasta is None else pasta
+    try:
+        return Catalogo(destino)
+    except OSError as erro:
+        log.error(
+            "CATALOGO DE NOMES DESLIGADO - nao consegui abrir %s: %s",
+            destino / ARQUIVO_DO_CATALOGO,
+            erro,
+        )
+        log.error(
+            "Todo o resto do scanner continua igual: morte, saida e "
+            "ressurreicao seguem sendo detectadas e entregues."
+        )
+        return None
+
+
 def _duracao_legivel(segundos: float) -> str:
     """Segundos viram "3h02min" — "10920s" nao ajuda ninguem a reconhecer o
     proprio problema de dual boot."""
@@ -2381,6 +2412,15 @@ def main() -> int:
             "silenciar). Nao precisa do jogo aberto."
         ),
     )
+    parser.add_argument(
+        "--mercado",
+        action="store_true",
+        help=(
+            "roda SO a leitura do World Exchange, como TERCEIRA invocacao ao "
+            "lado das duas de party. NAO vigia a party e NAO envia alerta "
+            "nenhum: so le o painel e grava em .mercado/. Exige --janela."
+        ),
+    )
     parser.add_argument("-v", "--verboso", action="store_true", help="log detalhado")
 
     args = parser.parse_args()
@@ -2400,6 +2440,12 @@ def main() -> int:
             "--record-janela exige --janela: so o caminho da janela expoe a "
             "janela completa (capturar_completo). O caminho `mss` captura o "
             "desktop composto e nao tem a janela do jogo como unidade."
+        )
+    if args.mercado and not args.janela:
+        parser.error(
+            "--mercado exige --janela: o painel do World Exchange e procurado "
+            "na JANELA INTEIRA porque ele anda, e so o caminho da janela a "
+            "expoe como unidade."
         )
 
     configurar_log(args.verboso)
@@ -2459,6 +2505,14 @@ def main() -> int:
                 log.error("Escolha uma, ou recalibre para gravar qual e.")
                 return 2
             args.janela = janelas[0]
+
+    # AQUI, e nao junto do --so-agenda: ao contrario da agenda, este modo OLHA
+    # para a tela, e sair antes duplicaria a verdade sobre como a janela e
+    # escolhida.
+    if args.mercado:
+        from .mercado_modo import laco_do_mercado
+
+        return laco_do_mercado(args, cal)
 
     # DEPOIS da calibracao e da resolucao do --janela AUTO, e nao junto do
     # --testar-agenda: diferente da agenda, esta ferramenta precisa das duas.
