@@ -5,16 +5,16 @@ milestone_name: )
 current_phase: 4
 current_phase_name: Modo --mercado, analise e console
 status: in-progress
-stopped_at: Wave 1 da Fase 4 FECHADA — 04-01 (o laco) e 04-02 (a analise pura) mesclados dos dois worktrees
-last_updated: "2026-08-31T06:52:44.401Z"
+stopped_at: "Completed 04-03-PLAN.md (onda 2) — a juncao: watchlist como filtro de DESTAQUE, ModeloDeMercado carregado UMA vez, e o destaque contra a mediana de ANTES do tick. Suite 2951 passed + 23 skipped (base desta arvore 2905 + 23). Os blocos Phase/Plan/Status e current_phase NAO foram tocados: sao do orquestrador depois da onda 2 fechar."
+last_updated: "2026-08-31T10:09:57.872Z"
 last_activity: 2026-08-31
 last_activity_desc: "Fase 4 plano 01, o que LIGA OS TRES FIOS que as Fases 2 e 3 deixaram sem chamador: l2scanner/mercado_modo.py (o laco de producao), l2scanner/mercado_console.py (o desenho em texto puro, sem dependencia nova) e a flag --mercado em 54 linhas no __main__.py disputado (teto 70, zero remocoes). O modo RECUSA a subir com codigo 2 sem OCR, sem calibracao ou fora do layout de negociacao, nomeando a chave que falta, e sem calibracao nem toca o disco. Uma sessao grava no observacoes.csv E no catalogo-de-nomes.csv, provado ponta a ponta sobre fixturas versionadas com OCR REPRODUZIDO. minimum_update_interval=250 so no mercado e a unica alavanca real de DETC-02; o party fica byte-identico e o acoplamento esta preso nas DUAS direcoes. Suite 2851 passed + 23 skipped, 145 no agenda. Achado registrado em deferred-items.md: mercado_catalogo -> config -> notificador -> rastreador e cadeia de IMPORT da Fase 2, nao de uso. Portao de campo do DETC-02 ABERTO."
-state_head: b8e8f8bd2e7cc620d34ffe65b6cb5c75f8f31100
+state_head: 29593ff8b4be004930a1d92e28e2f8d86fca9645
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 21
-  completed_plans: 17
+  completed_plans: 19
   percent: 25
 ---
 
@@ -114,6 +114,9 @@ Progress: [███░░░░░░░] 25%
 - [Phase 4]: A tendencia roda sobre o ORDINAL das ofertas distintas, nunca sobre o carimbo. MEDIDO nesta sessao sobre dez ofertas em queda de 100 para 55: o ordinal devolve -42,86%, e o eixo do carimbo devolve inclinacao de -135.104 por segundo e percentual de -5e-7% — ele APAGA a queda e nao levanta `StatisticsError`. Os carimbos distam microssegundos porque `gravar_as_paginas` chama o relogio POR LINHA (04-02)
 - [Phase 4]: Os pisos de evidencia (menor=1, mediana=5, tendencia=8) sao ESCOLHA declarada em constantes nomeadas no fonte, e NAO moram no `calibration.json`. Duas razoes escritas la: aquele arquivo e lido e nunca escrito por este modo, e estes numeros nao sao calibracao de pixel — sao julgamento de produto. Nenhum piso desse tipo foi medido; os numeros medidos que existem (151 lidas, 189 perdidas, 39 series) sao sobre a LEITURA (04-02)
 - [Phase 4]: `unitario` recusa quantidade nao positiva e as agregacoes tiram essas ofertas da conta E do `n`. NAO estava no plano: o CSV e editado a mao no Sheets, `quantidade=0` passa em `chave_dos_campos` como inteiro valido e derrubaria o console, e quantidade NEGATIVA inverteria o sinal do unitario fazendo a oferta ganhar a disputa do menor pedido visivel (04-02)
+- [Phase 4]: [Phase 4/04-03] A watchlist e FILTRO DE DESTAQUE e nunca porta de entrada: sem ela o console responde para as series com MAIS EVIDENCIA (SERIES_NO_TOPO=8, ESCOLHA), com ela as dela vem primeiro e MARCADAS e o resto continua visivel abaixo. Contraria a LETRA do criterio 3 do ROADMAP de proposito, e a divergencia esta escrita na docstring de ordenar_para_o_console. O casamento e EXATO sobre casefold + espacos colapsados, nunca fuzzy: +3 e +4 diferem em um caractere e sao series deliberadamente separadas.
+- [Phase 4]: [Phase 4/04-03] ANAL-02: a ordem do tick e quatro passos NUMERADOS no laco — julgar contra o modelo COMO ELE ESTA, catalogo, registro, e so entao acrescentar (apenas com registrar()==True). O teste que a prende DISCRIMINA: cinco ofertas de unitarios 100..140 dao median_low=120 e a sexta muito barata levaria a mediana de seis para 110; o teste afirma PRIMEIRO que os dois numeros diferem. O CSV e lido UMA vez no arranque — reler a 1 Hz abriria corrida com o usuario editando no Sheets.
+- [Phase 4]: [Phase 4/04-03] Dois criterios do plano REPROVAM e foram rodados como escritos, com o que discrimina acrescentado ao lado. (a) 'calibrar_mercado not in getsource(config)' ja reprovava na arvore PRISTINA — a unica ocorrencia e um comentario em 9dcccbf:791 que a restricao 3 do proprio plano proibe tocar; o que discrimina e a leitura dos imports pelo AST. (b) 'grep ultima_vez no console sem ocorrencia' e insatisfazivel junto do teste que o 04-02 travou exigindo essa mesma palavra na prosa; o que discrimina e a assercao sobre o CODIGO com docstrings arrancadas pelo AST, com controle negativo medido.
 
 ### Blockers
 
@@ -216,9 +219,9 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 
 ## Session Continuity
 
-**Last session:** 2026-08-31T06:52:44.076Z
+**Last session:** 2026-08-31T10:09:57.441Z
 
-**Stopped At:** Wave 1 da Fase 4 FECHADA — 04-01 (o modo `--mercado` sobe, le e grava) e 04-02 (a analise pura) mesclados
+**Stopped At:** Completed 04-03-PLAN.md (onda 2) — a juncao: watchlist como filtro de DESTAQUE, ModeloDeMercado carregado UMA vez, e o destaque contra a mediana de ANTES do tick. Suite 2951 passed + 23 skipped (base desta arvore 2905 + 23). Os blocos Phase/Plan/Status e current_phase NAO foram tocados: sao do orquestrador depois da onda 2 fechar.
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -240,3 +243,4 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 | Phase 03 P03 | 9min | 2 tasks | 2 files |
 | Phase 4 P01 | 16min | 3 tasks | 9 files |
 | Phase 4 P02 | 11min | 3 tasks | 3 files |
+| Phase 4 P3 | 34min | 3 tasks | 6 files |
