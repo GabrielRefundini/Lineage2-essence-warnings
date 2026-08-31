@@ -517,8 +517,14 @@ class Calibracao:
 
     @property
     def nomes_com_assinatura(self) -> set[str]:
-        """Quem tem impressao digital visual gravada."""
-        return {a.nome for a in self.assinaturas}
+        """Quem tem impressao digital visual gravada.
+
+        Assinatura ANONIMA nao entra: o acervo em disco carrega entradas sem
+        nome, e a string vazia dentro deste conjunto seria lixo esperando virar
+        um bug de nome errado na proxima comparacao que alguem escrever contra
+        ele.
+        """
+        return {a.nome for a in self.assinaturas if a.nome}
 
     def nome_da_linha(self, indice: int) -> str:
         """Rotulo de uma linha que NAO foi reconhecida.

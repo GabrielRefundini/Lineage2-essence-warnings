@@ -36,6 +36,12 @@ recordings/
 # Pelo mesmo motivo do .loot/: estado local, DURAVEL e sem poda, porque
 # estatistica de item e para sempre — versionar misturaria duas maquinas.
 .mercado/
+# .identidades/ guarda o acervo de assinaturas visuais — estado local e
+# DURAVEL, sem poda, porque "quem e o Fulano" e uma pergunta sobre meses.
+# Versionar misturaria as assinaturas de maquinas diferentes, e nenhuma das
+# duas saberia dizer qual metade e sua: a chave e o hash dos PIXELS, e a
+# mesma pessoa em outra tela produz outra chave.
+.identidades/
 outbox.jsonl
 events.jsonl
 logs/
