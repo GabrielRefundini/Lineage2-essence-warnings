@@ -74,11 +74,11 @@ mercado ganha um denominador comum.
 
 **Requirements**: ADEN-01 a ADEN-04 (ver REQUIREMENTS.md)
 **Depends on:** v1-mercado
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 
-- [ ] 05-01-PLAN.md — a quantidade DERIVADA (a `Auction List` não se lê) e a guarda de cruzamento que rejeita o `13588` — *onda 1*
+- [x] 05-01-PLAN.md — a quantidade DERIVADA (a `Auction List` não se lê) e a guarda de cruzamento que rejeita o `13588` — *onda 1*
 - [ ] 05-02-PLAN.md — `mercado_layouts` opcional e o portão de layout que ESCOLHE, com a matriz medida nos dois sentidos — *onda 2*
 - [ ] 05-03-PLAN.md — a taxa em XM por milhão no console, e a dívida do `13588` registrada — *onda 2*
 - [ ] 05-04-PLAN.md — `--layout adena` grava aninhado e não destrói a calibração de negociação — *onda 3*
@@ -91,8 +91,10 @@ Estes vieram do fechamento do v1 e estão em REQUIREMENTS.md como DEBT-*:
 
 - **A assertividade do OCR de nome** — o discriminador certo é vocabulário de PALAVRA,
   não similaridade de nome inteiro. Medido: 24 nomes contra 29 palavras distintas.
+
 - **A cadeia de import** `mercado_catalogo` → `config` → `notificador` → `rastreador`
   (fecha o v1 DECLARADA ABERTA, não silenciada).
+
 - **A moldura de 153 colunas** do destaque, que rola para fora do console.
 - **`Hunteds Tunic` × `Hunter's Tunic`** (0,8889) na faixa cinzenta.
 - **As 4 séries partidas** por variação de OCR, que a ferramenta de fusão não junta de
