@@ -2,10 +2,11 @@
 phase: 1
 slug: dashboard-do-cambio-ao-vivo
 workstream: dashboard
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-09-01
+approved: 2026-09-01
 ---
 
 # Fase 1 — Contrato de Design da Interface
@@ -113,11 +114,18 @@ Três famílias, **quatro tamanhos, dois pesos**. Nada além disso entra no CSS.
 | Body | 16px | 400 | 1.5 | `--font-ui` |
 | Label | 14px | 400 | 1.4 | `--font-ui` (etiquetas, `n`, recência, rodapé) |
 | Heading | 24px | 700 | 1.2 | `--font-display`, maiúsculas, `letter-spacing: 0.12em` |
-| Display | 48px | 700 | 1.1 | `--font-num` — **os dois números de agora** |
+| Display | **`clamp(32–48px)`** | 700 | 1.1 | `--font-num` — **os dois números de agora** |
 
-**Guarda de estouro do Display:** `font-size: clamp(32px, 6vw, 48px)`. Os dois extremos são tokens
-declarados da escala tipográfica/espacial; um número muito grande **encolhe, nunca quebra linha e
-nunca vaza do painel**.
+**Guarda de estouro do Display:** `font-size: clamp(32px, 6vw, 48px)`.
+
+O piso e o teto estão declarados **dentro da linha `Display` da tabela acima**, e não como uma nota
+de rodapé, porque é lá que o teto de quatro tamanhos é cobrado. `32px` aqui é **um extremo do papel
+Display**, e não o token de espaçamento `--sp-xl` — os dois valerem 32 é coincidência aritmética, não
+parentesco. O papel Display continua sendo **um** papel na escala; ele apenas respira entre dois
+limites declarados. Efeito: um número muito grande **encolhe, nunca quebra linha e nunca vaza do
+painel**.
+
+Nenhum outro papel da escala usa `clamp`. Body, Label e Heading são fixos.
 
 **Regra dura:** o Display usa `--font-num`, não `--font-display`. A fonte de fantasia é para o
 título da placa; o valor que decide dinheiro é lido em monoespaçada tabular. Se as duas
@@ -131,38 +139,62 @@ Paleta tirada da cromática do painel do cliente de L2: carvão quente, relevo e
 dourado nas letras, pergaminho no corpo. **Toda ela é CSS puro** — gradientes, bordas e sombras.
 Nenhuma textura, nenhum print do jogo, nenhum asset que não exista no repositório.
 
-| Papel | Valor | Uso |
-|-------|-------|-----|
-| Dominante (60%) | `#14110D` | fundo da página |
-| Secundária (30%) | `#1F1A14` | painéis (destaque, gráfico, rodapé) |
-| Acento (10%) | `#E0B450` | lista explícita abaixo |
-| Destrutiva / ausência | `#E06A5C` | ausência de dado e erro de contrato — **e nada mais** |
+| Papel | Token | Valor | Uso |
+|-------|-------|-------|-----|
+| Dominante (60%) | `--cor-fundo` | `#14110D` | fundo da página |
+| Secundária (30%) | `--cor-painel` | `#1F1A14` | painéis (destaque, gráfico, rodapé) |
+| Acento (10%) | `--cor-ouro` | `#E0B450` | lista explícita abaixo |
+| Destrutiva / ausência | `--cor-alerta` | `#E06A5C` | ausência de dado e erro de contrato — **e nada mais** |
+
+Estes quatro papéis são um **recorte** do bloco de tokens abaixo, e não uma segunda paleta: cada
+linha nomeia o token que a implementa. O valor aparece aqui só para o papel 60/30/10 ser legível de
+uma olhada.
 
 ### Tokens completos
 
 ```css
---cor-fundo:        #14110D;  /* 60% */
---cor-painel:       #1F1A14;  /* 30% */
---cor-relevo-baixo: #0B0906;  /* sombra do chanfro */
---cor-relevo-alto:  #3A3026;  /* borda do chanfro */
---cor-relevo-luz:   #5A4A35;  /* fio de luz superior do chanfro */
---cor-ouro:         #E0B450;  /* 10% — acento */
---cor-texto:        #E8E0D0;  /* pergaminho: corpo e o número em R$ */
---cor-texto-fraco:  #A79880;  /* n, recência, procedência do rodapé */
---cor-alerta:       #E06A5C;  /* ausência / erro */
---cor-frio:         #9FB0C4;  /* dado velho: recência estourada */
---cor-grade:        #2A231A;  /* linhas de grade do gráfico */
+--cor-fundo:         #14110D;  /* 60% */
+--cor-painel:        #1F1A14;  /* 30% */
+--cor-relevo-topo:   #241E17;  /* topo do gradiente da placa */
+--cor-relevo-base:   #171310;  /* base do gradiente da placa */
+--cor-relevo-baixo:  #0B0906;  /* sombra do chanfro */
+--cor-relevo-alto:   #3A3026;  /* borda do chanfro */
+--cor-relevo-luz:    #5A4A35;  /* fio de luz superior do chanfro */
+--cor-ouro:          #E0B450;  /* 10% — acento */
+--cor-serie-tipica:  #C9BFA8;  /* a linha da mediana e o rótulo dela na legenda */
+--cor-texto:         #E8E0D0;  /* pergaminho: corpo e o número em R$ */
+--cor-texto-fraco:   #A79880;  /* n, recência, procedência do rodapé */
+--cor-alerta:        #E06A5C;  /* ausência / erro */
+--cor-frio:          #9FB0C4;  /* dado velho: recência estourada */
+--cor-grade:         #2A231A;  /* linhas de grade do gráfico */
 ```
+
+**Este bloco é a única declaração de cor do projeto.** Fora dele não existe literal hexadecimal —
+nem no `dashboard.css`, nem no `dashboard.js`, nem na configuração do gráfico. (A tabela de papéis
+acima repete quatro valores por legibilidade, mas nomeia o token de cada um: é recorte, não fonte.)
+
+Essa regra não é estética: o `dashboard.js` é obrigado a ler cor por
+`getPropertyValue`, e uma cor sem nome de token é **uma cor que o gráfico não consegue pedir**. Foi
+por isso que a linha da mediana ganhou `--cor-serie-tipica` em vez de continuar sendo um `#C9BFA8`
+solto: ela é passada para a configuração da biblioteca, e o que não tem nome não atravessa.
 
 ### Contraste — medido, não estimado
 
 | Par | Razão | Piso |
 |---|---|---|
-| `--cor-texto` sobre `--cor-fundo` | **14,35:1** | AAA |
-| `--cor-ouro` sobre `--cor-painel` | **8,90:1** | AAA |
-| `--cor-texto-fraco` sobre `--cor-painel` | **6,13:1** | AAA (corpo) |
-| `--cor-alerta` sobre `--cor-painel` | **5,25:1** | AA+ |
+| `--cor-texto` sobre `--cor-fundo` | **14,34:1** | AAA |
+| `--cor-texto` sobre `--cor-painel` | **13,16:1** | AAA |
+| `--cor-serie-tipica` sobre `--cor-painel` | **9,46:1** | AAA |
+| `--cor-ouro` sobre `--cor-painel` | **8,89:1** | AAA |
 | `--cor-frio` sobre `--cor-painel` | **7,80:1** | AAA |
+| `--cor-texto-fraco` sobre `--cor-painel` | **6,12:1** | AAA (corpo) |
+| `--cor-alerta` sobre `--cor-painel` | **5,25:1** | AA+ |
+
+`--cor-serie-tipica` entra na tabela porque **ela não é só traço**: o mesmo valor pinta o rótulo
+`mediana` na legenda, e legenda é texto. Uma cor medida apenas como linha de gráfico teria passado
+sem nunca ser cobrada como texto — que é exatamente o buraco que a linha acima fecha. Medida sobre
+`--cor-relevo-topo` (o extremo mais claro do gradiente da placa) ela ainda dá **9,03:1**, então o
+gradiente não a derruba em ponto nenhum do painel.
 
 Nenhum texto da tela fica abaixo de 4,5:1. **Isto é o que "o tema nunca custa legibilidade"
 significa em número** — se o executor trocar um valor, a razão tem que ser recalculada, não
@@ -196,7 +228,7 @@ projeto virado em pixel.
 | Série | Traço | Cor |
 |---|---|---|
 | Menor pedido visível | **sólido**, 2px | `--cor-ouro` |
-| Mediana (`median_low`) | **tracejado** `[6, 4]`, 1.5px | `#C9BFA8` |
+| Mediana (`median_low`) | **tracejado** `[6, 4]`, 1.5px | `--cor-serie-tipica` |
 
 Sólido × tracejado sobrevive a daltonismo, a monitor mal calibrado e a `Gamma=1.16`. Cor sozinha
 não sobreviveria.
@@ -276,7 +308,8 @@ Três regiões, em coluna, largura máxima `960px`, centralizada, margem lateral
 
 ```css
 .painel {
-  background: linear-gradient(180deg, #241E17 0%, var(--cor-painel) 42%, #171310 100%);
+  background: linear-gradient(180deg,
+              var(--cor-relevo-topo) 0%, var(--cor-painel) 42%, var(--cor-relevo-base) 100%);
   border: 1px solid var(--cor-relevo-alto);
   border-radius: 2px;                        /* L2 é anguloso, não arredondado */
   box-shadow:
@@ -305,7 +338,7 @@ A palavra `adena` **não aparece** no CSS nem no módulo do gráfico.
   faz "instanciar uma segunda série não exige código de gráfico novo" ser verdade **e** mantém o
   ponto de decisão único que a Fase 4 do mercado construiu.
 - A escolha da cor de uma segunda instância é do chamador. A instância da Adena usa
-  `--cor-ouro` / `#C9BFA8`; a paleta é do tema, não do componente.
+  `--cor-ouro` / `--cor-serie-tipica`; a paleta é do tema, não do componente.
 
 ### O gráfico é tematizado pela superfície da própria biblioteca
 
@@ -314,7 +347,9 @@ configuração**, não por seletor CSS. Para não haver duas paletas:
 
 ```js
 const css = getComputedStyle(document.documentElement);
-const ouro = css.getPropertyValue('--cor-ouro').trim();
+const ouro   = css.getPropertyValue('--cor-ouro').trim();
+const tipica = css.getPropertyValue('--cor-serie-tipica').trim();
+const grade  = css.getPropertyValue('--cor-grade').trim();
 ```
 
 **Regra:** nenhum literal hexadecimal em `dashboard.js`. A paleta mora em um lugar só —
@@ -344,7 +379,7 @@ mesmo pixel e a agregação é **`median_low`, nunca média** — um número exi
 | Valor mudou | Pulso de fundo de 200 ms no painel do número (`--cor-relevo-alto` → transparente). Nada se move, nada pisca. |
 | `prefers-reduced-motion: reduce` | Todo pulso e toda transição viram `none`. Sem exceção. |
 | Foco de teclado | Anel `2px` `--cor-ouro`, deslocamento `2px`. `:focus-visible`, nunca `outline: none` cru. |
-| Zoom do gráfico | Roda do mouse e arrasto, pela biblioteca. Botão **`Ver tudo`** (texto, sem ícone) restaura o alcance total — sem isso o usuário fica preso no zoom. |
+| Zoom do gráfico | Roda do mouse e arrasto, pela biblioteca. Botão **`Ver todo o período`** (texto, sem ícone) restaura o alcance total — sem isso o usuário fica preso no zoom. |
 | Envio do câmbio | `<form>` de verdade, `Enter` submete. Salva, mostra a confirmação, e o R$ aparece **sem recarregar**. |
 | Primeira pintura | Painéis desenhados com o rótulo `Lendo o arquivo…` no lugar do número. **Nunca `0,00`.** |
 
@@ -416,36 +451,54 @@ para conter.** O portão abaixo é obrigatório e vale como o portão de registr
 |----------|-------------|-------------|
 | stdlib Python (`http.server`, `json`, `pathlib`) | servidor e endpoint | não requerido |
 | Código do projeto (`mercado_registro`, `mercado_analise`, `mercado_console`) | parser, contas, formatação | não requerido — é o único parser, e continua sendo |
-| **Terceiro, vendorizado** | `vendor/<lib>.min.js` (classe uPlot, ~40KB, licença permissiva) | **leitura do fonte + proveniência + teste de firewall + CSP — as quatro, antes do merge** |
+| **Terceiro, vendorizado** | `vendor/<lib>.min.js` (classe uPlot, ~40KB, licença permissiva — **biblioteca ainda não escolhida, por decisão travada**) | **VEND-1..4, quatro tarefas separadas de plano. Incompletas no merge = BLOCK no portão de verificação.** |
 
-### O portão, em quatro provas
+### A biblioteca ainda não foi escolhida — e este documento não a escolhe
 
-1. **Proveniência escrita** em `vendor/README.md`: nome, versão exata, licença (MIT/Apache-2.0/ISC —
-   copyleft é recusado), URL de origem, **SHA-256 do arquivo**, e a data. É o que o CONTEXT já exige;
-   o SHA-256 é o que torna a linha verificável em vez de declaratória.
-2. **Leitura do fonte** procurando: `fetch(`, `XMLHttpRequest`, `navigator.sendBeacon`, `eval(`,
-   `new Function`, `import(` com URL externa, e `document.createElement('script')`. Uma biblioteca de
-   gráfico não precisa de nenhum deles. **Qualquer ocorrência bloqueia o merge** até o desenvolvedor
-   revisar e aprovar explicitamente, com a linha citada por arquivo:linha.
-3. **Teste de firewall** — `tests/test_firewall_dashboard.py`, no mesmo molde do FIRE-01: um `grep`
-   sobre `vendor/*.js` que falha se qualquer primitiva de rede aparecer. Uma promessa de que "não vai
-   para a rede" que ninguém executa não vale nada; **um teste que quebra no CI vale**. O FIRE-01 já
-   provou que esse formato funciona nesta árvore.
-4. **CSP servida pelo próprio servidor**, em todas as respostas HTML:
+A escolha é do planejador por decisão travada no `01-CONTEXT.md` ("qual biblioteca de gráfico
+exatamente" está em *Claude's Discretion*). Portanto **o portão não pode ser executado agora**: não
+há arquivo para ler nem SHA-256 para calcular.
 
-   ```
-   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self';
-                            connect-src 'self'; img-src 'self' data:; base-uri 'none';
-                            form-action 'none'
-   ```
+O que este contrato faz, então, é a única coisa honesta: **converter o portão em quatro tarefas de
+plano separadas e individualmente verificáveis**, cada uma com o artefato que a prova. Um portão
+escrito como parágrafo de intenção ("vetar antes do merge") é indistinguível de portão nenhum —
+ninguém consegue apontar onde ele falhou.
 
-   Isto torna "sem rede em tempo de execução" **estrutural, não uma intenção** — mesmo uma versão
-   futura da biblioteca com telemetria seria barrada pelo navegador. É o mesmo raciocínio pelo qual
-   `pyautogui` fica fora da árvore em vez de ficar numa regra de estilo.
+### As quatro tarefas — cada uma verificável sozinha
 
-   **Consequência de projeto:** `script-src 'self'` proíbe `<script>` e `<style>` inline. Por isso
-   `dashboard.css` e `dashboard.js` são arquivos separados — está no topo deste documento como
-   restrição de entrega, não como preferência.
+| # | Tarefa do plano | Artefato que a prova | Como se verifica |
+|---|---|---|---|
+| **VEND-1** | Registrar proveniência em `vendor/README.md`: nome, versão exata, licença (MIT / Apache-2.0 / ISC — **copyleft é recusado**), URL de origem, data e **SHA-256 do arquivo vendorizado** | `vendor/README.md` | O SHA-256 do arquivo em disco bate com o registrado. É o que torna a linha conferível em vez de declaratória. |
+| **VEND-2** | Ler o fonte da biblioteca procurando `fetch(`, `XMLHttpRequest`, `navigator.sendBeacon`, `eval(`, `new Function`, `import(` com URL externa, `document.createElement('script')` | Nota de revisão no `vendor/README.md`, com `arquivo:linha` para cada ocorrência | Zero ocorrências → aprovado. Qualquer ocorrência → **revisão humana explícita e registrada** antes de seguir; uma biblioteca de gráfico não precisa de nenhuma dessas primitivas. |
+| **VEND-3** | Escrever `tests/test_firewall_dashboard.py` no molde do FIRE-01: `grep` sobre `vendor/*.js` que falha se qualquer primitiva de rede aparecer | O teste, verde na suíte | Roda no CI. Uma promessa que ninguém executa não vale nada; **um teste que quebra vale**. O FIRE-01 já provou o formato nesta árvore. |
+| **VEND-4** | Servir a CSP abaixo em toda resposta HTML do processo Python | Teste sobre o cabeçalho da resposta do endpoint | `default-src 'none'; connect-src 'self'` presente no cabeçalho. Afirmável sem navegador, como o resto da prova desta fase. |
+
+```
+Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self';
+                         connect-src 'self'; img-src 'self' data:; base-uri 'none';
+                         form-action 'none'
+```
+
+A CSP torna "sem rede em tempo de execução" **estrutural, não uma intenção** — mesmo uma versão
+futura da biblioteca com telemetria seria barrada pelo navegador, sem ninguém precisar reler o
+`.min.js`. É o mesmo raciocínio pelo qual `pyautogui` fica fora da árvore em vez de virar uma regra
+de estilo que alguém lembra de seguir.
+
+**Consequência de projeto:** `script-src 'self'` proíbe `<script>` e `<style>` inline. Por isso
+`dashboard.css` e `dashboard.js` são arquivos separados — está no topo deste documento como
+restrição de entrega, não como preferência.
+
+### A condição de bloqueio, dita por extenso
+
+> **Biblioteca vendorizada sem VEND-1..4 completas no momento do merge é BLOCK no portão de
+> verificação da fase.** Não é ressalva, não é dívida técnica anotada, não é "resolve depois". Um
+> arquivo de terceiro de ~40KB minificado, executando no navegador do usuário, na mesma máquina em
+> que o jogo roda e na mesma árvore em que mora o `.env` com o token do Chatwoot, **não entra sem
+> as quatro provas**.
+
+O verificador da fase cobra as quatro pelo artefato, não pela intenção: `vendor/README.md` existe e o
+SHA-256 bate; a nota de revisão existe; `tests/test_firewall_dashboard.py` está verde; o cabeçalho
+CSP aparece na resposta.
 
 **Superfície do servidor:** *bind* em `127.0.0.1` apenas (travado no CONTEXT), estáticos servidos de
 um diretório explícito — nunca `SimpleHTTPRequestHandler` sobre o diretório de trabalho, que
@@ -455,14 +508,23 @@ exporia a árvore inteira, incluindo o `.env` com o token do Chatwoot.
 
 ## Checker Sign-Off
 
-- [ ] Dimensão 1 Copywriting: PASS
-- [ ] Dimensão 2 Visuais: PASS
-- [ ] Dimensão 3 Cor: PASS
-- [ ] Dimensão 4 Tipografia: PASS
-- [ ] Dimensão 5 Espaçamento: PASS
-- [ ] Dimensão 6 Registry Safety: PASS
+- [x] Dimensão 1 Copywriting: PASS
+- [x] Dimensão 2 Visuais: PASS
+- [x] Dimensão 3 Cor: PASS
+- [x] Dimensão 4 Tipografia: PASS
+- [x] Dimensão 5 Espaçamento: PASS
+- [x] Dimensão 6 Registry Safety: PASS
 
-**Aprovação:** pendente
+**Aprovação:** aprovado em 2026-09-01 — 6/6 dimensões, nenhum BLOCK.
+
+### Os quatro FLAGs do checker, e o que mudou
+
+| # | FLAG | Correção aplicada |
+|---|---|---|
+| 1 | Copywriting — `Ver tudo` é verbo sem objeto, ambíguo ao lado de um gráfico que já dá zoom e pan | Rótulo passou a **`Ver todo o período`**, na única ocorrência |
+| 2 | Cor — três literais hexadecimais fora do bloco de tokens; a cor da mediana ficava **impronunciável** para o `getPropertyValue` do gráfico | Criados `--cor-serie-tipica`, `--cor-relevo-topo`, `--cor-relevo-base`; literais substituídos em todas as ocorrências; regra de "nenhum hex fora do bloco" escrita; `--cor-serie-tipica` **medida e adicionada à tabela de contraste (9,46:1)**, porque ela também pinta o rótulo da legenda, que é texto |
+| 3 | Tipografia — o `clamp` fazia o Display renderizar num quinto tamanho, e o piso citado era o token de **espaçamento** `--sp-xl` | O piso e o teto passaram para **dentro da linha `Display`** da tabela da escala (`clamp(32–48px)`), que é onde o teto de quatro tamanhos é cobrado; registrado que 32px ali é extremo do papel Display e não parentesco com `--sp-xl` |
+| 4 | Registry Safety — portão de quatro provas escrito como intenção ("antes do merge"), com a biblioteca ainda não escolhida por decisão travada | Biblioteca **não foi escolhida** (respeita o CONTEXT). O portão virou **VEND-1..4, quatro tarefas de plano separadas**, cada uma com artefato e forma de verificação; acrescentada a condição de bloqueio dita por extenso: incompletas no merge = **BLOCK no portão de verificação** |
 
 ---
 
