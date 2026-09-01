@@ -1773,9 +1773,17 @@ def _bloco_do_teto() -> str:
     casa e o comentario de bloco ANTES do valor, como em `identidade.py` e em
     `acervo.py`. O que este helper prende e a CO-LOCALIZACAO — a derivacao mora
     junto do numero, e nao num documento que ninguem abre.
+
+    A ANCORA E A ATRIBUICAO, e nao a primeira mencao do nome. Em 2026-09-01 o
+    modulo passou a CITAR `TETO_DE_CELULAS_TOLERADAS` na docstring do topo (ele
+    virou o discriminante entre os dois regimes de instabilidade), e uma ancora
+    na primeira ocorrencia passou a recortar uma janela la em cima, longe do
+    valor. O caso caia sem que a co-localizacao tivesse se perdido, que e o
+    modo de falha mais caro que um teste de texto tem: ele mente sobre o que
+    quebrou. Buscar o `NOME = ` amarra a janela no unico ponto que interessa.
     """
     fonte = (RAIZ / "l2scanner" / "aprendiz.py").read_text(encoding="utf-8")
-    onde = fonte.index("TETO_DE_CELULAS_TOLERADAS")
+    onde = fonte.index("TETO_DE_CELULAS_TOLERADAS = ")
     return fonte[max(0, onde - 4000) : onde + 2000]
 
 
