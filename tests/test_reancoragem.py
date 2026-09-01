@@ -20,7 +20,9 @@ window, e ai ele MENTE. Toda duvida resolve em NAO reancorar.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
+import io
 import json
 import threading
 from dataclasses import replace
@@ -121,6 +123,23 @@ def detector_que_devolve(cal):
 
 def reancorador(fonte, detector, **kwargs):
     return Reancorador(fonte=fonte, detector=detector, **kwargs)
+
+
+def _janela_com_party(esquerda: int, topo: int, altura=500, largura=700):
+    """Uma janela de jogo sintetica com uma party window desenhada dentro.
+
+    As medidas sao as que `achar_barras_vermelhas` e `achar_icone_a_esquerda`
+    reconhecem: barra de HP vermelha saturada de 120x8, barra de MP azul 11 px
+    abaixo, icone escuro de 24 px a esquerda, quatro linhas com 46 px de passo.
+    """
+    janela = np.full((altura, largura, 3), 40, dtype=np.uint8)
+    for linha in range(4):
+        y = topo + linha * 46
+        janela[y : y + 8, esquerda + 40 : esquerda + 160] = (30, 30, 220)
+        janela[y + 11 : y + 19, esquerda + 40 : esquerda + 160] = (220, 60, 30)
+        janela[y - 6 : y + 18, esquerda : esquerda + 24] = 8
+        janela[y - 4 : y + 10, esquerda + 4 : esquerda + 12] = 240
+    return janela
 
 
 class TestQuandoProcurar:
@@ -419,7 +438,7 @@ class TestPlausibilidade:
         motivo = motivo_para_recusar(antiga, nova_em(antiga, 0, 0), self.forma())
 
         assert motivo is not None
-        assert "mesmo lugar" in motivo
+        assert "MESMO lugar" in motivo
 
     def test_linhas_que_cabem_conta_a_janela_real_do_usuario(self, antiga):
         assert linhas_que_cabem(antiga.party_window_na_janela, antiga.layout) == 8
@@ -575,6 +594,57 @@ class TestVarreduraContida:
         assert "capturar_tela" not in fonte
         assert "import mss" not in fonte
         assert "monitors" not in fonte
+
+    def test_a_busca_de_verdade_reancora_uma_party_deslocada(self, caplog):
+        """SEM DUBLE NENHUM: o detector do `calibrar.bat --auto` de ponta a ponta.
+
+        E o unico caso que prova que a `Calibracao` que aquele detector devolve
+        passa nos criterios de plausibilidade e sobrevive a adocao. Os demais
+        casos usam um detector falso para construir a situacao; este constroi os
+        PIXELS.
+
+        A party sintetica usa as constantes que o detector reconhece: barra
+        vermelha saturada de 120x8, MP azul 11 px abaixo, icone escuro de 24 px
+        a esquerda, quatro linhas com 46 px de passo. Custo medido: 4 ms por
+        busca neste frame de 700x500.
+        """
+        antes = _janela_com_party(esquerda=120, topo=100)
+        depois = _janela_com_party(esquerda=160, topo=75)
+
+        from l2scanner.calibrar import calibrar_automatico
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            calibrada = calibrar_automatico(antes, 0, 0)
+        assert calibrada is not None
+        # `main()` grava a posicao dentro da janela depois de calibrar; aqui
+        # `ox=oy=0`, entao as duas coincidem.
+        calibrada = replace(
+            calibrada,
+            party_window_na_janela=calibrada.party_window,
+            nomes=["Kaus"],
+            assinaturas=[object()],
+        )
+
+        fonte = FonteFalsa(completo=depois)
+        # SEM `detector=`: quem roda e `calibrar.calibrar_automatico`, pelo
+        # import tardio.
+        r = Reancorador(fonte=fonte, ticks_para_procurar=45)
+
+        with caplog.at_level("INFO", logger="l2scanner"):
+            adotada = r.talvez_reancorar(45, calibrada)
+
+        assert adotada is not None
+        assert adotada.party_window_na_janela.esquerda == (
+            calibrada.party_window_na_janela.esquerda + 40
+        )
+        assert adotada.party_window_na_janela.topo == (
+            calibrada.party_window_na_janela.topo - 25
+        )
+        assert adotada.assinaturas is calibrada.assinaturas
+        assert fonte.apontada_para == adotada.party_window_na_janela
+        # A conversa do detector nao vaza para o console do scanner.
+        assert "Procurando barras de HP" not in caplog.text
 
     def test_frame_vazio_nao_vira_reancoramento(self, antiga, caplog):
         fonte = FonteFalsa()

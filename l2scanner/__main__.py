@@ -118,6 +118,11 @@ from .presenca import (  # noqa: E402
     responder_leave,
 )
 from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
+# O reancoramento (ADVC-02). `reancoragem` NAO importa `calibrar` no topo: ele
+# faz import tardio la dentro, para o arranque do scanner nao pagar pelo `cv2`
+# das ferramentas interativas nem pelo efeito colateral de DPI que `calibrar.py`
+# executa no import. Ver a docstring de `reancoragem.Reancorador`.
+from .reancoragem import Reancorador  # noqa: E402
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
 from .respawn import (  # noqa: E402
     ancoras_mais_recentes,
@@ -2317,6 +2322,24 @@ def laco_principal(
     # --janela, entao aqui a fonte e sempre uma JanelaSource.
     gravador = montar_gravador(args, fonte)
 
+    # O REANCORAMENTO (ADVC-02), e as tres condicoes sao todas necessarias.
+    #
+    # `--janela` porque a busca precisa de `capturar_completo()`, que so a
+    # `JanelaSource` tem; `party_window_na_janela` porque e o unico referencial
+    # que sobrevive a arrastar o jogo e o unico que a busca (feita com
+    # `ox=oy=0`) produz; e `not --replay` porque uma sessao gravada nao tem
+    # janela para varrer.
+    #
+    # A CONDICAO DE `--janela` TAMBEM E A CONTENCAO. A `JanelaSource` captura
+    # POR TITULO (`window_name=` na `WindowsCapture`), entao a varredura fica
+    # dentro de UMA janela. No caminho `mss` procurar significaria varrer o
+    # desktop, e o usuario roda DOIS clientes: a busca poderia achar a party
+    # window do OUTRO e o scanner passaria a vigiar a party errada em silencio.
+    # Por isso ali o recurso simplesmente nao existe.
+    reancorador = None
+    if not args.replay and args.janela and cal.party_window_na_janela is not None:
+        reancorador = Reancorador(fonte=fonte)
+
     # O ACERVO ENTRA AQUI, ANTES DO RASTREADOR, e a atribuicao e EM MEMORIA.
     #
     # `cal.assinaturas` passa a ser a fusao "calibradas primeiro, acervo
@@ -2629,6 +2652,32 @@ def laco_principal(
                     "rode calibrar.bat de novo.",
                     sessao.ticks_cego,
                 )
+
+            # DEPOIS do aviso acima, e a ordem e a decisao: o usuario le a
+            # verdade honesta ("nao estou vendo a party") aos 30 ticks, e so
+            # aos 45 o scanner comeca a PROCURAR a party window na janela.
+            #
+            # O laco entrega o numero de ticks cegos e recebe uma calibracao
+            # nova ou `None`; quem decide se procura, se adota e o que adotar e
+            # o `reancoragem`, e ele reaponta a fonte junto. Aqui so trocamos o
+            # `cal` que o status desenha e o que a sessao le a partir do proximo
+            # frame.
+            #
+            # O `try` existe porque esta busca e um EXTRA: um scanner que morre
+            # calado e pior do que nenhum scanner, e nada nela pode derrubar o
+            # laco que vigia a party.
+            if reancorador is not None:
+                try:
+                    adotada = reancorador.talvez_reancorar(sessao.ticks_cego, cal)
+                except Exception:
+                    log.exception(
+                        "A busca da party window falhou. Sigo com a "
+                        "calibracao de sempre."
+                    )
+                else:
+                    if adotada is not None:
+                        cal = adotada
+                        sessao.cal = adotada
 
             # Enxergar a linha e nao saber quem esta nela e uma falha DIFERENTE
             # de nao enxergar, e ela era invisivel: em 2026-08-25 uma linha
