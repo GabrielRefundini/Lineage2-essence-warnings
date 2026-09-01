@@ -75,6 +75,7 @@ from .mercado_catalogo import EntradaDoCatalogo
 from .mercado_leitura import (
     Descarte,
     LinhaLida,
+    TravaDaObservacao,
     casamento_do_cabecalho,
     ler_linha,
     sonda_e_uma_banda,
@@ -421,6 +422,17 @@ class LeitorDePagina:
         self._layout_ja_recusado = False
         self._falta_ja_avisada = False
 
+        # A QUARTA TRAVA DESTE LEITOR, e a unica POR OFERTA em vez de por
+        # estado do modo. Ela mora aqui, e nao em `ler_linha`, porque a
+        # repeticao que ela suprime e do TICK: a pagina e relida a cada segundo
+        # e a mesma divergencia era registrada a 1 Hz (~7.200 linhas por hora,
+        # medido em producao 2026-09-01 09:38). Construida dentro do laco de
+        # linhas ela nasceria vazia a cada linha e nao travaria nada.
+        #
+        # PUBLICA, no padrao dos contadores logo abaixo: e o que deixa o teste
+        # afirmar que ESTA trava foi a que chegou a `ler_linha`.
+        self.trava_da_observacao = TravaDaObservacao()
+
         # A JANELA ANTERIOR e a corrida de iguais, para o congelamento.
         # Guardamos UM frame e um contador — e por isso `np.array_equal` (0,89
         # ms medido) basta e sha256 (3,70 ms) ou blake2b (6,81 ms) so custariam
@@ -761,6 +773,10 @@ class LeitorDePagina:
                 sonda=self._sonda,
                 limiar_de_dispersao=self._limiar_de_dispersao,
                 tolerancia_do_cruzamento=self._tolerancia_do_cruzamento,
+                # A TRAVA DO LEITOR, e nao uma nova: e a mesma em todos os
+                # ticks da sessao, e e isso que faz cada divergencia ser
+                # registrada uma vez em vez de uma vez por segundo.
+                trava_da_observacao=self.trava_da_observacao,
                 catalogo=catalogo_da_pagina,
                 corte_de_similaridade=float(self._corte),
                 piso_de_similaridade=float(self._piso_de_similaridade),

@@ -456,6 +456,12 @@ def laco_do_mercado(
     # silencio.
     painel_aberto_antes = None
     ticks_com_painel_antes = leitor.ticks_com_painel_aberto
+    # O MESMO DELTA, sobre o contador de layout. `paginas_de_outro_layout` so
+    # cresce no tick em que o portao de layout reprovou, entao a diferenca entre
+    # duas voltas responde "ESTE tick foi recusado?" sem espiar
+    # `_layout_ja_recusado`, que e privado e e um LATCH (ele continua `True`
+    # enquanto o estado durar, e nao diz nada sobre o tick corrente).
+    paginas_de_outro_layout_antes = leitor.paginas_de_outro_layout
 
     def desenhar_a_analise() -> None:
         """A secao "vale quanto agora", com o carimbo e a confianca do RELOGIO.
@@ -545,6 +551,14 @@ def laco_do_mercado(
             if aberto_agora != painel_aberto_antes:
                 log.info("%s", transicao_do_painel(aberto_agora))
                 painel_aberto_antes = aberto_agora
+
+            # O MESMO DELTA, para o layout. Ele e lido AQUI e nao dentro do `if
+            # pagina is not None`: o tick de layout recusado nunca produz pagina,
+            # e e exatamente esse tick que a linha ao vivo precisa nomear.
+            layout_recusado_agora = (
+                leitor.paginas_de_outro_layout > paginas_de_outro_layout_antes
+            )
+            paginas_de_outro_layout_antes = leitor.paginas_de_outro_layout
 
             # OS MOTIVOS SAO SOMADOS TODO TICK, e nao so quando a pagina e
             # aceita: a leitura recusada e justamente a que carrega o motivo, e
@@ -659,8 +673,23 @@ def laco_do_mercado(
             # mesmo raciocinio do latch de `transicao_do_painel`. Com o painel
             # fechado quem responde "o modo esta vivo?" e a linha de transicao,
             # que ja saiu.
+            #
+            # E O ESTADO DO LAYOUT VIAJA COM ELA. Sem isso, a aba recusada
+            # produzia esta linha com os MESMOS numeros para sempre e nada
+            # dizendo por que — medido em producao (2026-09-01 09:38), o usuario
+            # concluiu que o scanner tinha parado. O aviso alto ja saiu uma vez
+            # na transicao e rolou para fora da tela; o que fica na tela e esta
+            # linha, e ela tem de bastar.
             if aberto_agora:
-                log.info("%s", linha_ao_vivo(leitor, contagem, ultimo_item))
+                log.info(
+                    "%s",
+                    linha_ao_vivo(
+                        leitor,
+                        contagem,
+                        ultimo_item,
+                        layout_recusado=layout_recusado_agora,
+                    ),
+                )
 
             if time.monotonic() >= proxima_secao:
                 desenhar_a_analise()
