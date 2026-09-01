@@ -973,13 +973,30 @@ class LeitorDePagina:
         # `_gravar_no_catalogo`, e so depois do acordo entre os dois frames.
         catalogo_da_pagina = dict(self._catalogo)
 
-        ox, oy = origem
-        gx = ox + int(self._grade["dx"])
-        gy = oy + int(self._grade["dy"])
-        largura = int(self._grade["largura"])
-        altura = int(self._grade["altura_da_linha"])
+        # O LAYOUT VENCEDOR ESCOLHE A GEOMETRIA **E** A LEITORA, e os dois vem
+        # do MESMO lugar de proposito: errar o par corromperia a serie por um
+        # fator inteiro (ADEN-02). `_layout_atual` foi gravado pelo portao, que
+        # roda antes desta funcao em `observar` — sem vencedor nao se fatia.
+        modelo = self._layouts.get(self._layout_atual or "")
+        if modelo is None:
+            return LeituraDaPagina(
+                linhas=(), descartadas=(), motivos=(), vazias=()
+            )
+        grade = modelo["grade"]
+        # NADA DE UM `if` DE ABA DENTRO DE `ler_linha`: sao dois modelos de
+        # coluna, e o que os separa e a GEOMETRIA, nao um ramo. A leitora sai do
+        # mesmo registro de onde o portao derivou os candidatos, entao um layout
+        # elegivel tem leitora por construcao.
+        leitora = LEITORAS_DE_LINHA_POR_LAYOUT[modelo["nome"]]
+        e_adena = modelo["nome"] == "adena"
 
-        for indice in range(int(self._grade["linhas_por_pagina"])):
+        ox, oy = origem
+        gx = ox + int(grade["dx"])
+        gy = oy + int(grade["dy"])
+        largura = int(grade["largura"])
+        altura = int(grade["altura_da_linha"])
+
+        for indice in range(int(grade["linhas_por_pagina"])):
             topo = gy + indice * altura
             if gx < 0 or topo < 0:
                 break
@@ -987,44 +1004,64 @@ class LeitorDePagina:
                 break
 
             bgr_da_linha = janela[topo : topo + altura, gx : gx + largura]
-            recortes = self._recortes_de_coluna(janela, ox, topo, altura)
+            recortes = self._recortes_de_coluna(janela, ox, topo, altura, modelo)
             if recortes is None:
                 break
 
-            resultado = ler_linha(
-                indice,
-                bgr_da_linha,
-                recortes["nome"],
-                recortes["total"],
-                recortes["quantidade"],
-                recortes["unitario"],
-                moldes=self._moldes,
-                piso=float(self._piso),
-                margem=float(self._margem),
-                valor_minimo_do_numero=int(self._valor_minimo_do_numero),
-                valor_minimo_da_quantidade=int(
-                    self._valor_minimo_da_quantidade
-                ),
-                folga_de_cola=self._folga_de_cola,
-                sonda=self._sonda,
-                limiar_de_dispersao=self._limiar_de_dispersao,
-                tolerancia_do_cruzamento=self._tolerancia_do_cruzamento,
-                # A TRAVA DO LEITOR, e nao uma nova: e a mesma em todos os
-                # ticks da sessao, e e isso que faz cada divergencia ser
-                # registrada uma vez em vez de uma vez por segundo.
-                trava_da_observacao=self.trava_da_observacao,
-                catalogo=catalogo_da_pagina,
-                corte_de_similaridade=float(self._corte),
-                piso_de_similaridade=float(self._piso_de_similaridade),
-                ler_texto=self._ler_texto,
-                ler_texto_conferencia=self._ler_texto_conferencia,
-            )
+            if e_adena:
+                # A ADENA NAO RECEBE `ler_texto` NEM `ler_texto_conferencia`, e
+                # a ausencia e estrutural: `ler_linha_de_adena` nao TEM esses
+                # parametros (afirmado por `inspect.signature` no 05-01). A
+                # identidade dela vem da sentinela de serie, nao de OCR.
+                resultado = leitora(
+                    indice,
+                    bgr_da_linha,
+                    recortes["total"],
+                    recortes["unitario"],
+                    moldes=self._moldes,
+                    piso=float(self._piso),
+                    margem=float(self._margem),
+                    valor_minimo_do_numero=int(self._valor_minimo_do_numero),
+                    folga_de_cola=self._folga_de_cola,
+                    sonda=self._sonda,
+                    limiar_de_dispersao=self._limiar_de_dispersao,
+                    catalogo=catalogo_da_pagina,
+                )
+            else:
+                resultado = leitora(
+                    indice,
+                    bgr_da_linha,
+                    recortes["nome"],
+                    recortes["total"],
+                    recortes["quantidade"],
+                    recortes["unitario"],
+                    moldes=self._moldes,
+                    piso=float(self._piso),
+                    margem=float(self._margem),
+                    valor_minimo_do_numero=int(self._valor_minimo_do_numero),
+                    valor_minimo_da_quantidade=int(
+                        self._valor_minimo_da_quantidade
+                    ),
+                    folga_de_cola=self._folga_de_cola,
+                    sonda=self._sonda,
+                    limiar_de_dispersao=self._limiar_de_dispersao,
+                    tolerancia_do_cruzamento=self._tolerancia_do_cruzamento,
+                    # A TRAVA DO LEITOR, e nao uma nova: e a mesma em todos os
+                    # ticks da sessao, e e isso que faz cada divergencia ser
+                    # registrada uma vez em vez de uma vez por segundo.
+                    trava_da_observacao=self.trava_da_observacao,
+                    catalogo=catalogo_da_pagina,
+                    corte_de_similaridade=float(self._corte),
+                    piso_de_similaridade=float(self._piso_de_similaridade),
+                    ler_texto=self._ler_texto,
+                    ler_texto_conferencia=self._ler_texto_conferencia,
+                )
 
             if resultado is None:
                 # Linha vazia: o FIM DA PAGINA. Ela nao e perda, e as linhas
                 # abaixo dela nao existem — continuar mediria fundo de tabela.
                 vazias.extend(
-                    range(indice, int(self._grade["linhas_por_pagina"]))
+                    range(indice, int(grade["linhas_por_pagina"]))
                 )
                 break
             if isinstance(resultado, Descarte):
@@ -1043,9 +1080,29 @@ class LeitorDePagina:
         )
 
     def _recortes_de_coluna(
-        self, janela: np.ndarray, ox: int, topo: int, altura: int
+        self,
+        janela: np.ndarray,
+        ox: int,
+        topo: int,
+        altura: int,
+        modelo: dict,
     ) -> dict[str, np.ndarray] | None:
         """As colunas desta linha, meio-abertas em `[dx, dx + largura)`.
+
+        AS COLUNAS VEM DO MODELO DO LAYOUT VENCEDOR desde o 05-02, e nao mais
+        das quatro chaves de topo por `getattr`. Para a negociacao sao as
+        quatro de sempre; PARA A ADENA SAO DUAS — `total` e `unitario` — E
+        NENHUMA OUTRA.
+
+        POR QUE A ADENA NAO TEM COLUNA DE NOME, e por que reaproveitar a da
+        negociacao seria um bug calado: a coluna do nome de negociacao comeca a
+        −1 px do primeiro run claro da `Auction List` (MEDIDO: o texto claro
+        comeca em x=624 e o retangulo em x=625). Recortar com ela cortaria o
+        `1` de `10,000,000` e a leitura devolveria `0,000,000` — corrupcao por
+        FATOR INTEIRO, plausivel e sem uma linha de erro, que e exatamente o
+        modo de falha que o ADEN-02 nomeia. A quantidade da Adena e DERIVADA das
+        duas colunas de moeda (05-01), entao aquela coluna nao precisa ser
+        tocada — e nao e.
 
         A mesma convencao de `segmentar_glifos`, e por isso colunas vizinhas
         nunca compartilham um pixel. `None` quando um retangulo nao cabe INTEIRO
@@ -1059,13 +1116,7 @@ class LeitorDePagina:
         codigo morto que os testes aprovam (T-02-39).
         """
         saida: dict[str, np.ndarray] = {}
-        for nome, chave in (
-            ("nome", "mercado_coluna_do_nome"),
-            ("quantidade", "mercado_coluna_da_quantidade"),
-            ("total", "mercado_coluna_do_total"),
-            ("unitario", "mercado_coluna_do_unitario"),
-        ):
-            coluna = getattr(self._cal, chave)
+        for nome, coluna in modelo["colunas"].items():
             x = ox + int(coluna["dx"])
             largura = int(coluna["largura"])
             if largura <= 0 or x < 0 or x + largura > janela.shape[1]:

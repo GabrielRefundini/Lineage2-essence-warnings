@@ -28,6 +28,7 @@ import numpy as np
 import pytest
 
 from l2scanner.calibracao import Calibracao, CalibracaoInvalida
+from l2scanner.mercado_catalogo import CHAVE_DA_SERIE_DA_ADENA
 from l2scanner.mercado_leitura import casamento_do_cabecalho
 from l2scanner.mercado_pagina import (
     LAYOUTS_COM_LEITORA,
@@ -582,3 +583,147 @@ class TestAGradeDaAdenaSeHERDA:
     def test_o_layout_inexistente_devolve_None(self):
         cal = _calibracao_da_fixtura()
         assert modelo_de_layout(cal, "nao_existe") is None
+
+
+# --------------------------------------------------------------------------
+# Task 3 — a pagina da Adena, de pixels a nove linhas de taxa
+# --------------------------------------------------------------------------
+
+
+def _pagina_da_adena(cal):
+    """A pagina aceita depois do ACORDO ENTRE DOIS FRAMES.
+
+    A mesma janela lida DUAS vezes: e assim que a producao funciona, e uma
+    passada so nunca devolve `PaginaAceita`.
+    """
+    leitor, barata, conferencia = _montar_leitor(cal)
+    janela = _imagem("janela_adena_f014.png")
+    assert leitor.observar(janela) is None
+    aceita = leitor.observar(janela)
+    return leitor, aceita, barata, conferencia
+
+
+class TestAPaginaDaAdenaPontaAPonta:
+    def test_nove_linhas_de_taxa(self):
+        _leitor, aceita, _b, _c = _pagina_da_adena(_calibracao_da_fixtura())
+        assert aceita is not None
+        assert len(aceita.linhas) == 9
+
+    def test_a_linha_5_cai_por_CRUZAMENTO(self):
+        """O `13588` que a tela mostra como `135,00`. Sem a guarda ele entraria
+        no CSV como taxa `135,88` — plausivel, e errado."""
+        _leitor, aceita, _b, _c = _pagina_da_adena(_calibracao_da_fixtura())
+        assert aceita.descartadas == (5,)
+        assert aceita.motivos == ("cruzamento",)
+
+    def test_toda_chave_da_serie_e_a_SENTINELA(self):
+        _leitor, aceita, _b, _c = _pagina_da_adena(_calibracao_da_fixtura())
+        chaves = {linha.chave_da_serie for linha in aceita.linhas}
+        assert chaves == {CHAVE_DA_SERIE_DA_ADENA}
+
+    def test_as_quantidades_sao_5M_ou_10M(self):
+        _leitor, aceita, _b, _c = _pagina_da_adena(_calibracao_da_fixtura())
+        quantidades = {linha.quantidade for linha in aceita.linhas}
+        assert quantidades <= {5_000_000, 10_000_000}
+        assert quantidades
+
+    def test_NENHUMA_chamada_de_OCR_na_pagina_da_adena(self):
+        """A identidade vem da sentinela, e `ler_linha_de_adena` nao TEM por
+        onde receber uma leitora de texto (afirmado por assinatura no 05-01)."""
+        _leitor, _aceita, barata, conferencia = _pagina_da_adena(
+            _calibracao_da_fixtura()
+        )
+        assert barata.chamadas == 0
+        assert conferencia.chamadas == 0
+
+    def test_a_pagina_conta_como_LIDA_e_nao_como_de_outro_layout(self):
+        leitor, _aceita, _b, _c = _pagina_da_adena(_calibracao_da_fixtura())
+        assert leitor.paginas_de_outro_layout == 0
+        assert leitor.paginas_lidas == 1
+
+
+class TestOsRecortesDaAdenaSaoEXATAMENTEDois:
+    """A truth que nenhum criterio de contagem alcanca.
+
+    Com CONTINENCIA (`>= {"total","unitario"}`) um terceiro recorte inutil sobre
+    a `Auction List` passaria despercebido, as 9 linhas continuariam saindo, e a
+    promessa de que aquela coluna nao e tocada viraria prosa. Por isso IGUALDADE.
+    """
+
+    def test_o_conjunto_de_recortes_e_igual_e_nao_apenas_contido(self):
+        cal = _calibracao_da_fixtura()
+        leitor, _b, _c = _montar_leitor(cal)
+        janela = _imagem("janela_adena_f014.png")
+        ox, _oy = _origem_do_painel(leitor, janela)
+        modelo = leitor._layouts["adena"]
+        recortes = leitor._recortes_de_coluna(janela, ox, 300, 45, modelo)
+        assert set(recortes) == {"total", "unitario"}
+
+    def test_o_modelo_da_adena_nao_tem_coluna_de_NOME(self):
+        modelo = modelo_de_layout(_calibracao_da_fixtura(), "adena")
+        assert set(modelo["colunas"]) == {"total", "unitario"}
+        assert "nome" not in modelo["colunas"]
+
+    def test_o_CONTROLE_NEGATIVO_a_negociacao_tem_as_QUATRO(self):
+        """Sem ele, "duas colunas" nao distinguiria o modelo da Adena de um
+        `_recortes_de_coluna` que simplesmente parou de recortar."""
+        modelo = modelo_de_layout(_calibracao_da_fixtura(), "negociacao")
+        assert set(modelo["colunas"]) == {
+            "nome",
+            "quantidade",
+            "total",
+            "unitario",
+        }
+
+    def test_nenhum_recorte_da_adena_alcanca_a_coluna_do_NOME(self):
+        """A medicao por tras da regra: a coluna do nome de negociacao comeca a
+        −1 px do primeiro run claro da `Auction List` (x=624 contra x=625).
+        Reaproveita-la cortaria o `1` de `10,000,000` -> `0,000,000`."""
+        cal = _calibracao_da_fixtura()
+        dx_do_nome = int(cal.mercado_coluna_do_nome["dx"])
+        largura_do_nome = int(cal.mercado_coluna_do_nome["largura"])
+        fim_do_nome = dx_do_nome + largura_do_nome
+        modelo = modelo_de_layout(cal, "adena")
+        for nome, coluna in modelo["colunas"].items():
+            assert int(coluna["dx"]) >= fim_do_nome, nome
+
+
+class TestUmCloneQueNuncaCalibrouAAdenaLeIgual:
+    """A prova de ADEN-01, e ela e um PAR: a mesma janela de negociacao, com e
+    sem `mercado_layouts`, campo a campo."""
+
+    def _leitura(self, cal, nome_da_janela: str):
+        leitor, _b, _c = _montar_leitor(cal)
+        janela = _imagem(nome_da_janela)
+        leitor.observar(janela)
+        return leitor.ultima_leitura
+
+    def test_janela_negociacao_f005_le_IGUAL_com_e_sem_a_chave(self):
+        com = _calibracao_da_fixtura()
+        sem = _calibracao_da_fixtura()
+        sem.mercado_layouts = None
+        de_com = self._leitura(com, "janela_negociacao_f005.png")
+        de_sem = self._leitura(sem, "janela_negociacao_f005.png")
+        assert de_com is not None
+        assert de_com == de_sem
+
+    def test_os_CAMPOS_um_a_um_e_nao_so_a_igualdade_do_dataclass(self):
+        com = _calibracao_da_fixtura()
+        sem = _calibracao_da_fixtura()
+        sem.mercado_layouts = None
+        de_com = self._leitura(com, "janela_negociacao_f005.png")
+        de_sem = self._leitura(sem, "janela_negociacao_f005.png")
+        assert de_com.linhas == de_sem.linhas
+        assert de_com.descartadas == de_sem.descartadas
+        assert de_com.motivos == de_sem.motivos
+        assert de_com.vazias == de_sem.vazias
+
+    def test_o_CONTROLE_NEGATIVO_a_chave_MUDA_a_leitura_da_janela_da_ADENA(self):
+        """Sem ele, "iguais" nao distinguiria "a chave nao afeta a negociacao"
+        de "a chave nao afeta nada" — que e o modo de falha em que o portao
+        novo nunca teria sido ligado."""
+        com = _calibracao_da_fixtura()
+        sem = _calibracao_da_fixtura()
+        sem.mercado_layouts = None
+        assert self._leitura(sem, "janela_adena_f014.png") is None
+        assert self._leitura(com, "janela_adena_f014.png") is not None
