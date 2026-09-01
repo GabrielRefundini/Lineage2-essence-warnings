@@ -249,7 +249,7 @@ class TestAGeometriaPadraoContinuaReconhecendo:
             Frame(pixels=pixels_com_lider, indice=0, saude=SaudeDoFrame.OK), cal
         )
 
-        assert [l.nome for l in obs.linhas[:4]] == cal.nomes
+        assert [linha.nome for linha in obs.linhas[:4]] == cal.nomes
 
     def test_a_margem_ate_o_nome_errado_continua_larga(
         self, pixels, pixels_com_lider, calibracao
