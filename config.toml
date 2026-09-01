@@ -460,10 +460,21 @@ respawn_horas_max = 10
 #
 # ONDE ACHAR O NUMERO CERTO PARA A SUA TELA, e ele nao e um palpite: rode o
 # scanner uma vez e abra logs/scanner.log. Quando ele recusa aprender por
-# instabilidade, ele escreve uma linha dizendo quantas celulas as leituras
-# diferiram entre si, com o minimo, o maximo e a mediana medidos NA SUA
-# maquina. Escreva aqui um numero dentro dessa faixa. Se essa linha nunca
-# aparece, nao ha nada a ajustar.
+# instabilidade, ele escreve uma linha com o minimo, o maximo e a mediana das
+# distancias medidas NA SUA maquina, com quantas delas cabem no teto, e JA COM
+# a linha pronta para copiar para ca. Copie o valor daquela linha. Se essa
+# linha nunca aparece, nao ha nada a ajustar.
+#
+# NAO ESCOLHA UM NUMERO QUALQUER DA FAIXA. O maximo da faixa costuma vir de um
+# frame com o inventario ou uma janela por cima do nome, e pode passar MUITO do
+# teto de 12 abaixo. Um valor acima do teto e recusado no arranque, entao um
+# numero tirado do olho da faixa costuma nem deixar o scanner subir.
+#
+# SE A LINHA DISSER QUE SUBIR NAO RESOLVE, nao suba. Uma mediana de dezenas ou
+# centenas de celulas nao e a imagem cintilando na borda das letras: e a party
+# se remontando apos um disconnect, uma cegueira, ou algo por cima do nome.
+# Nesse caso nenhuma tolerancia conserta, e a resposta certa e esperar a party
+# estabilizar e olhar o log de novo.
 #
 # O TETO E 12, E ELE NAO E UMA OPINIAO. Acima de 12 celulas o proprio
 # reconhecimento por imagem ja trata as duas leituras como pessoas DIFERENTES,
