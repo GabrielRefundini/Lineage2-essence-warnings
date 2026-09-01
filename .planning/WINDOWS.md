@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 31
+open_count: 33
 waived_count: 1
 fixed_count: 10
-total_count: 42
-last_updated: 2026-08-31T20:54:58.383Z
+total_count: 44
+last_updated: 2026-09-01T21:33:58.758Z
 ---
 
 # Broken Windows Ledger
@@ -57,6 +57,8 @@ last_updated: 2026-08-31T20:54:58.383Z
 | 40 | 4 | deviation | l2scanner/config.py | 791 | Criterio do 04-03 Task 1 REPROVA e a causa e PREEXISTENTE: 'calibrar_mercado not in getsource(config)' ja falhava em 9dcccbf por um comentario que a restricao 3 do plano proibe tocar. Substituido pelo que discrimina (imports lidos do AST), com o criterio literal rodado e reportado. | open |  | 2026-08-31T10:10:06.714Z |  |
 | 41 | 4 | deviation | l2scanner/mercado_console.py | 341 | Criterio do 04-03 Task 3 REPROVA: 'grep ultima_vez no mercado_console sem ocorrencia' e insatisfazivel junto do teste que o 04-02 travou exigindo ultima_vez na prosa de recencia_do_preco. A unica ocorrencia e a docstring que NOMEIA a outra recencia para ninguem confundir. Substituido pelo que discrimina: assercao sobre o codigo com docstrings arrancadas pelo AST, com controle negativo medido. | open |  | 2026-08-31T10:10:14.958Z |  |
 | 42 | 3 | deviation | l2scanner/batismo.py |  | Batizar com um nome que ja e de uma assinatura CALIBRADA e aceito: a comparacao de D-07 olha so acervo.nomeados(). Desfecho seguro (carregar_identidades descarta a entrada do acervo pela regra do nome), mas nao coberto por caso e nao decidido para esta fase. | open |  | 2026-08-31T20:54:58.383Z |  |
+| 43 | 03 | unmet-truth | l2scanner/batismo.py |  | MEDIDO NO CANAL DE VERDADE em 01/09/2026 (envio real por NotificadorChatwoot.enviar com anexos= para o grupo do usuario): o provedor de WhatsApp entrega UM ANEXO POR MENSAGEM. Dois anexos foram postados numa mensagem so, o Chatwoot ACEITOU os dois (POST sem erro) e chegou UM. Nenhum teste offline pega isso, porque e comportamento do provedor do outro lado do socket. Consequencia de desenho, ja aplicada: a pergunta do batismo passou a citar UMA pessoa e levar UM anexo, com as outras esperando INTERVALO_ENTRE_PERGUNTAS=60s numa fila em memoria. NAO voltar a juntar N pessoas numa mensagem: o desfecho observado e uma mensagem que descreve N e mostra a imagem de UMA, com o dono lendo a legenda errada e batizando a pessoa errada em silencio. O que CONFIRMOU no mesmo envio, e continua valendo: o Chatwoot aceita o multipart montado a mao com a stdlib, o provedor entrega imagem em GRUPO, e a recompressao do WhatsApp NAO destroi a legibilidade com AMPLIACAO=6 e INTER_NEAREST. | open |  | 2026-09-01T21:33:44.014Z |  |
+| 44 | 03 | unmet-truth | l2scanner/retrato.py |  | MEDIDO NO CANAL DE VERDADE em 01/09/2026: o preview da bolha do WhatsApp CORTA AS LATERAIS de imagem larga. O PNG enviado estava correto no arquivo (836x138, apelido nitido a esquerda), mas ~6.06:1 fez o cliente cortar as bordas e o apelido, colado na esquerda, sumiu da tela do usuario. A protecao existia no arquivo e nao existia no olho dele, que e o pior tipo de protecao: aquela etiqueta e o cinto de seguranca contra a legenda se perder e o dono batizar a assinatura errada. Uma imagem de proporcao 1.60:1 montada no mesmo dia NAO sofreu o corte; o alvo adotado e 3:2 (PROPORCAO_DA_BOLHA=1.5), do lado seguro do unico ponto medido, com o apelido desenhado ACIMA do nome em vez de ao lado — a faixa lateral era a propria causa do 6:1, porque a largura da imagem era largura_do_nome + largura_do_texto. Quem for mexer em retrato.py: a proporcao nao e estetica, e o que mantem a legenda dentro do campo de visao, e mudar de novo exige repetir o ENVIO REAL, nao rodar a suite. | open |  | 2026-09-01T21:33:58.758Z |  |
 
 ````json
 [
@@ -562,6 +564,30 @@ last_updated: 2026-08-31T20:54:58.383Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-31T20:54:58.383Z",
+    "resolved_at": null
+  },
+  {
+    "id": 43,
+    "kind": "unmet-truth",
+    "phase": "03",
+    "file": "l2scanner/batismo.py",
+    "line": null,
+    "description": "MEDIDO NO CANAL DE VERDADE em 01/09/2026 (envio real por NotificadorChatwoot.enviar com anexos= para o grupo do usuario): o provedor de WhatsApp entrega UM ANEXO POR MENSAGEM. Dois anexos foram postados numa mensagem so, o Chatwoot ACEITOU os dois (POST sem erro) e chegou UM. Nenhum teste offline pega isso, porque e comportamento do provedor do outro lado do socket. Consequencia de desenho, ja aplicada: a pergunta do batismo passou a citar UMA pessoa e levar UM anexo, com as outras esperando INTERVALO_ENTRE_PERGUNTAS=60s numa fila em memoria. NAO voltar a juntar N pessoas numa mensagem: o desfecho observado e uma mensagem que descreve N e mostra a imagem de UMA, com o dono lendo a legenda errada e batizando a pessoa errada em silencio. O que CONFIRMOU no mesmo envio, e continua valendo: o Chatwoot aceita o multipart montado a mao com a stdlib, o provedor entrega imagem em GRUPO, e a recompressao do WhatsApp NAO destroi a legibilidade com AMPLIACAO=6 e INTER_NEAREST.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-01T21:33:44.014Z",
+    "resolved_at": null
+  },
+  {
+    "id": 44,
+    "kind": "unmet-truth",
+    "phase": "03",
+    "file": "l2scanner/retrato.py",
+    "line": null,
+    "description": "MEDIDO NO CANAL DE VERDADE em 01/09/2026: o preview da bolha do WhatsApp CORTA AS LATERAIS de imagem larga. O PNG enviado estava correto no arquivo (836x138, apelido nitido a esquerda), mas ~6.06:1 fez o cliente cortar as bordas e o apelido, colado na esquerda, sumiu da tela do usuario. A protecao existia no arquivo e nao existia no olho dele, que e o pior tipo de protecao: aquela etiqueta e o cinto de seguranca contra a legenda se perder e o dono batizar a assinatura errada. Uma imagem de proporcao 1.60:1 montada no mesmo dia NAO sofreu o corte; o alvo adotado e 3:2 (PROPORCAO_DA_BOLHA=1.5), do lado seguro do unico ponto medido, com o apelido desenhado ACIMA do nome em vez de ao lado — a faixa lateral era a propria causa do 6:1, porque a largura da imagem era largura_do_nome + largura_do_texto. Quem for mexer em retrato.py: a proporcao nao e estetica, e o que mantem a legenda dentro do campo de visao, e mudar de novo exige repetir o ENVIO REAL, nao rodar a suite.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-01T21:33:58.758Z",
     "resolved_at": null
   }
 ]

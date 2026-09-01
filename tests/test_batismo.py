@@ -64,6 +64,7 @@ from l2scanner.batismo import (
     apelidos_para_escolher,
     interpretar_batismo,
     montar_pergunta,
+    montar_pergunta_com_imagens,
     pendentes_do_acervo,
     resolver,
     responder_batismo,
@@ -1991,12 +1992,18 @@ class TestAPerguntaNaoViraEnxurrada:
     def test_duas_assinaturas_no_MESMO_tick_produzem_UM_despacho(
         self, tmp_path, pixels, calibracao
     ):
-        """UMA MENSAGEM PARA N ENTRADAS, e isso e decisao de produto.
+        """UMA MENSAGEM POR TICK, e agora tambem UMA PESSOA POR MENSAGEM.
 
-        E ha um segundo ganho, que e o que torna a divida T-02-18 legivel:
-        quando a mesma pessoa foi aprendida duas vezes, as duas entradas
-        aparecem como duas linhas da MESMA mensagem, uma embaixo da outra, em
-        vez de duas perguntas soltas que o usuario le como dois desconhecidos.
+        A contagem de despachos deste caso NAO mudou com o conserto de campo de
+        01/09/2026, e e por isso que ele continua aqui: duas entradas nascidas
+        no mesmo tick continuam sem produzir duas bolhas seguidas.
+
+        O QUE MUDOU E DE QUEM A MENSAGEM FALA. Antes ela listava as duas; a
+        verificacao em campo mostrou que o provedor de WhatsApp entrega UM
+        anexo por mensagem, entao a mensagem passou a citar UMA pessoa e a
+        segunda espera `INTERVALO_ENTRE_PERGUNTAS`. As assercoes sobre a
+        SEGUNDA pessoa foram para
+        `tests/test_uma_pergunta_por_pessoa.py`, onde o tempo pode andar.
         """
         desconhecidas = (1, 3)
         for indice in range(4):
@@ -2025,8 +2032,15 @@ class TestAPerguntaNaoViraEnxurrada:
             f"duas bolhas no WhatsApp em vez de uma: {despachante.perguntas}"
         )
         pergunta = despachante.perguntas[0]
-        for aprendizado in aprendidas:
-            assert apelido_da_chave(aprendizado.chave) in pergunta
+        citados = [
+            apelido_da_chave(a.chave)
+            for a in aprendidas
+            if apelido_da_chave(a.chave) in pergunta
+        ]
+        assert len(citados) == 1, (
+            "a mensagem fala de mais de uma pessoa, e o provedor entrega UM "
+            f"anexo: a segunda legenda ficaria sem imagem.\n{pergunta}"
+        )
 
 
 class TestAPerguntaAtravessaOSilencioNoTRANSPORTE:
@@ -2091,31 +2105,45 @@ class TestAVarreduraDeArranque:
             for indice in (LINHA_DA_FATIA, LINHA_DA_OUTRA)
         ]
 
-    def test_duas_entradas_anonimas_produzem_UMA_mensagem_com_os_dois_apelidos(
+    def test_duas_entradas_anonimas_produzem_DUAS_mensagens_de_UMA_pessoa(
         self, tmp_path, pixels, calibracao
     ):
+        """Era "UMA mensagem com os dois apelidos" ate 01/09/2026.
+
+        A VERIFICACAO EM CAMPO REFUTOU AQUELE DESENHO: dois anexos numa
+        mensagem so chegaram como UM. Uma mensagem que cita duas pessoas e
+        mostra a imagem de uma e a mentira plausivel deste projeto inteiro, com
+        o dono lendo a legenda de baixo como se fosse da imagem de cima.
+
+        O que sobrevive do caso antigo, e continua afirmado aqui: as duas
+        pessoas SAEM, cada uma na sua rodada, e nenhuma se perde.
+        """
         chaves = self._duas_anonimas(tmp_path, pixels, calibracao)
         acervo = AcervoDeIdentidades(tmp_path)
 
-        pergunta = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+        primeira = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+        segunda = montar_pergunta(acervo, pendentes_do_acervo(acervo))
 
-        assert pergunta is not None
-        for chave in chaves:
-            assert apelido_da_chave(chave) in pergunta, pergunta
-        assert "/batizar" in pergunta, "a mensagem ensina a sintaxe da resposta"
-        assert pergunta.count("Aprendi") == 1, (
-            f"duas mensagens coladas em vez de uma:\n{pergunta}"
-        )
+        assert primeira is not None and segunda is not None
+        for texto in (primeira, segunda):
+            citados = [c for c in chaves if apelido_da_chave(c) in texto]
+            assert len(citados) == 1, f"a mensagem cita mais de uma:\n{texto}"
+            assert "/batizar" in texto, "a mensagem ensina a sintaxe da resposta"
+            assert texto.count("Aprendi") == 1, (
+                f"duas mensagens coladas em vez de uma:\n{texto}"
+            )
+        assert primeira != segunda, "a mesma pessoa foi perguntada duas vezes"
 
-    def test_o_plural_da_frase_esta_certo_nas_DUAS_formas(
+    def test_o_cabecalho_e_SEMPRE_singular_e_nunca_concorda_errado(
         self, tmp_path, pixels, calibracao
     ):
-        """O texto vai para o WhatsApp de quatro a oito pessoas.
+        """Era o caso do plural, e o plural deixou de existir em 01/09/2026.
 
-        Uma regra de plural por concatenacao acerta o substantivo e erra o
-        verbo ("esta" + "s" da "estas"), e o erro so aparece no dia em que
-        houver duas assinaturas esperando — que e justamente o dia do acervo
-        real do usuario.
+        Ele guardava um erro de concordancia por concatenacao ("esta" + "s" da
+        "estas"). Com uma pessoa por mensagem o ramo do plural sumiu, e o que
+        precisa ser guardado agora e o oposto: que ele nao volte por acidente
+        quando houver VARIAS pendentes na mao — que e justamente o estado do
+        acervo real do usuario.
         """
         uma = semear(tmp_path, assinatura_da_linha(pixels, calibracao, 0))
         acervo = AcervoDeIdentidades(tmp_path)
@@ -2125,11 +2153,14 @@ class TestAVarreduraDeArranque:
 
         outra = semear(tmp_path, assinatura_da_linha(pixels, calibracao, 1))
         mais = semear(tmp_path, assinatura_da_linha(pixels, calibracao, 2))
-        plural = montar_pergunta(
+        com_duas_na_mao = montar_pergunta(
             acervo, [Pendente(chave=outra), Pendente(chave=mais)]
         )
-        assert "Aprendi 2 pessoas que ainda estao sem nome" in plural, plural
-        assert "estas" not in plural, plural
+        assert "Aprendi 1 pessoa que ainda esta sem nome" in com_duas_na_mao, (
+            com_duas_na_mao
+        )
+        assert "pessoas" not in com_duas_na_mao, com_duas_na_mao
+        assert "estas" not in com_duas_na_mao, com_duas_na_mao
 
     def test_a_varredura_NAO_cita_posicao_nenhuma(
         self, tmp_path, pixels, calibracao
@@ -2154,12 +2185,19 @@ class TestAVarreduraDeArranque:
     def test_rodar_o_arranque_de_novo_nao_produz_mensagem_nenhuma(
         self, tmp_path, pixels, calibracao
     ):
-        self._duas_anonimas(tmp_path, pixels, calibracao)
-        primeiro = AcervoDeIdentidades(tmp_path)
-        assert montar_pergunta(primeiro, pendentes_do_acervo(primeiro)) is not None
+        """Depois que TODAS sairam, arranque nenhum pergunta de novo (D-04).
 
-        segundo = AcervoDeIdentidades(tmp_path)
-        assert montar_pergunta(segundo, pendentes_do_acervo(segundo)) is None
+        O caso pedia UMA varredura ate 01/09/2026, quando a mensagem passou a
+        levar uma pessoa por vez: duas anonimas gastam duas rodadas. A
+        afirmacao e a mesma, deslocada para depois da ultima.
+        """
+        chaves = self._duas_anonimas(tmp_path, pixels, calibracao)
+        for _ in chaves:
+            acervo = AcervoDeIdentidades(tmp_path)
+            assert montar_pergunta(acervo, pendentes_do_acervo(acervo)) is not None
+
+        depois = AcervoDeIdentidades(tmp_path)
+        assert montar_pergunta(depois, pendentes_do_acervo(depois)) is None
 
     def test_quem_ja_tem_nome_nunca_entra_na_varredura(
         self, tmp_path, pixels, calibracao
@@ -2181,14 +2219,23 @@ class TestAVarreduraDeArranque:
         A sequencia e a de um dia de uso: o scanner sobe e pergunta pelas que
         ja estavam no disco; durante o farm ele aprende mais uma e pergunta por
         ela; e o arranque do dia seguinte nao repete nenhuma das duas.
+
+        AS TRES DO DISCO SAEM EM TRES RODADAS desde 01/09/2026, e nao mais numa
+        mensagem so: o provedor entrega um anexo por mensagem. O `for` abaixo e
+        a unica diferenca em relacao ao caso original; o que ele afirma sobre o
+        MARCADOR nao mudou nada.
         """
         semeadas = semear_tres_das_quatro(tmp_path, pixels, calibracao)
         identidades = carregar_na_calibracao(calibracao, tmp_path)
 
-        # (1) O ARRANQUE pergunta pelas tres que ja estavam no disco.
+        # (1) O ARRANQUE pergunta pelas tres que ja estavam no disco, uma por
+        # rodada.
         acervo = AcervoDeIdentidades(tmp_path)
-        do_arranque = montar_pergunta(acervo, pendentes_do_acervo(acervo))
-        assert do_arranque is not None
+        do_arranque = ""
+        for _ in semeadas:
+            rodada = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+            assert rodada is not None
+            do_arranque += rodada
         for chave in semeadas:
             assert apelido_da_chave(chave) in do_arranque
 
@@ -3406,28 +3453,42 @@ class TestADividaT0218AFirmadaEAceita:
         assert self.CELULAS_ABAIXO / primeira.mascara.size < 0.03
         assert self.CELULAS_ABAIXO / int(primeira.mascara.sum()) > 0.7
 
-    def test_as_duas_entradas_saem_como_DUAS_LINHAS_da_MESMA_pergunta(
+    def test_as_duas_entradas_saem_em_DUAS_perguntas_e_nenhuma_se_perde(
         self, tmp_path, pixels, calibracao
     ):
-        """A primeira metade da legibilidade.
+        """A primeira metade da legibilidade, REESCRITA POR MEDICAO DE CAMPO.
 
-        Duas perguntas soltas seriam lidas como dois desconhecidos diferentes.
-        Uma mensagem com as duas linhas, uma embaixo da outra, e o que da ao
-        usuario a chance de perceber que pode ser a mesma pessoa.
+        Ate 01/09/2026 as duas entradas saiam como duas LINHAS da mesma
+        mensagem, e a razao escrita era que duas perguntas soltas seriam lidas
+        como dois desconhecidos diferentes. A verificacao em campo derrubou o
+        veiculo daquela ideia: dois anexos numa mensagem so chegaram como UM, e
+        a mensagem que listava as duas mostraria a imagem de uma.
+
+        A LEGIBILIDADE NAO SE PERDEU, ELA TROCOU DE LUGAR. Cada pergunta leva
+        agora a IMAGEM da sua entrada, e duas imagens do mesmo nick sao muito
+        mais parecidas entre si do que dois apelidos hex jamais foram — o dono
+        percebe que pode ser a mesma pessoa OLHANDO, que e a aposta inteira do
+        OCRN-03. A segunda metade (a recusa de BATI-04 que diz que deixar a
+        segunda sem nome nao faz mal) esta intacta no caso vizinho.
         """
         chave_um, chave_dois, _, _ = self._duas_da_mesma_pessoa(
             tmp_path, pixels, calibracao
         )
         acervo = AcervoDeIdentidades(tmp_path)
 
-        pergunta = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+        primeira = montar_pergunta_com_imagens(acervo, pendentes_do_acervo(acervo))
+        segunda = montar_pergunta_com_imagens(acervo, pendentes_do_acervo(acervo))
 
-        assert pergunta is not None
-        assert "Aprendi 2 pessoas" in pergunta, pergunta
-        assert apelido_da_chave(chave_um) in pergunta
-        assert apelido_da_chave(chave_dois) in pergunta
+        assert primeira is not None and segunda is not None
+        juntas = primeira.texto + segunda.texto
+        assert apelido_da_chave(chave_um) in juntas
+        assert apelido_da_chave(chave_dois) in juntas
+        assert len(primeira.imagens) == len(segunda.imagens) == 1, (
+            "cada pergunta tem de levar a imagem DA SUA entrada: e ela que "
+            "permite ver que as duas podem ser a mesma pessoa"
+        )
         assert montar_pergunta(acervo, pendentes_do_acervo(acervo)) is None, (
-            "a segunda varredura nao pode perguntar de novo (D-04)"
+            "a terceira varredura nao pode perguntar de novo (D-04)"
         )
 
     def test_a_segunda_e_recusada_e_a_recusa_diz_que_isso_nao_faz_mal(

@@ -41,6 +41,24 @@ relogio e nao sabe o que e Chatwoot. E o transporte continua do outro lado da
 parede — este modulo MONTA os anexos e nao sabe como eles viajam, que e o que
 permite provar o desenho offline e o envelope HTTP offline, em separado.
 
+UMA PERGUNTA = UMA PESSOA = UMA IMAGEM (verificacao em campo de 01/09/2026)
+
+O desenho anterior mandava UMA mensagem com N anexos, e ele foi REFUTADO pelo
+canal de verdade: dois anexos foram enviados numa mensagem so, pelo caminho de
+producao, para o grupo do usuario, e CHEGOU UM. O Chatwoot aceitou os dois (o
+POST nao deu erro) e a ponte de WhatsApp entregou so o primeiro.
+
+Isso e propriedade do PROVEDOR, do outro lado de um socket que a suite nunca
+abre — nenhum teste offline pegaria. O que sobra sob nosso controle e o
+DESENHO: a pergunta passou a citar UMA pessoa e a levar UM anexo, e as outras
+esperam a proxima rodada. Nada e truncado em silencio, porque nada e perdido:
+o marcador so e queimado de quem foi PERGUNTADO, e quem ficou continua na fila.
+
+NAO VOLTAR A JUNTAR N PESSOAS NUMA MENSAGEM. O desfecho ja foi observado, e ele
+e o pior possivel para este projeto: uma mensagem que descreve N pessoas e
+mostra a imagem de UMA, com o dono lendo a legenda de baixo como se fosse da
+imagem de cima e batizando a pessoa errada, em silencio.
+
 A AUSENCIA DE `loot` E DELIBERADA E TEM PRECEDENTE ESCRITO: `acervo.py` ja se
 recusou a importar `loot.NICK_VALIDO` porque `loot` importa `agenda`, e
 arrastar essa cadeia para um modulo que precisa NAO ter relogio nenhum trocaria
@@ -67,21 +85,39 @@ from .acervo import NOME_VALIDO, AcervoDeIdentidades, chave_da_assinatura
 from .identidade import Assinatura
 from .retrato import anexo_do_nome
 
-# Quantas IMAGENS cabem numa pergunta.
+# Quantos segundos separam duas perguntas.
 #
-# O TETO E SOBRE GENTE, E NAO SOBRE BYTES, e o numero foi medido antes de ser
-# escolhido:
+# O TETO DE IMAGENS POR MENSAGEM MORREU AQUI. Ele valia oito e existia para o
+# caso "N pessoas numa bolha"; a verificacao em campo mostrou que N nunca
+# chegou a existir do lado do usuario, e o teto foi substituido por esta
+# cadencia: uma pessoa por mensagem, com respiro entre elas.
 #
-# - MEDIDO em 01/09/2026 sobre as 15 entradas do acervo real: cada PNG ficou
-#   entre 3.9 KB e 6.4 KB (media 4.8 KB). Oito somam ~39 KB, que nao aperta
-#   nada. Ou seja, peso nunca foi o argumento;
-# - o argumento e humano. A party window do L2 mostra no maximo oito pessoas
-#   alem de voce, entao mais de oito anonimas de uma vez NAO e uma party na
-#   tela: e acervo acumulado de varias sessoes, e uma bolha de WhatsApp com
-#   vinte imagens e uma bolha que ninguem abre;
-# - o resto NAO some. Todos os apelidos continuam na lista, e o texto diz
-#   quantas ficaram sem imagem. Truncar em silencio e proibido.
-TETO_DE_IMAGENS = 8
+# POR QUE 60 SEGUNDOS, E NAO UM NUMERO MENOR:
+#
+# - a pergunta pede uma ACAO ("/batizar 0dcf6f Fulano"), e nao uma leitura. Um
+#   minuto e o tempo de o dono ver a bolha, olhar a imagem e digitar a
+#   resposta antes de a proxima chegar. Duas perguntas coladas produzem duas
+#   imagens parecidas na tela e o risco de responder uma citando o apelido da
+#   outra — a mentira plausivel de sempre;
+# - o destino e um grupo cujo dono JA DESLIGOU `avisar_no_horario` do Solo Boss
+#   por VOLUME (T-03-06). A pergunta atravessa o silencio de TvT/Prime por
+#   `Categoria.SEMPRE`, entao ela e a mensagem que ele menos consegue calar:
+#   ela precisa ser rara por construcao;
+# - e o custo do lado de la e pequeno. Um acervo com dez anonimas leva dez
+#   minutos de farm para ser perguntado inteiro, e o farm dura horas.
+#
+# E POR QUE NAO MAIOR: o marcador so e queimado quando a pergunta SAI, entao
+# esperar demais nao perde ninguem — mas o scanner pode ser fechado a qualquer
+# momento, e o que nao saiu nesta sessao espera a proxima. Um intervalo de
+# dezenas de minutos transformaria "pergunto pelas outras hoje" em "pergunto
+# pelas outras semana que vem".
+#
+# O TEMPO NUNCA E LIDO AQUI DENTRO. `pode_perguntar` recebe os dois instantes
+# por PARAMETRO, e este modulo esta no portao AST de `tests/test_presenca.py`
+# ao lado de `acervo.py` e `aprendiz.py` — um relogio proprio aqui seria lido
+# como conveniencia e reabriria por dentro a porta que D-04 fecha por
+# construcao.
+INTERVALO_ENTRE_PERGUNTAS = 60.0
 
 # Quantos digitos hex da chave a pergunta MOSTRA.
 #
@@ -120,6 +156,33 @@ APELIDO_VALIDO = re.compile(r"[0-9a-f]{1,64}")
 def apelido_da_chave(chave: str) -> str:
     """Os primeiros `DIGITOS_DO_APELIDO` digitos da chave. Puro."""
     return chave[:DIGITOS_DO_APELIDO]
+
+
+def pode_perguntar(
+    momento: float | None, momento_da_ultima: float | None
+) -> bool:
+    """Ja passou o intervalo desde a ultima pergunta? Funcao PURA.
+
+    OS DOIS INSTANTES ENTRAM POR PARAMETRO, e a razao esta na constante acima:
+    este modulo nao tem relogio, e o portao AST de `tests/test_presenca.py` o
+    guarda ao lado de `acervo.py` e `aprendiz.py`.
+
+    `momento_da_ultima is None` significa "nunca perguntei nesta sessao", e a
+    resposta e SIM: a primeira pergunta nao espera nada. Fazer a primeira
+    esperar um minuto atrasaria justamente o caso mais comum, que e o arranque
+    com uma anonima so no disco.
+
+    UM RELOGIO QUE ANDA PARA TRAS LIBERA, E NAO BLOQUEIA. Um replay reiniciado,
+    um `momento` que volta ou um horario de sistema corrigido deixariam a
+    diferenca negativa PARA SEMPRE, e a fila inteira ficaria presa — pessoas
+    que nunca sao perguntadas ficam anonimas para sempre. Errar para este lado
+    custa uma bolha a mais; errar para o outro custa a pessoa.
+    """
+    if momento_da_ultima is None:
+        return True
+    if momento is None:
+        return False
+    return not (0.0 <= momento - momento_da_ultima < INTERVALO_ENTRE_PERGUNTAS)
 
 
 def apelidos_para_escolher(chaves: Sequence[str]) -> tuple[str, ...]:
@@ -266,67 +329,69 @@ def montar_pergunta(
 def montar_pergunta_com_imagens(
     acervo: AcervoDeIdentidades, pendentes: Sequence[Pendente]
 ) -> PerguntaDoBatismo | None:
-    """O UNICO lugar que MARCA e o UNICO lugar que REDIGE. `None` se nada saiu.
+    """UMA pessoa, UMA imagem. O UNICO lugar que MARCA e que REDIGE.
+
+    `None` quando nenhuma das pendentes venceu o marcador — ou porque todas ja
+    tinham sido perguntadas, ou porque o disco falhou.
 
     Os dois gatilhos desta fase — o aprendizado e a varredura de arranque —
     passam por aqui, com o MESMO `O_CREAT|O_EXCL`. D-04 diz "uma pergunta por
     assinatura, para sempre": por ASSINATURA, e nao por evento de aprendizado.
     Dois gatilhos com um marcador so continuam sendo uma pergunta so.
 
-    UMA MENSAGEM PARA N ENTRADAS, E ISSO E DECISAO DE PRODUTO. Duas pessoas
-    aprendidas no mesmo tick, ou dez esperando no arranque, produziriam dez
-    bolhas no WhatsApp do grupo — e o usuario ja desligou `avisar_no_horario`
-    do Solo Boss por volume.
-
-    E ha um segundo ganho, que e o que torna a divida T-02-18 LEGIVEL: quando a
-    MESMA pessoa foi aprendida duas vezes (o caso medido na Fase 2, drift acima
-    de 43 celulas), as duas entradas aparecem como DUAS LINHAS DA MESMA
-    MENSAGEM, uma embaixo da outra — em vez de duas perguntas soltas que o
-    usuario le como dois desconhecidos diferentes.
+    A LISTA E DE CANDIDATAS, E NAO DE CONVIDADAS. Recebe-se N e pergunta-se
+    por UMA: a primeira que vencer o `O_EXCL`. As outras NAO sao tocadas, e e
+    aqui que mora o defeito mais caro que este conserto podia ter. Marcar as N
+    e citar UMA deixaria N-1 pessoas com o marcador queimado sem nunca terem
+    sido perguntadas — e o marcador nao tem desfazer, nao ha comando de
+    esquecer no v1, e elas ficariam "Membro N" ate alguem apagar arquivo a mao.
+    O laco abaixo `continue`-a sobre quem ja tinha marcador e RETORNA na
+    primeira que venceu; nenhum outro caminho encosta em `marcar_pergunta`.
 
     QUEM MARCOU E QUEM ENTRA NO TEXTO. A ordem importa: marcar depois de
     redigir deixaria uma janela em que a pergunta esta escrita e o marcador
     nao, e as duas instancias mandariam a mesma.
+
+    O QUE SE PERDEU COM O N, E ESTA ACEITO: quando a MESMA pessoa foi aprendida
+    duas vezes (T-02-18, drift acima de 43 celulas), as duas entradas ja nao
+    aparecem mais como duas linhas da mesma mensagem. Elas viram duas perguntas
+    separadas, com as duas IMAGENS — que sao mais parecidas entre si do que
+    dois apelidos hex jamais seriam, e o dono ve isso melhor no desenho do que
+    veria na lista. A saida continua escrita na recusa de BATI-04.
     """
-    vencedoras = [
-        pendente
-        for pendente in pendentes
-        if acervo.marcar_pergunta(pendente.chave)
-    ]
-    if not vencedoras:
-        return None
+    for pendente in pendentes:
+        if not acervo.marcar_pergunta(pendente.chave):
+            continue
+        return _redigir_pergunta(acervo, pendente)
+    return None
 
-    quantas = len(vencedoras)
-    # As duas redacoes por extenso, e nao um sufixo colado.
-    #
-    # "esta" + "s" da "estas", que nao e o plural de "esta" — e o texto vai
-    # para o WhatsApp de quatro a oito pessoas. Uma regra de plural por
-    # concatenacao acerta o substantivo e erra o verbo, e o erro so aparece no
-    # dia em que houver duas assinaturas esperando.
-    if quantas == 1:
-        cabecalho = "Aprendi 1 pessoa que ainda esta sem nome:"
+
+def _redigir_pergunta(
+    acervo: AcervoDeIdentidades, pendente: Pendente
+) -> PerguntaDoBatismo:
+    """As duas redacoes e o anexo, para a pessoa que ja foi MARCADA."""
+    apelido = apelido_da_chave(pendente.chave)
+    if pendente.indice is None:
+        citacao = f"  {apelido}"
     else:
-        cabecalho = f"Aprendi {quantas} pessoas que ainda estao sem nome:"
-    linhas = [cabecalho, ""]
-    for pendente in vencedoras:
-        apelido = apelido_da_chave(pendente.chave)
-        if pendente.indice is None:
-            linhas.append(f"  {apelido}")
-        else:
-            # BASE 1: e como o usuario conta as linhas olhando a party window.
-            linhas.append(f"  {apelido} (vi na linha {pendente.indice + 1})")
+        # BASE 1: e como o usuario conta as linhas olhando a party window.
+        citacao = f"  {apelido} (vi na linha {pendente.indice + 1})"
 
-    imagens = _imagens_das_vencedoras(acervo, vencedoras)
+    # O SINGULAR E O UNICO NUMERO POSSIVEL AGORA, e o texto e escrito assim de
+    # propria vontade: nao ha um ramo de plural desligado esperando alguem
+    # religar. Se um dia N voltar, a redacao inteira volta com ele.
+    linhas = ["Aprendi 1 pessoa que ainda esta sem nome:", "", citacao]
+
+    imagem = _imagem_da_pendente(acervo, pendente)
     # As duas redacoes divergem AQUI e so aqui: a frase da imagem entra logo
-    # depois da lista que ela explica, e a reserva simplesmente nao a tem.
-    aviso = _frase_da_imagem(len(imagens), quantas)
+    # depois da pessoa que ela explica, e a reserva simplesmente nao a tem.
+    aviso = _frase_da_imagem(imagem is not None)
     linhas_com_imagem = linhas + ([""] + aviso if aviso else [])
 
-    primeiro = apelido_da_chave(vencedoras[0].chave)
     rodape = [
         "",
         "Para dar o nome, responda: /batizar <apelido> <nick>",
-        f"Exemplo: /batizar {primeiro} Fulano",
+        f"Exemplo: /batizar {apelido} Fulano",
         "",
         # A FRASE DA AUTORIZACAO E OBRIGATORIA. O batismo e comando de DONO, e
         # um comando nao autorizado morre no `continue` do laco de autorizacao,
@@ -341,98 +406,66 @@ def montar_pergunta_com_imagens(
         # pergunta nao volta nunca mais. Dizer isso com todas as letras e o que
         # transforma "o bot esta pedindo uma coisa sem sentido" em "e so nao
         # responder".
-        "Se alguma delas nao for gente, e so nao responder: nao pergunto de novo.",
+        "Se ela nao for gente, e so nao responder: nao pergunto de novo.",
     ]
     return PerguntaDoBatismo(
         texto="\n".join(linhas_com_imagem + rodape),
         texto_sem_imagens="\n".join(linhas + rodape),
-        imagens=imagens,
+        imagens=(imagem,) if imagem is not None else (),
     )
 
 
-def _imagens_das_vencedoras(
-    acervo: AcervoDeIdentidades, vencedoras: Sequence[Pendente]
-) -> tuple:
-    """As imagens dos nomes, NA ORDEM DAS VENCEDORAS, ate o teto.
-
-    UMA LEITURA SO DO DISCO. `acervo.entradas()` releria a pasta inteira a cada
-    chamada, e entre duas leituras a OUTRA instancia do usuario roda sobre a
-    MESMA pasta: a mensagem descreveria um estado que nunca existiu. E o mesmo
-    argumento que `entradas()` ja escreve para o lote do `/esquecer`.
+def _imagem_da_pendente(acervo: AcervoDeIdentidades, pendente: Pendente):
+    """O anexo do nome desta pessoa, ou `None` se ele nao sair.
 
     UMA ENTRADA QUE NAO DESENHA E PULADA, E NAO PROPAGA. A pergunta e cara
     demais para morrer por causa de um PNG: o marcador ja foi queimado quando
     esta funcao roda, entao levantar aqui deixaria a pessoa anonima para
-    sempre. Sem imagem ela ainda aparece na lista de apelidos, que e a pergunta
-    de hoje.
+    sempre. Sem imagem ela ainda aparece pelo apelido, que e a pergunta de
+    antes de OCRN-03, e a reserva ja e escrita sem prometer imagem nenhuma.
     """
     try:
         assinaturas = dict(acervo.entradas())
     except OSError:
-        return ()
+        return None
 
-    imagens = []
-    for pendente in vencedoras[:TETO_DE_IMAGENS]:
-        assinatura = assinaturas.get(pendente.chave)
-        if assinatura is None:
-            continue
-        try:
-            imagens.append(
-                anexo_do_nome(apelido_da_chave(pendente.chave), assinatura.mascara)
-            )
-        except (ValueError, TypeError, cv2.error):
-            continue
-    return tuple(imagens)
+    assinatura = assinaturas.get(pendente.chave)
+    if assinatura is None:
+        return None
+    try:
+        return anexo_do_nome(apelido_da_chave(pendente.chave), assinatura.mascara)
+    except (ValueError, TypeError, cv2.error):
+        return None
 
 
-def _frase_da_imagem(quantas_imagens: int, quantas_pendentes: int) -> list[str]:
-    """O que a mensagem diz sobre as imagens. Lista vazia quando nao ha nenhuma.
+def _frase_da_imagem(tem_imagem: bool) -> list[str]:
+    """O que a mensagem diz sobre a imagem. Lista vazia quando nao ha nenhuma.
 
-    A FRASE NUNCA PROMETE O QUE NAO VAI JUNTO. Ela e escrita a partir do numero
-    de imagens que DE FATO desenharam, e nao do numero de pendentes — senao uma
+    A FRASE NUNCA PROMETE O QUE NAO VAI JUNTO. Ela e escrita a partir de a
+    imagem ter DE FATO desenhado, e nao da existencia da pendente — senao uma
     mascara que falhou viraria uma promessa quebrada.
+
+    ELA NAO FALA MAIS DE ORDEM NEM DE LISTA, e as frases que faziam isso foram
+    apagadas em 01/09/2026 por MEDICAO: "na mesma ordem desta lista" descrevia
+    um envelope de N anexos que o provedor de WhatsApp nunca entregou. Uma
+    frase que descreve uma mensagem que o dono nao recebeu e pior do que
+    nenhuma frase.
 
     E ELA NUNCA CITA POSICAO. A varredura de arranque nao sabe em que linha
     aquela pessoa estava (D-03), e inventar uma seria a primeira mentira do
     caminho. A palavra "linha" nao aparece aqui de proposito, e
     `test_a_varredura_NAO_cita_posicao_nenhuma` cobre o texto inteiro.
 
-    As redacoes sao por EXTENSO, e nao um sufixo colado, pela razao que o
-    cabecalho ja escreve: "esta" + "s" da "estas", e uma regra de plural por
-    concatenacao acerta o substantivo e erra o verbo.
+    E DIZ ONDE O APELIDO ESTA, porque em 01/09/2026 ele MUDOU DE LUGAR: ele
+    era uma faixa a esquerda do nome e a lateral era justamente o que o preview
+    do WhatsApp cortava. Agora ele fica em cima.
     """
-    if quantas_imagens == 0:
+    if not tem_imagem:
         return []
-
-    dentro = "com o apelido escrito dentro"
-    if quantas_imagens == quantas_pendentes:
-        if quantas_imagens == 1:
-            frases = [f"Mandei junto a imagem do nome dela, {dentro} da imagem."]
-        else:
-            frases = [
-                f"Mandei junto a imagem do nome de cada uma, na mesma ordem "
-                f"desta lista, {dentro} de cada imagem."
-            ]
-        return frases
-
-    # SOBROU GENTE, E O TEXTO DIZ. Truncar em silencio seria entregar uma
-    # mensagem que parece completa e nao esta — de novo a mentira plausivel.
-    if quantas_imagens == 1:
-        frases = [f"Mandei junto a imagem do nome da primeira, {dentro} da imagem."]
-    else:
-        frases = [
-            f"Mandei junto a imagem do nome das {quantas_imagens} primeiras, "
-            f"na mesma ordem desta lista, {dentro} de cada imagem."
-        ]
-
-    sobrando = quantas_pendentes - quantas_imagens
-    if sobrando == 1:
-        frases.append("A outra ficou sem imagem, e esta so na lista acima.")
-    else:
-        frases.append(
-            f"As outras {sobrando} ficaram sem imagem, e estao so na lista acima."
-        )
-    return frases
+    return [
+        "Mandei junto a imagem do nome dela, com o apelido escrito em cima, "
+        "dentro da propria imagem."
+    ]
 
 
 @dataclass(frozen=True)

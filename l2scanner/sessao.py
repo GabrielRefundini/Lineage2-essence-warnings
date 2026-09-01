@@ -58,7 +58,7 @@ from .aprendiz import Candidata
 # IMPORTA o acervo, lido da arvore sintatica, e essa distincao e deliberada: a
 # sessao SEGURA um `AcervoDeIdentidades` que o `__main__` construiu, e nunca
 # constroi um.
-from .batismo import Pendente, montar_pergunta_com_imagens
+from .batismo import Pendente, montar_pergunta_com_imagens, pode_perguntar
 from .console import moldurar
 from .frames import Frame, SaudeDoFrame
 from .loot import Designacao, nick_para_o_aviso
@@ -204,6 +204,8 @@ class Sessao:
         janela_do_episodio=JANELA_DO_EPISODIO,
         aprendiz=None,
         acervo=None,
+        pendentes_de_batismo=(),
+        momento_da_ultima_pergunta=None,
     ) -> None:
         self.cal = cal
         self.rastreador = rastreador
@@ -279,6 +281,34 @@ class Sessao:
         # arranque e o `Aprendiz` usam. Uma segunda seriam duas verdades sobre
         # a mesma pasta.
         self.acervo = acervo
+        # A FILA DO BATISMO, e ela existe por causa de uma MEDICAO EM CAMPO.
+        #
+        # Em 01/09/2026 duas imagens foram enviadas numa mensagem so, pelo
+        # caminho de producao, e CHEGOU UMA: o provedor de WhatsApp entrega um
+        # anexo por mensagem. A pergunta passou entao a citar UMA pessoa e a
+        # levar UM anexo (ver `batismo.montar_pergunta_com_imagens`), e esta
+        # lista e onde as OUTRAS esperam a vez.
+        #
+        # ELA E DE CANDIDATAS, E NAO DE PERGUNTAS DEVIDAS. Estar aqui nao
+        # queima marcador nenhum: quem sai daqui e oferecido a
+        # `montar_pergunta_com_imagens`, que decide no `O_CREAT|O_EXCL`. Uma
+        # entrada que a OUTRA instancia do usuario ja perguntou simplesmente
+        # nao produz mensagem e some da fila sem custo.
+        #
+        # EM MEMORIA, E NAO EM DISCO, de proposito. O que precisa sobreviver ao
+        # reinicio e o "ja perguntei" — e ele ja esta em disco, no
+        # `perguntado_<chave>`, desde a Fase 3. Uma segunda persistencia para
+        # "ainda vou perguntar" seria um segundo estado sobre a mesma pasta,
+        # capaz de discordar dela; a varredura de arranque ja reconstroi esta
+        # fila inteira toda vez que o scanner sobe.
+        self._fila_de_batismo = list(pendentes_de_batismo)
+        # Quando a ultima pergunta SAIU, na mesma escala do `momento` do tick.
+        #
+        # `None` quer dizer "ainda nao perguntei nesta execucao". O
+        # `laco_principal` passa aqui o instante da pergunta do ARRANQUE: sem
+        # isso o primeiro tick mandaria a segunda bolha no mesmo segundo em que
+        # o scanner subiu, que e exatamente a rajada que o espacamento desfaz.
+        self._momento_da_ultima_pergunta = momento_da_ultima_pergunta
         # Ja avisamos que o aprendiz explodiu? Uma vez por sessao, e so uma.
         #
         # Mesmo trilho dos dois vizinhos do mercado, e pela mesma razao: um
@@ -460,6 +490,17 @@ class Sessao:
         # comportamento de hoje. Esta fase ENCURTA para N leituras uma janela
         # que hoje dura a sessao inteira; ela nao a fecha.
         self._aprender(observacao, resultado)
+
+        # A PERGUNTA SAI AQUI, e nao dentro do `_aprender`, e a posicao E a
+        # decisao. A fila do batismo tem gente de DOIS lugares: o aprendizado
+        # deste tick e a varredura de arranque, que entrega no construtor tudo
+        # que ja estava no disco. Amarrar a saida ao `_aprender` faria as
+        # entradas do arranque so serem perguntadas nos ticks em que o scanner
+        # aprendesse alguem novo — e elas nunca produzem `Aprendizado` nenhum
+        # (elas casam ~1.000 contra si mesmas), que e a descoberta que definiu
+        # a Fase 3. As unicas pessoas do acervo real do usuario ficariam
+        # esperando um evento que nao acontece.
+        self._perguntar_um_batismo(momento, resultado)
 
         # REGISTRO E MENSAGEM SE SEPARAM AQUI, e so a mensagem se agrupa.
         #
@@ -882,49 +923,91 @@ class Sessao:
         # da virada de regime continuam saindo antes, entao o `scanner.log`
         # conta a historia na ordem em que ela aconteceu.
         #
-        # SO `criado` PERGUNTA, e isso nao contradiz o `ja_existia` ser
+        # SO `criado` ENTRA NA FILA, e isso nao contradiz o `ja_existia` ser
         # sucesso: `ja_existia` significa que a OUTRA instancia do usuario
-        # criou a entrada, e foi ELA que teve a chance de marcar. Perguntar
+        # criou a entrada, e foi ELA que teve a chance de marcar. Enfileirar
         # tambem aqui seria correto pelo `O_EXCL` (o marcador decidiria de
         # novo) e desnecessario — e a varredura de arranque ja e a rede que
         # pega qualquer pergunta que nao saiu, inclusive a de uma entrada
         # criada por um `--dry-run`.
         #
-        # `self.despachante is not None` E A TRAVA DE D-05 ESTENDIDA, e ela nao
-        # e um detalhe: `montar_pergunta` MARCA. Chama-la sem despachante
-        # queimaria o marcador de uma pergunta que nao vai para lugar nenhum, e
-        # o marcador e PARA SEMPRE — a pessoa ficaria "Membro N" ate alguem
-        # apagar um arquivo a mao. Quem roda sem `.env` e sem `--dry-run`
-        # simplesmente ainda nao perguntou, e vai perguntar no dia em que
-        # configurar a entrega.
-        if self.acervo is not None and self.despachante is not None:
-            pendentes = [
-                Pendente(chave=aprendizado.chave, indice=aprendizado.indice)
-                for aprendizado in saida.aprendizados
-                if aprendizado.desfecho == "criado"
-            ]
-            pergunta = montar_pergunta_com_imagens(self.acervo, pendentes)
-            if pergunta:
-                # `Categoria.SEMPRE`, E A RAZAO PRECISA FICAR ESCRITA: o
-                # marcador de D-04 e de MAO UNICA. `Categoria.NORMAL` e cortada
-                # no transporte durante o silencio de TvT/Prime, e a mensagem
-                # cortada nem entra no outbox — a pergunta seria queimada e
-                # nunca enviada, sistematicamente, justamente durante o evento
-                # em que a party mais muda de gente. A varredura do proximo
-                # arranque salvaria o caso, mas depender dela seria transformar
-                # uma perda evitavel em rotina.
-                #
-                # A RESERVA VAI JUNTO, e ela nao e detalhe: se o anexo falhar,
-                # o transporte manda `texto_sem_imagens`, que e a pergunta de
-                # hoje. Sem ela sairia um texto prometendo uma imagem que nao
-                # chegou, e o dono procuraria um arquivo que nao existe.
-                self._despachar(
-                    pergunta.texto,
-                    Categoria.SEMPRE,
-                    resultado=resultado,
-                    anexos=pergunta.imagens,
-                    texto_sem_anexos=pergunta.texto_sem_imagens,
-                )
+        # ENFILEIRAR NAO MARCA NADA, e e por isso que este bloco nao tem mais a
+        # trava de D-05. Quem marca e `montar_pergunta_com_imagens`, chamada so
+        # em `_perguntar_um_batismo`, e e la que a trava vive agora. Um tick
+        # sem despachante acumula candidatas em memoria e nao encosta no disco.
+        self._fila_de_batismo.extend(
+            Pendente(chave=aprendizado.chave, indice=aprendizado.indice)
+            for aprendizado in saida.aprendizados
+            if aprendizado.desfecho == "criado"
+        )
+
+    def _perguntar_um_batismo(
+        self, momento: float | None, resultado: ResultadoDoTick
+    ) -> None:
+        """UMA pergunta por vez, com respiro entre elas.
+
+        POR QUE UMA SO, E A RAZAO E UMA MEDICAO E NAO UM GOSTO: em 01/09/2026
+        duas imagens foram enviadas numa mensagem so, pelo caminho de producao,
+        e CHEGOU UMA. O provedor de WhatsApp entrega um anexo por mensagem, e
+        nenhum teste offline pega isso.
+
+        POR QUE COM RESPIRO: duas pessoas aprendidas em ticks vizinhos
+        produziriam duas bolhas seguidas num grupo cujo dono ja desligou
+        `avisar_no_horario` do Solo Boss por VOLUME. `INTERVALO_ENTRE_PERGUNTAS`
+        escreve o numero e a razao dele.
+
+        `self.despachante is not None` E A TRAVA DE D-05 ESTENDIDA, e ela nao e
+        um detalhe: `montar_pergunta_com_imagens` MARCA. Chama-la sem
+        despachante queimaria o marcador de uma pergunta que nao vai para lugar
+        nenhum, e o marcador e PARA SEMPRE — a pessoa ficaria "Membro N" ate
+        alguem apagar um arquivo a mao. Quem roda sem `.env` e sem `--dry-run`
+        simplesmente ainda nao perguntou, e vai perguntar no dia em que
+        configurar a entrega.
+
+        O LACO CONSOME DE GRACA QUEM JA FOI PERGUNTADA. `None` de volta so
+        acontece quando o marcador ja existia (a outra instancia do usuario, ou
+        o proprio arranque desta) ou quando o disco falhou; nos dois casos
+        nenhuma mensagem sai, entao continuar para a proxima da fila no MESMO
+        tick nao gasta bolha nenhuma. So o `return` do caminho que despachou
+        consome o intervalo.
+
+        E O CASO DA FALHA DE DISCO SAI DA FILA SEM VOLTAR, o que esta certo e
+        e a mesma escolha que `acervo.marcar_pergunta` ja documenta: uma
+        pergunta perdida e recuperavel pela varredura do proximo arranque; uma
+        pergunta reposta na fila a cada falha repetiria a tentativa a cada
+        tick, para sempre.
+        """
+        if self.acervo is None or self.despachante is None:
+            return
+        if not pode_perguntar(momento, self._momento_da_ultima_pergunta):
+            return
+
+        while self._fila_de_batismo:
+            pendente = self._fila_de_batismo.pop(0)
+            pergunta = montar_pergunta_com_imagens(self.acervo, [pendente])
+            if pergunta is None:
+                continue
+            # `Categoria.SEMPRE`, E A RAZAO PRECISA FICAR ESCRITA: o marcador
+            # de D-04 e de MAO UNICA. `Categoria.NORMAL` e cortada no
+            # transporte durante o silencio de TvT/Prime, e a mensagem cortada
+            # nem entra no outbox — a pergunta seria queimada e nunca enviada,
+            # sistematicamente, justamente durante o evento em que a party mais
+            # muda de gente. A varredura do proximo arranque salvaria o caso,
+            # mas depender dela seria transformar uma perda evitavel em rotina.
+            #
+            # A RESERVA VAI JUNTO, e ela nao e detalhe: se o anexo falhar, o
+            # transporte manda `texto_sem_imagens`, que e a pergunta sem
+            # promessa de imagem. Sem ela sairia um texto prometendo uma imagem
+            # que nao chegou, e o dono procuraria um arquivo que nao existe.
+            self._despachar(
+                pergunta.texto,
+                Categoria.SEMPRE,
+                resultado=resultado,
+                anexos=pergunta.imagens,
+                texto_sem_anexos=pergunta.texto_sem_imagens,
+            )
+            self._momento_da_ultima_pergunta = momento
+            return
 
     def _registrar_recusas(self, recusas: list) -> None:
         """O auto-diagnostico de D-07, com a cadencia que nao foi inventada.
