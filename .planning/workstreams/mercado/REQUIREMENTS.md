@@ -9,19 +9,19 @@
 
 ## Fase 5 — a aba Adena e a taxa de câmbio
 
-- [ ] **ADEN-01**: O `--mercado` reconhece a aba Adena e a lê, **sem perder** a leitura
+- [x] **ADEN-01**: O `--mercado` reconhece a aba Adena e a lê, **sem perder** a leitura
       da aba de negociação. Hoje `calibration.json` guarda uma grade só e calibrar uma
       apagaria a outra — as duas passam a conviver, e a leitura escolhe pela grade que
       está na tela.
-- [ ] **ADEN-02**: O modelo de colunas da Adena é PRÓPRIO, não uma adaptação do de
+- [x] **ADEN-02**: O modelo de colunas da Adena é PRÓPRIO, não uma adaptação do de
       negociação. Ali o nome (`Auction List`) **carrega a quantidade**
       (`10,000,000 Adena`), não existe coluna de quantidade, e o unitário exibido é por
       cinco milhões. Ler com o modelo errado corromperia a série por um fator inteiro.
-- [ ] **ADEN-03**: Cada linha da Adena vira uma observação de TAXA no
+- [x] **ADEN-03**: Cada linha da Adena vira uma observação de TAXA no
       `.mercado/observacoes.csv` — `quantidade` = a adena, `total_em_centesimos` = o
       preço em XM. Nenhuma coluna nova, nenhum bump de `VERSAO_DO_ESQUEMA`: o unitário
       derivado em `Fraction` já dá XM por adena, exato.
-- [ ] **ADEN-04**: O console exibe a taxa na unidade que o usuário pensa — **XM por
+- [x] **ADEN-04**: O console exibe a taxa na unidade que o usuário pensa — **XM por
       milhão de adena** —, dizendo que é derivada, com `n` e recência como todo número
       que sai na tela.
 
@@ -62,10 +62,10 @@
 
 | ID | Fase | Estado |
 |---|---|---|
-| ADEN-01 | Phase 5 | Pending |
-| ADEN-02 | Phase 5 | Pending |
-| ADEN-03 | Phase 5 | Pending |
-| ADEN-04 | Phase 5 | Pending |
+| ADEN-01 | Phase 5 | Complete |
+| ADEN-02 | Phase 5 | Complete |
+| ADEN-03 | Phase 5 | Complete |
+| ADEN-04 | Phase 5 | Complete |
 | DEBT-01 | TBD | Pending |
 | DEBT-02 | TBD | Pending |
 | DEBT-03 | TBD | Pending |

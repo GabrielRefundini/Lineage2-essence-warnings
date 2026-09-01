@@ -74,14 +74,14 @@ mercado ganha um denominador comum.
 
 **Requirements**: ADEN-01 a ADEN-04 (ver REQUIREMENTS.md)
 **Depends on:** v1-mercado
-**Plans:** 1/4 plans executed
+**Plans:** 4/4 plans executed
 
 Plans:
 
 - [x] 05-01-PLAN.md — a quantidade DERIVADA (a `Auction List` não se lê) e a guarda de cruzamento que rejeita o `13588` — *onda 1*
 - [x] 05-02-PLAN.md — `mercado_layouts` opcional e o portão de layout que ESCOLHE, com a matriz medida nos dois sentidos — *onda 2*
-- [ ] 05-03-PLAN.md — a taxa em XM por milhão no console, e a dívida do `13588` registrada — *onda 2*
-- [ ] 05-04-PLAN.md — `--layout adena` grava aninhado e não destrói a calibração de negociação — *onda 3*
+- [x] 05-03-PLAN.md — a taxa em XM por milhão no console, e a dívida do `13588` registrada — *onda 2*
+- [x] 05-04-PLAN.md — `--layout adena` grava aninhado e não destrói a calibração de negociação — *onda 3*
 
 ---
 
