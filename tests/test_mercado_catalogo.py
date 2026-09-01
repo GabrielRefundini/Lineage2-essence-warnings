@@ -569,6 +569,18 @@ class TestATravaPorPalavra:
 
         Enquanto `...C-grade Armor` estivesse no catalogo, `...C-grade Weapon`
         NUNCA agrupava e NUNCA criava serie. Nao era transitorio.
+
+        A CHAVE ESPERADA MUDOU EM 2026-09-01, E O MOTIVO PRECISA ESTAR AQUI: ela
+        era `...c-grade-weapon#` e passou a ser `...c-grade-weapon#C`, porque a
+        letra de grade entrou na assinatura. O VEREDITO deste teste nao se mexeu
+        — quem separa este par continua sendo a trava por PALAVRA, e a prova
+        disso e que a letra e a MESMA nos dois lados (afirmado em
+        `TestOsOitoParesDoControleNegativo`). O que mudou foi so o nome da
+        serie nova.
+
+        A assinatura vem de `assinatura_por_ocr` e nao de um `""` escrito a mao:
+        cravar a assinatura na fixtura foi exatamente o que fez este teste
+        quebrar quando o mecanismo mudou, sem que o comportamento mudasse.
         """
         catalogo = [_entrada(SCROLL_ARMOR)]
         r = agrupar(
@@ -578,22 +590,36 @@ class TestATravaPorPalavra:
             CORTE_DA_PRODUCAO,
             PISO_DA_PRODUCAO,
         )
-        assert r.chave == chave_da_serie(SCROLL_WEAPON, "")
+        assert r.chave == chave_da_serie(
+            SCROLL_WEAPON, assinatura_por_ocr(SCROLL_WEAPON)
+        )
         assert r.nova is True
         assert "cinzenta" not in r.motivo.lower()
 
     def test_o_catalogo_INTEIRO_do_usuario_nao_engole_mais_a_leitura(self):
-        """Nao so contra `Armor`: contra as outras series de assinatura vazia.
+        """Nao so contra `Armor`: contra as outras series do catalogo real.
 
         `Scroll: Enchant D-grade Weapon` esta no catalogo real e COMPARTILHA a
         palavra `Weapon` com a leitura — ele e o candidato que sobraria se a
         trava olhasse so a ULTIMA palavra.
+
+        A assinatura da leitura passou a vir de `assinatura_por_ocr` em vez de um
+        `""` cravado. Com o `""` o teste continuava VERDE e tinha virado oco: a
+        leitura era comparada contra as entradas de assinatura vazia, e o
+        `Armor` — que e o candidato inteiro do caso — nem chegava a ser
+        considerado.
         """
         catalogo = [
             _entrada(nome)
             for nome in (SCROLL_ARMOR, SCROLL_D_WEAPON, TUNIC, "Hunter's Breastplate")
         ]
-        r = agrupar(SCROLL_WEAPON, "", catalogo, CORTE_DA_PRODUCAO, PISO_DA_PRODUCAO)
+        r = agrupar(
+            SCROLL_WEAPON,
+            assinatura_por_ocr(SCROLL_WEAPON),
+            catalogo,
+            CORTE_DA_PRODUCAO,
+            PISO_DA_PRODUCAO,
+        )
         assert r.nova is True
 
     def test_o_ruido_de_OCR_de_UMA_palavra_continua_agrupando(self):
