@@ -143,7 +143,23 @@ def acumular_motivos(acumulados: Counter, leitura) -> None:
     acumulados.update(getattr(leitura, "motivos", ()) or ())
 
 
-def linha_ao_vivo(leitor, contagem, ultimo_item) -> str:
+# O ESTADO que a linha ao vivo NOMEIA quando o painel esta aberto e o layout
+# recusado. Ele e uma CONSTANTE, e nao uma string montada no lugar, para que o
+# teste de controle negativo possa afirmar a AUSENCIA dele sem transcrever o
+# texto (uma transcricao envelheceria em silencio no dia em que a frase mudasse).
+#
+# ELE DIZ O QUE FAZER, e nao so o que houve. "Layout recusado" sozinho e um
+# diagnostico que o usuario nao sabe atender; o aviso alto de `mercado_pagina`
+# ja explica a razao inteira uma vez, e o que esta linha precisa carregar por
+# tick e a acao.
+AVISO_DO_LAYOUT_RECUSADO = (
+    "PARADO: esta aba NAO e o layout calibrado, entao nenhuma linha e lida. "
+    "Abra a grade de negociacao do World Exchange, ou recalibre o mercado "
+    "no layout que voce quer ler."
+)
+
+
+def linha_ao_vivo(leitor, contagem, ultimo_item, *, layout_recusado: bool) -> str:
     """A repintada de 1 Hz: as DUAS metades e o ultimo item reconhecido.
 
     Ela devolve UMA linha, e quem chama a emite A CADA TICK COM O PAINEL
@@ -152,6 +168,20 @@ def linha_ao_vivo(leitor, contagem, ultimo_item) -> str:
     a metade PERDIDA cresce, e no censo foram 151 lidas contra 189 perdidas.
     Com o painel FECHADO ela nao sai, porque ali quem responde "o modo esta
     vivo?" e a linha de transicao (ver `laco_do_mercado`).
+
+    NUMERO CONGELADO PARECE DEFEITO — E A MESMA CLASSE DO CAMPO VAZIO. Medido em
+    producao (2026-09-01 09:38): com a aba Adena aberta, esta linha saia a cada
+    tick com `lidas 85 | perdidas 2 | gravadas 2` parados e nada dizia por que.
+    O aviso de layout de `mercado_pagina` tem LATCH — sai UMA vez na transicao,
+    o que e certo para nao poluir o log —, mas ele rola para fora da tela, e o
+    que sobra parece o scanner ter travado. O usuario chegou a concluir isso, e
+    nao era verdade. Por isso o ESTADO viaja na linha que JA SAI, e nao como um
+    aviso novo por tick: e o mesmo remedio do `(nenhum ainda)` logo abaixo.
+
+    `layout_recusado` NAO TEM VALOR DE FABRICA, e a ausencia e o mecanismo. Um
+    default deixaria o laco esquecer de passa-lo e o defeito voltaria inteiro
+    com esta funcao verde no teste de unidade — a mesma razao pela qual
+    `TravaDoDestaque.anunciar` devolve o TEXTO em vez de um booleano.
 
     O QUE ELA NAO MOSTRA, E POR QUE: o `residuo_do_cruzamento`. A guarda de
     cruzamento esta DESLIGADA por medicao (02-02), entao o residuo e observacao
@@ -162,12 +192,18 @@ def linha_ao_vivo(leitor, contagem, ultimo_item) -> str:
     `ultimo_item` pode ser `None` no comeco, e ai a linha diz isso por extenso em
     vez de mostrar campo vazio: campo vazio parece defeito.
     """
-    return (
+    linha = (
         f"mercado | lidas {leitor.paginas_lidas} | "
         f"perdidas {leitor.paginas_perdidas} | "
         f"gravadas {contagem.observacoes} | "
         f"ultimo item: {ultimo_item if ultimo_item else '(nenhum ainda)'}"
     )
+    # O ESTADO ACRESCENTA, E NUNCA SUBSTITUI as duas metades: elas sao o que
+    # julga a sessao, e some-las aqui faria o usuario perder a contagem
+    # justamente no minuto em que ele precisa saber quanto ja tinha coletado.
+    if layout_recusado:
+        linha = f"{linha} | {AVISO_DO_LAYOUT_RECUSADO}"
+    return linha
 
 
 # ---------------------------------------------------------------------------

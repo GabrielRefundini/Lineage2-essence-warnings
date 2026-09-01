@@ -470,6 +470,7 @@ class TestALinhaAoVivo:
             LeitorFalso(paginas_lidas=7, paginas_perdidas=3),
             Contagem(),
             "Blessed Scroll of Escape",
+            layout_recusado=False,
         )
         assert re.search(r"\b7\b", texto)
         assert re.search(r"\b3\b", texto)
@@ -484,7 +485,10 @@ class TestALinhaAoVivo:
         from l2scanner.mercado_console import linha_ao_vivo
 
         texto = linha_ao_vivo(
-            LeitorFalso(paginas_lidas=0, paginas_perdidas=3), Contagem(), None
+            LeitorFalso(paginas_lidas=0, paginas_perdidas=3),
+            Contagem(),
+            None,
+            layout_recusado=False,
         )
         assert re.search(r"\b0\b", texto)
         assert re.search(r"\b3\b", texto)
@@ -731,6 +735,165 @@ class TestACadenciaDaLinhaAoVivo:
                 ticks_maximos=6,
             )
         assert linhas_ao_vivo_emitidas(caplog) == []
+
+
+def cal_que_recusa_o_layout(cal: Calibracao) -> Calibracao:
+    """A MESMA calibracao, com o portao de layout impossivel de atravessar.
+
+    O caso de producao e a aba Adena: a ancora e achada, o painel VOTA ABERTO, e
+    so entao o casamento do cabecalho reprova e nenhuma linha e lida.
+    Reproduzi-lo por cirurgia de pixel exigiria adivinhar quais pixels do
+    cabecalho ainda deixam a ancora casar; subir o LIMIAR acima do maximo que um
+    casamento normalizado pode devolver produz o mesmo estado por construcao,
+    sem tocar em fixtura versionada.
+
+    `deepcopy` E NAO MUTACAO DA FIXTURA: a `cal` e de escopo de MODULO, e mexer
+    nela contaminaria todo teste que rodasse depois.
+    """
+    recusa = copy.deepcopy(cal)
+    recusa.mercado_limiar_do_cabecalho = 2.0
+    return recusa
+
+
+class TestALinhaAoVivoNOMEIAOLayoutRecusado:
+    """O defeito de producao de 2026-09-01 09:38, escrito como teste.
+
+    O usuario estava na aba Adena. A linha ao vivo saia a cada tick com os
+    MESMOS numeros e nada dizia por que - o aviso de layout tem latch, sai UMA
+    vez na transicao e rola para fora da tela. O que sobra na tela e numero
+    congelado sem explicacao, e ele PARECE defeito: e a mesma classe do "campo
+    vazio parece defeito" que a docstring de `linha_ao_vivo` ja resolvia
+    escrevendo "(nenhum ainda)".
+    """
+
+    def test_com_o_layout_RECUSADO_a_linha_NOMEIA_o_estado(self) -> None:
+        from l2scanner.mercado_console import linha_ao_vivo
+
+        texto = linha_ao_vivo(
+            LeitorFalso(paginas_lidas=85, paginas_perdidas=2),
+            Contagem(),
+            "Blessed Scroll of Escape",
+            layout_recusado=True,
+        )
+        # As duas metades continuam la: o estado ACRESCENTA, e nao substitui.
+        assert re.search(r"\b85\b", texto)
+        assert re.search(r"\b2\b", texto)
+        # E o estado esta escrito por extenso, com o que fazer a respeito.
+        assert "layout" in texto.lower()
+        assert "World Exchange" in texto
+
+    def test_com_o_layout_ACEITO_a_linha_sai_SEM_o_aviso(self) -> None:
+        """O controle negativo. Um aviso permanente nao seria informacao.
+
+        Sem este teste, "escrever o aviso sempre" ficaria verde no teste de
+        cima e trocaria um defeito de silencio por um de ruido - o usuario
+        leria "layout recusado" na linha do tick em que a pagina foi ACEITA.
+        """
+        from l2scanner.mercado_console import (
+            AVISO_DO_LAYOUT_RECUSADO,
+            linha_ao_vivo,
+        )
+
+        texto = linha_ao_vivo(
+            LeitorFalso(paginas_lidas=85, paginas_perdidas=2),
+            Contagem(),
+            "Blessed Scroll of Escape",
+            layout_recusado=False,
+        )
+        assert AVISO_DO_LAYOUT_RECUSADO not in texto
+
+    def test_o_ESTADO_e_obrigatorio_na_assinatura(self) -> None:
+        """Sem valor de fabrica, e isso e o que prende a fiacao.
+
+        Um `layout_recusado=False` de fabrica deixaria o laco esquecer de
+        passa-lo e o defeito voltaria inteiro, com a unidade verde. Sem
+        default, quem chama TEM de decidir - a mesma disciplina de
+        `TravaDoDestaque.anunciar`, que devolve o TEXTO para nao existir
+        caminho que anuncie sem passar por ela.
+        """
+        import inspect as _inspect
+
+        from l2scanner.mercado_console import linha_ao_vivo
+
+        parametro = _inspect.signature(linha_ao_vivo).parameters[
+            "layout_recusado"
+        ]
+        assert parametro.kind is _inspect.Parameter.KEYWORD_ONLY
+        assert parametro.default is _inspect.Parameter.empty
+
+    def test_o_laco_NOMEIA_o_estado_na_aba_RECUSADA(
+        self, cal, leituras, tmp_path, caplog
+    ) -> None:
+        """A PROVA DE FIACAO: o laco de producao, na aba recusada.
+
+        A unidade acima ficaria verde mesmo que o laco nunca passasse o estado.
+        Este roda `laco_do_mercado` inteiro com o portao de layout reprovando e
+        exige que a linha REALMENTE EMITIDA nomeie o estado.
+        """
+        _duas, _tres, quadros = montar_as_leitoras(
+            cal, leituras, [PAGINA_CHEIA, PAGINA_CHEIA]
+        )
+        with caplog.at_level(logging.INFO):
+            laco_do_mercado(
+                argumentos(),
+                cal_que_recusa_o_layout(cal),
+                fonte=FonteFalsa(quadros),
+                ler_texto=LeitoraDeRecorte(),
+                ler_texto_conferencia=LeitoraDeRecorte(),
+                relogio=Relogio(),
+                pasta=tmp_path,
+                ticks_maximos=2,
+            )
+
+        # AS DUAS PRECONDICOES SAO AFIRMADAS, e nao supostas: sem elas o teste
+        # poderia ficar verde pelo caminho errado (painel fechado, ou layout
+        # aceito), que sao estados com respostas DIFERENTES.
+        assert "o painel do mercado ABRIU" in caplog.text, (
+            "a fixtura parou de abrir o painel: este teste nao esta mais no "
+            "caso 'painel ABERTO com layout RECUSADO'"
+        )
+        assert "NAO e o layout calibrado" in caplog.text, (
+            "o portao de layout parou de reprovar: este teste nao esta mais "
+            "no caso que ele existe para cobrir"
+        )
+
+        ao_vivo = linhas_ao_vivo_emitidas(caplog)
+        assert ao_vivo, "nenhuma linha ao vivo num tick de painel ABERTO"
+        for linha in ao_vivo:
+            assert "layout" in linha.lower(), (
+                "a linha ao vivo saiu com os numeros parados e sem dizer por "
+                "que: e o defeito de producao de 2026-09-01 de volta"
+            )
+
+    def test_no_laco_com_o_layout_ACEITO_a_linha_sai_LIMPA(
+        self, cal, leituras, tmp_path, caplog
+    ) -> None:
+        """O controle negativo da fiacao, sobre a MESMA fixtura.
+
+        Se o laco passasse `layout_recusado=True` sempre, o teste acima ficaria
+        verde e o console gritaria "layout recusado" no tick em que a pagina
+        foi lida.
+        """
+        from l2scanner.mercado_console import AVISO_DO_LAYOUT_RECUSADO
+
+        duas, tres, quadros = montar_as_leitoras(
+            cal, leituras, [PAGINA_CHEIA, PAGINA_CHEIA_VIZINHA]
+        )
+        with caplog.at_level(logging.INFO):
+            laco_do_mercado(
+                argumentos(),
+                cal,
+                fonte=FonteFalsa(quadros),
+                ler_texto=duas,
+                ler_texto_conferencia=tres,
+                relogio=Relogio(),
+                pasta=tmp_path,
+                ticks_maximos=2,
+            )
+        ao_vivo = linhas_ao_vivo_emitidas(caplog)
+        assert ao_vivo
+        for linha in ao_vivo:
+            assert AVISO_DO_LAYOUT_RECUSADO not in linha
 
 
 # ---------------------------------------------------------------------------
