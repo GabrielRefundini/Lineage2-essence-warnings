@@ -538,6 +538,33 @@ class Calibracao:
     # do rotulo.
     mercado_folga_de_cola_do_glifo: int | None = None
 
+    # OS LAYOUTS ALEM DA NEGOCIACAO, aninhados por nome: `{"adena": {...}}`.
+    #
+    # OPCIONAL de proposito, e por isso a VERSAO_DO_ESQUEMA SEGUE EM 2, pelo
+    # mesmo motivo escrito acima para o `banner_manutencao` e para o bloco de
+    # mercado: `carregar` recusa qualquer versao diferente da constante, entao
+    # subir para 3 apagaria os 13 moldes de glifo e as 3 ancoras que so a mao do
+    # usuario produz — por causa de um campo que ele talvez nem use.
+    #
+    # A AUSENCIA E O ESTADO NORMAL, e ela NAO AVISA NADA. Isto a separa da
+    # `mercado_folga_de_cola_do_glifo`, cuja falta custa 6,08% das linhas e por
+    # isso avisa alto: aqui a falta nao degrada coisa nenhuma. Um clone que
+    # nunca calibrou a Adena le a negociacao exatamente como lia antes desta
+    # fase, e e assim que tem de ser — o ADEN-01 e literalmente "conviver".
+    #
+    # A NEGOCIACAO NAO MORA AQUI. Ela mora nas chaves de TOPO
+    # (`mercado_grade`, `mercado_coluna_do_*`, `mercado_cabecalho_de_coluna`), e
+    # `_conferir_os_layouts_de_mercado` recusa `negociacao` como chave aninhada:
+    # duas verdades sobre a mesma grade divergem, e a divergencia aqui e a
+    # leitura da coluna errada com confianca.
+    #
+    # A FORMA de cada bloco: `{"cabecalho": {...}, "limiar_do_cabecalho": float,
+    # "colunas": {"total": {"dx","largura"}, ...}, "grade": {...opcional}}`.
+    # O `grade` sai CURTO ou ausente de proposito: os campos que faltam sao
+    # HERDADOS de `mercado_grade` na leitura, porque hoje eles sao identicos e
+    # duas copias do mesmo numero envelhecem separadas.
+    mercado_layouts: dict | None = None
+
     versao: int = VERSAO_DO_ESQUEMA
 
     def regiao_do_nome(self, indice: int) -> Regiao:
@@ -690,6 +717,7 @@ class Calibracao:
             "mercado_folga_de_cola_do_glifo": (
                 self.mercado_folga_de_cola_do_glifo
             ),
+            "mercado_layouts": self.mercado_layouts,
         }
         # ESCRITA ATOMICA, NO LUGAR ONDE TODOS OS ESCRITORES HERDAM.
         #
@@ -838,6 +866,11 @@ class Calibracao:
             mercado_folga_de_cola_do_glifo=dados.get(
                 "mercado_folga_de_cola_do_glifo"
             ),
+            # `.get` e nao indexacao, pela MESMA razao das duas irmas acima. Aqui
+            # ela e ainda mais barata de defender: TODO `calibration.json` que
+            # existe hoje no mundo esta sem esta chave, entao uma indexacao
+            # mataria o arranque de cada instalacao ate a proxima recalibracao.
+            mercado_layouts=dados.get("mercado_layouts"),
             versao=versao,
         )
 
@@ -1048,13 +1081,22 @@ def _numero_de_mercado(
     maximo: float | None,
     inclui_o_minimo: bool,
     porque: str,
+    campo: str | None = None,
 ) -> float | None:
     """Um limiar do mercado, conferido em tipo e em faixa. `None` passa sempre.
 
     `None` passa porque ausencia e FEATURE OFF, nunca erro — o default seguro
     deste projeto inteiro. Quem preenche e a ferramenta que mediu.
+
+    `campo` separa O QUE SE PROCURA de COMO SE CHAMA na mensagem, e entrou no
+    05-02 porque os limiares aninhados de `mercado_layouts` se chamam
+    `limiar_do_cabecalho` dentro do bloco mas precisam aparecer como
+    `mercado_layouts.adena.limiar_do_cabecalho` no erro — senao o usuario abre o
+    arquivo e procura uma chave que nao existe naquele nivel. Sem esta
+    separacao, passar o nome pontuado como chave de busca faria o `.get`
+    devolver `None` e a conferencia inteira PASSAR SEMPRE, calada.
     """
-    valor = dados.get(chave)
+    valor = dados.get(chave if campo is None else campo)
     if valor is None:
         return None
     # `bool` e subclasse de `int`: `True` passaria como numero e viraria limiar
@@ -1092,21 +1134,28 @@ def _inteiro_de_mercado(bruto, chave: str, campo: str) -> int:
     return valor
 
 
-def _conferir_uma_coluna(dados: dict, chave: str) -> None:
-    """Uma das quatro colunas: `{"dx": int, "largura": int}` dentro da grade.
+def _conferir_a_forma_de_uma_coluna(coluna, chave: str) -> tuple[int, int] | None:
+    """A FORMA de uma coluna: `{"dx": int, "largura": int}` com `largura > 0`.
 
-    O RETANGULO E CONFERIDO CONTRA A GRADE, e nao so contra o zero (T-02-02).
-    Um `dx` mentido nao quebra nada visivel: ele faz a leitura recortar OUTRA
-    coluna e devolver um numero plausivel, errado por um fator inteiro. Uma
-    serie de precos corrompida assim nao se distingue de uma correta olhando
-    para o CSV.
+    EXTRAIDA de `_conferir_uma_coluna` no 05-02, e extraida em vez de copiada:
+    o bloco aninhado de `mercado_layouts` confere exatamente esta forma, e duas
+    validacoes parecidas sobre a mesma forma divergem — e o argumento que este
+    arquivo ja faz duas vezes (o `CONSERTO_DO_MERCADO` escrito uma vez so, e a
+    lista unica de `pecas_de_calibracao_de_mercado_faltando`).
 
-    A conferencia so acontece quando a grade tras numeros utilizaveis. Sem
-    grade nao ha limite conhecido, e inventar um seria pior que nao conferir.
+    O que ficou FORA e a conferencia contra a grade, e de proposito: a coluna de
+    topo se confere contra `mercado_grade`, e a aninhada contra a grade DELA,
+    que pode ser herdada. Um limite so para as duas seria o limite errado para
+    uma delas.
+
+    `dx` NEGATIVO E LEGITIMO: ele e deslocamento a partir da origem do painel, e
+    a coluna do nome de negociacao ja e `-385`. Recusar negativo aqui mataria a
+    calibracao que funciona hoje.
+
+    Devolve `(dx, largura)`, ou `None` quando a coluna esta ausente.
     """
-    coluna = dados.get(chave)
     if coluna is None:
-        return
+        return None
     if not isinstance(coluna, dict):
         raise CalibracaoInvalida(
             f"{chave} precisa ser um objeto com dx e largura, veio "
@@ -1120,6 +1169,26 @@ def _conferir_uma_coluna(dados: dict, chave: str) -> None:
             f"largura zero nao recorta nada, e a leitura ficaria vazia sem uma "
             f"linha de erro. {CONSERTO_DO_MERCADO}"
         )
+    return dx, largura
+
+
+def _conferir_uma_coluna(dados: dict, chave: str) -> None:
+    """Uma das quatro colunas: `{"dx": int, "largura": int}` dentro da grade.
+
+    O RETANGULO E CONFERIDO CONTRA A GRADE, e nao so contra o zero (T-02-02).
+    Um `dx` mentido nao quebra nada visivel: ele faz a leitura recortar OUTRA
+    coluna e devolver um numero plausivel, errado por um fator inteiro. Uma
+    serie de precos corrompida assim nao se distingue de uma correta olhando
+    para o CSV.
+
+    A conferencia so acontece quando a grade tras numeros utilizaveis. Sem
+    grade nao ha limite conhecido, e inventar um seria pior que nao conferir.
+    """
+    coluna = dados.get(chave)
+    forma = _conferir_a_forma_de_uma_coluna(coluna, chave)
+    if forma is None:
+        return
+    dx, largura = forma
 
     grade = dados.get("mercado_grade")
     if not isinstance(grade, dict):
@@ -1152,12 +1221,31 @@ def _conferir_o_cabecalho_de_coluna(dados: dict) -> None:
     conferencia na hora de decodificar; esta e a que o usuario chega a ler, no
     arranque, com o console na frente.
     """
-    cabecalho = dados.get("mercado_cabecalho_de_coluna")
+    _conferir_um_molde_de_cabecalho(
+        dados.get("mercado_cabecalho_de_coluna"), "mercado_cabecalho_de_coluna"
+    )
+
+
+def _conferir_um_molde_de_cabecalho(cabecalho, chave: str) -> None:
+    """O corpo comum da conferencia de UM molde de cabecalho.
+
+    EXTRAIDO de `_conferir_o_cabecalho_de_coluna` no 05-02, pelo mesmo motivo de
+    `_conferir_a_forma_de_uma_coluna`: o molde aninhado de `mercado_layouts` tem
+    de herdar ESTA disciplina, e uma copia dela envelheceria contra a original.
+    A contagem de bytes contra `altura * largura` e o coracao, e ela e o que
+    impede um `reshape` sobre dimensao mentida de produzir um molde
+    silenciosamente errado — que nunca casa com nada e recusaria TODA pagina,
+    para sempre, sem uma linha de erro.
+
+    `chave` entra por parametro so para a mensagem dizer QUAL molde caiu: com
+    layouts aninhados existem varios, e "mercado_cabecalho_de_coluna corrompido"
+    mandaria o usuario olhar o lugar errado do arquivo.
+    """
     if cabecalho is None:
         return
     if not isinstance(cabecalho, dict):
         raise CalibracaoInvalida(
-            f"mercado_cabecalho_de_coluna precisa ser um objeto com layout, "
+            f"{chave} precisa ser um objeto com layout, "
             f"dy, altura, largura, bytes e corte_de_brilho, veio "
             f"{type(cabecalho).__name__}. {CONSERTO_DO_MERCADO}"
         )
@@ -1165,26 +1253,24 @@ def _conferir_o_cabecalho_de_coluna(dados: dict) -> None:
     layout = cabecalho.get("layout")
     if not isinstance(layout, str) or not layout:
         raise CalibracaoInvalida(
-            f"mercado_cabecalho_de_coluna esta sem layout utilizavel "
+            f"{chave} esta sem layout utilizavel "
             f"({layout!r}). O layout E o que este molde afirma: sem ele o "
             f"casamento nao decide nada. {CONSERTO_DO_MERCADO}"
         )
 
-    _inteiro_de_mercado(cabecalho, "mercado_cabecalho_de_coluna", "dy")
-    altura = _inteiro_de_mercado(cabecalho, "mercado_cabecalho_de_coluna", "altura")
-    largura = _inteiro_de_mercado(cabecalho, "mercado_cabecalho_de_coluna", "largura")
+    _inteiro_de_mercado(cabecalho, chave, "dy")
+    altura = _inteiro_de_mercado(cabecalho, chave, "altura")
+    largura = _inteiro_de_mercado(cabecalho, chave, "largura")
     if altura <= 0 or largura <= 0:
         raise CalibracaoInvalida(
-            f"mercado_cabecalho_de_coluna tem dimensao nao-positiva "
+            f"{chave} tem dimensao nao-positiva "
             f"({altura}x{largura}). {CONSERTO_DO_MERCADO}"
         )
 
-    corte = _inteiro_de_mercado(
-        cabecalho, "mercado_cabecalho_de_coluna", "corte_de_brilho"
-    )
+    corte = _inteiro_de_mercado(cabecalho, chave, "corte_de_brilho")
     if not 0 <= corte <= 255:
         raise CalibracaoInvalida(
-            f"mercado_cabecalho_de_coluna.corte_de_brilho={corte} esta fora de "
+            f"{chave}.corte_de_brilho={corte} esta fora de "
             f"[0, 255]. Ele e um nivel de brilho de 8 bits, medido no proprio "
             f"frame. {CONSERTO_DO_MERCADO}"
         )
@@ -1192,23 +1278,111 @@ def _conferir_o_cabecalho_de_coluna(dados: dict) -> None:
     brutos = cabecalho.get("bytes")
     if not isinstance(brutos, str):
         raise CalibracaoInvalida(
-            f"mercado_cabecalho_de_coluna.bytes precisa ser uma string hex, "
+            f"{chave}.bytes precisa ser uma string hex, "
             f"veio {type(brutos).__name__}. {CONSERTO_DO_MERCADO}"
         )
     try:
         quantos = len(bytes.fromhex(brutos))
     except ValueError as erro:
         raise CalibracaoInvalida(
-            f"mercado_cabecalho_de_coluna.bytes nao e hex valido ({erro}). "
+            f"{chave}.bytes nao e hex valido ({erro}). "
             f"{CONSERTO_DO_MERCADO}"
         ) from erro
     pedidos = altura * largura
     if quantos != pedidos:
         raise CalibracaoInvalida(
-            f"mercado_cabecalho_de_coluna corrompido: altura {altura} x "
+            f"{chave} corrompido: altura {altura} x "
             f"largura {largura} pedem {pedidos} bytes, mas ha {quantos}. "
             f"{CONSERTO_DO_MERCADO}"
         )
+
+
+def _conferir_os_layouts_de_mercado(dados: dict) -> None:
+    """Os layouts ALEM da negociacao, aninhados por nome. Ausencia passa sempre.
+
+    POR QUE ELA EXISTE, e por que no ARRANQUE: o `calibration.json` e entrada
+    NAO CONFIAVEL — o usuario edita a mao, e o `bytes` hex e o campo mais facil
+    de truncar num copiar-colar. Sem esta conferencia, um hex torto so levanta
+    la dentro do construtor do `LeitorDePagina`, quando `cabecalho_de_calibracao`
+    tenta o `reshape` — e aquele caminho, por desenho, vira FEATURE OFF COM
+    AVISO. O usuario veria "a leitura de mercado nao vai acontecer" e nunca a
+    causa. Aqui, no arranque, a mensagem ainda pode dizer "recalibre" com ele
+    olhando o console (T-05-04).
+
+    A `negociacao` NAO PODE APARECER como chave aninhada. Ela mora nas chaves de
+    TOPO, e aceitar as duas formas criaria duas verdades sobre a mesma grade: no
+    dia em que discordassem, a leitura sairia da coluna errada com a mesma
+    confianca da certa, e uma serie de precos corrompida por fator inteiro nao
+    se distingue de uma correta olhando para o CSV.
+
+    O `grade` PODE SAIR CURTO ou ausente, e isto vai escrito aqui para o dia em
+    que alguem procurar por que o bloco e mais magro que `mercado_grade`: os
+    campos que faltam sao HERDADOS de `mercado_grade` na leitura (`dx`, `dy`,
+    `largura`, `altura_da_linha`, `linhas_por_pagina`). Hoje eles sao IDENTICOS
+    aos da negociacao — medido no 05-02 — e herdar e o que impede duas copias do
+    mesmo numero de envelhecerem separadas.
+    """
+    layouts = dados.get("mercado_layouts")
+    if layouts is None:
+        return
+    if not isinstance(layouts, dict):
+        raise CalibracaoInvalida(
+            f"mercado_layouts precisa ser um objeto de layouts por nome, veio "
+            f"{type(layouts).__name__}. {CONSERTO_DO_MERCADO}"
+        )
+
+    for nome, bloco in layouts.items():
+        chave = f"mercado_layouts.{nome}"
+        if nome == "negociacao":
+            raise CalibracaoInvalida(
+                f"mercado_layouts traz 'negociacao', e ela NAO mora ai: a "
+                f"negociacao e as chaves de TOPO (mercado_grade, "
+                f"mercado_coluna_do_*, mercado_cabecalho_de_coluna). Duas "
+                f"verdades sobre a mesma grade divergem, e a divergencia aqui "
+                f"e ler a coluna errada com confianca. Apague este bloco. "
+                f"{CONSERTO_DO_MERCADO}"
+            )
+        if not isinstance(bloco, dict):
+            raise CalibracaoInvalida(
+                f"{chave} precisa ser um objeto com cabecalho, "
+                f"limiar_do_cabecalho e colunas, veio "
+                f"{type(bloco).__name__}. {CONSERTO_DO_MERCADO}"
+            )
+
+        _conferir_um_molde_de_cabecalho(bloco.get("cabecalho"), f"{chave}.cabecalho")
+        _numero_de_mercado(
+            bloco,
+            f"{chave}.limiar_do_cabecalho",
+            0.0,
+            1.0,
+            inclui_o_minimo=False,
+            porque=(
+                "Um limiar <= 0 faz TODA banda casar com TODO layout, e com "
+                "MAIS de um layout calibrado isso deixa de ser 'le demais' e "
+                "passa a ser 'le com o modelo de coluna do outro'."
+            ),
+            campo="limiar_do_cabecalho",
+        )
+
+        colunas = bloco.get("colunas")
+        if colunas is not None:
+            if not isinstance(colunas, dict):
+                raise CalibracaoInvalida(
+                    f"{chave}.colunas precisa ser um objeto de colunas por "
+                    f"nome, veio {type(colunas).__name__}. "
+                    f"{CONSERTO_DO_MERCADO}"
+                )
+            for coluna, valor in colunas.items():
+                _conferir_a_forma_de_uma_coluna(valor, f"{chave}.colunas.{coluna}")
+
+        grade = bloco.get("grade")
+        if grade is not None and not isinstance(grade, dict):
+            raise CalibracaoInvalida(
+                f"{chave}.grade precisa ser um objeto, veio "
+                f"{type(grade).__name__}. Ela pode sair CURTA ou ausente — os "
+                f"campos que faltam sao herdados de mercado_grade —, mas o que "
+                f"vier tem de ser um objeto. {CONSERTO_DO_MERCADO}"
+            )
 
 
 def _conferir_a_sonda_do_fundo(dados: dict) -> None:
@@ -1408,6 +1582,7 @@ def _conferir_as_chaves_da_leitura_de_pagina(dados: dict) -> None:
         _conferir_uma_coluna(dados, chave)
 
     _conferir_o_cabecalho_de_coluna(dados)
+    _conferir_os_layouts_de_mercado(dados)
     _conferir_a_sonda_do_fundo(dados)
 
     _numero_de_mercado(
