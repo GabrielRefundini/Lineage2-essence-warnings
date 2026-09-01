@@ -1,13 +1,13 @@
 ---
 gsd_state_version: 1.0
 milestone: v1-mercado
-milestone_name: )
+milestone_name: (não é regressão, é melhoria)
 status: Awaiting next milestone
-stopped_at: "Completed 04-05-PLAN.md (onda 4, a ULTIMA da Fase 4) — vigiar-mercado.bat, a terceira invocacao com dois cliques, e o bloco [[receita]] COMENTADO no fim do config.toml. config.toml: 61 linhas ACRESCENTADAS, 0 REMOVIDAS (numstat 61 0 contra a base 460d1bc), todas comentadas ou em branco, arquivo parseia. Suite 3114 passed + 23 skipped, base deste worktree 3103 + 23: +11 testes, 0 regressoes. Diff total do plano: 3 arquivos, 482 insercoes, 0 delecoes. O .bat mira o personagem pela chave [jogo] personagem (medido em bancada cmd nos tres desfechos) e nao imprime NENHUM echo depois da execucao, com os blocos de erro acima dela; 8 mutantes medidos, 8 mortos, nenhum guarda vacuo. NAO FEITO de proposito: a recusa por OCR em mercado_modo.py:248 ainda manda rodar o vigiar-party.bat — esta fora do files_modified e o proprio criterio proibe tocar l2scanner/; registrado em deferred-items.md. Os blocos Phase/Plan/Status e current_phase seguem INTOCADOS: sao do orquestrador. PORTAO HUMANO da fase ABERTO (3 conferencias ao vivo + a auditoria das 20 decisoes do 04-CONTEXT)."
-last_updated: "2026-09-01T13:58:26.154Z"
+stopped_at: "Completed 05-01-PLAN.md (onda 1 da Fase 5) — as duas pecas PURAS da aba Adena. quantidade_de_adena deriva a quantidade das duas colunas de moeda (a Auction List nao se le em piso de brilho nenhum) e REUSA limite_derivado_do_cruzamento como criterio, provado por monkeypatch com controle negativo nos dois sentidos. ler_linha_de_adena copia a ordem de portoes de ler_linha menos nome e OCR, com chave-sentinela adena#. A linha 5 de janela_adena_f014.png (tela diz 135,00, leitura devolve 13588) agora vira Descarte de motivo cruzamento — antes entraria no CSV como taxa 135,88. Suite 4077 passed + 24 skipped, base deste worktree 4013 + 24: +64 testes, 0 regressoes. Diff: 3 arquivos, 988 insercoes, 0 delecoes. VERSAO_DO_ESQUEMA intacta em 2; calibration.json e .mercado/ intocados; nenhuma dependencia nova. NAO FEITO de proposito: requirements.mark-complete de ADEN-02/ADEN-03 — os mesmos IDs sao reivindicados por 05-02/05-03/05-04, que ainda nao rodaram; marcar agora afirmaria trabalho que nao aconteceu. Os blocos Phase/Plan/Status e current_phase seguem INTOCADOS: sao do orquestrador (state.advance-plan recusou parsear, STATE.md esta em milestone-complete). PENDENTE ao usuario: gravacao da aba Adena com uma linha de preco quebrado (o ramo que aceita arredondamento nao tem pixel no repositorio)."
+last_updated: "2026-09-01T15:23:46.995Z"
 last_activity: 2026-09-01
 last_activity_desc: Milestone v1-mercado completed and archived
-state_head: e0bb784323e9160ee835f8e0482e591a64552b1c
+state_head: 677499a89cbb212f68e21dded34851f22d04409b
 progress:
   total_phases: 4
   completed_phases: 4
@@ -115,6 +115,9 @@ Last activity: 2026-09-01 — Milestone v1-mercado completed and archived
 - [Phase 4]: 04-05: a mira do vigiar-mercado.bat vem da chave [jogo] personagem (com PERSONAGEM_PADRAO como ultimo recurso), e nao de --janela pelado — com DUAS instancias do jogo abertas e sem cal.janela, o --janela sem valor enumera, acha duas e RECUSA, e um lancador de dois cliques que morre pedindo linha de comando nao entrega DETC-02
 - [Phase 4]: 04-05: os blocos de erro do vigiar-mercado.bat moram ACIMA da linha de execucao, com goto por cima. Isso torna ESTRUTURAL (e nao dependente de guarda lida a olho) a promessa de nao imprimir nada depois de o programa rodar — o defeito medido no calibrar-mercado.bat em 2026-08-28
 - [Phase 4]: 04-05: os criterios da forma 'test -z $(git diff -- X)' ficam CEGOS depois do commit, e o de zero remocoes do config.toml vira FALSO NEGATIVO (cut -f2 sai vazio, e test vazio = 0 e falso). Medido nos dois estados, com controle negativo: a comparacao contra a base do plano (git diff <base>..HEAD -- X) e a unica que sobrevive ao commit
+- [Phase 5]: A quantidade da Adena e DERIVADA das duas colunas de moeda (5.000.000 x round(total/incremento)), nao lida: a coluna Auction List nao se le com os moldes deste projeto em piso de brilho nenhum (varrido 180..250, None nas dez linhas da fixtura)
+- [Phase 5]: O cruzamento e GUARDA na Adena e continua OBSERVACAO na negociacao. A comparacao e residuo <= limite_derivado_do_cruzamento(n), e o sinal e LOAD-BEARING: com < o caso legitimo 133,33/66,66 (residuo 1 contra limite 1,0) reprovaria
+- [Phase 5]: A Adena e UMA serie so, com chave-sentinela adena# montada do SEPARADOR_DA_ASSINATURA (decisao do usuario): a chave derivada do nome faria a trava de digitos D-03 partir 5M/10M/15M em tres series e a mediana da taxa nasceria partida
 
 ### Blockers
 
@@ -215,9 +218,9 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 
 ## Session Continuity
 
-**Last session:** 2026-08-31T11:09:54.932Z
+**Last session:** 2026-09-01T15:23:46.980Z
 
-**Stopped At:** Completed 04-05-PLAN.md (onda 4, a ULTIMA da Fase 4) — vigiar-mercado.bat, a terceira invocacao com dois cliques, e o bloco [[receita]] COMENTADO no fim do config.toml. config.toml: 61 linhas ACRESCENTADAS, 0 REMOVIDAS (numstat 61 0 contra a base 460d1bc), todas comentadas ou em branco, arquivo parseia. Suite 3114 passed + 23 skipped, base deste worktree 3103 + 23: +11 testes, 0 regressoes. Diff total do plano: 3 arquivos, 482 insercoes, 0 delecoes. O .bat mira o personagem pela chave [jogo] personagem (medido em bancada cmd nos tres desfechos) e nao imprime NENHUM echo depois da execucao, com os blocos de erro acima dela; 8 mutantes medidos, 8 mortos, nenhum guarda vacuo. NAO FEITO de proposito: a recusa por OCR em mercado_modo.py:248 ainda manda rodar o vigiar-party.bat — esta fora do files_modified e o proprio criterio proibe tocar l2scanner/; registrado em deferred-items.md. Os blocos Phase/Plan/Status e current_phase seguem INTOCADOS: sao do orquestrador. PORTAO HUMANO da fase ABERTO (3 conferencias ao vivo + a auditoria das 20 decisoes do 04-CONTEXT).
+**Stopped At:** Completed 05-01-PLAN.md (onda 1 da Fase 5) — as duas pecas PURAS da aba Adena. quantidade_de_adena deriva a quantidade das duas colunas de moeda (a Auction List nao se le em piso de brilho nenhum) e REUSA limite_derivado_do_cruzamento como criterio, provado por monkeypatch com controle negativo nos dois sentidos. ler_linha_de_adena copia a ordem de portoes de ler_linha menos nome e OCR, com chave-sentinela adena#. A linha 5 de janela_adena_f014.png (tela diz 135,00, leitura devolve 13588) agora vira Descarte de motivo cruzamento — antes entraria no CSV como taxa 135,88. Suite 4077 passed + 24 skipped, base deste worktree 4013 + 24: +64 testes, 0 regressoes. Diff: 3 arquivos, 988 insercoes, 0 delecoes. VERSAO_DO_ESQUEMA intacta em 2; calibration.json e .mercado/ intocados; nenhuma dependencia nova. NAO FEITO de proposito: requirements.mark-complete de ADEN-02/ADEN-03 — os mesmos IDs sao reivindicados por 05-02/05-03/05-04, que ainda nao rodaram; marcar agora afirmaria trabalho que nao aconteceu. Os blocos Phase/Plan/Status e current_phase seguem INTOCADOS: sao do orquestrador (state.advance-plan recusou parsear, STATE.md esta em milestone-complete). PENDENTE ao usuario: gravacao da aba Adena com uma linha de preco quebrado (o ramo que aceita arredondamento nao tem pixel no repositorio).
 **Resume File:** None
 **Next:** `/gsd-plan-phase 1` (workstream mercado) após aprovação
 
@@ -242,6 +245,7 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 | Phase 4 P3 | 34min | 3 tasks | 6 files |
 | Phase 4 P4 | 18m | 3 tasks | 5 files |
 | Phase 04 P05 | 30min | 2 tasks | 3 files |
+| Phase 05 P01 | 17 | 2 tasks | 3 files |
 
 ## Operator Next Steps
 

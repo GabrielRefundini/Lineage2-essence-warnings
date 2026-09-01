@@ -119,6 +119,36 @@ SUFIXO_DA_GRADE = "-grade"
 # separador `;` que a Fase 3 usa no CSV.
 SEPARADOR_DA_ASSINATURA = "#"
 
+# A IDENTIDADE DA ABA ADENA: uma serie so, com assinatura VAZIA.
+#
+# Ela e montada a partir do separador, e nao escrita como literal solto, para
+# que a FORMA da chave continue tendo uma verdade so: o dia em que o separador
+# mudar, esta chave muda junto. `adena#` termina em separador, o que a torna uma
+# chave de assinatura vazia — a mesma forma de todo item sem encanto, sem nivel
+# e sem grade.
+#
+# POR QUE UMA SENTINELA, E NAO A CHAVE DERIVADA DO NOME. E decisao do usuario,
+# respondida a pergunta direta: a Adena e UMA serie. Se a chave viesse do nome
+# lido, a trava de digitos (D-03) — que compara a assinatura por igualdade
+# EXATA — partiria a Adena em UMA SERIE POR QUANTIDADE:
+#
+#     `5,000,000 Adena`   -> assinatura `5000000`
+#     `10,000,000 Adena`  -> assinatura `10000000`
+#     `15,000,000 Adena`  -> assinatura `15000000`
+#
+# Tres series, e a mediana da taxa nasce partida em tres — que e exatamente o
+# que a fase da taxa de cambio existe para NAO fazer. A quantidade da oferta e
+# volume, e nao identidade: `10M por 116,00` e `5M por 58,00` sao a MESMA taxa,
+# e precisam cair na mesma serie para que a mediana signifique alguma coisa.
+#
+# E ela NAO passa por `agrupar`, pela mesma razao: nada na aba Adena le nome.
+CHAVE_DA_SERIE_DA_ADENA = "adena" + SEPARADOR_DA_ASSINATURA
+
+# O rotulo EXIBIDO da serie acima. So o rotulo: quem carrega identidade e a
+# chave. Ele existe para o console e para o CSV nao mostrarem `adena#` a um
+# humano.
+NOME_EXIBIDO_DA_ADENA = "Adena"
+
 # O piso da TRAVA POR PALAVRA (D-09). Abaixo dele o candidato e VETADO e nem
 # chega a ser comparado pela similaridade do nome inteiro.
 #

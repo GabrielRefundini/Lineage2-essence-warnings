@@ -71,7 +71,13 @@ import cv2
 import numpy as np
 
 from .identidade import VALOR_MINIMO_DO_TEXTO
-from .mercado_catalogo import EntradaDoCatalogo, agrupar, assinatura_por_ocr
+from .mercado_catalogo import (
+    CHAVE_DA_SERIE_DA_ADENA,
+    NOME_EXIBIDO_DA_ADENA,
+    EntradaDoCatalogo,
+    agrupar,
+    assinatura_por_ocr,
+)
 from .mercado_geometria import nivel_de_fundo_da_linha
 from .mercado_visao import casamento_da_ancora
 
@@ -1073,6 +1079,118 @@ def residuo_do_cruzamento(
     return abs(int(total) - int(unitario) * int(quantidade))
 
 
+# Cinco milhoes de adena por incremento — o que a coluna `5 mln increment` da
+# aba Adena normaliza.
+#
+# ELE NAO MORA NO `calibration.json`, PELA MESMA RAZAO DO `SUFIXO_DA_GRADE`
+# (`mercado_catalogo.py:99-113`) e do `PISO_DO_RESTO`: `mercado_pagina` EXIGE as
+# chaves de mercado presentes e PARA sem elas, entao uma chave nova obrigatoria
+# deixaria o scanner MORTO no proximo arranque ate o usuario recalibrar. E este
+# aqui nem e numero MEDIDO: e como o jogo ESCREVE a coluna. Quem garante que a
+# coluna e essa e o molde de cabecalho, que ja mora na calibracao — grava-lo
+# tambem criaria DUAS verdades sobre uma coluna so, e o dia em que elas
+# divergissem a quantidade sairia errada por fator inteiro sem nada denunciar.
+ADENA_POR_INCREMENTO = 5_000_000
+
+
+def quantidade_de_adena(
+    total: int | None,
+    incremento: int | None,
+) -> tuple[int, int] | None:
+    """A quantidade de adena de uma oferta, DERIVADA das duas colunas de moeda.
+
+    Devolve `(quantidade_em_adena, incrementos)`, ou `None` quando nao da para
+    afirmar. FALHA FECHADA, como toda leitura deste modulo.
+
+    (a) A QUANTIDADE NAO E LIDA DA TELA, E ISSO NAO E ATALHO
+    ---------------------------------------------------------
+    A aba Adena nao tem coluna `Quantity`; quem escreve a quantidade e a coluna
+    `Auction List` (`10,000,000 Adena`), e ela **nao se le com os moldes de
+    digito deste projeto**. Medido contra `tests/fixtures/mercado/
+    janela_adena_f014.png` em SETE pisos de brilho — 180, 200, 210, 220, 230,
+    240 e 250 —, `ler_celula` devolve `None` nas dez linhas em todos eles:
+
+        piso 180-200   os digitos de la saem 5-6 px de largura; os moldes,
+                       cortados das colunas de moeda, tem 4
+        piso 210+      a largura fecha, mas o `0` se PARTE em dois runs de 1-2 px
+
+    O texto da `Auction List` e mais claro e mais grosso (digitos p99 = 246) que
+    o das colunas de moeda (Vmax 226-230), de onde os moldes foram cortados. Nao
+    ha vale entre as populacoes de largura de run: nao existe piso que resolva.
+    O molde de palavra `Adena` tambem nao corresponde — no piso 180 a palavra
+    segmenta em QUATRO runs (14, 6, 5, 6), e nao num blob de 35 px.
+
+    (b) AS LEITURAS QUE SUSTENTAM A ROTA DERIVADA
+    ----------------------------------------------
+    As colunas de moeda, essas, leem EXATAMENTE — com os retangulos de
+    NEGOCIACAO, sem tocar um pixel de calibracao. Medido sobre a mesma fixtura,
+    `Total Price` e `5 mln increment` linha a linha:
+
+        6200/6200  6499/6499  6500/6500  6600/6600  6700/6700
+        6800/6800  6850/6850  7000/7000  7000/7000
+
+    (a decima e a linha 5, tratada em (c)). A coluna `Quantity` de negociacao
+    cai sobre VAZIO nas dez e devolve `None` — falha fechada de graca.
+
+    Logo a quantidade vem das duas colunas que leem:
+    `ADENA_POR_INCREMENTO x round(total / incremento)`.
+
+    (c) OS DOIS CASOS DIFICEIS, COM AS CONTAS
+    ------------------------------------------
+        ACEITA   133,33 por 66,66   n=2   |13333 - 2x6666| = 1    limite 1,0
+        REJEITA  135,88 por 67,50   n=2   |13588 - 2x6750| = 88   limite 1,0
+
+    O segundo e a LINHA 5 daquela fixtura, e ele e a justificativa desta guarda:
+    a tela diz `135,00` e a leitura devolve `13588` — dois `0` lidos como `8`, o
+    par de margem mais estreita do sistema (0,0370). A gramatica passa, a sonda
+    de oclusao diz limpo (dispersao 0,0000 nas dez linhas) e o acordo entre dois
+    frames CONCORDA no erro, porque os dois leem os mesmos pixels. Sem esta
+    conta, aquela linha entra no CSV como taxa `135,88` — plausivel e errada.
+
+    ARITMETICA INTEIRA NO JULGAMENTO (T-02-38). O `round` so ESCOLHE o candidato
+    `n`; quem DECIDE e a multiplicacao `|total - n x incremento|`, sem divisao
+    nenhuma. Ponto flutuante no veredito entraria pela porta dos fundos
+    exatamente onde a leitura o evitou.
+
+    O CRITERIO NAO E ESCOLHIDO AQUI: e `limite_derivado_do_cruzamento`, que ja
+    existe com a derivacao escrita ao lado. A escala de `n` sao INCREMENTOS e
+    nao unidades, e a derivacao continua valendo por construcao — a tela exibe
+    `round(total / incrementos, 2)` na coluna do incremento exatamente como
+    exibe o unitario na negociacao, entao cada incremento carrega no maximo meio
+    centesimo de erro de arredondamento.
+
+    A COMPARACAO E `residuo <= limite`, E O SINAL E LOAD-BEARING. Com `<` o
+    caso-bandeira `133,33 / 66,66` REPROVA — residuo 1 contra limite 1,0 — e a
+    Adena perde justamente as ofertas de preco quebrado, que sao as que o
+    usuario capturou. `<=` tambem e o sentido que `_observar_o_cruzamento` ja
+    usa (`if residuo <= limite_derivado_do_cruzamento(quantidade): return`);
+    escrever o outro aqui criaria DUAS leituras opostas do MESMO limite.
+
+    (d) O RAMO QUE ACEITA O ARREDONDAMENTO NAO TEM PIXEL NO REPOSITORIO
+    -------------------------------------------------------------------
+    As nove linhas boas de `janela_adena_f014.png` dividem TODAS exato (residuo
+    0). O ramo que aceita residuo > 0 esta exercitado em teste de unidade com
+    inteiros literais, o que e nao-vacuo para esta funcao — mas ele e INFERENCIA
+    ARITMETICA, e nao medicao sobre pixels. Apertar o limite exigiria material
+    com o caso dentro: uma gravacao da aba Adena contendo uma linha cujo
+    incremento nao divida o total exatamente (A3).
+    """
+    if total is None or incremento is None:
+        return None
+    total = int(total)
+    incremento = int(incremento)
+    if incremento <= 0 or total <= 0:
+        return None
+    incrementos = round(total / incremento)
+    if incrementos < 1:
+        return None
+    residuo = abs(total - incrementos * incremento)
+    # `<=`, e nao `<`. Ver (c): o caso-bandeira passa por IGUALDADE.
+    if residuo <= limite_derivado_do_cruzamento(incrementos):
+        return ADENA_POR_INCREMENTO * incrementos, incrementos
+    return None
+
+
 def cruzamento_confere(
     total: int | None,
     unitario: int | None,
@@ -1662,6 +1780,146 @@ def ler_linha(
         )
     except Exception as erro:  # noqa: BLE001 - roda dentro do tick
         log.debug("leitura da linha %d falhou: %s", indice, erro)
+        return _recusar(indice, MOTIVO_DA_GRAMATICA, f"excecao contida: {erro}")
+
+
+def ler_linha_de_adena(
+    indice: int,
+    bgr_da_linha: np.ndarray,
+    recorte_do_total: np.ndarray,
+    recorte_do_incremento: np.ndarray,
+    *,
+    moldes: dict[str, np.ndarray],
+    piso: float,
+    margem: float,
+    valor_minimo_do_numero: int,
+    folga_de_cola: int | None,
+    sonda: dict | None,
+    limiar_de_dispersao: float,
+    catalogo: dict[str, EntradaDoCatalogo],
+) -> LinhaLida | Descarte | None:
+    """Uma linha da aba ADENA, de pixels a valor. `None` quando ela esta VAZIA.
+
+    NUNCA LEVANTA, no modelo de `ler_linha`: ela roda dentro do tick, e uma
+    excecao aqui pararia o scanner que existe para avisar que alguem da party
+    morreu (T-05-03).
+
+    A ORDEM DOS PORTOES E A DE `ler_linha` MENOS OS DOIS ULTIMOS PASSOS, e ela
+    foi COPIADA e nao reinventada:
+
+        vazia -> oclusao -> Total Price -> 5 mln increment -> cruzamento
+
+    Cada passo esta onde esta pelo mesmo motivo medido de la: a linha vazia marca
+    o fim da pagina e nao e descarte; a sonda vem antes de tudo o que custa; as
+    colunas de numero custam 13 casamentos por run.
+
+    O QUE ELA NAO TEM E TAO IMPORTANTE QUANTO O QUE ELA TEM
+    -------------------------------------------------------
+    NAO ha leitura de nome, NAO ha recorte da coluna `Auction List` e NAO ha
+    parametro por onde uma funcao de OCR pudesse entrar. A `Auction List` nao se
+    le com os moldes deste projeto em piso de brilho nenhum — a varredura esta
+    escrita em `quantidade_de_adena` —, e a identidade da serie nao vem de la:
+    vem da SENTINELA `CHAVE_DA_SERIE_DA_ADENA`.
+
+    A ADENA E UMA SERIE SO (D-A), e a decisao e do usuario. Derivar a chave do
+    nome faria a trava de digitos (D-03) partir a Adena em uma serie por
+    quantidade — 5M, 10M e 15M viram tres series e a mediana da taxa nasce
+    partida em tres. O argumento inteiro mora ao lado da constante, em
+    `mercado_catalogo.py`.
+
+    A DIFERENCA DE STATUS DO CRUZAMENTO E A PARTE QUE IMPORTA (D-C)
+    ---------------------------------------------------------------
+    Na NEGOCIACAO o cruzamento e OBSERVACAO registrada: a guarda foi REPROVADA
+    por medicao (fechamento 0,6525) e `mercado_tolerancia_do_cruzamento` esta
+    gravada como `None`, entao `_observar_o_cruzamento` so anuncia no log e a
+    linha segue.
+
+    AQUI ele e GUARDA, e derruba a linha. Ele e a UNICA rede entre uma leitura
+    errada e uma taxa plausivel no CSV, e o numero que justifica esta medido: na
+    linha 5 de `janela_adena_f014.png` a tela diz `135,00`, a leitura devolve
+    `13588` (dois `0` lidos como `8`, o par de margem 0,0370), a gramatica passa,
+    a sonda diz limpo e o acordo entre dois frames CONCORDA no erro. Sem esta
+    guarda aquela linha entra no registro como taxa `135,88`.
+
+    E o criterio nao e escolhido aqui: quem decide e `quantidade_de_adena`, que
+    reusa `limite_derivado_do_cruzamento`.
+
+    O INCREMENTO ILEGIVEL DERRUBA A LINHA, E ISSO DIVERGE DE `ler_linha`
+    --------------------------------------------------------------------
+    La o unitario ilegivel NAO derruba: ele so CALA a guarda, porque `Total` e
+    `Quantity` bastam para a observacao. Aqui nao ha `Quantity`: sem incremento
+    nao ha quantidade, e sem quantidade nao ha taxa. Falha FECHADA.
+
+    `residuo_do_cruzamento` NA `LinhaLida` E A MESMA GRANDEZA DE LA, so que a
+    escala de `n` sao INCREMENTOS de cinco milhoes e nao unidades:
+    `|total - incremento x n|` em centesimos. Guardar outra coisa no campo
+    homonimo faria a Fase 3 comparar duas grandezas diferentes na mesma coluna.
+    """
+    try:
+        if linha_vazia(bgr_da_linha):
+            return None
+
+        cinza = (
+            bgr_da_linha
+            if bgr_da_linha.ndim == 2
+            else cv2.cvtColor(bgr_da_linha, cv2.COLOR_BGR2GRAY)
+        )
+        if linha_ocluida(cinza, sonda, limiar_de_dispersao):
+            return _recusar(indice, MOTIVO_DA_OCLUSAO, "fundo nao uniforme")
+
+        total = ler_celula_de_numero(
+            recorte_do_total,
+            moldes,
+            piso,
+            margem,
+            valor_minimo=valor_minimo_do_numero,
+            folga_de_cola=folga_de_cola,
+        )
+        if total is None:
+            return _recusar(
+                indice, MOTIVO_DA_GRAMATICA, "a coluna Total Price nao se leu inteira"
+            )
+        incremento = ler_celula_de_numero(
+            recorte_do_incremento,
+            moldes,
+            piso,
+            margem,
+            valor_minimo=valor_minimo_do_numero,
+            folga_de_cola=folga_de_cola,
+        )
+        if incremento is None:
+            return _recusar(
+                indice,
+                MOTIVO_DA_GRAMATICA,
+                "a coluna 5 mln increment nao se leu inteira",
+            )
+
+        derivada = quantidade_de_adena(total, incremento)
+        if derivada is None:
+            candidato = round(total / incremento) if incremento > 0 else 0
+            return _recusar(
+                indice,
+                MOTIVO_DO_CRUZAMENTO,
+                f"total={total} incremento={incremento} n={candidato} "
+                f"residuo={residuo_do_cruzamento(total, incremento, candidato)} "
+                f"estourou o limite derivado de "
+                f"{limite_derivado_do_cruzamento(candidato)} centesimos",
+            )
+        quantidade, incrementos = derivada
+
+        return LinhaLida(
+            indice=indice,
+            chave_da_serie=CHAVE_DA_SERIE_DA_ADENA,
+            nome_exibido=NOME_EXIBIDO_DA_ADENA,
+            total_em_centesimos=total,
+            quantidade=quantidade,
+            serie_nova=CHAVE_DA_SERIE_DA_ADENA not in catalogo,
+            residuo_do_cruzamento=residuo_do_cruzamento(
+                total, incremento, incrementos
+            ),
+        )
+    except Exception as erro:  # noqa: BLE001 - roda dentro do tick
+        log.debug("leitura da linha %d da adena falhou: %s", indice, erro)
         return _recusar(indice, MOTIVO_DA_GRAMATICA, f"excecao contida: {erro}")
 
 
