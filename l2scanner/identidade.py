@@ -117,20 +117,69 @@ VALOR_MINIMO_DO_TEXTO = 180
 #
 # Os tres zeros nao sao sorte: as outras assinaturas nao tem lacuna nenhuma,
 # entao elas nem entram neste sentido.
+#
+# E O SENTIDO INVERSO NASCEU SEM PEGAR O CASO REAL, medido em 2026-09-01.
+#
+# O desenho acima estava certo e a constante estava errada. A largura da lacuna
+# entre a coroa e o nome foi calibrada num unico exemplo com coroa (a fixture do
+# Korzis, 4 colunas em branco), e a coroa real do usuario tem 3. Como
+# `_inicio_do_nome_apos_ornamento` exigia 4, a assinatura do Welazkez era lida
+# como "bloco unico" e o sentido inverso nao comecava.
+#
+# O sintoma em campo: apos um disconnect que remontou a party, ele virou
+# "Membro 2" e o aprendiz gravou uma assinatura NOVA E ANONIMA dele — copia
+# limpa do nome sem coroa. Uma duplicata anonima de quem JA TEM NOME e pior do
+# que o silencio: no dia em que ele deixar a lideranca, ela sequestra a linha,
+# ele fica "Membro N" para sempre e o nome batizado fica orfao.
+#
+# A separacao esta medida em COLUNAS_DE_LACUNA_DO_ORNAMENTO, junto com a razao
+# pela qual baixar a exigencia nao compra risco.
 
 
-# Quantas colunas em branco separam a coroa do nome que ela empurrou.
+# O MINIMO de colunas em branco que separam a coroa do nome que ela empurrou.
 #
 # A coroa e um bloco de pixels claros ANTES do nome, com uma faixa vazia entre
-# os dois. Medido em 10 assinaturas reais, de 3 calibracoes independentes:
+# os dois. `_inicio_do_nome_apos_ornamento` cobra `diff > esta constante`, e
+# `diff` e "colunas em branco + 1" — entao o valor aqui E o numero minimo de
+# brancos que delata uma coroa.
 #
-#     sem coroa (9 de 10)  um bloco unico, nenhuma lacuna acima de 3 colunas
-#     com coroa (1 de 10)  dois blocos: coroa em 0..5, LACUNA DE 4, nome em 10..37
+# ELE JA VALEU 4, E 4 ESTAVA ERRADO. Medido em 20 mascaras reais (4 assinaturas
+# calibradas do usuario, 4 do acervo aprendido dele, 4 assinaturas da fixture e
+# 8 recortes ao vivo das duas fixtures de tela), maior lacuna de cada uma:
 #
-# Nao ha zona cinzenta — a mesma qualidade de evidencia que sustenta
-# FATOR_MAXIMO_DE_CONTAMINACAO. Ler a lacuna e reconhecer uma estrutura que so a
-# coroa produz, nao chutar um deslocamento.
-COLUNAS_DE_LACUNA_DO_ORNAMENTO = 4
+#     SEM coroa (16 mascaras)  2 brancos, TODAS as dezesseis
+#     COM coroa ( 4 mascaras)  3, 4, 4, 4
+#
+# A unica de 3 e a coroa REAL do usuario, na assinatura do Welazkez. As de 4 sao
+# a fixture do Korzis e os recortes ao vivo dela. Com a constante em 4 o
+# reconhecimento passava raspando na fixture e falhava em campo — a regressao de
+# 2026-09-01, em que o Welazkez virou "Membro 2" depois de um disconnect e o
+# aprendiz gravou uma duplicata ANONIMA de quem ja tinha nome.
+#
+# Nao ha zona cinzenta em 3: nenhuma mascara sem coroa passa de 2 brancos. E a
+# mesma qualidade de evidencia que sustenta FATOR_MAXIMO_DE_CONTAMINACAO.
+#
+# E BAIXAR ISTO NAO COMPRA RISCO, porque o pico e agudo. Medido com o recorte
+# real do Welazkez sem coroa contra a assinatura dele com coroa, deslocando a
+# assinatura para a esquerda de 0 a 29 px:
+#
+#      0 px -> 0.1843    12 px -> 0.2098
+#      2 px -> 0.2645    14 px -> 0.3245
+#      4 px -> 0.2124    16 px -> 0.3187
+#      6 px -> 0.2342    18 px -> 0.2901
+#      8 px -> 0.2697    19 px -> 0.9667   <<< a lacuna manda ancorar aqui
+#     10 px -> 0.2755    20 px -> 0.3015
+#                        24 px -> 0.3428
+#
+# Um pixel para o lado e a correlacao desaba. Entao uma coroa lida onde nao ha
+# nao produz um nome errado: produz um alinhamento qualquer, um alinhamento
+# qualquer pontua ~0.30, e LIMIAR_DO_ORNAMENTO = 0.85 recusa com folga. O que
+# esta constante controla nao e a chance de acertar errado, e a chance de sequer
+# TENTAR quando ha o que acertar.
+#
+# Ler a lacuna continua sendo reconhecer uma estrutura que so a coroa produz,
+# nao chutar um deslocamento.
+COLUNAS_DE_LACUNA_DO_ORNAMENTO = 3
 
 # O segundo passe afirma mais do que o primeiro — ele diz "isto aqui e um nome
 # empurrado por um ornamento" — entao paga mais caro para ser aceito. Os
@@ -376,8 +425,9 @@ def _reancorar_a_assinatura_sem_ornamento(
 
     Devolve None quando a assinatura nao tem ornamento (bloco unico, que e o
     caso de todo membro que nao e lider) ou quando o recorte esta vazio. E a
-    trava que faz quase todo o trabalho e nao custa nada: medido em 10
-    assinaturas reais de 3 calibracoes, 9 sao bloco unico.
+    trava que faz quase todo o trabalho e nao custa nada: medido em 20 mascaras
+    reais, as 16 sem coroa nao passam de 2 colunas em branco de lacuna, e por
+    isso nenhuma delas chega a ser deslocada.
     """
     if coluna_do_recorte is None:
         return None
@@ -651,8 +701,10 @@ def _segundo_passe_do_ornamento(
     E, antes das tres, a trava que faz quase todo o trabalho: um nome sem coroa e
     um bloco unico de texto, entao `_inicio_do_nome_apos_ornamento` devolve None
     e o passe nem comeca para ele — vale para o recorte no primeiro sentido e
-    para a assinatura no segundo. Medido em 10 assinaturas reais de 3
-    calibracoes: 9 sao bloco unico, e a unica que se parte em dois e a do lider.
+    para a assinatura no segundo. Medido em 20 mascaras reais: as 16 sem coroa
+    nao passam de 2 colunas em branco de lacuna, e as 4 que se partem em dois
+    sao exatamente as 4 do lider. Ver COLUNAS_DE_LACUNA_DO_ORNAMENTO, cuja
+    calibragem em 4 (e nao 3) foi a regressao de 2026-09-01.
     """
     # Sem guarda de saida antecipada aqui de proposito: o `while` abaixo ja nao
     # roda com qualquer um dos dois conjuntos vazio. Um `if not ... : return`
