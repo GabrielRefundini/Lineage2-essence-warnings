@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v1-mercado
 milestone_name: )
-current_phase: 4
-current_phase_name: Modo --mercado, analise e console
-status: in-progress
+status: Awaiting next milestone
 stopped_at: "Completed 04-05-PLAN.md (onda 4, a ULTIMA da Fase 4) — vigiar-mercado.bat, a terceira invocacao com dois cliques, e o bloco [[receita]] COMENTADO no fim do config.toml. config.toml: 61 linhas ACRESCENTADAS, 0 REMOVIDAS (numstat 61 0 contra a base 460d1bc), todas comentadas ou em branco, arquivo parseia. Suite 3114 passed + 23 skipped, base deste worktree 3103 + 23: +11 testes, 0 regressoes. Diff total do plano: 3 arquivos, 482 insercoes, 0 delecoes. O .bat mira o personagem pela chave [jogo] personagem (medido em bancada cmd nos tres desfechos) e nao imprime NENHUM echo depois da execucao, com os blocos de erro acima dela; 8 mutantes medidos, 8 mortos, nenhum guarda vacuo. NAO FEITO de proposito: a recusa por OCR em mercado_modo.py:248 ainda manda rodar o vigiar-party.bat — esta fora do files_modified e o proprio criterio proibe tocar l2scanner/; registrado em deferred-items.md. Os blocos Phase/Plan/Status e current_phase seguem INTOCADOS: sao do orquestrador. PORTAO HUMANO da fase ABERTO (3 conferencias ao vivo + a auditoria das 20 decisoes do 04-CONTEXT)."
-last_updated: "2026-09-01T13:29:03.141Z"
-last_activity: 2026-08-31
-last_activity_desc: "Fase 4 plano 01, o que LIGA OS TRES FIOS que as Fases 2 e 3 deixaram sem chamador: l2scanner/mercado_modo.py (o laco de producao), l2scanner/mercado_console.py (o desenho em texto puro, sem dependencia nova) e a flag --mercado em 54 linhas no __main__.py disputado (teto 70, zero remocoes). O modo RECUSA a subir com codigo 2 sem OCR, sem calibracao ou fora do layout de negociacao, nomeando a chave que falta, e sem calibracao nem toca o disco. Uma sessao grava no observacoes.csv E no catalogo-de-nomes.csv, provado ponta a ponta sobre fixturas versionadas com OCR REPRODUZIDO. minimum_update_interval=250 so no mercado e a unica alavanca real de DETC-02; o party fica byte-identico e o acoplamento esta preso nas DUAS direcoes. Suite 2851 passed + 23 skipped, 145 no agenda. Achado registrado em deferred-items.md: mercado_catalogo -> config -> notificador -> rastreador e cadeia de IMPORT da Fase 2, nao de uso. Portao de campo do DETC-02 ABERTO."
-state_head: f2e7f5faf75601b9c11db80d70294e09a2504719
+last_updated: "2026-09-01T13:58:26.154Z"
+last_activity: 2026-09-01
+last_activity_desc: Milestone v1-mercado completed and archived
+state_head: e0bb784323e9160ee835f8e0482e591a64552b1c
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 4
   total_plans: 21
   completed_plans: 21
-  percent: 50
+  percent: 100
+current_phase: 4
+current_phase_name: Modo --mercado, analise e console
 ---
 
 Total Phases: 4
@@ -30,20 +30,10 @@ Total Phases: 4
 
 ## Current Position
 
-Phase: 4 — Modo --mercado, analise e console
-Plan: 5 planos escritos, 2 FECHADOS (04-01 e 04-02, a onda 1 inteira) — faltam 04-03 a 04-05
-Status: In Progress — o laco de producao e a analise pura existem e estao verdes; falta liga-los (04-03), a margem de craft (04-04) e o fecho (04-05)
-Last activity: 2026-08-31 — Completed 04-01, o plano que LIGA OS TRES FIOS: `l2scanner/mercado_modo.py` (o laco), `l2scanner/mercado_console.py` (o desenho em texto puro) e a flag `--mercado` em 54 linhas no `__main__.py` disputado (teto era 70, zero remocoes). O modo RECUSA a subir com codigo 2 sem OCR, sem calibracao ou fora do layout de negociacao, nomeando a chave que falta — e sem calibracao ele nem toca o disco. Uma sessao produz linha no `observacoes.csv` E no `catalogo-de-nomes.csv`, provado ponta a ponta sobre fixturas versionadas com OCR REPRODUZIDO. `pecas_de_calibracao_de_mercado_faltando` virou a verdade unica sobre "calibrado para mercado" (15 chaves, nao 14 — o plano herdara uma conta errada). `minimum_update_interval` opcional na `JanelaSource`, padrao `None`, e a unica alavanca real de DETC-02; o party fica byte-identico e ha tripwire prendendo o acoplamento nas DUAS direcoes. Suite 2851 passed + 23 skipped, e 145 no agenda sem o flake. **ACHADO REGISTRADO em `deferred-items.md`**: `mercado_catalogo` -> `config` (por `RAIZ`) -> `notificador` -> `rastreador` arrasta a party para `sys.modules` desde a Fase 2 — cadeia de IMPORT, nao de uso, e o teste foi invertido para prende-la em vez de mentir. **Portao de campo do DETC-02 continua ABERTO**, junto das duas conferencias humanas herdadas da Fase 2.
-
-E na MESMA onda, em paralelo, 2026-08-31 — Completed 04-02, a metade PURA da Fase 4: `l2scanner/mercado_analise.py`. O comparavel entre ofertas e `Fraction(total, quantidade)` — exato, nunca `float`; o menor pedido visivel ordena pelo UNITARIO e carrega o carimbo DAQUELA oferta; a mediana e `median_low`, presa por `n=6` (par e acima do piso) afirmando que o valor devolvido esta na lista de entrada E difere de `statistics.median`. **A tendencia roda sobre o ORDINAL das ofertas distintas, e a alternativa errada foi MEDIDA nesta sessao**: sobre dez ofertas em queda de 100 para 55, o ordinal devolve -42,86% e o eixo do carimbo devolve inclinacao de -135.104 por segundo e percentual de -5e-7% — ele apaga a queda inteira e nao levanta `StatisticsError`. Abaixo do piso o resultado diz o que FALTA, com o piso nomeado, nunca um numero. `observacoes_do_arquivo` le o CSV pelo MESMO portao de contrato da Fase 3, extraido para funcoes de modulo com os metodos da classe delegando — `tests/test_mercado_registro.py` seguiu verde sem uma edicao de expectativa. Suite 2852 passed + 23 skipped (base desta arvore: 2798 + 23), 54 testes novos, zero dependencia nova. **O 04-01 rodou em paralelo nesta mesma onda**, e por isso este agente NAO mexeu em `current_phase`, `l2scanner/__main__.py` nem no bloco Phase/Plan/Status acima — eles sao do orquestrador depois da onda fechar.
-
-Antes disso, 2026-08-31 — Completed 03-03, a ULTIMA onda da Fase 3: `tools/gerar_observacoes_do_censo.py`, o replay de bancada que transforma as 8 gravacoes do censo num `observacoes.csv` com dado REAL. Ele fecha o buraco que a fase tinha por desenho — o registro nasceu sem chamador, e quatro dos cinco criterios do ROADMAP ("o usuario abre, importa, conta e ve") nao teriam material. **A recusa da pasta de producao como saida e MECANICA**: `resolve()` + `os.path.normcase`, comparando caminhos e nunca texto, rodando ANTES do primeiro `mkdir` — conferido a mao, `--saida .mercado` sai com codigo 2 sem criar a pasta. A ferramenta monta pela `montar_registro_de_mercado` do 03-02 e instala `configurar_log` antes, entao o aviso alto que o usuario ve aqui e byte a byte o que a Fase 4 vai mostrar. Suite 2798 passed + 23 skipped, e 145 no agenda. Zero falhas. **A varredura do censo NAO foi rodada pelo agente** — ela e do usuario, no checkout principal, pelo roteiro 1.
-
-Antes disso, 2026-08-30 — Completed 02-05, a ULTIMA onda da Fase 2: o catalogo de nomes ganhou arquivo proprio em `.mercado/catalogo-de-nomes.csv` (atomico, sem poda, leitura defensiva) e o estabilizador ficou completo (congelamento pela JANELA INTEIRA, acordo pela INTERSECAO das posicoes aceitas em ambos, piso de 7 posicoes lido do disco). **O replay das 8 gravacoes do censo RODOU no checkout principal: 517 frames, 478 ticks com painel aberto, li 151 e perdi 189, 39 series, 1.007 linhas descartadas, ZERO frames congelados.** As 189 perdas: 136 abaixo do minimo comparado, 34 primeiro frame do par, 19 discordancia. Suite 2605 passed + 144.
-
-Antes disso, 2026-08-31 — Completed 02-07: o piso de brilho PROPRIO da coluna Quantity foi MEDIDO em 161 e PROPOSTO (`PROPOSTO piso=161, folga ate o primeiro que erra=1, folga ate o tronco medido do 1=13, tronco=174, balde LE ERRADO do proprio piso VAZIO sobre 2247 celulas rotuladas`). O rendimento da coluna foi de 541 para 2133, o rotulo `1` (n=1680) de 0 para 1590, e as tres gravacoes que liam ZERO passaram a ler. A REPROVA de 30/08 caiu por REMOCAO DA CAUSA: as 14 celulas do balde do piso compartilhado eram o glifo COLADO, que o 02-08 consertou. Janela #16 FECHADA.
-
-Progress: [███░░░░░░░] 25%
+Phase: Milestone v1-mercado complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-09-01 — Milestone v1-mercado completed and archived
 
 ## Accumulated Context
 
@@ -144,8 +134,6 @@ Progress: [███░░░░░░░] 25%
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
-| 260829-rd9 | OCR de nomes de item entra no escopo: LEIT-01 reescrito, coluna do nome recortada (LEIT-05) | 2026-08-29 | dcab841 | [260829-rd9-ocr-de-nomes-de-item-entra-no-escopo-lei](./quick/260829-rd9-ocr-de-nomes-de-item-entra-no-escopo-lei/) |
-| 260830-apd | A calibracao de party para de apagar a de mercado: carrega o disco e preserva os 27 campos que nao sao dela | 2026-08-30 | 0c9038c | [260830-apd-party-calibration-nao-pode-apagar-a-cali](./quick/260830-apd-party-calibration-nao-pode-apagar-a-cali/) |
 
 ### Verificação Diferida — Fase 2
 
@@ -254,3 +242,29 @@ tomando as decisões recomendadas. Regras que valem até ele voltar:
 | Phase 4 P3 | 34min | 3 tasks | 6 files |
 | Phase 4 P4 | 18m | 3 tasks | 5 files |
 | Phase 04 P05 | 30min | 2 tasks | 3 files |
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
+
+## Deferred Items
+
+Itens reconhecidos e adiados no fechamento do milestone, mais recentes primeiro:
+
+| Categoria | Item | Estado | Adiado em | Milestone |
+|---|---|---|---|---|
+| deferred_items | Fase 04: a cadeia de import `mercado_catalogo` -> `config` -> `notificador` -> `rastreador` | **ABERTO, nao suprimido** | 2026-09-01 | v1-mercado |
+| debug_sessions | knowledge-base | falso positivo do scanner | 2026-09-01 | v1-mercado |
+| quick_tasks | 5 quicks sem SUMMARY.md | convencao do workstream (PLAN + codigo) | 2026-09-01 | v1-mercado |
+
+**Sobre o primeiro:** o CLI `audit-open acknowledge` RECUSOU suprimi-lo — o
+`deferred-items.md` usa a forma delimitada por cabecalho (#3457), fora do que o
+escritor suporta. Tentei marcar a mao com comentario HTML e o scanner nao o le.
+Removi o marcador falso: **um marcador que afirma suprimir e nao suprime e pior que
+nenhum.** O item fecha o milestone DECLARADO ABERTO, e esta carregado para o v2
+pelo REQUIREMENTS de la, que nao depende deste registro para existir.
+
+**Known verification overrides:** 0 recem-reconhecidos que importem para o
+veredito, 6 carregados de reconhecimentos desta mesma sessao, 1 ABERTO e
+declarado. As quatro fases fecharam `verified_closeout` (todas
+`phase_complete=true` e `verification_status=passed`).
