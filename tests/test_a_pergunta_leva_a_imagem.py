@@ -53,7 +53,6 @@ from l2scanner.acervo import (
     chave_da_assinatura,
 )
 from l2scanner.batismo import (
-    TETO_DE_IMAGENS,
     montar_pergunta,
     montar_pergunta_com_imagens,
     pendentes_do_acervo,
@@ -176,8 +175,15 @@ def chatwoot(monkeypatch, falso: UrlopenFalso) -> NotificadorChatwoot:
 
 
 class TestOPngDoNome:
-    def test_o_png_abre_e_tem_a_altura_da_mascara_ampliada(self):
-        """Um PNG que nao abre e uma imagem que o WhatsApp descarta calado."""
+    def test_o_png_abre_e_a_etiqueta_do_apelido_fica_ACIMA_do_nome(self):
+        """Um PNG que nao abre e uma imagem que o WhatsApp descarta calado.
+
+        A SEGUNDA ASSERCAO TROCOU DE EIXO EM 01/09/2026. Ate a verificacao em
+        campo ela cobrava largura EXTRA ("a faixa do apelido sumiu"), porque o
+        apelido ficava ao LADO. Foi exatamente essa largura extra que produziu
+        os 836x138 (~6:1) que o preview do WhatsApp cortou. Agora a faixa fica
+        em CIMA, e o que tem de sobrar e ALTURA.
+        """
         mascara = mascara_com_texto(1)
         bruto = png_do_nome(mascara, "0dcf6f")
 
@@ -186,10 +192,13 @@ class TestOPngDoNome:
         img = cv2.imdecode(np.frombuffer(bruto, np.uint8), cv2.IMREAD_GRAYSCALE)
         assert img is not None
         altura_do_nome = mascara.shape[0] * AMPLIACAO
-        assert img.shape[0] > altura_do_nome, "a moldura sumiu"
-        assert img.shape[1] > mascara.shape[1] * AMPLIACAO, (
-            "a faixa do apelido sumiu: a largura devia passar da mascara "
+        assert img.shape[0] > altura_do_nome, (
+            "a faixa do apelido sumiu: a altura devia passar da mascara "
             "ampliada"
+        )
+        assert img.shape[1] == mascara.shape[1] * AMPLIACAO + 2 * (MARGEM + MOLDURA), (
+            "sobrou largura fora da margem: era ela que empurrava a proporcao "
+            "para o 6:1 que o preview cortou"
         )
 
     def test_o_texto_sai_preto_no_branco_e_sem_meio_tom(self):
@@ -208,10 +217,16 @@ class TestOPngDoNome:
         # O fundo domina: a mascara acende uma coluna a cada cinco.
         assert (img > 200).mean() > 0.5, "a imagem saiu escura: faltou inverter"
 
-        # Na AREA DO NOME (a direita da faixa do apelido) so ha 0 e 255. A
-        # moldura e a margem ficam de fora: elas nao sao pixel do jogo.
+        # Na AREA DO NOME so ha 0 e 255. A moldura e a margem ficam de fora:
+        # elas nao sao pixel do jogo.
+        #
+        # O RECORTE MUDOU DE EIXO EM 01/09/2026, e nada mais: a area do nome
+        # era a FAIXA DA DIREITA (o apelido ficava a esquerda) e agora e a
+        # FAIXA DE BAIXO. Ela continua encostada na borda, que e o que permite
+        # recorta-la sem repetir a aritmetica da producao.
         borda = MARGEM + MOLDURA
-        area = img[borda:-borda, -(mascara.shape[1] * AMPLIACAO + borda) : -borda]
+        alta = mascara.shape[0] * AMPLIACAO
+        area = img[-(alta + borda) : -borda, borda:-borda]
         tons = set(np.unique(area).tolist())
         assert tons <= {0, 255}, f"a ampliacao suavizou: {sorted(tons)}"
 
@@ -499,7 +514,14 @@ class TestFalhaDeAnexoNaoEngoleAPergunta:
 
 
 # ---------------------------------------------------------------------------
-# TAREFA 5: a pergunta. UMA mensagem, com as imagens na ordem do texto.
+# TAREFA 5: a pergunta. UMA mensagem, UMA pessoa, UMA imagem.
+#
+# ERA "UMA mensagem, com as imagens na ordem do texto" ate a verificacao em
+# campo de 01/09/2026: dois anexos numa mensagem so chegaram como UM, porque o
+# provedor de WhatsApp entrega um anexo por mensagem. A ordem deixou de ser uma
+# grandeza (nao ha o que ordenar com um elemento), e o que estes casos guardam
+# agora e que texto e anexo falam da MESMA pessoa. O espacamento entre duas
+# perguntas mora em `tests/test_uma_pergunta_por_pessoa.py`.
 # ---------------------------------------------------------------------------
 
 
@@ -513,7 +535,13 @@ def apelidos_listados(texto: str) -> list[str]:
 
 
 class TestAPerguntaLevaAsImagens:
-    def test_tres_anonimas_produzem_UMA_pergunta_com_TRES_imagens(self, tmp_path):
+    def test_tres_anonimas_produzem_UMA_pergunta_com_UMA_imagem(self, tmp_path):
+        """Era "com TRES imagens" ate 01/09/2026.
+
+        MEDIDO no canal de verdade: dois anexos numa mensagem so chegaram como
+        UM. As outras duas pessoas nao somem — elas saem nas rodadas seguintes,
+        e isso e afirmado em `tests/test_uma_pergunta_por_pessoa.py`.
+        """
         for semente in range(3):
             semear(tmp_path, assinatura_fabricada(semente))
         acervo = AcervoDeIdentidades(tmp_path)
@@ -522,10 +550,15 @@ class TestAPerguntaLevaAsImagens:
 
         assert pergunta is not None
         assert pergunta.texto.count("Aprendi") == 1, "voltou a rajada de N bolhas"
-        assert len(pergunta.imagens) == 3
+        assert len(pergunta.imagens) == 1
 
-    def test_a_ordem_das_imagens_e_a_ordem_do_texto(self, tmp_path):
-        """Se elas divergirem, o usuario batiza a pessoa errada."""
+    def test_a_imagem_e_a_da_pessoa_que_o_texto_cita(self, tmp_path):
+        """Se elas divergirem, o usuario batiza a pessoa errada.
+
+        Era "a ordem das imagens e a ordem do texto". Com um anexo so nao ha
+        ordem — ha CORRESPONDENCIA, que e o que aquela ordem existia para
+        garantir, e e ela que continua afirmada aqui.
+        """
         for semente in range(4):
             semear(tmp_path, assinatura_fabricada(semente))
         acervo = AcervoDeIdentidades(tmp_path)
@@ -563,7 +596,9 @@ class TestAPerguntaLevaAsImagens:
         )
 
     def test_a_pergunta_nova_nao_tem_travessao_e_cabe_no_cp1252(self, tmp_path):
-        for semente in range(TETO_DE_IMAGENS + 2):
+        # Dez pendentes na mao para exercitar o caminho de "sobrou gente", que
+        # antes tinha redacao propria (o teto de oito) e hoje nao tem nenhuma.
+        for semente in range(10):
             semear(tmp_path, assinatura_fabricada(semente))
         acervo = AcervoDeIdentidades(tmp_path)
 
@@ -606,42 +641,21 @@ class TestAPerguntaLevaAsImagens:
         assert montar_pergunta_com_imagens(acervo, []) is None
 
 
-class TestOTetoDeImagens:
-    def test_acima_do_teto_so_o_teto_vai_e_o_TEXTO_DIZ_quem_sobrou(
-        self, tmp_path
-    ):
-        """Truncar em silencio e proibido: se sobrar gente, o texto diz.
-
-        O teto e sobre GENTE, e nao sobre bytes: medido em 01/09/2026, as 15
-        entradas do acervo real dao PNGs de 3.9 KB a 6.4 KB, entao oito somam
-        ~39 KB e nao apertam nada. Oito e o tanto de gente que a party window
-        do L2 mostra alem de voce; mais que isso de uma vez nao e uma party na
-        tela, e acervo acumulado de varias sessoes.
-        """
-        sobrando = 3
-        for semente in range(TETO_DE_IMAGENS + sobrando):
-            semear(tmp_path, assinatura_fabricada(semente))
-        acervo = AcervoDeIdentidades(tmp_path)
-
-        pergunta = montar_pergunta_com_imagens(acervo, pendentes_do_acervo(acervo))
-
-        assert len(pergunta.imagens) == TETO_DE_IMAGENS
-        # TODOS continuam na lista de apelidos: quem nao tem imagem tem nome.
-        assert len(apelidos_listados(pergunta.texto)) == TETO_DE_IMAGENS + sobrando
-        assert str(sobrando) in pergunta.texto, (
-            f"o texto nao diz quantas ficaram sem imagem:\n{pergunta.texto}"
-        )
-
-    def test_no_teto_exato_o_texto_nao_fala_de_sobra_nenhuma(self, tmp_path):
-        for semente in range(TETO_DE_IMAGENS):
-            semear(tmp_path, assinatura_fabricada(semente))
-        acervo = AcervoDeIdentidades(tmp_path)
-
-        pergunta = montar_pergunta_com_imagens(acervo, pendentes_do_acervo(acervo))
-
-        assert len(pergunta.imagens) == TETO_DE_IMAGENS
-        assert "ficaram sem imagem" not in pergunta.texto
-        assert "ficou sem imagem" not in pergunta.texto
+# O TETO DE IMAGENS (`TETO_DE_IMAGENS = 8`) E OS DOIS CASOS QUE O GUARDAVAM
+# FORAM APAGADOS EM 01/09/2026, e a razao nao e economia de teste.
+#
+# Aquele teto respondia "quantas imagens cabem numa mensagem", e a verificacao
+# em campo mostrou que a resposta do canal e UMA, sempre — nao oito, nem
+# quinze. Um teto de oito sobre um envelope que entrega uma nao guarda nada:
+# ele descreveria um limite que nunca chega a ser alcancado, e o texto que ele
+# obrigava a escrever ("as outras N ficaram sem imagem") descreveria para o
+# dono uma mensagem que ele nao recebeu.
+#
+# O QUE SUBSTITUIU OS DOIS CASOS, e e uma garantia mais forte do que a que
+# eles davam: `test_tres_anonimas_produzem_UMA_pergunta_com_UMA_imagem` logo
+# acima, e a familia inteira de `tests/test_uma_pergunta_por_pessoa.py`, que
+# afirma que as pendentes que nao sairam continuam SEM MARCADOR e saem nas
+# rodadas seguintes. Nada e truncado, entao nao ha truncamento a anunciar.
 
 
 # ---------------------------------------------------------------------------

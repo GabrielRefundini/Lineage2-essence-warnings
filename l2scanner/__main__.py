@@ -2512,13 +2512,22 @@ def laco_principal(
     # pessoa ficaria "Membro N" ate alguem apagar um arquivo a mao. Quem roda
     # sem `.env` e sem `--dry-run` simplesmente ainda nao perguntou, e vai
     # perguntar no dia em que configurar a entrega.
+    #
+    # A VARREDURA PERGUNTA POR UMA, E NAO POR TODAS, desde a verificacao em
+    # campo de 01/09/2026: duas imagens numa mensagem so chegaram como UMA, e o
+    # provedor de WhatsApp entrega um anexo por mensagem. As demais anonimas
+    # vao para a fila da `Sessao` logo abaixo e saem uma por
+    # `INTERVALO_ENTRE_PERGUNTAS` — sem esta entrega elas esperariam o PROXIMO
+    # arranque do scanner, uma por reinicio.
+    pendentes_de_batismo = pendentes_do_acervo(acervo)
+    momento_da_ultima_pergunta = None
     if despachante is not None:
-        pergunta = montar_pergunta_com_imagens(acervo, pendentes_do_acervo(acervo))
+        pergunta = montar_pergunta_com_imagens(acervo, pendentes_de_batismo)
         if pergunta:
             log.info(
-                "Ha assinatura sem nome no acervo. Perguntando quem e, uma "
-                "vez so por assinatura, com %d imagem(ns) do nome.",
-                len(pergunta.imagens),
+                "Ha %d assinatura(s) sem nome no acervo. Perguntando por uma "
+                "de cada vez, uma vez so por assinatura, com a imagem do nome.",
+                len(pendentes_de_batismo),
             )
             # `Categoria.SEMPRE` pela mesma razao do gatilho do aprendizado: o
             # marcador ja foi queimado dentro de `montar_pergunta_com_imagens`,
@@ -2536,6 +2545,12 @@ def laco_principal(
                 anexos=pergunta.imagens,
                 texto_sem_anexos=pergunta.texto_sem_imagens,
             )
+            # O RELOGIO DA MESMA ESCALA DO TICK. `Sessao.tick` mede o
+            # espacamento contra `momento`, que e `time.time()` do frame — e
+            # nao `monotonic`. Misturar as duas escalas aqui daria uma
+            # diferenca da ordem de decadas e liberaria a segunda pergunta no
+            # primeiro tick, que e exatamente a rajada que este numero desfaz.
+            momento_da_ultima_pergunta = time.time()
 
     # A SESSAO carrega o que antes eram variaveis locais deste laco. Movidas
     # para um objeto, elas viram construiveis num teste — e e por isso que
@@ -2581,6 +2596,17 @@ def laco_principal(
         # pessoa que o aprendiz acabou de gravar (BATI-01); `sessao.py` fala
         # com o `batismo` e nunca com o `acervo`.
         acervo=acervo,
+        # O QUE A VARREDURA DE ARRANQUE NAO PERGUNTOU. A lista inteira entra,
+        # inclusive a pessoa que acabou de sair na mensagem acima: quem ja tem
+        # marcador nao produz mensagem nenhuma e some da fila sem custo, e
+        # deixar o filtro para o `O_CREAT|O_EXCL` e o que mantem UM dono da
+        # decisao "ja perguntei" (D-04). Sem esta linha, as anonimas que
+        # sobraram esperariam o PROXIMO arranque do scanner — uma por reinicio.
+        pendentes_de_batismo=pendentes_de_batismo,
+        # E O INSTANTE DA PERGUNTA DO ARRANQUE, para o espacamento comecar a
+        # contar dali. Sem ele o primeiro tick mandaria a segunda bolha no
+        # mesmo segundo em que o scanner subiu.
+        momento_da_ultima_pergunta=momento_da_ultima_pergunta,
     )
 
     ultimo_status = 0.0
