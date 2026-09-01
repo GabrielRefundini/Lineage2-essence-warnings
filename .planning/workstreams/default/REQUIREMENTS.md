@@ -111,7 +111,13 @@ Adiado para depois da v1. Rastreado mas fora do roadmap atual.
   adota SÓ as posições e só em memória, atrás de oito conferências de plausibilidade.
   Não escreve no `calibration.json`: um reancoramento errado que se grava sobrevive ao
   reinício e leva embora a calibração boa.
-- [ ] **ADVC-03**: O scanner inicia junto com o Windows e detecta sozinho quando o jogo abre
+- [~] **ADVC-03**: O scanner inicia junto com o Windows e detecta sozinho quando o jogo
+  abre — **DESCARTADO pelo usuario em 01/09/2026**: ele prefere ligar a mao. A decisao
+  tem ganho tecnico alem da preferencia: subir sozinho antes do jogo faria o scanner
+  arrancar com a party window ausente, e o arranque e justamente quando ele le a
+  calibracao e conta as identidades. Somado ao fato de ele rodar DUAS instancias, um
+  autostart tambem multiplica a chance de processo orfao disputando `.agenda/` e
+  `.identidades/`. Nao reabrir sem o usuario pedir.
 
 ### Sinais complementares
 
