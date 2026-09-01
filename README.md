@@ -356,6 +356,85 @@ O limiar para marcar um componente como velho é de **24 horas**. Esse número �
 **escolha declarada, não medição** — está escrito assim no fonte, ao lado da
 constante.
 
+### Quando um item some do registro (a faixa cinzenta)
+
+Às vezes o log mostra uma linha recusada com o motivo `faixa-cinzenta`, e o item
+não aparece no CSV. Isso é deliberado, e vale entender quando acontece.
+
+#### O que é
+
+Ao ler um nome, o scanner o compara com os nomes que já conhece. Três desfechos:
+
+| similaridade | o que acontece |
+|---|---|
+| **≥ 0,8947** (corte) | agrupa na série existente |
+| **0,8837 a 0,8947** | **faixa cinzenta: descarta, sem agrupar e sem criar** |
+| **< 0,8837** (piso) | série nova |
+
+A faixa existe porque os dois erros não custam igual. **Fundir dois itens no CSV
+é irreversível** — os preços se misturam e não há como separá-los depois.
+Descartar uma linha não é: ela volta no próximo tick, ou na próxima sessão. Na
+dúvida, o scanner escolhe o erro que tem volta.
+
+#### O caso conhecido
+
+    "Hunteds Tunic"  x  "Hunter's Tunic"  =  0,8889   -> faixa cinzenta
+
+O OCR erra o apóstrofo, a leitura fica a 0,8889 do nome certo, e a linha é
+descartada. É o mesmo item, e o scanner não tem como saber disso.
+
+#### Por que ele não aparece no catálogo
+
+**A faixa cinzenta descarta, então a leitura ruim nunca entra no
+`catalogo-de-nomes.csv`.** Procurar as vítimas ali é procurar onde elas não podem
+estar — elas são invisíveis por construção. O único lugar onde aparecem é o log,
+no aviso do momento em que foram recusadas.
+
+#### O risco medido no seu catálogo — 2026-09-01
+
+Varri todos os pares das 26 séries reais:
+
+- **zero pares** estão hoje na faixa cinzenta;
+- o vizinho mais próximo que **não** funde está em **0,8462**, bem abaixo do piso;
+- a faixa tem só **0,0110** de largura.
+
+Cair nela é raro por construção. O `Hunter's Tunic` é o único caso observado.
+
+#### O que fazer quando acontecer
+
+O aviso no log nomeia a linha e mostra **as duas leituras** entre `>>>` e `<<<`,
+então dá para ver exatamente qual item está sendo perdido:
+
+```
+linha 1 RECUSADA (faixa-cinzenta): 2x=>>>Hunteds Tunic<<< 3x=>>>Hunter's Tunic<<<
+```
+
+**Não existe conserto automático, e isso é escolha.** Afrouxar o piso faria toda
+leitura torta virar série fantasma no seu arquivo — trocaria um descarte visível
+por lixo silencioso.
+
+#### Um caso separado: séries partidas por variação de OCR
+
+Diferente do anterior, e ele **está no seu arquivo hoje**:
+
+    +4 Hunter's Stockings   e   +4 Hunter's St«kings     (similaridade 0,9268)
+    +5 Hunter's Stockings   e   +5 Hunter's St«kings
+
+São o **mesmo item** sob duas séries. A similaridade está **acima do corte**, ou
+seja, hoje elas agrupariam — são sobras de um defeito de agrupamento dentro da
+página, já consertado. **Dado novo não se parte mais; o antigo ficou assim.**
+
+A ferramenta `tools/fundir_chaves_de_serie.py` **não funde estas de propósito**:
+ela só funde quando o `nome_exibido` é **idêntico**. Fundir por similaridade
+seria decidir por julgamento justamente no lado irreversível — a coisa que a
+faixa cinzenta existe para evitar.
+
+Se quiser juntá-las, é edição manual do CSV. **Faça backup antes:**
+
+```bash
+copy .mercado\observacoes.csv .mercado\observacoes.backup.csv
+```
+
 ## Opções
 
 | Opção | O que faz |
