@@ -181,3 +181,17 @@ mediana de referencia e o `n` estao ali por exigencia do ANAL-02, e a docstring
 de `destaque_ao_vivo` explica que sem eles *"esta barata"* vira *"uma opiniao com
 cara de medicao, e o usuario nao teria como discordar"*. Caber na moldura nao
 vale perder a evidencia.
+
+---
+
+## NOTA DE FECHAMENTO DO v1-mercado — 2026-09-01
+
+O CLI `audit-open acknowledge` **RECUSOU** suprimir os itens deste arquivo: ele usa
+a forma delimitada por cabecalho (#3457), que o escritor nao suporta, e ele manda
+editar a mao em vez de fingir que suprimiu. Tentei marcar a mao com um comentario
+HTML e **nao funcionou** — o scanner nao o le, e o item continuou aberto. Removi
+o marcador: um marcador que AFIRMA suprimir e nao suprime e pior que nenhum.
+
+Logo o v1-mercado fecha como **override_closeout**, com este item declarado ABERTO
+em vez de silenciado. Os quatro itens deste arquivo estao carregados para o v2 pelo
+REQUIREMENTS de la, que nao depende deste marcador para existir.
