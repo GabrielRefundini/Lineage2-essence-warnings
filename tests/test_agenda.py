@@ -42,6 +42,77 @@ def em(hora: int, minuto: int, dia: datetime = SEGUNDA) -> datetime:
     return dia.replace(hour=hora, minute=minuto)
 
 
+# Quanto cada evento cala, NOS DADOS DO TESTE. Ver `agenda_de_silencio()`.
+SILENCIO_DO_TVT = 15
+SILENCIO_DO_PRIME = 120
+
+
+def agenda_de_silencio() -> list[EventoAgendado]:
+    """A agenda que as REGRAS de silencio usam, montada de dados PROPRIOS.
+
+    NAO le o `config.toml` do repositorio, e isso e o ponto. Aquele arquivo e
+    PREFERENCIA do usuario e ele MUDA: em 2026-08-31 o usuario trocou o
+    `silenciar_minutos` do TvT de 15 para 9 e SETE testes ficaram vermelhos sem
+    uma linha de codigo de producao ter mudado. Um teste que trava o dado do
+    usuario transforma cada ajuste de preferencia dele num deploy — o oposto
+    exato do motivo de o valor morar num arquivo de configuracao.
+
+    E o mesmo defeito que `8b87eb3` consertou na janela de respawn do Tiat,
+    quando o servidor mudou a regra de 6+2 para 8+2:
+
+        "ele provava a regra do servidor em vez de provar que ela e LIDA do
+        arquivo"
+
+    OS 15 E OS 120 NAO SAO COPIA DO `config.toml`. Sao os dois numeros que
+    FAZEM a borda das 22:05 existir, que e a regra que estes testes afirmam:
+    o Prime das 20:00 + 120 min termina 22:00, o TvT das 21:50 + 15 min termina
+    22:05, e a UNIAO das duas janelas tem de ir ate 22:05. Sao dados do TESTE,
+    escolhidos pela regra afirmada — trocar o arquivo do usuario nao os move,
+    e mover estes numeros TEM de quebrar os testes da borda.
+
+    Devolve uma lista NOVA a cada chamada, para uma fixtura nunca poder sujar
+    a agenda de outra.
+    """
+    return [
+        EventoAgendado(
+            nome="TvT",
+            horarios=((15, 0), (17, 0), (19, 30), (21, 50), (23, 0)),
+            dias=TODOS_OS_DIAS,
+            avisar_minutos_antes=10,
+            silenciar_minutos=SILENCIO_DO_TVT,
+        ),
+        EventoAgendado(
+            nome="Prime",
+            horarios=((20, 0),),
+            dias=frozenset({0, 1, 2, 3}),
+            avisar_minutos_antes=10,
+            silenciar_minutos=SILENCIO_DO_PRIME,
+        ),
+        EventoAgendado(
+            nome="Solo Boss",
+            horarios=(
+                (0, 0),
+                (2, 0),
+                (4, 0),
+                (6, 0),
+                (8, 0),
+                (10, 0),
+                (12, 0),
+                (14, 0),
+                (16, 0),
+                (18, 0),
+                (20, 0),
+                (22, 0),
+            ),
+            dias=TODOS_OS_DIAS,
+            avisar_minutos_antes=10,
+            avisar_no_horario=False,
+            chamar_minutos_antes=110,
+            silenciar_minutos=0,
+        ),
+    ]
+
+
 class TestAvisosDevidos:
     def test_avisa_dez_minutos_antes(self):
         devidos = avisos_devidos(em(14, 50), [evento()], set())
@@ -1727,14 +1798,17 @@ class TestJanelaDeSilencio:
     De segunda a quinta o Prime vai das 20:00 as 22:00 e o TvT das 21:50 vai
     ate 22:05. Substituir faria o silencio acabar as 22:00 e os ultimos cinco
     minutos de TvT vazariam alerta — bem no auge do evento.
+
+    Os dados sao PROPRIOS (`agenda_de_silencio()`) e nao do `config.toml`: a
+    regra afirmada aqui e a UNIAO, e ela precisa de duas janelas que se
+    sobrepoem de um jeito conhecido. Ler o arquivo do usuario punha a
+    preferencia dele no caminho da regra — foi o que quebrou estes testes
+    quando ele trocou o TvT de 15 para 9.
     """
 
     @pytest.fixture
     def agenda(self):
-        from pathlib import Path
-
-        raiz = Path(__file__).resolve().parent.parent
-        return ler_agenda(raiz / "config.toml")
+        return agenda_de_silencio()
 
     def test_dentro_do_tvt_ha_silencio(self, agenda):
         from l2scanner.agenda import silencio_ativo
