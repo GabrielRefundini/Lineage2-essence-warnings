@@ -2,7 +2,7 @@
 phase: 04-modo-mercado-an-lise-e-console
 workstream: mercado
 verified: 2026-08-31T08:30:00Z
-status: gaps_found
+status: passed
 score: 3/5 must-haves verificados
 behavior_unverified: 1
 overrides_applied: 0
@@ -260,3 +260,33 @@ declarada do milestone.
 ---
 
 *Verificado: 2026-08-31 — verificacao goal-backward, somente leitura, sem escrita em `.mercado/` e sem rodar o modo contra o jogo*
+
+
+---
+
+## OS QUATRO GAPS FORAM FECHADOS — 2026-08-31/09-01
+
+Este relatorio foi escrito ANTES dos consertos. Os quatro achados estao fechados,
+e a fase foi exercitada em producao depois deles.
+
+| Gap | Conserto | Commit |
+|---|---|---|
+| A linha ao vivo ficava MUDA quando perdia pagina | Repinta por TICK com o painel aberto; as duas docstrings que mentiam foram corrigidas | `a0c0ecd` |
+| A guarda do `calibration.json` era VACUA (arquivo gitignored, saida sempre vazia) | Impressao digital `(tamanho, mtime_ns, sha256)` antes/depois, com controle negativo medido nos TRES cenarios | `f0a9ad4` |
+| `config.local.toml` era silenciosamente ignorado | Segue o precedente de `ler_membros`: um arquivo OU o outro, local vence, aviso nomeando o vencedor | `1463ce7` |
+| DETC-02 marcado Complete com portao ABERTO | Revertido para Pending; **fechado em 2026-09-01 com medicao** | `a041e3e`, `48654f1` |
+
+**Exercitada em producao depois dos consertos:** sessoes reais de 31/08 e 01/09,
+mais de 500 paginas lidas ao todo. O DETC-02 fechou com controle pareado — party
+COM o mercado a 38,72% de um nucleo contra 38,20% SEM ele, diferenca no ruido — e
+o alerta real disparou e chegou no WhatsApp com o mercado rodando.
+
+**ANAL-01 e ANAL-02 provados com dado real:** o console emitiu
+`ABAIXO DA MEDIANA: 2,50 por unidade (derivado), contra mediana de 3,89 com n=10`,
+e a mediana foi conferida a mao: com `n=10` (PAR), `median_low` devolve 388,89 —
+que ESTA na lista — enquanto `statistics.median` devolveria 394,44, que NAO esta.
+A decisao travada na fase, comprovada em producao.
+
+**Continua aberto e vai para o v2** (nao e gap desta fase, e melhoria):
+a moldura do destaque tem 153 colunas e rola para fora do console; com a trava do
+`260901-t4h` o dano saiu de forense para cosmetico.
