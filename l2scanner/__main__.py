@@ -81,6 +81,7 @@ from .comandos import (  # noqa: E402
     so_digitos,
     texto_de_ajuda,
 )
+from .conferencia_do_proprio import avisar_no_arranque  # noqa: E402
 from .console import destacar, moldurar  # noqa: E402
 from .loot import (  # noqa: E402
     RegistroDeLoot,
@@ -2317,6 +2318,29 @@ def laco_principal(
             )
         log.info("Lendo o desktop — o jogo precisa estar visivel. "
                  "Use --janela para funcionar com ele coberto.")
+
+    # A CONFERENCIA DA BARRA PROPRIA, UMA VEZ, AQUI.
+    #
+    # O INCIDENTE, medido em 2026-08-31: `hp_proprio` gravado em (298,701) e a
+    # barra vermelha de verdade em `topo=711`. Dez pixels acima, a regiao caia
+    # sobre a barra de CP e o console mostrava "Yazalaque (voce) ok HP 8%" com a
+    # barra CHEIA (5418/5418). 8% e MAIOR QUE ZERO, entao
+    # `_ja_viu_a_propria_barra_viva` virou True e a unica guarda que protegia o
+    # usuario saiu do caminho: dali em diante uma oscilacao da lasca vermelha
+    # ate zero anunciaria a MORTE dele com ele intacto. A causa do desvio
+    # continua desconhecida (ver o cabecalho de `conferencia_do_proprio.py`); o
+    # que esta garantido aqui e que o desfecho nao acontece calado.
+    #
+    # AS DUAS CONDICOES SAO NECESSARIAS. `--janela` porque a conferencia precisa
+    # de `capturar_completo()`, que so a `JanelaSource` tem, e porque `hp_proprio`
+    # esta em coordenadas da JANELA -- no caminho `mss` a barra propria nem e
+    # capturavel, e o aviso logo acima ja diz isso. `not --replay` porque uma
+    # sessao gravada nao tem janela para varrer.
+    #
+    # ELA SO AVISA, NUNCA CORRIGE: nada e reescrito, nem em disco nem em
+    # memoria. Ver o item 2 do cabecalho daquele modulo.
+    if not args.replay and args.janela:
+        avisar_no_arranque(cal, fonte)
 
     # `--record-janela` ja foi validado no parse: implica --record e exige
     # --janela, entao aqui a fonte e sempre uma JanelaSource.
