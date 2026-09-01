@@ -51,6 +51,12 @@ from .mercado_analise import (
     tendencia,
 )
 
+# A IDENTIDADE DE UMA OFERTA VEM DO REGISTRO, e nao e reescrita aqui: e a mesma
+# `serie + total + quantidade` com que o CSV dedupa (D-05), e a `TravaDoDestaque`
+# usa exatamente ela. Nao ha ciclo: `mercado_registro` so importa
+# `mercado_catalogo` em tempo de execucao e nunca este modulo.
+from .mercado_registro import chave_da_observacao
+
 # Os SETE contadores publicos do `LeitorDePagina`, com o rotulo que o usuario le.
 # A ordem e a da leitura humana: primeiro as duas metades que julgam a sessao,
 # depois os tres estados que explicam o que aconteceu com o resto, e por fim os
@@ -228,6 +234,71 @@ def destaque_ao_vivo(nome: str, destaque, agora: datetime) -> str:
         f"com n={destaque.evidencia.n}"
     )
     return "\n" + console.moldurar(linha, agora.strftime("%H:%M"))
+
+
+class TravaDoDestaque:
+    """Quem ja foi anunciado nesta sessao. O destaque e NOTICIA, e sai UMA vez.
+
+    O DEFEITO QUE ELA CONSERTA FOI VISTO EM PRODUCAO (sessao de 2026-09-01
+    05:37): a pagina do mercado e reaceita a cada tick, entao `destaque_ao_vivo`
+    era chamada por LINHA a 1 Hz e o MESMO destaque, da MESMA oferta, saia a
+    cada segundo enquanto ela estivesse na tela — cada um dentro de uma moldura.
+    Com tres destaques por tick sao ~10.800 linhas por hora, e o `scanner.log`
+    perde exatamente a forense que ele existe para guardar.
+
+    O PRECEDENTE NAO E NOVO, E ELA E A QUINTA: `transicao_do_painel` trava a
+    transicao do painel no proprio laco, e `mercado_pagina` trava outras tres
+    (`_layout_ja_recusado`, `_congelamento_ja_avisado`, `_falta_ja_avisada`). O
+    destaque era o unico anuncio repetitivo do modo SEM trava. A diferenca de
+    forma — um CONJUNTO aqui, um booleano la — e so porque aqueles sao um
+    estado do modo (ligado/desligado) e este e um estado POR OFERTA.
+
+    A TRAVA E POR OFERTA, E TRAVAR POR SERIE SERIA O ERRO OPOSTO. Uma segunda
+    oferta do mesmo item, mais barata que a primeira, e a noticia MAIS
+    importante que o modo tem para dar; uma trava por `chave_da_serie` a
+    engoliria justamente por o item ja ter aparecido uma vez.
+
+    A IDENTIDADE E `chave_da_observacao`, E NAO UMA PARECIDA ESCRITA AQUI:
+    serie + total + quantidade e a MESMA chave com que o registro dedupa o
+    CSV (D-05). Reusar a funcao — em vez de repetir a tupla — e o que garante
+    que, se um dia a identidade de uma oferta mudar, o console e o arquivo nao
+    passem a discordar em silencio sobre o que ja foi visto.
+
+    ELA E DA SESSAO, e nao uma janela de tempo: enquanto a oferta estiver no
+    quadro ela sera relida a cada tick, e uma trava que expirasse so trocaria
+    milhares de linhas repetidas por dezenas de linhas repetidas.
+
+    O CONJUNTO NAO E PODADO, e isso e decisao. Ele guarda uma tupla curta por
+    oferta DISTINTA ja anunciada abaixo da mediana — pelo censo, dezenas numa
+    sessao longa, e nao milhares — entao o custo e desprezivel perto do risco
+    de uma poda reanunciar o que ja saiu.
+    """
+
+    def __init__(self) -> None:
+        # PUBLICO, no padrao dos contadores de `LeitorDePagina`: e o que deixa
+        # o teste afirmar a identidade escolhida sem espiar o objeto por dentro.
+        self.ja_anunciadas: set[tuple[str, int, int]] = set()
+
+    def anunciar(self, linha, destaque, agora: datetime) -> str | None:
+        """O bloco do destaque na PRIMEIRA vez desta oferta; `None` depois.
+
+        DEVOLVER O TEXTO, e nao so um booleano, e o que impede a trava de virar
+        um portao que alguem esquece de fechar: quem chama nao TEM como
+        anunciar sem passar por aqui, porque e daqui que sai o texto.
+
+        `None` E NAO STRING VAZIA: uma string vazia atravessaria um `if texto:`
+        distraido e imprimiria uma moldura em branco por tick.
+
+        QUEM DECIDE `abaixo` E O MODELO, E NAO ESTA CLASSE. Ela so registra o
+        que foi anunciado; o veredito continua sendo de
+        `ModeloDeMercado.veredito_do_destaque`, e o laco so chega aqui quando
+        ele deu `abaixo`.
+        """
+        chave = chave_da_observacao(linha)
+        if chave in self.ja_anunciadas:
+            return None
+        self.ja_anunciadas.add(chave)
+        return destaque_ao_vivo(linha.nome_exibido, destaque, agora)
 
 
 def transicao_do_painel(aberto: bool) -> str:
