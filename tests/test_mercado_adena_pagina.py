@@ -28,7 +28,19 @@ import numpy as np
 import pytest
 
 from l2scanner.calibracao import Calibracao, CalibracaoInvalida
-from l2scanner.mercado_pagina import pecas_de_calibracao_de_mercado_faltando
+from l2scanner.mercado_leitura import casamento_do_cabecalho
+from l2scanner.mercado_pagina import (
+    LAYOUTS_COM_LEITORA,
+    LEITORAS_DE_LINHA_POR_LAYOUT,
+    LeitorDePagina,
+    modelo_de_layout,
+    pecas_de_calibracao_de_mercado_faltando,
+)
+from l2scanner.mercado_visao import (
+    RastreioDoPainel,
+    ancoras_de_calibracao,
+    cabecalho_de_calibracao,
+)
 
 FIXTURAS = Path(__file__).parent / "fixtures" / "mercado"
 
@@ -59,6 +71,49 @@ def _gravar(tmp_path: Path, dados: dict) -> Path:
     caminho = tmp_path / "calibration.json"
     caminho.write_text(json.dumps(dados), encoding="utf-8")
     return caminho
+
+
+class _ContadoraDeOCR:
+    """As duas leitoras chegam por INJECAO, e por isso da para conta-las.
+
+    Na Adena isto e mais que conveniencia: `ler_linha_de_adena` NAO le nome, e
+    "zero chamadas" e como se prova que nenhuma delas foi acionada.
+    """
+
+    def __init__(self) -> None:
+        self.chamadas = 0
+
+    def __call__(self, _pixels) -> str:
+        self.chamadas += 1
+        return "Common Fafurion Doll"
+
+
+def _montar_leitor(cal):
+    barata, conferencia = _ContadoraDeOCR(), _ContadoraDeOCR()
+    leitor = LeitorDePagina(
+        RastreioDoPainel(
+            ancoras_de_calibracao(cal.mercado_ancoras),
+            float(cal.mercado_limiar_da_ancora),
+        ),
+        {},
+        barata,
+        conferencia,
+        cal,
+    )
+    return leitor, barata, conferencia
+
+
+def _origem_do_painel(leitor, janela: np.ndarray) -> tuple[int, int]:
+    """Onde o painel esta NESTA janela, pelo mesmo rastreio da producao.
+
+    Nunca uma origem escrita a mao: o painel anda 827x831 px nas gravacoes de
+    campo, e um par fixo aqui mediria uma geometria que a producao nao usa.
+    """
+    voto = leitor._rastreio.observar(janela)
+    assert voto.aberto, "o rastreio nao viu o painel aberto nesta fixtura"
+    origem = leitor._rastreio.origem
+    assert origem is not None, "o rastreio nao localizou o painel nesta fixtura"
+    return origem
 
 
 # --------------------------------------------------------------------------
@@ -238,3 +293,292 @@ class TestUmBlocoCorrompidoCaiNoARRANQUE:
         dados["mercado_layouts"] = {"adena": {"grade": {"linhas_por_pagina": 9}}}
         cal = Calibracao.carregar(_gravar(tmp_path, dados))
         assert cal.mercado_layouts["adena"]["grade"] == {"linhas_por_pagina": 9}
+
+
+# --------------------------------------------------------------------------
+# Task 2 — a matriz medida nos DOIS sentidos, e o portao que ESCOLHE
+# --------------------------------------------------------------------------
+
+BANDAS = (
+    "cabecalho_negociacao_goods.png",
+    "cabecalho_negociacao_unitprice.png",
+    "cabecalho_adena.png",
+    "cabecalho_busca.png",
+)
+
+# A MATRIZ MEDIDA nesta arvore em 2026-09-01, com o codigo de producao sobre as
+# quatro bandas versionadas. Os mesmos oito numeros estao na docstring de
+# `LeitorDePagina._casamento_do_layout`; esta tabela e o que impede aquela de
+# envelhecer em silencio (o padrao que `TestAFixturaDaAdenaLeOQueODocstringDiz`
+# estabeleceu no 05-01).
+#
+# O VAO E SIMETRICO — 0,1331 nos DOIS sentidos —, e isso CORRIGE a suposicao A1
+# da pesquisa, que esperava assimetria. `casamento_da_ancora` e uma correlacao
+# normalizada, e correlacao normalizada e simetrica nos seus dois argumentos.
+MATRIZ_MEDIDA = {
+    ("negociacao", "cabecalho_negociacao_goods.png"): 1.0000,
+    ("adena", "cabecalho_negociacao_goods.png"): 0.1331,
+    ("negociacao", "cabecalho_negociacao_unitprice.png"): 1.0000,
+    ("adena", "cabecalho_negociacao_unitprice.png"): 0.1331,
+    ("negociacao", "cabecalho_adena.png"): 0.1331,
+    ("adena", "cabecalho_adena.png"): 1.0000,
+    ("negociacao", "cabecalho_busca.png"): -0.0027,
+    ("adena", "cabecalho_busca.png"): -0.0029,
+}
+
+VENCEDOR_POR_BANDA = {
+    "cabecalho_negociacao_goods.png": "negociacao",
+    "cabecalho_negociacao_unitprice.png": "negociacao",
+    "cabecalho_adena.png": "adena",
+    "cabecalho_busca.png": None,
+}
+
+
+def _moldes_dos_dois_layouts(cal) -> dict:
+    saida = {}
+    for nome in ("negociacao", "adena"):
+        modelo = modelo_de_layout(cal, nome)
+        saida[nome] = (
+            cabecalho_de_calibracao(modelo["cabecalho"]),
+            int(modelo["cabecalho"]["corte_de_brilho"]),
+            float(modelo["limiar_do_cabecalho"]),
+        )
+    return saida
+
+
+def _vencedor_medido(cal, banda: str) -> str | None:
+    passam = {}
+    for nome, (molde, corte, limiar) in _moldes_dos_dois_layouts(cal).items():
+        score = casamento_do_cabecalho(_imagem(banda), molde, corte)
+        if score >= limiar:
+            passam[nome] = score
+    if not passam:
+        return None
+    topo = max(passam.values())
+    nomes = [n for n, s in passam.items() if s == topo]
+    return nomes[0] if len(nomes) == 1 else None
+
+
+class TestAMatrizDeCasamentoNosDoisSentidos:
+    """As OITO casas, reafirmadas contra os pixels versionados a cada rodada."""
+
+    @pytest.mark.parametrize("banda", BANDAS)
+    @pytest.mark.parametrize("layout", ("negociacao", "adena"))
+    def test_a_casa_medida_continua_valendo(self, layout, banda):
+        cal = _calibracao_da_fixtura()
+        molde, corte, _limiar = _moldes_dos_dois_layouts(cal)[layout]
+        score = casamento_do_cabecalho(_imagem(banda), molde, corte)
+        assert score == pytest.approx(MATRIZ_MEDIDA[(layout, banda)], abs=5e-4)
+
+    @pytest.mark.parametrize("banda", BANDAS)
+    def test_o_vencedor_por_banda(self, banda):
+        cal = _calibracao_da_fixtura()
+        assert _vencedor_medido(cal, banda) == VENCEDOR_POR_BANDA[banda]
+
+    def test_a_BUSCA_nao_ganha_casamento_de_NENHUM_dos_dois(self):
+        """Ela nao tem leitora, e um casamento dela seria recusa por tick."""
+        cal = _calibracao_da_fixtura()
+        for _nome, (molde, corte, limiar) in _moldes_dos_dois_layouts(cal).items():
+            score = casamento_do_cabecalho(
+                _imagem("cabecalho_busca.png"), molde, corte
+            )
+            assert score < limiar
+
+    def test_o_vao_e_SIMETRICO_e_isso_corrige_a_suposicao_A1(self):
+        cal = _calibracao_da_fixtura()
+        moldes = _moldes_dos_dois_layouts(cal)
+        adena_contra_negociacao = casamento_do_cabecalho(
+            _imagem("cabecalho_negociacao_goods.png"), *moldes["adena"][:2]
+        )
+        negociacao_contra_adena = casamento_do_cabecalho(
+            _imagem("cabecalho_adena.png"), *moldes["negociacao"][:2]
+        )
+        assert adena_contra_negociacao == pytest.approx(
+            negociacao_contra_adena, abs=5e-4
+        )
+
+    def test_a_docstring_do_portao_carrega_os_oito_numeros(self):
+        """A tabela no fonte e o que alguem le antes de mexer no limiar."""
+        fonte = LeitorDePagina._casamento_do_layout.__doc__
+        for valor in ("1,0000", "0,1331", "-0,0027", "-0,0029"):
+            assert valor in fonte
+
+
+class TestOPortaoESCOLHEEmVezDeSoRecusar:
+    def test_devolve_o_NOME_do_vencedor_e_nao_um_bool(self):
+        cal = _calibracao_da_fixtura()
+        leitor, _b, _c = _montar_leitor(cal)
+        janela = _imagem("janela_adena_f014.png")
+        origem = _origem_do_painel(leitor, janela)
+        vencedor = leitor._casamento_do_layout(janela, origem)
+        assert vencedor == "adena"
+        assert not isinstance(vencedor, bool)
+
+    def test_a_janela_de_negociacao_elege_negociacao(self):
+        cal = _calibracao_da_fixtura()
+        leitor, _b, _c = _montar_leitor(cal)
+        janela = _imagem("janela_negociacao_f005.png")
+        origem = _origem_do_painel(leitor, janela)
+        assert leitor._casamento_do_layout(janela, origem) == "negociacao"
+
+    def test_o_vencedor_fica_guardado_em_layout_atual(self):
+        cal = _calibracao_da_fixtura()
+        leitor, _b, _c = _montar_leitor(cal)
+        leitor.observar(_imagem("janela_adena_f014.png"))
+        assert leitor._layout_atual == "adena"
+
+    def test_layout_confere_continua_devolvendo_bool(self):
+        cal = _calibracao_da_fixtura()
+        leitor, _b, _c = _montar_leitor(cal)
+        janela = _imagem("janela_adena_f014.png")
+        origem = _origem_do_painel(leitor, janela)
+        assert leitor._layout_confere(janela, origem) is True
+
+
+class TestEmpateNaoEVeredito:
+    """Aceitar "o primeiro que passou" faria o veredito depender da ordem de
+    iteracao de um dict lido de JSON — a ordem em que o USUARIO calibrou."""
+
+    def _cal_com_clone(self, tmp_path):
+        dados = _dados_da_fixtura()
+        clone = copy.deepcopy(dados["mercado_cabecalho_de_coluna"])
+        clone["layout"] = "adena"
+        # O molde da NEGOCIACAO, byte a byte, gravado sob o nome do outro
+        # layout: os dois casam a mesma banda com o MESMO score.
+        dados["mercado_layouts"] = {
+            "adena": {
+                "cabecalho": clone,
+                "limiar_do_cabecalho": 0.73,
+                "colunas": {
+                    "total": {"dx": 62, "largura": 209},
+                    "unitario": {"dx": 271, "largura": 174},
+                },
+            }
+        }
+        return Calibracao.carregar(_gravar(tmp_path, dados))
+
+    def test_dois_moldes_identicos_devolvem_None(self, tmp_path):
+        cal = self._cal_com_clone(tmp_path)
+        leitor, _b, _c = _montar_leitor(cal)
+        janela = _imagem("janela_negociacao_f005.png")
+        origem = _origem_do_painel(leitor, janela)
+        assert leitor._casamento_do_layout(janela, origem) is None
+
+    def test_no_empate_NENHUMA_linha_e_lida(self, tmp_path):
+        cal = self._cal_com_clone(tmp_path)
+        leitor, _b, _c = _montar_leitor(cal)
+        assert leitor.observar(_imagem("janela_negociacao_f005.png")) is None
+        assert leitor.ultima_leitura is None
+
+    def test_o_CONTROLE_NEGATIVO_sem_o_clone_a_MESMA_janela_e_lida(self):
+        """Sem ele, "None" nao distinguiria o empate de uma janela ilegivel."""
+        cal = _calibracao_da_fixtura()
+        leitor, _b, _c = _montar_leitor(cal)
+        janela = _imagem("janela_negociacao_f005.png")
+        origem = _origem_do_painel(leitor, janela)
+        assert leitor._casamento_do_layout(janela, origem) == "negociacao"
+
+
+class TestUmLayoutSemLeitoraFicaFORADoPortao:
+    """`busca` e o caso vivo: o calibrador ja a aceita e `LINHAS_ESPERADAS` ja
+    tem 9 para ela. Com o portao escolhendo por maior score, ela passaria a
+    poder VENCER — e vencer sem leitora significa RECUSAR a pagina, que e a
+    perda que o ADEN-01 proibe."""
+
+    def _cal_com_busca(self, tmp_path):
+        dados = _dados_da_fixtura()
+        # A `busca` recebe o molde da NEGOCIACAO, de proposito: assim ela
+        # casaria 1,0000 a janela de negociacao e venceria, SE entrasse.
+        clone = copy.deepcopy(dados["mercado_cabecalho_de_coluna"])
+        clone["layout"] = "busca"
+        dados["mercado_layouts"]["busca"] = {
+            "cabecalho": clone,
+            "limiar_do_cabecalho": 0.73,
+            "colunas": {"total": {"dx": 62, "largura": 209}},
+        }
+        return Calibracao.carregar(_gravar(tmp_path, dados))
+
+    def test_o_conjunto_de_candidatos_se_deriva_das_leitoras(self):
+        assert LAYOUTS_COM_LEITORA == frozenset(LEITORAS_DE_LINHA_POR_LAYOUT)
+        assert "busca" not in LAYOUTS_COM_LEITORA
+
+    def test_busca_calibrada_NAO_entra_nos_candidatos(self, tmp_path):
+        cal = self._cal_com_busca(tmp_path)
+        leitor, _b, _c = _montar_leitor(cal)
+        assert "busca" not in leitor._layouts
+        assert set(leitor._layouts) == {"negociacao", "adena"}
+
+    def test_busca_calibrada_NAO_impede_a_leitura_da_negociacao(self, tmp_path):
+        """A perda que esta protecao existe para evitar, medida.
+
+        Sem ela `busca` empataria 1,0000 com `negociacao` sobre esta janela, o
+        portao devolveria `None` por empate, e o usuario perderia a leitura da
+        negociacao — conferida em campo, 353 paginas lidas contra 2 perdidas.
+        """
+        cal = self._cal_com_busca(tmp_path)
+        leitor, _b, _c = _montar_leitor(cal)
+        janela = _imagem("janela_negociacao_f005.png")
+        origem = _origem_do_painel(leitor, janela)
+        assert leitor._casamento_do_layout(janela, origem) == "negociacao"
+
+    def test_ela_produz_UM_aviso_no_arranque_e_nao_silencio(self, tmp_path, caplog):
+        cal = self._cal_com_busca(tmp_path)
+        with caplog.at_level("WARNING", logger="l2scanner.mercado_pagina"):
+            _montar_leitor(cal)
+        assert "busca" in caplog.text
+        assert "nao existe leitora" in caplog.text
+
+    def test_o_CONTROLE_NEGATIVO_um_layout_COM_leitora_nao_avisa(self, caplog):
+        """Sem ele, o aviso poderia estar saindo para todo bloco aninhado."""
+        cal = _calibracao_da_fixtura()
+        with caplog.at_level("WARNING", logger="l2scanner.mercado_pagina"):
+            _montar_leitor(cal)
+        assert "nao existe leitora" not in caplog.text
+
+
+class TestUmBlocoTortoNaoDerrubaOLeitor:
+    """T-05-06: feature OFF para o bloco, nunca `raise` no tick."""
+
+    def test_molde_indecodificavel_vira_ausente_com_aviso(self, tmp_path, caplog):
+        dados = _dados_da_fixtura()
+        cal = Calibracao.carregar(_gravar(tmp_path, dados))
+        # A corrupcao entra DEPOIS do carregamento, de proposito: aqui o alvo e
+        # a resiliencia do LEITOR, e nao a validacao do arranque — que ja tem
+        # teste proprio e recusaria este arquivo antes de chegar aqui.
+        cal.mercado_layouts["adena"]["cabecalho"]["altura"] = 7
+        with caplog.at_level("WARNING", logger="l2scanner.mercado_pagina"):
+            leitor, _b, _c = _montar_leitor(cal)
+        assert "adena" not in leitor._layouts
+        assert "negociacao" in leitor._layouts
+        assert "corrompido" in caplog.text
+
+    def test_a_negociacao_continua_lida_com_o_bloco_torto(self, tmp_path):
+        dados = _dados_da_fixtura()
+        cal = Calibracao.carregar(_gravar(tmp_path, dados))
+        cal.mercado_layouts["adena"]["cabecalho"]["altura"] = 7
+        leitor, _b, _c = _montar_leitor(cal)
+        janela = _imagem("janela_negociacao_f005.png")
+        origem = _origem_do_painel(leitor, janela)
+        assert leitor._casamento_do_layout(janela, origem) == "negociacao"
+
+
+class TestAGradeDaAdenaSeHERDA:
+    def test_os_campos_ausentes_caem_em_mercado_grade(self):
+        cal = _calibracao_da_fixtura()
+        modelo = modelo_de_layout(cal, "adena")
+        for campo in ("dx", "dy", "largura", "altura_da_linha", "linhas_por_pagina"):
+            assert modelo["grade"][campo] == cal.mercado_grade[campo], campo
+
+    def test_um_campo_PROPRIO_vence_a_heranca(self, tmp_path):
+        """O CONTROLE NEGATIVO da heranca: sem ele, "igual a mercado_grade" nao
+        distinguiria heranca de uma copia congelada."""
+        dados = _dados_da_fixtura()
+        dados["mercado_layouts"]["adena"]["grade"] = {"linhas_por_pagina": 9}
+        cal = Calibracao.carregar(_gravar(tmp_path, dados))
+        modelo = modelo_de_layout(cal, "adena")
+        assert modelo["grade"]["linhas_por_pagina"] == 9
+        assert modelo["grade"]["dx"] == cal.mercado_grade["dx"]
+
+    def test_o_layout_inexistente_devolve_None(self):
+        cal = _calibracao_da_fixtura()
+        assert modelo_de_layout(cal, "nao_existe") is None

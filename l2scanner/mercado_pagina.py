@@ -78,6 +78,7 @@ from .mercado_leitura import (
     TravaDaObservacao,
     casamento_do_cabecalho,
     ler_linha,
+    ler_linha_de_adena,
     sonda_e_uma_banda,
 )
 from .mercado_visao import RastreioDoPainel, cabecalho_de_calibracao
@@ -196,6 +197,125 @@ def pecas_de_calibracao_de_mercado_faltando(cal) -> list[str]:
         )
         if _peca_ausente(valor)
     ]
+
+
+# AS LEITORAS DE LINHA QUE EXISTEM, por nome de layout. ESTA E A UNICA VERDADE
+# SOBRE "QUE LAYOUTS O PORTAO PODE ELEGER", e ela e um registro e nao uma lista.
+#
+# POR QUE UM REGISTRO E NAO UMA SEGUNDA LISTA ESCRITA A MAO: o conjunto de
+# candidatos do portao SE DERIVA daqui (`LAYOUTS_COM_LEITORA`). Uma lista
+# separada de nomes elegiveis divergiria do dia em que alguem acrescentasse uma
+# leitora e esquecesse a lista — e o modo de falha dessa divergencia e o pior
+# possivel, nos dois sentidos: um nome na lista sem leitora RECUSA a pagina, e
+# uma leitora fora da lista fica morta.
+#
+# O CONJUNTO E FECHADO, E `busca` ESTA DELIBERADAMENTE FORA. O calibrador ja
+# aceita `--layout busca` e `LINHAS_ESPERADAS` ja tem 9 para ela, entao um
+# usuario PODE ter esse bloco gravado. Antes do 05-02 aquela geometria era
+# INERTE — o portao so conhecia um molde. Com o portao escolhendo por maior
+# score, um `busca` calibrado passaria a poder VENCER; e vencer com uma leitora
+# ausente significa RECUSAR A PAGINA. O usuario perderia a leitura da
+# negociacao — conferida em campo, 353 paginas lidas contra 2 perdidas — pelo
+# mecanismo exato que o ADEN-01 proibe.
+#
+# Um bloco calibrado e sem leitora produz UM AVISO NO ARRANQUE dizendo que esta
+# gravado e nao sera usado. Nao um silencio (o usuario calibrou e merece saber
+# que nao serviu) e nao uma recusa por tick (isso seria a perda acima).
+LEITORAS_DE_LINHA_POR_LAYOUT = {
+    "negociacao": ler_linha,
+    "adena": ler_linha_de_adena,
+}
+
+LAYOUTS_COM_LEITORA = frozenset(LEITORAS_DE_LINHA_POR_LAYOUT)
+
+# Os campos de grade que um bloco aninhado pode OMITIR, herdando de
+# `mercado_grade`. Hoje eles sao IDENTICOS entre a negociacao e a Adena —
+# medido no 05-02 sobre `janela_adena_f014.png` —, e herdar e o que impede duas
+# copias do mesmo numero de envelhecerem separadas (D-D).
+CAMPOS_HERDADOS_DA_GRADE = (
+    "dx",
+    "dy",
+    "largura",
+    "altura",
+    "altura_da_linha",
+    "linhas_por_pagina",
+)
+
+# As quatro colunas de topo da negociacao, no nome curto que o modelo usa.
+_COLUNAS_DA_NEGOCIACAO = {
+    "nome": "mercado_coluna_do_nome",
+    "quantidade": "mercado_coluna_da_quantidade",
+    "total": "mercado_coluna_do_total",
+    "unitario": "mercado_coluna_do_unitario",
+}
+
+
+def modelo_de_layout(cal, nome: str) -> dict | None:
+    """A geometria de UM layout, montada de onde quer que ela more.
+
+    UMA FUNCAO SO para os dois casos, e nao duas montagens parecidas: a
+    negociacao vem das chaves de TOPO e os demais vem de `cal.mercado_layouts`,
+    mas o que sai daqui tem exatamente a mesma forma. Duas montagens parecidas
+    divergem, e a divergencia aqui e a leitura recortando outra coluna e
+    devolvendo um numero plausivel, errado por um fator inteiro (ADEN-02).
+
+    A HERANCA DA GRADE ACONTECE AQUI e em nenhum outro lugar: cada campo de
+    `grade` que o bloco aninhado nao trouxer cai em `mercado_grade`. E por isso
+    que o bloco da Adena na fixtura sai SEM `grade` nenhuma — hoje as duas
+    geometrias sao identicas, e escrever a copia so criaria dois numeros para
+    envelhecerem separados.
+
+    Devolve `None` quando o layout nao existe ou nao tem grade nenhuma de onde
+    partir — feature OFF, nunca `raise`.
+    """
+    grade_de_topo = cal.mercado_grade
+    if not isinstance(grade_de_topo, dict):
+        return None
+
+    if nome == "negociacao":
+        colunas = {}
+        for curto, chave in _COLUNAS_DA_NEGOCIACAO.items():
+            coluna = getattr(cal, chave, None)
+            if isinstance(coluna, dict):
+                colunas[curto] = coluna
+        return {
+            "nome": "negociacao",
+            "grade": dict(grade_de_topo),
+            "colunas": colunas,
+            "cabecalho": cal.mercado_cabecalho_de_coluna,
+            "limiar_do_cabecalho": cal.mercado_limiar_do_cabecalho,
+        }
+
+    layouts = getattr(cal, "mercado_layouts", None)
+    if not isinstance(layouts, dict):
+        return None
+    bloco = layouts.get(nome)
+    if not isinstance(bloco, dict):
+        return None
+
+    propria = bloco.get("grade")
+    propria = propria if isinstance(propria, dict) else {}
+    grade = {
+        campo: propria.get(campo, grade_de_topo.get(campo))
+        for campo in CAMPOS_HERDADOS_DA_GRADE
+    }
+    grade["layout"] = nome
+
+    colunas_do_bloco = bloco.get("colunas")
+    colunas = {
+        curto: valor
+        for curto, valor in (
+            colunas_do_bloco.items() if isinstance(colunas_do_bloco, dict) else ()
+        )
+        if isinstance(valor, dict)
+    }
+    return {
+        "nome": nome,
+        "grade": grade,
+        "colunas": colunas,
+        "cabecalho": bloco.get("cabecalho"),
+        "limiar_do_cabecalho": bloco.get("limiar_do_cabecalho"),
+    }
 
 
 def tupla_comparavel(linha: LinhaLida) -> tuple:
@@ -386,6 +506,61 @@ class LeitorDePagina:
                 erro,
             )
             self._molde_do_cabecalho = None
+
+        # OS CANDIDATOS DO PORTAO, montados UMA VEZ e pelo mesmo motivo do molde
+        # de negociacao logo acima: ~28 KB de hex por molde, decodificados 3.600
+        # vezes por hora de farm, seriam trabalho puro.
+        #
+        # O CONJUNTO E FECHADO em `LAYOUTS_COM_LEITORA` e DERIVADO das leitoras
+        # que existem — ver o comentario longo daquele registro. Um bloco
+        # calibrado sem leitora (hoje: `busca`) AVISA UMA VEZ aqui e nao entra:
+        # deixa-lo concorrer o faria vencer a propria tela e recusar a pagina.
+        self._layouts: dict[str, dict] = {}
+        self._layout_atual: str | None = None
+        modelo_negociacao = modelo_de_layout(cal, "negociacao")
+        if modelo_negociacao is not None and self._molde_do_cabecalho is not None:
+            modelo_negociacao["molde"] = self._molde_do_cabecalho
+            self._layouts["negociacao"] = modelo_negociacao
+
+        for nome in sorted(
+            (cal.mercado_layouts or {})
+            if isinstance(getattr(cal, "mercado_layouts", None), dict)
+            else {}
+        ):
+            if nome not in LAYOUTS_COM_LEITORA:
+                log.warning(
+                    "O layout '%s' esta CALIBRADO no calibration.json e NAO "
+                    "sera usado: nao existe leitora de linha para ele. Ele fica "
+                    "fora do portao de layout de proposito — um layout sem "
+                    "leitora que vencesse o casamento recusaria a pagina, e "
+                    "voce perderia a leitura que hoje funciona.",
+                    nome,
+                )
+                continue
+            modelo = modelo_de_layout(cal, nome)
+            if modelo is None:
+                continue
+            try:
+                modelo["molde"] = cabecalho_de_calibracao(modelo["cabecalho"])
+            except ValueError as erro:
+                # FEATURE OFF PARA ESTE BLOCO, nunca `raise` no tick (T-05-06).
+                # O leitor segue com os layouts que decodificaram — um bloco
+                # torto nao pode levar junto a leitura que funciona.
+                log.warning(
+                    "O molde de cabecalho do layout '%s' esta corrompido (%s) — "
+                    "esse layout NAO sera lido. Recalibre o mercado.",
+                    nome,
+                    erro,
+                )
+                continue
+            if not modelo["limiar_do_cabecalho"]:
+                log.warning(
+                    "O layout '%s' esta sem limiar_do_cabecalho utilizavel — "
+                    "esse layout NAO sera lido. Recalibre o mercado.",
+                    nome,
+                )
+                continue
+            self._layouts[nome] = modelo
 
         # O PISO DE POSICOES COMPARADAS (T-02-26). Ele NAO se escolhe aqui: foi
         # MEDIDO pela varredura de oclusao do 02-02 sobre a MESMA grandeza que
@@ -646,47 +821,101 @@ class LeitorDePagina:
         Adena aberta produziria uma linha de log por captura, para sempre, e a
         mensagem repetida nao acrescenta forense nenhuma.
         """
-        confere = self._casamento_do_layout(janela, origem)
-        if confere:
+        vencedor = self._casamento_do_layout(janela, origem)
+        self._layout_atual = vencedor
+        if vencedor is not None:
             if self._layout_ja_recusado:
                 log.warning(
-                    "A pagina na tela voltou a ser o layout calibrado ('%s') — "
+                    "A pagina na tela voltou a ser um layout calibrado ('%s') — "
                     "a leitura de mercado recomecou.",
-                    (self._cabecalho or {}).get("layout"),
+                    vencedor,
                 )
             self._layout_ja_recusado = False
             return True
 
         if not self._layout_ja_recusado:
+            # A MENSAGEM FOI REESCRITA NO 05-02, e a antiga tinha de sair: ela
+            # afirmava que "o v1 le SOMENTE o layout calibrado" e explicava a
+            # normalizacao por cinco milhoes como RAZAO de recusar a Adena.
+            # Depois desta fase isso e meia-verdade — a Adena passou a ser um
+            # layout legivel —, e uma mensagem meio-verdadeira manda o usuario
+            # consertar a coisa errada.
             log.warning(
-                "A pagina do mercado na tela NAO e o layout calibrado ('%s') — "
-                "nenhuma linha sera lida. O v1 le SOMENTE o layout calibrado: "
-                "ler a coluna errada com confianca corrompe a serie por um fator "
-                "inteiro (na aba Adena a coluna e '5 mln increment', normalizada "
-                "por cinco milhoes de adena e NAO por unidade). Abra a grade de "
-                "negociacao, ou recalibre o mercado no layout que voce quer ler.",
-                (self._cabecalho or {}).get("layout"),
+                "Nenhum dos layouts calibrados nesta instalacao (%s) casou a "
+                "banda de cabecalho desta tela — nenhuma linha sera lida. Ou a "
+                "aba aberta e outra, ou ela ainda nao foi calibrada. Abra uma "
+                "das abas acima, ou recalibre o mercado no layout que voce quer "
+                "ler.",
+                ", ".join(sorted(self._layouts)) or "nenhum",
             )
         self._layout_ja_recusado = True
         return False
 
     def _casamento_do_layout(
         self, janela: np.ndarray, origem: tuple[int, int]
-    ) -> bool:
-        if self._molde_do_cabecalho is None or not self._limiar_do_cabecalho:
-            return False
-        banda = self._banda_do_cabecalho(janela, origem)
-        if banda is None:
-            return False
-        score = casamento_do_cabecalho(
-            banda,
-            self._molde_do_cabecalho,
-            int(self._cabecalho["corte_de_brilho"]),
-        )
-        return score >= float(self._limiar_do_cabecalho)
+    ) -> str | None:
+        """QUAL layout esta na tela. `None` quando nenhum, ou quando ha empate.
+
+        MEDIDO nesta arvore em 2026-09-01, os DOIS moldes contra as QUATRO
+        bandas versionadas (`tests/fixtures/mercado/cabecalho_*.png`), com o
+        molde de adena cortado por `sugerir_o_molde_do_cabecalho` sobre
+        `cabecalho_adena.png` e limiar 0,73 (`CASAMENTO_MINIMO_DA_ANCORA`):
+
+                                             molde=negociacao   molde=adena
+            cabecalho_negociacao_goods.png             1,0000        0,1331
+            cabecalho_negociacao_unitprice.png         1,0000        0,1331
+            cabecalho_adena.png                        0,1331        1,0000
+            cabecalho_busca.png                       -0,0027       -0,0029
+
+            vencedor: goods -> negociacao | unitprice -> negociacao
+                      adena -> adena      | busca     -> NENHUM
+
+        O VAO E SIMETRICO, e isto CORRIGE a suposicao A1 da pesquisa, que
+        esperava assimetria: os dois sentidos dao o MESMO 0,1331. Faz sentido
+        depois de medido — `casamento_da_ancora` e uma correlacao normalizada,
+        que e simetrica nos seus dois argumentos. O limiar de 0,73 cai no meio
+        de um vao de oito decimos e meio, nos dois sentidos.
+
+        A BUSCA NAO CASA COM NADA (~0,00 nos dois moldes), e mesmo assim ela nao
+        entra no conjunto de candidatos: ver `LEITORAS_DE_LINHA_POR_LAYOUT`. Um
+        casamento baixo hoje nao e promessa para a proxima pele do jogo, e a
+        protecao contra "vencer sem leitora" e estrutural, nao numerica.
+
+        VENCER E PASSAR O PROPRIO LIMIAR **E** TER O MAIOR SCORE. Cada layout
+        traz o limiar DELE: os moldes podem ter sido cortados em condicoes
+        diferentes, e um limiar global seria o numero errado para pelo menos um.
+
+        EMPATE DEVOLVE `None`, e isso e deliberado. Aceitar "o primeiro que
+        passou" faria o veredito depender da ordem de iteracao de um dict lido
+        de JSON — que e a ordem em que o USUARIO calibrou, e isso nao e criterio
+        de nada. Ler a aba errada com confianca corrompe a serie por um fator
+        inteiro (T-05-05), e no empate a resposta honesta e "nao sei".
+        """
+        if not self._layouts:
+            return None
+        melhor_score = None
+        vencedores: list[str] = []
+        for nome, modelo in self._layouts.items():
+            banda = self._banda_do_cabecalho(janela, origem, modelo)
+            if banda is None:
+                continue
+            score = casamento_do_cabecalho(
+                banda,
+                modelo["molde"],
+                int(modelo["cabecalho"]["corte_de_brilho"]),
+            )
+            if score < float(modelo["limiar_do_cabecalho"]):
+                continue
+            if melhor_score is None or score > melhor_score:
+                melhor_score, vencedores = score, [nome]
+            elif score == melhor_score:
+                vencedores.append(nome)
+        if len(vencedores) != 1:
+            return None
+        return vencedores[0]
 
     def _banda_do_cabecalho(
-        self, janela: np.ndarray, origem: tuple[int, int]
+        self, janela: np.ndarray, origem: tuple[int, int], modelo: dict
     ) -> np.ndarray | None:
         """A faixa `Goods | Quantity | Total | Unit price | Buy`, na posicao dada.
 
@@ -694,12 +923,19 @@ class LeitorDePagina:
         banda tem exatamente a largura da grade e comeca onde ela comeca, entao
         o `dx` dela E o `dx` da grade. Duplicar o numero criaria duas verdades
         para uma so geometria.
+
+        O `modelo` chega por parametro desde o 05-02: com mais de um layout
+        calibrado, a banda de cada candidato sai da grade DELE. Ler todos com o
+        `dx` da negociacao seria supor que as grades coincidem — hoje elas
+        coincidem, e supor isso e exatamente o que a heranca em
+        `modelo_de_layout` faz EXPLICITO em vez de por acidente.
         """
         ox, oy = origem
-        x = ox + int(self._grade["dx"])
-        y = oy + int(self._cabecalho["dy"])
-        altura = int(self._cabecalho["altura"])
-        largura = int(self._cabecalho["largura"])
+        cabecalho = modelo["cabecalho"]
+        x = ox + int(modelo["grade"]["dx"])
+        y = oy + int(cabecalho["dy"])
+        altura = int(cabecalho["altura"])
+        largura = int(cabecalho["largura"])
         if x < 0 or y < 0:
             return None
         if y + altura > janela.shape[0] or x + largura > janela.shape[1]:

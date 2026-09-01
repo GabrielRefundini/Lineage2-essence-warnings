@@ -303,40 +303,79 @@ class TestOPortaoDeLayout:
         )
 
 
+@pytest.fixture(scope="module")
+def cal_sem_adena(cal: Calibracao) -> Calibracao:
+    """A calibracao de UM clone que nunca calibrou a Adena — o estado de ANTES.
+
+    Ela e o sujeito desta classe desde o 05-02. Antes desta fase o sujeito era
+    "a aba Adena", porque a Adena era o unico exemplo vivo de aba nao-lida; hoje
+    ela E lida (`tests/test_mercado_adena_pagina.py`), e insistir nela aqui
+    mediria a ausencia de um recurso que passou a existir.
+
+    A VERDADE QUE ESTA CLASSE PRENDE NAO MUDOU: uma aba cujo layout NAO esta
+    calibrado e recusada com zero linhas e zero OCR. Ela so trocou de exemplo —
+    e este exemplo e mais forte, porque e literalmente a instalacao de todo
+    usuario que ainda nao recalibrou.
+    """
+    copia = copy.copy(cal)
+    copia.mercado_layouts = None
+    return copia
+
+
 class TestAPaginaRecusadaPorLayout:
     """Recusada = ZERO linhas lidas e ZERO chamadas de OCR."""
 
-    def test_a_aba_adena_nao_produz_linha_nem_chamada_de_OCR(self, cal) -> None:
-        leitor, barata, conferencia = montar_leitor(cal)
+    def test_uma_aba_nao_calibrada_nao_produz_linha_nem_chamada_de_OCR(
+        self, cal_sem_adena
+    ) -> None:
+        leitor, barata, conferencia = montar_leitor(cal_sem_adena)
         assert leitor.observar(ler_fixtura(JANELA_ADENA)) is None
         assert leitor.ultima_leitura is None
         assert barata.chamadas == 0
         assert conferencia.chamadas == 0
 
-    def test_dois_frames_da_aba_adena_nunca_produzem_pagina_aceita(
-        self, cal
+    def test_dois_frames_de_uma_aba_nao_calibrada_nunca_produzem_pagina_aceita(
+        self, cal_sem_adena
     ) -> None:
-        leitor, _b, _c = montar_leitor(cal)
+        leitor, _b, _c = montar_leitor(cal_sem_adena)
         assert leitor.observar(ler_fixtura(JANELA_ADENA)) is None
         assert leitor.observar(ler_fixtura(JANELA_ADENA)) is None
 
-    def test_a_mensagem_nomeia_o_layout_calibrado_e_diz_que_so_ele_e_lido(
-        self, cal, caplog
+    def test_a_mensagem_nomeia_os_layouts_QUE_ESTAO_calibrados(
+        self, cal_sem_adena, caplog
     ) -> None:
-        leitor, _b, _c = montar_leitor(cal)
+        """A mensagem antiga afirmava "o v1 le SOMENTE o layout calibrado" e
+        usava a normalizacao por cinco milhoes como RAZAO de recusar a Adena.
+        Depois do 05-02 isso e meia-verdade, e meia-verdade manda o usuario
+        consertar a coisa errada. A nova diz o que ESTA calibrado aqui."""
+        leitor, _b, _c = montar_leitor(cal_sem_adena)
         with caplog.at_level("WARNING", logger="l2scanner.mercado_pagina"):
             leitor.observar(ler_fixtura(JANELA_ADENA))
         texto = caplog.text
-        assert cal.mercado_cabecalho_de_coluna["layout"] in texto
-        assert "SOMENTE o layout calibrado" in texto
-        assert "Adena" in texto
+        assert "negociacao" in texto
+        assert "SOMENTE o layout calibrado" not in texto
+
+    def test_COM_a_adena_calibrada_a_MESMA_janela_deixa_de_ser_recusada(
+        self, cal
+    ) -> None:
+        """O CONTROLE NEGATIVO dos tres acima, e sem ele eles seriam vacuos.
+
+        `JANELA_ADENA` recusada com a calibracao curta poderia ser recusa por
+        qualquer motivo — painel nao localizado, fixtura ilegivel, leitor mal
+        montado. Aqui a MESMA janela, com o MESMO leitor e so a chave
+        `mercado_layouts` a mais, e ACEITA pelo portao. O que discrimina e a
+        chave, e nao a janela.
+        """
+        leitor, _b, _c = montar_leitor(cal)
+        leitor.observar(ler_fixtura(JANELA_ADENA))
+        assert leitor.ultima_leitura is not None
 
 
 class TestAOrdemDoPortaoNaObservacao:
     """O portao de layout roda ANTES da sonda de oclusao (e antes de tudo)."""
 
     def test_a_pagina_recusada_por_layout_nao_chega_a_medir_oclusao(
-        self, cal
+        self, cal_sem_adena
     ) -> None:
         """Se a sonda tivesse rodado, haveria descarte por oclusao no registro.
 
@@ -344,7 +383,7 @@ class TestAOrdemDoPortaoNaObservacao:
         descarte, nem linha vazia. A grade nem chegou a ser fatiada — que e o
         ponto, porque fatiar uma geometria que nao vale ja e o erro.
         """
-        leitor, _b, _c = montar_leitor(cal)
+        leitor, _b, _c = montar_leitor(cal_sem_adena)
         leitor.observar(ler_fixtura(JANELA_ADENA))
         assert leitor.ultima_leitura is None
 
@@ -885,9 +924,9 @@ class TestOsContadoresDasDuasMetades:
         assert (leitor.paginas_lidas, leitor.paginas_perdidas) == (1, 1)
 
     def test_uma_pagina_de_outro_LAYOUT_nao_conta_como_lida_nem_perdida(
-        self, cal
+        self, cal_sem_adena
     ) -> None:
-        leitor, _b, _c = montar_leitor(cal)
+        leitor, _b, _c = montar_leitor(cal_sem_adena)
         leitor.observar(ler_fixtura(JANELA_ADENA))
         assert leitor.paginas_lidas == 0
         assert leitor.paginas_perdidas == 0
