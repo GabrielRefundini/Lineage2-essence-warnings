@@ -1,16 +1,39 @@
 """A varredura que MEDE a sonda de oclusao, o limiar de dispersao e o piso.
 
-Esta ferramenta nao decide nada por gosto: ela varre as 8 gravacoes de campo do
-censo, mede, e PROPOE tres numeros que vao para o `calibration.json`. Nenhum
+Esta ferramenta nao decide nada por gosto: ela varre as 9 gravacoes de campo
+que `GRAVACOES_DA_VARREDURA` nomeia, mede, e PROPOE tres numeros que vao para o `calibration.json`. Nenhum
 deles pode entrar no fonte de producao - a disciplina fundadora do projeto e que
 constante magica no codigo garante reescrita na primeira "nao funciona no meu
 PC", e um numero escolhido em vez de medido e uma promessa que ninguem conferiu.
 
-    mercado_sonda_do_fundo               o trecho SEM TEXTO da linha (dx0, dx1,
-                                         folga), ESCOLHIDO por varredura
+    mercado_sonda_do_fundo               a BANDA sem texto da linha (dx0, dx1,
+                                         dy0, dy1, folga), ESCOLHIDA por
+                                         varredura
     mercado_limiar_de_dispersao_do_fundo acima dele a linha esta COBERTA
     mercado_minimo_de_linhas_comparadas  o piso que impede o ACORDO TRIVIAL do
                                          estabilizador do 02-05
+
+A DIRECAO MUDOU EM 2026-09-01, E E A MUDANCA PRINCIPAL DESTE ARQUIVO
+--------------------------------------------------------------------
+A sonda era um trecho estreito em X, alto quanto a linha, e esta varredura o
+deslizava HORIZONTALMENTE procurando um vao a direita do nome do item. A
+premissa era que existisse tal vao. Nao existe - a coluna do nome e a de
+quantidade sao adjacentes, e o nome cresce para dentro do espaco que a sonda
+ocuparia -, e o campo cobrou a premissa duas vezes com um caractere de
+diferenca:
+
+    207..417  morreu contra `...Enchant C-grade Armor`  (40 ch, tinta ate x=246)
+    246..396  morreu contra `...Enchant C-grade Weapon` (41 ch, tinta ate x=255)
+
+Agora a sonda e uma BANDA: a janela inteira em X, dentro de uma faixa fina de
+altura acima do texto. O nome cresce em X e nao em Y, entao a banda nao disputa
+espaco com ele e nao tem "proximo item mais comprido". Nao ha mais `dx0` a
+escolher; a varredura desliza em Y, e escolhe pela folga NO PIOR CASO sob uma
+deriva de +-2 px na origem da linha.
+
+A MOLDURA ENTRE LINHAS foi medida como alternativa e REPROVADA: ela e o degrau
+da listra alternada, e sobre um degrau a dispersao e ~0,5 por construcao - uma
+linha LIMPA le 0,5000 ali contra 0,4944 sob tooltip. Nao ha limiar que separe.
 
 O QUE ELA MEDE, E POR QUE NESSA GRANDEZA
 ----------------------------------------
@@ -29,8 +52,12 @@ ela - medir de um jeito e decidir com outro seria comparar convencoes.
 
 O CONJUNTO DE MEDICAO E FECHADO, E ISSO E UMA GUARDA
 -----------------------------------------------------
-`recordings/` tem 16 pastas. O censo de 335 frames da pesquisa cobriu 8, e sao
-so essas que entram. A lista e constante deste modulo e as outras pastas sao
+`recordings/` tem 17 pastas. O censo de 335 frames da pesquisa cobriu 8, e ESTA
+ferramenta mede essas 8 mais UMA, gravada em 2026-09-01 porque e o unico
+material que contem o pior nome que o campo ja produziu. As duas listas sao
+separadas de proposito (`GRAVACOES_DO_CENSO` e `GRAVACOES_DA_VARREDURA`): o
+censo e um artefato historico que outras tres ferramentas importam daqui, e uma
+delas tem fixture versionado preso a ele. Sao so essas nove que entram. A lista e constante deste modulo e as outras pastas sao
 IGNORADAS com o motivo impresso. Apontar a ferramenta para o diretorio e deixar
 ela iterar subdiretorios mediria sobre material que o censo nunca viu - e a
 pasta `pre-voo` sozinha tem 1502 PNGs de outro dia, que dominariam qualquer
@@ -78,7 +105,7 @@ from l2scanner.mercado_visao import (  # noqa: E402
 )
 
 # ---------------------------------------------------------------------------
-# O CONJUNTO DE MEDICAO - as 8 do censo, e o motivo de cada uma das outras
+# O CONJUNTO DE MEDICAO - as 8 do censo, a de nome longo, e o motivo das outras
 # ---------------------------------------------------------------------------
 
 GRAVACOES_DO_CENSO = (
@@ -91,6 +118,29 @@ GRAVACOES_DO_CENSO = (
     "20260828-063409-mercado-scroll-transicao",
     "20260828-063752-mercado-aberto",
 )
+
+# A GRAVACAO DE 2026-09-01, e ela NAO ENTRA no censo acima. A distincao e
+# deliberada e custou uma decisao; o registro fica para nao ser desfeita.
+#
+# `GRAVACOES_DO_CENSO` nao e "o material que as ferramentas medem": e o CENSO DE
+# 335 FRAMES DA PESQUISA, um artefato historico datado. Outras tres ferramentas
+# o IMPORTAM deste modulo, e uma delas - `medir_agrupamento_de_nome.py` - tem um
+# fixture VERSIONADO (`leituras_de_nome.json`, 3.511 linhas lidas por OCR) cujo
+# teste afirma que ele cobre exatamente essas oito. Empurrar a nona para dentro
+# do censo quebraria esse fixture calado, e "consertar" o teste exigiria
+# reprocessar 3.511 linhas com o motor de OCR - trabalho que nao tem nada a ver
+# com a sonda de oclusao.
+#
+# Ela e material NOVO, gravado em 2026-09-01 PARA ESTA MEDICAO, e e o unico que
+# contem o pior nome que o campo ja produziu: `Protecting Scroll: Enchant
+# C-grade Weapon`, 41 caracteres, tinta ate x=255. Sao 5 frames de janela
+# completa com o painel aberto na aba Enhancement > Scrolls.
+GRAVACAO_DO_NOME_LONGO = "20260901-000043-nome-longo-weapon"
+
+# O QUE ESTA FERRAMENTA MEDE. Reescrever isto como um glob desfaz a guarda
+# inteira: `pre-voo` sozinha tem 1.502 PNGs de outro dia e dominaria qualquer
+# distribuicao. A lista e NOMEADA, e crescer nela e um ato, nao um acidente.
+GRAVACOES_DA_VARREDURA = GRAVACOES_DO_CENSO + (GRAVACAO_DO_NOME_LONGO,)
 
 # As gravacoes com oclusao DELIBERADA. Elas entram na varredura como todas as
 # outras; o que muda e o papel que os frames NOMEADOS delas tem no gabarito.
@@ -122,72 +172,67 @@ MOTIVO_PARA_IGNORAR = {
 # Os parametros da VARREDURA - de ferramenta, e cada um com a sua medicao
 # ---------------------------------------------------------------------------
 
-# De quanto em quanto a sonda desliza dentro da janela derivada das colunas.
+# A DIRECAO DA VARREDURA MUDOU EM 2026-09-01, E ESSA E A MUDANCA INTEIRA.
 #
-# ERA 15, E 15 NAO ALCANCAVA A RESPOSTA. A janela comeca em x=42, entao um passo
-# de 15 so visita 42, 57, 72, ... 237, 252 - e o trecho que a remedicao de
-# 2026-08-31 escolheu comeca em x=246, que nao esta nessa lista. Os vizinhos
-# eram 237 (nove px DENTRO da tinta do nome mais comprido do censo, que termina
-# em 246) e 252 (seis px alem dela). A grade da propria varredura excluia o
-# unico ponto que separa as duas coisas. 12 divide 204 = 246 - 42, e por isso e
-# 12: nao por gosto de numero redondo, mas porque a resposta medida cai nele.
+# Ate aqui a sonda era um trecho ESTREITO EM X e alto quanto a linha, e a
+# varredura o deslizava horizontalmente procurando um vao a direita do nome. A
+# premissa era que existisse tal vao. NAO EXISTE, e o campo cobrou duas vezes:
 #
-# O custo e 25 candidatos em vez de 16, ~1,5x a varredura. Ela segue em minutos.
-PASSO_DA_VARREDURA = 12
+#     207..417   morreu contra `...Enchant C-grade Armor`  (40 ch, tinta x=246)
+#     246..396   morreu contra `...Enchant C-grade Weapon` (41 ch, tinta x=255)
+#
+# UM caractere entre as duas. O maior corredor livre e de 172 px contra frames
+# conferidos e de 56 a 91 px contra o censo de 3.994 linhas; a sonda precisava
+# de 150. Deslizar de novo so escolheria qual item quebra a seguir.
+#
+# AGORA A SONDA E UMA BANDA: a JANELA INTEIRA em x, dentro de uma faixa fina de
+# altura. O nome cresce em X e nao em Y - a linha tem 45 px de altura e o nome
+# ocupa 12 deles -, entao uma banda numa margem vertical nao disputa espaco com
+# o texto e nao tem "proximo item mais comprido".
+#
+# NAO HA MAIS `dx0` A ESCOLHER, e por isso nao ha mais passo horizontal: a banda
+# usa `janela_de_busca` do comeco ao fim. A varredura desliza em Y.
 
-# As linhas de folga em cada ponta do recorte.
-#
-# Mesmo cuidado de `fim_da_alternancia` (`mercado_geometria.py:470-472`): a linha
-# de transicao entre duas bandas nao pertence a nenhuma das duas e diluiria a
-# medida. Esta folga e GRAVADA junto do retangulo, no mesmo objeto, porque quem a
-# escolheu foi esta varredura.
-FOLGA_NAS_PONTAS = 2
+# As alturas de banda comparadas, em pixels. A faixa util tem 15 px em cima e 16
+# embaixo (medido: dentro da janela x[42,489) a tinta vive em dy[15,26]), entao
+# alturas acima de 14 nao cabem em margem nenhuma sem comer texto.
+ALTURAS_DA_BANDA = (4, 6, 8, 10, 12)
 
-# A largura da sonda, em pixels. ELA ENCOLHEU DE 210 PARA 150 EM 2026-08-31, E
-# ISSO CUSTOU ALGUMA COISA. Este bloco existe para que o custo nao suma.
+# A DERIVA CONFERIDA, em pixels, na origem vertical da linha. E o criterio que
+# nao existia nas duas escolhas anteriores, e a falta dele e o formato do
+# defeito: uma escolha equilibrada no fio da navalha passa na medicao e morre no
+# campo.
 #
-# Era `FRACAO_DA_JANELA_PARA_A_SONDA = 0.5`, que sobre esta janela de 447 px dava
-# 210. O texto que ficava aqui dizia que a sonda "NAO PODE SER PEQUENA", e a
-# refutacao que ele citava CONTINUA VALENDO E NAO FOI REVOGADA: varrendo em
-# blocos de 30 px sobre `tooltip/frame_000015`, a linha 0 - coberta pela tooltip
-# - tem blocos que leem dispersao 0,0000, porque o bloco cabe INTEIRO dentro de
-# um buraco do desenho da tooltip. Sonda estreita e sonda que pode se esconder
-# num vao da arte que ela deveria enxergar. Esse risco AUMENTOU com 150 px.
+# MEDIDO, e e por isso que ele entra: a banda dy[0,8) tem a MELHOR folga
+# estatica de todas (112,7x) e desaba para 0,9x quando a linha anda 2 px, porque
+# a -2 px ela come a moldura da linha de cima. A banda dy[2,10) mede 81,2x
+# estatica e SEGURA 52,6x sob deriva. Escolher pela folga estatica escolheria a
+# primeira.
 #
-# O QUE MUDOU E QUE O OUTRO LADO DO PAR DE ERROS DEIXOU DE SER HIPOTETICO. O
-# mesmo texto avisava que larga demais "come o texto do nome e a dispersao de uma
-# linha limpa sobe ate encostar na de uma coberta" - e foi exatamente isso que
-# aconteceu em campo, com 210 px: `Protecting Scroll: Enchant C-grade Armor` (40
-# caracteres, tinta ate x=246) punha 40 px de GLIFO dentro da sonda, a linha lia
-# 0,0276 contra um limiar de 0,0264 e era recusada sem haver tooltip nenhuma. 31
-# paginas perdidas numa sessao, `observacoes.csv` so com o cabecalho.
+# 2 px nao e chute. `altura_da_linha` e um inteiro (45) para um passo que a UI
+# nao promete ser inteiro, e o erro acumula ate a decima linha; e a origem vem
+# de casamento de molde em pixel inteiro, cujo pior positivo de campo e 0,41
+# (tooltip por cima da faixa de titulo).
+DERIVA_CONFERIDA = 2
+
+# A folga MINIMA, em pixels, entre a banda e a tinta da linha. Abaixo disto a
+# guarda PARA: uma banda encostada no texto e a sonda de 31/08 outra vez, so que
+# no outro eixo.
+FOLGA_VERTICAL_MINIMA = 2
+
+# As linhas de folga em cada ponta do recorte. ELA E ZERO AGORA, E ISSO NAO E
+# DESLIGAR A PROTECAO - E MUDAR ONDE ELA MORA.
 #
-# A VARREDURA 2-D (posicao x largura), com o gabarito ja corrigido, mediu os dois
-# lados de uma vez - e a largura nao e um gosto, e um numero:
+# A folga existia para manter fora do recorte a linha de TRANSICAO entre duas
+# bandas da listra alternada, que nao pertence a nenhuma das duas e diluiria a
+# medida. Com a sonda antiga - alta quanto a linha inteira - a transicao estava
+# necessariamente dentro do retangulo, e so dava para apara-la.
 #
-#     largura 210  melhor dx0=192  pior LIMPA 0,0391  folga  2,9x
-#     largura 180  melhor dx0=243  pior LIMPA 0,0033  folga  6,9x
-#     largura 150  melhor dx0=246  pior LIMPA 0,0007  folga 32,0x
-#
-# (essa tabela veio de uma varredura de mao, com 4 frames limpos no gabarito.
-# Rodando ESTA ferramenta, com os 8 frames limpos que o gabarito tem hoje, a
-# largura 150 escolhe o mesmo dx0=246 e mede folga 30,8x - a diferenca e da
-# populacao maior, nao do trecho.)
-#
-# 150 px foi ESCOLHIDO PELO USUARIO em 2026-08-31, com estes numeros na mao, e a
-# escolha APERTA a peneira em vez de afrouxa-la: o limiar cai de 0,026377 para
-# 0,003607 (7x mais estrito) e a separacao entre uma linha limpa e uma coberta
-# sobe de 2,8x para 30,8x. As 10 linhas cobertas conhecidas do gabarito seguem
-# recusadas, com ~5x de folga sobre o limiar novo. A alternativa era so remedir o
-# limiar em 210 px (0,026377 -> 0,046372), o que consertava o defeito relatado
-# AFROUXANDO a guarda: a folga contra a marcacao de alvo caia de 2,9x para 1,7x.
-#
-# O QUE FICA DE DIVIDA, ESCRITO PARA NAO SUMIR: 150 px cabe dentro de um buraco
-# uniforme da arte da tooltip com mais facilidade do que 210 px cabia. O censo
-# nao mostra nenhum caso em que isso aconteca - a menor linha coberta conhecida
-# le 0,0200, cinco vezes e meia o limiar novo - mas o mecanismo continua de pe,
-# e quem for medir a proxima sonda tem de ler isto antes de estreitar mais.
-LARGURA_DA_SONDA = 150
+# A banda nao tem esse problema: ela e ESCOLHIDA longe da transicao, e a guarda
+# de folga vertical CONFERE que ela ficou. Aparar 2 px de uma banda de 8 jogaria
+# fora um quarto do sinal para proteger contra uma coisa que ja nao esta la.
+# MEDIDO: a transicao vive em dy[43,45); a banda escolhida esta em dy[2,10).
+FOLGA_NAS_PONTAS = 0
 
 # O GABARITO DE CAMPO: quais linhas de quais frames um humano VIU cobertas.
 #
@@ -281,6 +326,43 @@ GABARITO_LIMPAS = (
         tuple(range(10)),
         "+6 Agathion Alpha Hunter Sealed",
     ),
+    # OS CINCO DO PIOR NOME CONHECIDO, gravados em 2026-09-01. Sao eles que
+    # provam que a banda nao depende do comprimento do nome: 41 caracteres,
+    # tinta ate x=255, e a banda le 0,0017 a 0,0031 nas cinquenta linhas.
+    #
+    # Os CINCO frames entram, e nao um. O defeito de 31/08 foi medido em UM
+    # frame por condicao, e um frame nao mostra se a leitura e estavel. Cinco
+    # frames da mesma pagina mostram, e custam 50 linhas de populacao.
+    (
+        "20260901-000043-nome-longo-weapon",
+        "frame_000000.png",
+        tuple(range(10)),
+        "Protecting Scroll: Enchant C-grade Weapon",
+    ),
+    (
+        "20260901-000043-nome-longo-weapon",
+        "frame_000001.png",
+        tuple(range(10)),
+        "Protecting Scroll: Enchant C-grade Weapon",
+    ),
+    (
+        "20260901-000043-nome-longo-weapon",
+        "frame_000002.png",
+        tuple(range(10)),
+        "Protecting Scroll: Enchant C-grade Weapon",
+    ),
+    (
+        "20260901-000043-nome-longo-weapon",
+        "frame_000003.png",
+        tuple(range(10)),
+        "Protecting Scroll: Enchant C-grade Weapon",
+    ),
+    (
+        "20260901-000043-nome-longo-weapon",
+        "frame_000004.png",
+        tuple(range(10)),
+        "Protecting Scroll: Enchant C-grade Weapon",
+    ),
 )
 
 # O nome mais comprido que este projeto ja VIU na grade de negociacao, em
@@ -292,12 +374,36 @@ GABARITO_LIMPAS = (
 # nome de 45 caracteres, este numero passa a 45 e a varredura precisa de um frame
 # novo antes de poder propor sonda de novo. Baixa-lo para fazer a ferramenta
 # passar e desligar a guarda.
-PIOR_NOME_CONHECIDO_EM_CARACTERES = 40
+#
+# SUBIU DE 40 PARA 41 EM 2026-09-01, e a subida de UM caractere e a historia
+# toda: `...Enchant C-grade Armor` (40) inka ate x=246 e `...Enchant C-grade
+# Weapon` (41) inka ate x=255. Oito pixels por um caractere, e a sonda horizontal
+# de 31/08 comecava em 246.
+#
+# COM A BANDA, ESTE PISO DEIXA DE SER A DEFESA PRINCIPAL, e continua aqui de
+# proposito. A banda nao depende do comprimento do nome, mas a guarda que
+# CONFERE isso (a folga vertical, em `conferir_o_gabarito_limpo`) precisa de um
+# gabarito que contenha nome comprido para ter o que conferir. Sem ele a folga
+# vertical seria medida contra nome curto e diria "sobra espaco" sobre coisa
+# nenhuma - exatamente o erro de 2026-08-30, um eixo adiante.
+PIOR_NOME_CONHECIDO_EM_CARACTERES = 41
 
 
 # ---------------------------------------------------------------------------
 # O que a varredura produz
 # ---------------------------------------------------------------------------
+
+
+def frames_do_gabarito() -> set:
+    """Os `(gravacao, arquivo)` que participam da ESCOLHA da banda.
+
+    So eles pagam a medicao com deriva. Derivar todos os 522 frames triplicaria
+    a varredura para produzir numero que ninguem le: a escolha e feita contra o
+    gabarito, e o resto do censo entra depois, na conta do CUSTO do corte.
+    """
+    return {(g, a) for g, a, _ in GABARITO_COBERTAS} | {
+        (g, a) for g, a, _, _ in GABARITO_LIMPAS
+    }
 
 
 @dataclass
@@ -313,6 +419,15 @@ class LeituraDeFrame:
     # tinta nenhuma. E o insumo da guarda de nome curto; ver
     # `conferir_o_gabarito_limpo`.
     pontas_da_tinta: np.ndarray | None = None
+    # A FAIXA DE dy com tinta de cada linha, DENTRO da janela de busca:
+    # `(topo, base)` por linha, `(-1, -1)` quando a linha nao tem tinta. E o
+    # insumo da guarda de FOLGA VERTICAL - a que substituiu a de alcance quando
+    # a sonda virou banda.
+    faixas_da_tinta: np.ndarray | None = None
+    # As mesmas dispersoes, medidas com a origem da linha DESLOCADA. Chave =
+    # deslocamento em px; so os frames do GABARITO a preenchem, porque so eles
+    # participam da escolha. Vazio nos demais.
+    dispersoes_por_deriva: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -393,17 +508,21 @@ def janela_de_busca(cal: Calibracao) -> tuple:
     return inicio_do_nome, fim_da_quantidade, avisos
 
 
-def candidatos_de_sonda(inicio: int, fim: int) -> tuple:
-    """Os trechos que a varredura vai comparar. Todos da MESMA largura."""
-    janela = fim - inicio
-    largura = min(int(LARGURA_DA_SONDA), janela)
-    if largura <= 0:
-        return [], 0
-    candidatos = [
-        (inicio + deslocamento, inicio + deslocamento + largura)
-        for deslocamento in range(0, janela - largura + 1, PASSO_DA_VARREDURA)
-    ]
-    return candidatos, largura
+def candidatos_de_banda(altura_da_linha: int) -> list:
+    """As bandas que a varredura vai comparar: `(dy0, dy1)`, todas em Y.
+
+    A largura NAO entra: toda banda usa `janela_de_busca` inteira. Era essa
+    escolha - onde por os 150 px - que o campo derrubou duas vezes, e ela deixou
+    de existir. O que sobra a escolher e a ALTURA e a POSICAO VERTICAL, e nenhuma
+    das duas depende do nome do item.
+    """
+    candidatos = []
+    for altura in ALTURAS_DA_BANDA:
+        if altura > altura_da_linha:
+            continue
+        for dy0 in range(0, int(altura_da_linha) - int(altura) + 1):
+            candidatos.append((dy0, dy0 + int(altura)))
+    return candidatos
 
 
 # ---------------------------------------------------------------------------
@@ -448,13 +567,53 @@ def ponta_da_tinta_do_nome(
     return int(colunas[-1]) + (nx - gx)
 
 
+def faixa_da_tinta_da_linha(
+    bgr: np.ndarray,
+    gx: int,
+    topo: int,
+    altura: int,
+    dx0: int,
+    dx1: int,
+) -> tuple[int, int]:
+    """Em que dy a tinta desta linha COMECA e ACABA, dentro da janela de busca.
+
+    E a medida gemea de `ponta_da_tinta_do_nome`, no outro eixo, e existe pelo
+    mesmo motivo: a guarda precisa confrontar a banda escolhida com PIXEIS, e nao
+    com a promessa de que "sobra espaco em cima do texto".
+
+    A janela e a de busca, e nao a linha inteira. As colunas Total e Unit price
+    ficam de fora dela porque a arte delas escreve de dy 0 a dy 44 - MEDIDO nas
+    120 linhas limpas do gabarito - e nao deixa margem vertical nenhuma. Medir
+    contra a linha inteira diria "nao ha margem" sobre uma janela que tem 15 px
+    dela.
+
+    A mascara e `identidade.mascara_de_texto`, a MESMA do resto do projeto.
+    `(-1, -1)` quando nao ha tinta - linha vazia e uma resposta legitima.
+    """
+    if bgr is None or bgr.size == 0:
+        return -1, -1
+    recorte = bgr[topo : topo + altura, gx + dx0 : gx + dx1]
+    if recorte.size == 0:
+        return -1, -1
+    linhas = np.flatnonzero(mascara_de_texto(recorte).any(axis=1))
+    if linhas.size == 0:
+        return -1, -1
+    return int(linhas[0]), int(linhas[-1])
+
+
 # ---------------------------------------------------------------------------
 # A varredura
 # ---------------------------------------------------------------------------
 
 
 def varrer(gravacoes: Path, cal: Calibracao) -> Varredura:
-    """Todas as linhas de todos os frames com painel aberto das 8 gravacoes."""
+    """Todas as linhas de todos os frames com painel aberto das 9 gravacoes.
+
+    Cada frame recebe a dispersao de TODAS as bandas candidatas na origem
+    calibrada. Os frames do GABARITO recebem tambem a dispersao com a origem
+    DESLOCADA de +-`DERIVA_CONFERIDA` px, porque e sobre a deriva que a escolha
+    se decide - e so o gabarito participa da escolha, entao so ele paga.
+    """
     grade = cal.mercado_grade or {}
     linhas = int(grade["linhas_por_pagina"])
     altura_da_linha = int(grade["altura_da_linha"])
@@ -463,7 +622,13 @@ def varrer(gravacoes: Path, cal: Calibracao) -> Varredura:
     coluna_do_nome = cal.mercado_coluna_do_nome or {}
 
     inicio, fim, _ = janela_de_busca(cal)
-    candidatos, _largura = candidatos_de_sonda(inicio, fim)
+    candidatos = candidatos_de_banda(altura_da_linha)
+    derivas = [
+        d
+        for d in range(-DERIVA_CONFERIDA, DERIVA_CONFERIDA + 1)
+        if d != 0
+    ]
+    do_gabarito = frames_do_gabarito()
 
     resultado = Varredura(
         candidatos=candidatos,
@@ -471,7 +636,7 @@ def varrer(gravacoes: Path, cal: Calibracao) -> Varredura:
         linhas_por_pagina=linhas,
     )
 
-    for nome in GRAVACOES_DO_CENSO:
+    for nome in GRAVACOES_DA_VARREDURA:
         pasta = gravacoes / nome
         arquivos = sorted(p for p in pasta.glob("frame_*.png") if p.is_file())
         resultado.frames_por_gravacao[nome] = len(arquivos)
@@ -491,24 +656,52 @@ def varrer(gravacoes: Path, cal: Calibracao) -> Varredura:
             gx = origem_x + int(grade["dx"])
             gy = origem_y + int(grade["dy"])
             cinza = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            e_do_gabarito = (nome, caminho.name) in do_gabarito
 
             dispersoes = np.full((linhas, len(candidatos)), np.nan)
+            por_deriva = {
+                d: np.full((linhas, len(candidatos)), np.nan) for d in derivas
+            } if e_do_gabarito else {}
             pontas = np.full(linhas, -1, dtype=int)
+            faixas = np.full((linhas, 2), -1, dtype=int)
             for indice in range(linhas):
                 topo = gy + indice * altura_da_linha
                 pontas[indice] = ponta_da_tinta_do_nome(
                     frame, coluna_do_nome, origem_x, gx, topo, altura_da_linha
                 )
-                for coluna, (dx0, dx1) in enumerate(candidatos):
+                faixas[indice] = faixa_da_tinta_da_linha(
+                    frame, gx, topo, altura_da_linha, inicio, fim
+                )
+                for coluna, (dy0, dy1) in enumerate(candidatos):
                     medido = nivel_de_fundo_da_linha(
                         cinza,
-                        (gx + dx0, topo, dx1 - dx0, altura_da_linha),
+                        (gx + inicio, topo + dy0, fim - inicio, dy1 - dy0),
                         FOLGA_NAS_PONTAS,
                     )
                     if medido is not None:
                         dispersoes[indice, coluna] = medido[1]
+                    for deriva in por_deriva:
+                        movido = nivel_de_fundo_da_linha(
+                            cinza,
+                            (
+                                gx + inicio,
+                                topo + deriva + dy0,
+                                fim - inicio,
+                                dy1 - dy0,
+                            ),
+                            FOLGA_NAS_PONTAS,
+                        )
+                        if movido is not None:
+                            por_deriva[deriva][indice, coluna] = movido[1]
             resultado.leituras.append(
-                LeituraDeFrame(nome, caminho.name, dispersoes, pontas)
+                LeituraDeFrame(
+                    nome,
+                    caminho.name,
+                    dispersoes,
+                    pontas,
+                    faixas,
+                    por_deriva,
+                )
             )
         resultado.abertos_por_gravacao[nome] = abertos
     return resultado
@@ -519,8 +712,15 @@ def varrer(gravacoes: Path, cal: Calibracao) -> Varredura:
 # ---------------------------------------------------------------------------
 
 
-def _valores_do_gabarito(varredura: Varredura, tabela, sonda: int) -> list:
-    """As dispersoes das linhas que o gabarito nomeia, no trecho `sonda`."""
+def _valores_do_gabarito(
+    varredura: Varredura, tabela, sonda: int, deriva: int = 0
+) -> list:
+    """As dispersoes das linhas que o gabarito nomeia, na banda `sonda`.
+
+    `deriva` diferente de zero le a matriz medida com a origem da linha
+    deslocada. Vazio quando aquele frame nao mediu deriva - o que so acontece
+    fora do gabarito, e o gabarito e tudo o que esta funcao le.
+    """
     indice = {
         (leitura.gravacao, leitura.arquivo): leitura
         for leitura in varredura.leituras
@@ -533,46 +733,90 @@ def _valores_do_gabarito(varredura: Varredura, tabela, sonda: int) -> list:
         leitura = indice.get((gravacao, arquivo))
         if leitura is None:
             continue
+        matriz = (
+            leitura.dispersoes
+            if deriva == 0
+            else leitura.dispersoes_por_deriva.get(deriva)
+        )
+        if matriz is None:
+            continue
         for linha in linhas:
-            valor = leitura.dispersoes[linha, sonda]
+            valor = matriz[linha, sonda]
             if not np.isnan(valor):
                 valores.append(float(valor))
     return valores
 
 
-def escolher_o_trecho_sem_texto(varredura: Varredura) -> tuple:
-    """O trecho que separa o gabarito com a MAIOR FOLGA RELATIVA.
+def escolher_a_banda(varredura: Varredura) -> tuple:
+    """A banda que separa o gabarito com a maior folga NO PIOR CASO SOB DERIVA.
 
     A folga e `menor dispersao COBERTA / maior dispersao LIMPA` sobre as linhas
     que o gabarito nomeia. Em razao, e nao em diferenca: a dispersao varre tres
     ordens de grandeza entre uma linha limpa e uma sob tooltip, e uma diferenca
     absoluta trataria 0,50 contra 0,45 como igual a 0,05 contra 0,00.
 
-    UM TRECHO CUJA PIOR LIMPA E EXATAMENTE ZERO E DESCARTADO, e essa recusa e
-    deliberada. A razao contra zero nao e uma medicao, e uma divisao por zero
-    vestida de resultado: MEDIDO, os trechos que a produzem rejeitam 22,4% de
-    TODAS as linhas de campo quando o corte cai onde essa "folga infinita" o
-    poe - as seis paginas do gabarito nao exercitaram aquele recorte e o resto
-    do material exercitou. Uma separacao que so se consegue expressar como
-    "infinita" e uma separacao que nao foi medida.
+    A NOVIDADE DE 2026-09-01 E QUE A FOLGA E TOMADA NO PIOR CASO SOBRE A DERIVA,
+    e nao no ponto calibrado. Esta e a correcao do FORMATO do defeito, e nao do
+    defeito: as duas escolhas anteriores foram feitas por folga no ponto, e as
+    duas nasceram equilibradas numa margem que o campo desfez. MEDIDO aqui:
+
+        banda dy[0, 8)   folga no ponto 112,7x   sob deriva de 2 px   0,9x
+        banda dy[2,10)   folga no ponto  81,2x   sob deriva de 2 px  52,6x
+
+    Escolher pelo primeiro numero escolheria a banda que encosta na moldura da
+    linha de cima e perde a separacao inteira ao andar 2 px. A banda que ganha
+    e a que ainda separa quando a linha nao esta onde a calibracao diz.
+
+    UMA BANDA QUE SO SEPARA NA ORIGEM EXATA E DESCARTADA, e a recusa e a mesma
+    em espirito do descarte da "folga infinita": uma separacao que so existe sob
+    condicao perfeita nao foi medida, foi encenada.
+
+    UMA BANDA CUJA PIOR LIMPA E EXATAMENTE ZERO TAMBEM E DESCARTADA. A razao
+    contra zero nao e uma medicao, e uma divisao por zero vestida de resultado.
 
     Devolve `(indice_escolhido, tabela)`, com a tabela inteira dos candidatos
     para o relatorio - a escolha tem de poder ser conferida, nao acreditada.
     """
+    derivas = [
+        d for d in range(-DERIVA_CONFERIDA, DERIVA_CONFERIDA + 1) if d != 0
+    ]
     tabela = []
     for coluna in range(len(varredura.candidatos)):
         cobertas = _valores_do_gabarito(varredura, GABARITO_COBERTAS, coluna)
         limpas = _valores_do_gabarito(varredura, GABARITO_LIMPAS, coluna)
         if not cobertas or not limpas:
             continue
-        dx0, dx1 = varredura.candidatos[coluna]
+        dy0, dy1 = varredura.candidatos[coluna]
         pior_limpa, melhor_coberta = max(limpas), min(cobertas)
         mensuravel = pior_limpa > 0.0
+
+        pior_limpa_derivada = pior_limpa
+        melhor_coberta_derivada = melhor_coberta
+        for deriva in derivas:
+            limpas_movidas = _valores_do_gabarito(
+                varredura, GABARITO_LIMPAS, coluna, deriva
+            )
+            cobertas_movidas = _valores_do_gabarito(
+                varredura, GABARITO_COBERTAS, coluna, deriva
+            )
+            if limpas_movidas:
+                pior_limpa_derivada = max(
+                    pior_limpa_derivada, max(limpas_movidas)
+                )
+            if cobertas_movidas:
+                melhor_coberta_derivada = min(
+                    melhor_coberta_derivada, min(cobertas_movidas)
+                )
+        mensuravel_derivada = pior_limpa_derivada > 0.0
+        separa_derivada = (
+            melhor_coberta_derivada > pior_limpa_derivada
+            and mensuravel_derivada
+        )
         tabela.append(
             {
                 "coluna": coluna,
-                "dx0": dx0,
-                "dx1": dx1,
+                "dy0": dy0,
+                "dy1": dy1,
                 "pior_limpa": pior_limpa,
                 "melhor_coberta": melhor_coberta,
                 "separa": melhor_coberta > pior_limpa,
@@ -580,13 +824,25 @@ def escolher_o_trecho_sem_texto(varredura: Varredura) -> tuple:
                 "folga": (
                     melhor_coberta / pior_limpa if mensuravel else float("inf")
                 ),
+                "pior_limpa_derivada": pior_limpa_derivada,
+                "melhor_coberta_derivada": melhor_coberta_derivada,
+                "separa_derivada": separa_derivada,
+                "folga_derivada": (
+                    melhor_coberta_derivada / pior_limpa_derivada
+                    if mensuravel_derivada
+                    else float("inf")
+                ),
             }
         )
 
-    aptos = [c for c in tabela if c["separa"] and c["mensuravel"]]
+    aptos = [
+        c
+        for c in tabela
+        if c["separa"] and c["mensuravel"] and c["separa_derivada"]
+    ]
     if not aptos:
         return -1, tabela
-    melhor = max(aptos, key=lambda c: c["folga"])
+    melhor = max(aptos, key=lambda c: c["folga_derivada"])
     return int(melhor["coluna"]), tabela
 
 
@@ -595,7 +851,7 @@ def escolher_o_trecho_sem_texto(varredura: Varredura) -> tuple:
 # ---------------------------------------------------------------------------
 
 
-def conferir_o_gabarito_limpo(varredura: Varredura, dx0: int) -> tuple:
+def conferir_o_gabarito_limpo(varredura: Varredura, banda: tuple) -> tuple:
     """O gabarito limpo VIU um nome comprido, e e o que ele diz ter visto? PARA.
 
     O DEFEITO QUE ESTA FUNCAO EXISTE PARA IMPEDIR JA ACONTECEU. Em 2026-08-30 a
@@ -630,26 +886,35 @@ def conferir_o_gabarito_limpo(varredura: Varredura, dx0: int) -> tuple:
         declaracao nenhuma, inkava ate x=215. Declaracao e pixel discordando e
         contradicao, nao detalhe - e a ferramenta PARA e imprime os dois.
 
-    (3) ALCANCE. A tinta mais funda do gabarito limpo tem de chegar ao `dx0` da
-        sonda escolhida. Sozinha esta conferencia NAO teria pego o defeito de
-        2026-08-30 - a tinta ia a 215 e a sonda comecava em 207, entao ela teria
-        passado -, e por isso ela e a terceira e nao a primeira. Ela pega outra
-        coisa: sonda que ninguem exercitou com nome nenhum.
+    (3) FOLGA VERTICAL. A banda escolhida tem de ficar fora da faixa de dy onde
+        a tinta das linhas LIMPAS mora, com pelo menos `FOLGA_VERTICAL_MINIMA`
+        px de sobra dos dois lados que existirem.
 
-        O piso e `min(dx0, a ponta mais funda do CENSO INTEIRO)`, e o `min`
-        existe para nao exigir o impossivel: se a sonda pousar a direita de
-        qualquer tinta que o material de campo contenha, nao ha nome com que
-        exercita-la, e cobrar um seria cobrar um frame que nao existe. Nesse caso
-        a guarda passa e IMPRIME o fato, em vez de passar em silencio.
+        ESTA CONFERENCIA SUBSTITUIU A DE ALCANCE em 2026-09-01, e a substituicao
+        e obrigatoria porque o eixo mudou. A de alcance perguntava "a tinta do
+        nome chega ao `dx0` da sonda?", e com uma banda que usa a janela inteira
+        em x a resposta e sempre sim, para qualquer nome - a pergunta virou
+        vacua, e uma guarda vacua e pior que nenhuma porque parece verde.
+
+        A pergunta certa, no eixo certo, e a MESMA pergunta: a sonda esta em
+        cima do texto? Antes se media em x, agora em y. MEDIDO nas 120 linhas
+        limpas do gabarito, dentro da janela de busca, a tinta vive em dy[15,26]
+        - entao a banda dy[2,10) tem 5 px de folga contra o topo do texto, e a
+        guarda imprime esse numero em vez de prometer que ele existe.
+
+        A folga de baixo e contra `dy` = 0, que e onde a moldura da linha
+        anterior acaba. A banda nao pode encostar la tambem: MEDIDO, dy[0,8)
+        perde a separacao inteira quando a linha anda 2 px para cima.
 
     NADA AQUI E CIRCULAR. Compara-se comprimento declarado com comprimento
     declarado, e ponta de tinta (pixels, `ponta_da_tinta_do_nome`) com ponta de
     tinta. Em ponto nenhum entra a dispersao ou o limiar que a ferramenta ainda
     vai propor; se entrasse, estaria conferindo o resultado com o resultado.
 
-    A regua, para quem ler isto sem ela na mao: x=246 e `Protecting Scroll:
-    Enchant C-grade Armor`, 40 caracteres; x=208 e `+6 Agathion Alpha Hunter
-    Sealed`, 31; x=169 e `Hardin's Soul Crystal Lv. 1`, 27.
+    A regua, para quem ler isto sem ela na mao: x=255 e `Protecting Scroll:
+    Enchant C-grade Weapon`, 41 caracteres; x=246 e o mesmo com `Armor`, 40;
+    x=208 e `+6 Agathion Alpha Hunter Sealed`, 31; x=169 e `Hardin's Soul
+    Crystal Lv. 1`, 27.
 
     Devolve `(passou, diagnostico)`.
     """
@@ -688,8 +953,27 @@ def conferir_o_gabarito_limpo(varredura: Varredura, dx0: int) -> tuple:
         for v in leitura.pontas_da_tinta
         if int(v) >= 0
     ]
+    # A FAIXA DE TINTA das linhas LIMPAS, em dy, dentro da janela de busca. E o
+    # insumo da conferencia (3), e ela le so as linhas que o gabarito declara
+    # limpas: numa linha coberta a "tinta" e a tooltip, e ela cobre tudo.
+    topos, bases = [], []
+    for gravacao, arquivo, linhas, _nome in GABARITO_LIMPAS:
+        leitura = indice.get((gravacao, arquivo))
+        if leitura is None or leitura.faixas_da_tinta is None:
+            continue
+        for linha in linhas:
+            topo, base = (int(v) for v in leitura.faixas_da_tinta[linha])
+            if topo < 0:
+                continue
+            topos.append(topo)
+            bases.append(base)
+
+    dy0, dy1 = (int(v) for v in banda)
     diagnostico = {
-        "dx0": int(dx0),
+        "banda": (dy0, dy1),
+        "tinta_topo": min(topos) if topos else -1,
+        "tinta_base": max(bases) if bases else -1,
+        "n_linhas_com_tinta": len(topos),
         "por_frame": por_frame,
         "n_sem_declaracao": sum(1 for f in por_frame if f["caracteres"] is None),
         "ponta_do_censo": max(pontas_do_censo) if pontas_do_censo else -1,
@@ -746,16 +1030,50 @@ def conferir_o_gabarito_limpo(varredura: Varredura, dx0: int) -> tuple:
         )
         return False, diagnostico
 
-    # (3) alcance
-    piso = min(int(dx0), diagnostico["ponta_do_censo"])
-    diagnostico["piso_de_alcance"] = piso
-    diagnostico["sonda_alem_do_censo"] = piso < int(dx0)
-    if mais_fundo["ponta"] < piso:
+    # (3) folga vertical
+    if not topos:
         diagnostico["motivo"] = (
-            "o gabarito LIMPO nao contem NENHUMA linha cujo nome alcance a "
-            f"sonda escolhida: a tinta mais funda para em "
-            f"x={mais_fundo['ponta']} e a sonda comeca em x={dx0}. A sonda "
-            "seria escolhida sem que nome nenhum a tivesse exercitado."
+            "nenhuma linha do gabarito LIMPO tem tinta mensuravel DENTRO da "
+            "janela de busca. Sem tinta nao ha do que a banda se afastar, e a "
+            "folga vertical seria medida contra coisa nenhuma."
+        )
+        return False, diagnostico
+
+    tinta_topo, tinta_base = diagnostico["tinta_topo"], diagnostico["tinta_base"]
+    folga_acima = tinta_topo - dy1  # banda inteiramente ACIMA do texto
+    folga_abaixo = dy0 - tinta_base  # banda inteiramente ABAIXO do texto
+    diagnostico["folga_acima_do_texto"] = folga_acima
+    diagnostico["folga_abaixo_do_texto"] = folga_abaixo
+    diagnostico["folga_da_moldura"] = dy0
+    diagnostico["folga_vertical_minima"] = FOLGA_VERTICAL_MINIMA
+
+    if folga_acima < 0 and folga_abaixo < 0:
+        diagnostico["motivo"] = (
+            f"A BANDA ESTA EM CIMA DO TEXTO. Ela ocupa dy[{dy0}, {dy1}) e a "
+            f"tinta das linhas LIMPAS vive em dy[{tinta_topo}, {tinta_base}] "
+            "dentro da janela de busca. Uma banda sobre o texto recusa linha "
+            "limpa por ela ser legivel - e o defeito de 2026-08-31 outra vez, "
+            "no outro eixo."
+        )
+        return False, diagnostico
+
+    folga_do_texto = max(folga_acima, folga_abaixo)
+    diagnostico["folga_do_texto"] = folga_do_texto
+    if folga_do_texto < FOLGA_VERTICAL_MINIMA:
+        diagnostico["motivo"] = (
+            f"a banda dy[{dy0}, {dy1}) fica a apenas {folga_do_texto} px da "
+            f"tinta (dy[{tinta_topo}, {tinta_base}]), contra um minimo de "
+            f"{FOLGA_VERTICAL_MINIMA}. Margem de um pixel e o formato do "
+            "defeito que ja custou 31 paginas: ela passa na medicao e some no "
+            "primeiro frame em que a linha nao esta onde a calibracao diz."
+        )
+        return False, diagnostico
+    if dy0 < FOLGA_VERTICAL_MINIMA and folga_abaixo < 0:
+        diagnostico["motivo"] = (
+            f"a banda comeca em dy={dy0}, a menos de {FOLGA_VERTICAL_MINIMA} "
+            "px da moldura da linha anterior. MEDIDO, a moldura e o DEGRAU da "
+            "listra alternada e le dispersao ~0,5 mesmo numa linha limpa: uma "
+            "banda que a alcance ao derivar perde a separacao inteira."
         )
         return False, diagnostico
     return True, diagnostico
@@ -831,6 +1149,47 @@ def descarte_por_gravacao(varredura: Varredura, sonda: int, limiar: float) -> di
         alvo[0] += int(np.count_nonzero(validas > limiar))
         alvo[1] += int(validas.size)
     return {nome: (a, b) for nome, (a, b) in contagem.items()}
+
+
+def sensibilidade_do_corte(
+    varredura: Varredura, sonda: int, limiar: float
+) -> list:
+    """Quantas linhas do CENSO INTEIRO caem de cada lado, em varios limiares.
+
+    ESTA SECAO NASCEU DE UMA PERGUNTA QUE PRECISAVA DE RESPOSTA MEDIDA. Quando a
+    sonda virou banda, o limiar proposto SUBIU em valor absoluto - de 0,003607
+    para ~0,030 - e "o limiar subiu" soa como "a peneira afrouxou". Nao e a
+    mesma coisa, e a diferenca so aparece com numero:
+
+    - o limiar sobe porque a populacao COBERTA sobe (a banda le a moldura do
+      marcador de alvo em 0,2497, onde a sonda horizontal lia 0,0208). O corte
+      acompanha o sinal que ele corta.
+    - a peneira aperta ou afrouxa conforme a FOLGA, e ela vai de 1,8x para 68x.
+
+    Mas nada disso responde a pergunta que importa: existe massa de linhas de
+    campo ENTRE a pior limpa e o limiar? Se existir, o limiar esta engolindo
+    linhas que antes eram recusadas, e ai sim ele afrouxou. Se o vale for vazio,
+    o limiar pousa num deserto e mover-lo nao muda nada.
+
+    Devolve `[(fator, limiar, recusadas, total)]`, com o limiar proposto
+    multiplicado e dividido - a leitura util e a coluna `recusadas`: ela quase
+    nao pode mudar entre 0,25x e 4x, ou o corte esta em cima de uma ladeira.
+    """
+    fatores = (0.25, 0.5, 1.0, 2.0, 4.0)
+    todas = []
+    for leitura in varredura.leituras:
+        coluna = leitura.dispersoes[:, sonda]
+        todas.extend(float(v) for v in coluna if not np.isnan(v))
+    arranjo = np.asarray(todas, dtype=np.float64)
+    return [
+        (
+            fator,
+            limiar * fator,
+            int(np.count_nonzero(arranjo > limiar * fator)),
+            int(arranjo.size),
+        )
+        for fator in fatores
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1029,10 +1388,12 @@ def gravar(caminho: Path, sonda: dict, limiar: float, minimo: int) -> None:
 def _conferir_o_conjunto(gravacoes: Path) -> tuple:
     """As 8 esperadas existem? E o que mais ha na pasta?"""
     faltando = [
-        nome for nome in GRAVACOES_DO_CENSO if not (gravacoes / nome).is_dir()
+        nome
+        for nome in GRAVACOES_DA_VARREDURA
+        if not (gravacoes / nome).is_dir()
     ]
     presentes = sorted(p.name for p in gravacoes.iterdir() if p.is_dir())
-    ignoradas = [n for n in presentes if n not in GRAVACOES_DO_CENSO]
+    ignoradas = [n for n in presentes if n not in GRAVACOES_DA_VARREDURA]
     return faltando, ignoradas
 
 
@@ -1040,7 +1401,8 @@ def main(argv=None) -> int:
     analisador = argparse.ArgumentParser(
         description=(
             "Mede a sonda de oclusao, o limiar de dispersao do fundo e o piso "
-            "de linhas comparadas sobre as 8 gravacoes do censo."
+            "de linhas comparadas sobre as 8 gravacoes do censo mais a "
+            "gravacao de nome longo."
         )
     )
     analisador.add_argument("--gravacoes", default=str(RAIZ / "recordings"))
@@ -1075,8 +1437,11 @@ def main(argv=None) -> int:
         return 3
 
     print("")
-    print("AS 8 GRAVACOES DO CENSO (as unicas medidas):")
-    for nome in GRAVACOES_DO_CENSO:
+    print(
+        f"AS {len(GRAVACOES_DA_VARREDURA)} GRAVACOES MEDIDAS "
+        f"(as {len(GRAVACOES_DO_CENSO)} do censo mais a de nome longo):"
+    )
+    for nome in GRAVACOES_DA_VARREDURA:
         quantos = len(list((gravacoes / nome).glob("frame_*.png")))
         print(f"  + {nome:<42} {quantos:>5} PNG")
 
@@ -1107,29 +1472,34 @@ def main(argv=None) -> int:
         return 4
 
     inicio, fim, avisos = janela_de_busca(cal)
-    candidatos, largura = candidatos_de_sonda(inicio, fim)
+    altura_da_linha = int((cal.mercado_grade or {})["altura_da_linha"])
+    candidatos = candidatos_de_banda(altura_da_linha)
     print("")
     print("A JANELA DE BUSCA, derivada das colunas calibradas:")
     print(
         f"  x em [{inicio}, {fim}) relativo a esquerda da grade "
-        f"({fim - inicio} px)"
+        f"({fim - inicio} px) - a banda usa a janela INTEIRA, nao ha dx0 a "
+        "escolher"
     )
     for aviso in avisos:
         print("  " + aviso)
     print(
-        f"  sonda de {largura} px deslizando de {PASSO_DA_VARREDURA} em "
-        f"{PASSO_DA_VARREDURA} px -> {len(candidatos)} candidatos"
+        f"  bandas de {ALTURAS_DA_BANDA} px deslizando em Y dentro dos "
+        f"{altura_da_linha} px da linha -> {len(candidatos)} candidatos"
     )
     print(
-        "  a pesquisa mediu o vao em x em [180, 510); a varredura decide, e "
-        "qualquer discordancia fica escrita acima."
+        f"  cada candidato e medido tambem com a origem da linha deslocada de "
+        f"+-{DERIVA_CONFERIDA} px, e a escolha usa a folga do PIOR caso"
     )
 
     print("")
-    print("Varrendo... (le todo frame com painel aberto das 8 gravacoes)")
+    print(
+        f"Varrendo... (le todo frame com painel aberto das "
+        f"{len(GRAVACOES_DA_VARREDURA)} gravacoes)"
+    )
     varredura = varrer(gravacoes, cal)
     total_abertos = sum(varredura.abertos_por_gravacao.values())
-    for nome in GRAVACOES_DO_CENSO:
+    for nome in GRAVACOES_DA_VARREDURA:
         print(
             f"  {nome:<42} "
             f"{varredura.abertos_por_gravacao.get(nome, 0):>4} de "
@@ -1140,49 +1510,76 @@ def main(argv=None) -> int:
         print("ERRO: nenhum frame com painel aberto. Nada a medir.")
         return 5
 
-    sonda, tabela = escolher_o_trecho_sem_texto(varredura)
+    sonda, tabela = escolher_a_banda(varredura)
 
     print("")
-    print("TODOS OS TRECHOS CANDIDATOS, contra o gabarito de campo:")
+    print("AS BANDAS CANDIDATAS, contra o gabarito de campo:")
+    print("  (as 20 melhores por folga SOB DERIVA, das " + str(len(tabela)) + ")")
     cabecalho = (
-        "  " + "trecho".ljust(16) + "pior LIMPA".rjust(12)
-        + "melhor COBERTA".rjust(16) + "folga".rjust(10) + "  veredito"
+        "  " + "banda dy".ljust(14) + "pior LIMPA".rjust(12)
+        + "melhor COBERTA".rjust(16) + "folga".rjust(10)
+        + "folga s/deriva".rjust(16) + "  veredito"
     )
     print(cabecalho)
-    for candidato in tabela:
+    ordenada = sorted(
+        tabela,
+        key=lambda c: (
+            c["folga_derivada"] if c.get("separa_derivada") else -1.0
+        ),
+        reverse=True,
+    )
+    for candidato in ordenada[:20]:
         if not candidato["separa"]:
             veredito = "NAO SEPARA"
         elif not candidato["mensuravel"]:
             veredito = "DESCARTADO: pior limpa e 0, a folga nao e medicao"
+        elif not candidato["separa_derivada"]:
+            veredito = (
+                f"DESCARTADO: so separa na origem exata (a +-"
+                f"{DERIVA_CONFERIDA} px as populacoes se tocam)"
+            )
         else:
             veredito = "apto"
         folga = f"{candidato['folga']:.2f}x" if candidato["mensuravel"] else "inf"
+        folga_d = (
+            f"{candidato['folga_derivada']:.2f}x"
+            if candidato["separa_derivada"]
+            else "-"
+        )
         marca = "->" if candidato["coluna"] == sonda else "  "
-        trecho = f"[{candidato['dx0']},{candidato['dx1']})"
+        trecho = f"[{candidato['dy0']},{candidato['dy1']})"
         print(
-            marca + trecho.ljust(16)
+            marca + trecho.ljust(14)
             + f"{candidato['pior_limpa']:>12.4f}"
             + f"{candidato['melhor_coberta']:>16.4f}"
-            + folga.rjust(10) + "  " + veredito
+            + folga.rjust(10) + folga_d.rjust(16) + "  " + veredito
         )
 
     if sonda < 0:
         print("")
         print(
-            "NENHUM TRECHO SEPARA O GABARITO. Nao ha limiar a propor, e um "
-            "limiar que nao separa e pior que nenhum. PARANDO."
+            "NENHUMA BANDA SEPARA O GABARITO SOB DERIVA. Nao ha limiar a "
+            "propor, e um limiar que so separa quando a linha esta no pixel "
+            "exato da calibracao e pior que nenhum. PARANDO."
         )
         return 6
 
-    dx0, dx1 = varredura.candidatos[sonda]
+    dy0, dy1 = varredura.candidatos[sonda]
+    inicio_da_banda, fim_da_banda = varredura.janela_derivada
+    escolhida = next(c for c in tabela if c["coluna"] == sonda)
     print("")
     print(
-        f"TRECHO SEM TEXTO ESCOLHIDO: x em [{dx0}, {dx1}) relativo a esquerda "
-        f"da grade, folga {FOLGA_NAS_PONTAS}"
+        f"BANDA ESCOLHIDA: x em [{inicio_da_banda}, {fim_da_banda}) e dy em "
+        f"[{dy0}, {dy1}) relativo ao canto superior esquerdo da linha, folga "
+        f"{FOLGA_NAS_PONTAS}"
     )
-    print("  (o que separa o gabarito de campo com a MAIOR folga relativa)")
+    print(
+        f"  (a que separa o gabarito com a maior folga SOB DERIVA de "
+        f"+-{DERIVA_CONFERIDA} px: {escolhida['folga_derivada']:.1f}x, contra "
+        f"{escolhida['folga']:.1f}x na origem calibrada)"
+    )
 
-    passou, diag_nome = conferir_o_gabarito_limpo(varredura, dx0)
+    passou, diag_nome = conferir_o_gabarito_limpo(varredura, (dy0, dy1))
     print("")
     print("A GUARDA DE NOME CURTO - o gabarito limpo viu o pior nome do campo?")
     print(
@@ -1203,25 +1600,31 @@ def main(argv=None) -> int:
         )
     print(
         f"  piso de comprimento {diag_nome['piso_de_caracteres']} caracteres; "
-        f"tinta mais funda do CENSO INTEIRO x={diag_nome['ponta_do_censo']}; "
-        f"a sonda escolhida comeca em x={dx0}"
+        f"tinta mais funda do CENSO INTEIRO x={diag_nome['ponta_do_censo']}"
     )
+    print("")
+    print("  A FOLGA VERTICAL - a banda esta em cima do texto?")
+    print(
+        f"    tinta das linhas LIMPAS, dentro da janela de busca: "
+        f"dy[{diag_nome['tinta_topo']}, {diag_nome['tinta_base']}] "
+        f"({diag_nome['n_linhas_com_tinta']} linhas medidas)"
+    )
+    print(f"    banda escolhida: dy[{dy0}, {dy1})")
+    if "folga_do_texto" in diag_nome:
+        print(
+            f"    folga ate o texto {diag_nome['folga_do_texto']} px, folga ate "
+            f"a moldura da linha anterior {diag_nome['folga_da_moldura']} px, "
+            f"minimo exigido {diag_nome['folga_vertical_minima']} px"
+        )
     if not passou:
         print("")
         print("O GABARITO LIMPO NAO SERVE PARA ESCOLHER SONDA. PARANDO.")
         print("  " + str(diag_nome.get("motivo", "")))
         return 8
-    if diag_nome.get("sonda_alem_do_censo"):
-        print(
-            "  PASSOU, mas o ALCANCE passou POR AUSENCIA DE MATERIAL: a sonda "
-            "pousa a direita de qualquer tinta de nome do censo, entao nao ha "
-            "nome com que exercita-la. Nao e o mesmo que ter sido exercitada."
-        )
-    else:
-        print(
-            "  PASSOU: o gabarito declara o pior nome conhecido, a declaracao "
-            "confere com os pixels, e ha nome escrevendo dentro desta sonda."
-        )
+    print(
+        "  PASSOU: o gabarito declara o pior nome conhecido, a declaracao "
+        "confere com os pixels, e a banda esta fora da faixa de tinta."
+    )
 
     populacoes = separar_as_populacoes(varredura, sonda)
     print("")
@@ -1264,7 +1667,7 @@ def main(argv=None) -> int:
     medidas = sum(b for _, b in custo.values())
     print("")
     print("O CUSTO DO CORTE - linhas recusadas por gravacao:")
-    for nome in GRAVACOES_DO_CENSO:
+    for nome in GRAVACOES_DA_VARREDURA:
         recusa, total = custo.get(nome, (0, 0))
         fatia = 100.0 * recusa / total if total else 0.0
         print(f"  {nome[9:]:<34} {recusa:>5} de {total:>5}  ({fatia:>5.1f}%)")
@@ -1274,12 +1677,33 @@ def main(argv=None) -> int:
         f"({fatia_total:>5.1f}%)"
     )
 
+    print("")
+    print("A SENSIBILIDADE DO CORTE - o limiar pousa num vale ou numa ladeira?")
+    print(
+        "  " + "fator".ljust(8) + "limiar".rjust(12) + "recusadas".rjust(12)
+        + "  de " + "  (fatia)"
+    )
+    for fator, valor, recusa, total in sensibilidade_do_corte(
+        varredura, sonda, limiar
+    ):
+        marca = "->" if fator == 1.0 else "  "
+        fatia = 100.0 * recusa / max(total, 1)
+        print(
+            marca + f"{fator:>6.2f}x".ljust(8) + f"{valor:>12.6f}"
+            + f"{recusa:>12}" + f"  de {total:>5}" + f"  ({fatia:>5.1f}%)"
+        )
+    print(
+        "  Se a coluna `recusadas` quase nao muda entre 0,25x e 4x, o limiar "
+        "esta num vale vazio e a escolha exata dele nao decide nada. Se ela "
+        "muda muito, ha massa de linhas de campo encostada no corte."
+    )
+
     por_frame = distribuicao_de_linhas_sobreviventes(varredura, sonda, limiar)
     intersecoes = intersecao_entre_frames_vizinhos(varredura, sonda, limiar)
 
     print("")
     print("LINHAS SOBREVIVENTES POR FRAME ISOLADO (so para conferencia):")
-    for nome in GRAVACOES_DO_CENSO:
+    for nome in GRAVACOES_DA_VARREDURA:
         print(
             _linha_de_distribuicao(
                 nome[9:], [float(v) for v in por_frame.get(nome, [])]
@@ -1288,7 +1712,7 @@ def main(argv=None) -> int:
 
     print("")
     print("INTERSECAO ENTRE FRAMES VIZINHOS (a grandeza que o 02-05 julga):")
-    for nome in GRAVACOES_DO_CENSO:
+    for nome in GRAVACOES_DA_VARREDURA:
         print(
             _linha_de_distribuicao(
                 nome[9:], [float(v) for v in intersecoes.get(nome, [])]
@@ -1355,7 +1779,13 @@ def main(argv=None) -> int:
         f"{diag_piso['folga_acima']:.2f}"
     )
 
-    sonda_gravada = {"dx0": int(dx0), "dx1": int(dx1), "folga": FOLGA_NAS_PONTAS}
+    sonda_gravada = {
+        "dx0": int(inicio_da_banda),
+        "dx1": int(fim_da_banda),
+        "dy0": int(dy0),
+        "dy1": int(dy1),
+        "folga": FOLGA_NAS_PONTAS,
+    }
     print("")
     print("O QUE VAI PARA O calibration.json:")
     print("  mercado_sonda_do_fundo               = " + str(sonda_gravada))

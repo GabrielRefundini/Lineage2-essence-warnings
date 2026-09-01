@@ -68,15 +68,30 @@ SONDA_MEDIDA = (180, 510, 2)
 # uma mudanca na primitiva nao invalide calado o numero que os planos 02-04 e
 # 02-05 consomem.
 #
-# ELE MUDOU EM 2026-08-31, de [207, 417) para [246, 396), e o motivo nao foi
-# refinamento: [207, 417) ficava EM CIMA da metade direita da coluna do NOME
-# (159 px de sobreposicao) e recusava toda linha de nome comprido como se
-# houvesse tooltip. O gabarito da varredura de 02-08-30 nao tinha um unico nome
-# longo — a tinta mais funda das quatro paginas limpas dele parava em x=178 —,
-# entao a sobreposicao nunca apareceu na medicao. Em campo apareceu: 31 paginas
-# perdidas na aba Enhancement > Scrolls. A varredura agora tem os frames de nome
-# comprido no gabarito e uma guarda que PARA quando eles faltam.
-SONDA_ESCOLHIDA_PELA_VARREDURA = (246, 396, 2)
+# ELE MUDOU DUAS VEZES POR DEFEITO E UMA POR REDESENHO, e as tres entradas
+# ficam aqui porque cada uma custou campo:
+#
+#   [207, 417)  ate 2026-08-31. Ficava EM CIMA da metade direita da coluna do
+#               NOME (159 px, 49% dela) e recusava toda linha de nome comprido
+#               como se houvesse tooltip. O gabarito de entao nao tinha um unico
+#               nome longo — a tinta mais funda das quatro paginas limpas parava
+#               em x=178 —, entao a sobreposicao nunca apareceu na medicao. Em
+#               campo apareceu: 31 paginas perdidas na aba Enhancement > Scrolls.
+#   [246, 396)  o conserto de 31/08. Nasceu com margem NEGATIVA: encostava em
+#               x=246, que e a ponta da tinta de `...Enchant C-grade Armor` (40
+#               ch). `...Enchant C-grade Weapon` (41 ch) inka ate x=255, e as
+#               DEZ linhas dele foram recusadas. Um caractere de diferenca.
+#   a BANDA     2026-09-01. A premissa dos dois primeiros era que existisse uma
+#               faixa vazia A DIREITA do nome. Nao existe: as colunas do nome e
+#               da quantidade sao adjacentes e o nome cresce para dentro do
+#               espaco da sonda. A banda usa a janela INTEIRA em x e mede numa
+#               margem VERTICAL, onde o nome nao chega — a linha tem 45 px de
+#               altura e o texto ocupa dy[15, 27].
+#
+# `(dx0, dx1, dy0, dy1, folga)`. Escolhida por `tools/medir_oclusao.py` sobre as
+# 9 gravacoes do censo, pela folga no PIOR CASO sob deriva de +-2 px na origem
+# da linha.
+BANDA_ESCOLHIDA_PELA_VARREDURA = (42, 489, 3, 11, 0)
 
 
 def _linha(nome: str) -> np.ndarray:
@@ -92,6 +107,19 @@ def _sonda(
     dx0, dx1, folga = trecho
     medido = nivel_de_fundo_da_linha(
         cinza, (dx0, 0, dx1 - dx0, cinza.shape[0]), folga
+    )
+    assert medido is not None
+    return medido
+
+
+def _banda(
+    cinza: np.ndarray,
+    faixa: tuple[int, int, int, int, int] = BANDA_ESCOLHIDA_PELA_VARREDURA,
+) -> tuple[int, float]:
+    """A banda de PRODUCAO: janela inteira em x, faixa fina em y."""
+    dx0, dx1, dy0, dy1, folga = faixa
+    medido = nivel_de_fundo_da_linha(
+        cinza, (dx0, dy0, dx1 - dx0, dy1 - dy0), folga
     )
     assert medido is not None
     return medido
@@ -155,57 +183,103 @@ class TestALinhaCOBERTA:
         assert coberta > 2.0 * limpa
 
 
-class TestNoTrechoQueAVarreduraESCOLHEU:
-    """A mesma relacao, no trecho que foi para o `calibration.json`.
+# As oito linhas LIMPAS versionadas, e as duas COBERTAS. As duas ultimas limpas
+# entraram em 2026-09-01: sao as paridades de banda de `Protecting Scroll:
+# Enchant C-grade Weapon` (41 caracteres, tinta ate x=255), o nome que derrubou
+# a sonda de 31/08.
+LIMPAS_VERSIONADAS = (
+    "linha_limpa_par_f010.png",
+    "linha_limpa_impar_f010.png",
+    "linha_limpa_no_frame_do_tooltip_f015.png",
+    "linha_limpa_no_frame_do_alvo_f024.png",
+    "linha_limpa_nome_longo_par_f060.png",
+    "linha_limpa_nome_longo_impar_f060.png",
+    "linha_limpa_nome_longo_weapon_par_f000.png",
+    "linha_limpa_nome_longo_weapon_impar_f000.png",
+)
+COBERTAS_VERSIONADAS = (
+    "linha_sob_tooltip_f015.png",
+    "linha_sob_alvo_f024.png",
+)
 
-    Este e o trecho de PRODUCAO: e ele que o 02-04 vai usar para recusar linha
+
+class TestNaBandaQueAVarreduraESCOLHEU:
+    """A mesma relacao, na banda que foi para o `calibration.json`.
+
+    Esta e a geometria de PRODUCAO: e ela que o 02-04 usa para recusar linha
     coberta. Sem estas asserções, alterar a primitiva quebraria o numero gravado
     sem quebrar teste nenhum — e o numero so seria reconferido na proxima vez
     que alguem rodasse a varredura, que precisa de `recordings/`.
     """
 
     def test_sob_tooltip_contra_a_limpa_do_MESMO_frame(self) -> None:
-        _, coberta = _sonda(
-            _linha("linha_sob_tooltip_f015.png"), SONDA_ESCOLHIDA_PELA_VARREDURA
-        )
-        _, limpa = _sonda(
-            _linha("linha_limpa_no_frame_do_tooltip_f015.png"),
-            SONDA_ESCOLHIDA_PELA_VARREDURA,
-        )
+        _, coberta = _banda(_linha("linha_sob_tooltip_f015.png"))
+        _, limpa = _banda(_linha("linha_limpa_no_frame_do_tooltip_f015.png"))
         assert coberta > 0.30
         assert coberta > limpa
 
     def test_sob_a_marcacao_de_alvo_contra_a_limpa_do_MESMO_frame(self) -> None:
-        """O CASO APERTADO no trecho de producao: 8x medidos, contra 2x exigidos."""
-        _, coberta = _sonda(
-            _linha("linha_sob_alvo_f024.png"), SONDA_ESCOLHIDA_PELA_VARREDURA
-        )
-        _, limpa = _sonda(
-            _linha("linha_limpa_no_frame_do_alvo_f024.png"),
-            SONDA_ESCOLHIDA_PELA_VARREDURA,
-        )
+        """O CASO APERTADO, e ele deixou de ser apertado.
+
+        Em TODA sonda horizontal ja medida quem apertava era a marcacao de alvo,
+        nunca a tooltip: 0,077 / 0,022 / 0,021 contra 0,32 a 0,62. A banda le a
+        mesma marcacao em 0,2659, e a causa e geometrica — o marcador e uma
+        MOLDURA em volta da linha, e a borda horizontal dela atravessa a largura
+        inteira no ALTO. Uma sonda de 150x41 px cruza essa borda em ~2 de 41
+        linhas de pixel; a banda de 447x8, em 2 de 8.
+        """
+        _, coberta = _banda(_linha("linha_sob_alvo_f024.png"))
+        _, limpa = _banda(_linha("linha_limpa_no_frame_do_alvo_f024.png"))
         assert coberta > limpa
-        assert coberta > 2.0 * limpa
+        assert coberta > 10.0 * limpa
 
     def test_as_linhas_limpas_ficam_no_chao(self) -> None:
-        """As duas ultimas so ficam no chao DEPOIS de 2026-08-31.
+        """TODAS elas, e as duas de `Weapon` sao a razao de este teste existir.
 
-        `linha_limpa_nome_longo_*_f060` sao as duas paridades de banda de
-        `Protecting Scroll: Enchant C-grade Armor` (40 caracteres, tinta ate
-        x=246), sem tooltip nenhuma. No trecho antigo [207, 417) elas liam
-        0,0276 — acima do limiar de producao de entao — porque a sonda estava
-        POR CIMA do nome. No trecho de agora leem 0,0007.
+        `linha_limpa_nome_longo_weapon_*_f000` sao as duas paridades de banda de
+        `Protecting Scroll: Enchant C-grade Weapon` — 41 caracteres, tinta ate
+        x=255, sem tooltip nenhuma. Na sonda [246, 396) elas liam 0,0114 e
+        0,0119 contra um limiar de 0,003607, e as dez linhas de cada frame eram
+        recusadas. Na banda leem 0,0036 e 0,0020.
         """
-        for nome in (
-            "linha_limpa_par_f010.png",
-            "linha_limpa_impar_f010.png",
-            "linha_limpa_no_frame_do_tooltip_f015.png",
-            "linha_limpa_no_frame_do_alvo_f024.png",
-            "linha_limpa_nome_longo_par_f060.png",
-            "linha_limpa_nome_longo_impar_f060.png",
-        ):
-            _, dispersao = _sonda(_linha(nome), SONDA_ESCOLHIDA_PELA_VARREDURA)
+        for nome in LIMPAS_VERSIONADAS:
+            _, dispersao = _banda(_linha(nome))
             assert dispersao < 0.05, f"{nome} deu {dispersao:.4f}"
+
+    def test_o_COMPRIMENTO_DO_NOME_nao_move_a_leitura(self) -> None:
+        """27, 40 e 41 caracteres leem a MESMA coisa. E a propriedade inteira.
+
+        A sonda horizontal nao tinha esta propriedade e nao havia como te-la: a
+        dispersao dela era funcao do quanto de glifo caia dentro do recorte,
+        entao ela subia com o comprimento do nome por construcao. Foi assim que
+        um caractere a mais virou 31 paginas perdidas.
+
+        A banda mede numa faixa de altura onde nome nenhum escreve, entao o
+        comprimento nao entra na conta. Aqui isso deixa de ser prosa: as
+        paridades PARES de `Armor` (40 ch) e de `Weapon` (41 ch) tem de ler a
+        mesma dispersao, dentro de um chao comum.
+        """
+        _, armor = _banda(_linha("linha_limpa_nome_longo_par_f060.png"))
+        _, weapon = _banda(_linha("linha_limpa_nome_longo_weapon_par_f000.png"))
+        _, curto = _banda(_linha("linha_limpa_par_f010.png"))
+        assert armor < 0.01 and weapon < 0.01 and curto < 0.01
+        assert abs(armor - weapon) < 0.002
+        assert abs(curto - weapon) < 0.002
+
+    def test_as_duas_populacoes_NAO_se_tocam(self) -> None:
+        """O controle negativo do arquivo: uma ordem de grandeza entre elas.
+
+        Um sinal que so precisasse aceitar linha limpa se satisfaria lendo zero
+        sempre. Este teste exige que a MENOR cobertura conhecida esteja pelo
+        menos 10x acima da MAIOR linha limpa conhecida — a folga que a sonda
+        [246, 396) nao tinha (1,8x contra este mesmo material).
+        """
+        limpas = [_banda(_linha(n))[1] for n in LIMPAS_VERSIONADAS]
+        cobertas = [_banda(_linha(n))[1] for n in COBERTAS_VERSIONADAS]
+        pior_limpa, melhor_coberta = max(limpas), min(cobertas)
+        assert melhor_coberta > 10.0 * pior_limpa, (
+            f"pior LIMPA {pior_limpa:.4f}, melhor COBERTA {melhor_coberta:.4f}"
+        )
 
 
 class TestOQueNaoDaPARA_MEDIR:

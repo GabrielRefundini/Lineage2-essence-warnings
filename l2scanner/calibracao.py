@@ -400,12 +400,25 @@ class Calibracao:
     mercado_limiar_do_cabecalho: float | None = None
 
     # Onde medir a FAIXA DE FUNDO da linha para detectar oclusao:
-    # `{"dx0": int, "dx1": int, "folga": int}`, um trecho SEM TEXTO da linha.
+    # `{"dx0": int, "dx1": int, "dy0": int, "dy1": int, "folga": int}` — uma
+    # BANDA horizontal fina, atravessando a linha inteira em x, dentro de uma
+    # faixa de altura que fica ACIMA do texto.
     #
     # O sinal de oclusao e o fundo alternado, e nao a confianca do casamento: a
     # tooltip do jogo e SEMITRANSPARENTE, entao um numero coberto ainda produz
     # glifos plausiveis com boa confianca e valor errado. Recusar pela confianca
     # seria o incidente 27x um nivel acima.
+    #
+    # `dy0`/`dy1` ENTRARAM EM 2026-09-01 e sao OPCIONAIS, de proposito. Sem eles
+    # vale a linha inteira em altura, que e a geometria de 31/08 — a que o campo
+    # quebrou duas vezes, mas que erra FECHADO. Uma calibracao antiga nao pode
+    # impedir o programa de subir; ela so precisa ser recalibrada, e
+    # `mercado_pagina` avisa isso no log uma vez.
+    #
+    # A razao de a faixa vertical existir: o nome do item cresce em X e nao em
+    # Y. Sonda vertical (a linha inteira, num trecho estreito de x) compete com
+    # o texto e perde na primeira aba de nomes compridos; banda horizontal fina
+    # numa margem vertical nunca compete. Ver `mercado_leitura.linha_ocluida`.
     mercado_sonda_do_fundo: dict | None = None
 
     # Acima desta dispersao, o trecho de fundo nao e fundo: ha algo desenhado
@@ -1222,6 +1235,33 @@ def _conferir_a_sonda_do_fundo(dados: dict) -> None:
             f"mercado_sonda_do_fundo tem folga negativa ({folga}). "
             f"{CONSERTO_DO_MERCADO}"
         )
+
+    # A FAIXA VERTICAL e opcional, mas nao pela metade. Uma sonda com `dy0` e
+    # sem `dy1` nao e uma calibracao antiga: e uma calibracao QUEBRADA, e
+    # deixa-la cair calada no fallback da linha inteira mediria uma geometria
+    # que ninguem pediu.
+    tem_dy0 = sonda.get("dy0") is not None
+    tem_dy1 = sonda.get("dy1") is not None
+    if tem_dy0 != tem_dy1:
+        raise CalibracaoInvalida(
+            f"mercado_sonda_do_fundo traz dy0={sonda.get('dy0')!r} e "
+            f"dy1={sonda.get('dy1')!r}: a faixa vertical da banda e opcional, "
+            f"mas os dois vem juntos ou nenhum vem. {CONSERTO_DO_MERCADO}"
+        )
+    if tem_dy0 and tem_dy1:
+        dy0 = _inteiro_de_mercado(sonda, "mercado_sonda_do_fundo", "dy0")
+        dy1 = _inteiro_de_mercado(sonda, "mercado_sonda_do_fundo", "dy1")
+        if dy0 < 0:
+            raise CalibracaoInvalida(
+                f"mercado_sonda_do_fundo tem dy0 negativo ({dy0}): a banda "
+                f"comecaria fora da linha. {CONSERTO_DO_MERCADO}"
+            )
+        if dy1 <= dy0:
+            raise CalibracaoInvalida(
+                f"mercado_sonda_do_fundo tem dy1={dy1} <= dy0={dy0}: a banda "
+                f"teria altura zero ou negativa, e a medida de oclusao sairia "
+                f"de um recorte vazio. {CONSERTO_DO_MERCADO}"
+            )
 
 
 def _conferir_o_piso_de_linhas_comparadas(dados: dict) -> None:

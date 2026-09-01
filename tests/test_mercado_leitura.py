@@ -64,6 +64,7 @@ import pytest
 from l2scanner.calibracao import Calibracao
 from l2scanner.identidade import VALOR_MINIMO_DO_TEXTO, mascara_de_texto
 from l2scanner.mercado_catalogo import EntradaDoCatalogo
+from l2scanner.mercado_geometria import nivel_de_fundo_da_linha
 from l2scanner.mercado_leitura import (
     MOTIVO_DA_DISCORDANCIA,
     MOTIVO_DA_FAIXA_CINZENTA,
@@ -950,6 +951,38 @@ LINHA_LIMPA_NOME_LONGO_IMPAR = (
     FIXTURES / "linha_limpa_nome_longo_impar_f060.png"
 )
 
+# O PIOR NOME QUE O CAMPO JA PRODUZIU, e o que derrubou a sonda de 31/08.
+# `nome-longo-weapon/frame_000000`, linhas 0 e 1:
+# `Protecting Scroll: Enchant C-grade Weapon`, 41 caracteres, tinta ate x=255 --
+# NOVE PIXELS ALEM do dx0=246 onde a sonda horizontal de 31/08 comeca. Um unico
+# caractere a mais que o `...C-grade Armor` (40 ch, tinta ate x=246) empurrou a
+# tinta 8 px e pos a sonda inteira DENTRO do nome. Sem tooltip nenhuma no frame.
+LINHA_LIMPA_NOME_LONGO_WEAPON_PAR = (
+    FIXTURES / "linha_limpa_nome_longo_weapon_par_f000.png"
+)
+LINHA_LIMPA_NOME_LONGO_WEAPON_IMPAR = (
+    FIXTURES / "linha_limpa_nome_longo_weapon_impar_f000.png"
+)
+
+# A SONDA DE BANDA VERTICAL, escrita AQUI e nao lida da calibracao de fixtura,
+# porque o que estes testes afirmam e a CAPACIDADE do detector de honrar uma
+# banda -- nao o numero que a varredura gravou. Trocar o numero da fixtura nao
+# pode ser o que faz este bloco ficar verde.
+#
+# x[42, 489) e a `janela_de_busca` INTEIRA (uniao das colunas do nome e da
+# quantidade, ja derivada das colunas calibradas) -- nao ha `dx0` a escolher, e
+# e essa escolha que o campo derrubou duas vezes. dy[3, 11) e a margem vertical
+# de cima da linha, e quem a escolheu foi `tools/medir_oclusao.py` sobre as 9
+# gravacoes do censo: MEDIDO, a tinta dessa janela vive em dy[15, 27], entao a
+# banda tem 4 px de folga ate o texto e 3 px ate a moldura da linha anterior.
+SONDA_DE_BANDA_VERTICAL = {
+    "dx0": 42,
+    "dx1": 489,
+    "dy0": 3,
+    "dy1": 11,
+    "folga": 0,
+}
+
 # As oito primeiras linhas de `tooltip/frame_000012` estao COBERTAS e as duas
 # ultimas nao. Medido com a sonda calibrada; e o mesmo frame que D-15 descreve.
 COBERTAS_NO_TOOLTIP = (0, 1, 2, 3, 4, 5, 6, 7)
@@ -958,6 +991,28 @@ DESCOBERTAS_NO_TOOLTIP = (8, 9)
 
 def em_cinza(caminho: Path) -> np.ndarray:
     return cv2.cvtColor(ler_fixtura(caminho), cv2.COLOR_BGR2GRAY)
+
+
+def _dispersao_na_banda(caminho: Path) -> float:
+    """A dispersao CRUA da banda vertical, sem o limiar no meio.
+
+    A assertiva de folga compara duas populacoes, e comparar dois booleanos nao
+    diz distancia nenhuma. Aqui a medicao vem da MESMA primitiva que a producao
+    usa (`nivel_de_fundo_da_linha`), nunca de uma conta reescrita no teste.
+    """
+    sonda = SONDA_DE_BANDA_VERTICAL
+    medido = nivel_de_fundo_da_linha(
+        em_cinza(caminho),
+        (
+            sonda["dx0"],
+            sonda["dy0"],
+            sonda["dx1"] - sonda["dx0"],
+            sonda["dy1"] - sonda["dy0"],
+        ),
+        sonda["folga"],
+    )
+    assert medido is not None, caminho
+    return float(medido[1])
 
 
 def fatiar_a_linha(cal, janela, indice: int) -> dict:
@@ -1118,6 +1173,149 @@ class TestASondaDeOclusao:
             linha_ocluida(
                 em_cinza(linha),
                 cal.mercado_sonda_do_fundo,
+                float(cal.mercado_limiar_de_dispersao_do_fundo),
+            )
+            is False
+        )
+
+    # -- a sonda de BANDA VERTICAL (2026-09-01) --------------------------
+
+    @pytest.mark.parametrize(
+        "linha",
+        [
+            LINHA_LIMPA_NOME_LONGO_WEAPON_PAR,
+            LINHA_LIMPA_NOME_LONGO_WEAPON_IMPAR,
+        ],
+        ids=["banda_par", "banda_impar"],
+    )
+    def test_a_banda_vertical_ACEITA_o_nome_de_41_caracteres(
+        self, cal, linha
+    ) -> None:
+        """O sinal para de competir com o texto, e este e o teste que prova.
+
+        DUAS VEZES a sonda foi movida na horizontal e DUAS VEZES o campo
+        produziu um nome mais comprido que a alcancou: `207..417` morreu contra
+        `...C-grade Armor` (40 ch, tinta ate x=246) e `246..396` morreu contra
+        `...C-grade Weapon` (41 ch, tinta ate x=255). UM caractere entre as
+        duas. Mover de novo so escolhe qual sera o proximo item a quebrar.
+
+        A banda vertical nao tem essa falha porque nao disputa espaco com o
+        nome: MEDIDO nas 120 linhas limpas do gabarito ampliado, a tinta da
+        janela x[42,489) vive em dy[15,26] e a banda esta em dy[2,10). O nome
+        pode crescer ate encher a coluna inteira que nao entra na banda.
+
+        As DUAS paridades de banda entram porque a grade e listrada (moda 48 e
+        66) e a sonda e auto-referente: uma so provaria metade.
+
+        Medido nestas duas fixturas, com a banda: 0,0036 e 0,0020, contra um
+        limiar de producao de 0,030130. Com a sonda horizontal de 31/08 e o
+        limiar dela: 0,0114 e 0,0119 contra 0,003607 -- TRES VEZES o limiar, e a
+        linha era limpa. As dez linhas de cada frame foram recusadas assim.
+        """
+        assert (
+            linha_ocluida(
+                em_cinza(linha),
+                SONDA_DE_BANDA_VERTICAL,
+                float(cal.mercado_limiar_de_dispersao_do_fundo),
+            )
+            is False
+        )
+
+    @pytest.mark.parametrize(
+        "linha",
+        [LINHA_SOB_TOOLTIP, LINHA_SOB_ALVO],
+        ids=["tooltip", "marcacao_de_alvo"],
+    )
+    def test_a_banda_vertical_CONTINUA_RECUSANDO_a_linha_coberta(
+        self, cal, linha
+    ) -> None:
+        """O CONTROLE NEGATIVO. Sem ele, "aceitar tudo" passaria no teste acima.
+
+        Um sinal de oclusao que so precisasse aceitar linha limpa se satisfaria
+        devolvendo `False` sempre -- e essa e exatamente a falha que o incidente
+        27x descreve um nivel acima: a tooltip e SEMITRANSPARENTE, ela nao apaga
+        o numero, ela o MISTURA, e numero misturado produz glifo plausivel com
+        valor errado e confianca alta.
+
+        As duas coberturas conhecidas entram: a tooltip (a farta) e a marcacao
+        de alvo (a APERTADA -- opaca, mas cobrindo menos da linha). Medido com a
+        banda nestas fixturas: tooltip 0,5182 e alvo 0,2659, contra um limiar de
+        producao de 0,030130 -- 17x e 8,8x acima dele.
+        """
+        assert (
+            linha_ocluida(
+                em_cinza(linha),
+                SONDA_DE_BANDA_VERTICAL,
+                float(cal.mercado_limiar_de_dispersao_do_fundo),
+            )
+            is True
+        )
+
+    def test_a_banda_vertical_NAO_afrouxa_a_peneira(self, cal) -> None:
+        """A separacao tem de ser MAIOR que a da sonda horizontal, nunca menor.
+
+        A tentacao, depois de duas quebras, e alargar o limiar ate o nome longo
+        passar. Isso consertaria o sintoma DESLIGANDO a guarda. Este teste
+        prende o contrario: com a banda, a distancia entre a pior linha LIMPA
+        conhecida e a MENOR cobertura conhecida (a marcacao de alvo) tem de ser
+        de pelo menos uma ordem de grandeza.
+
+        A regua e historica, e cada numero e um pedaco de campo perdido:
+
+            sonda 207..417  folga 2,8x  -> quebrou contra 40 caracteres
+            sonda 246..396  folga 1,8x  -> quebrou contra 41 caracteres
+            banda dy[3,11)  folga  69x  -> medida contra os dois
+
+        (as duas primeiras folgas sao contra o gabarito AMPLIADO, que inclui os
+        nomes longos; contra o gabarito curto de entao a segunda parecia 30,8x,
+        e essa diferenca e a licao inteira.)
+        """
+        limpas = [
+            _dispersao_na_banda(caminho)
+            for caminho in (
+                LINHA_LIMPA_NOME_LONGO_WEAPON_PAR,
+                LINHA_LIMPA_NOME_LONGO_WEAPON_IMPAR,
+                LINHA_LIMPA_NOME_LONGO_PAR,
+                LINHA_LIMPA_NOME_LONGO_IMPAR,
+                LINHA_LIMPA_NO_TOOLTIP,
+                LINHA_LIMPA_NO_ALVO,
+                LINHA_CHEIA_PAR,
+                LINHA_CHEIA_IMPAR,
+            )
+        ]
+        cobertas = [
+            _dispersao_na_banda(caminho)
+            for caminho in (LINHA_SOB_TOOLTIP, LINHA_SOB_ALVO)
+        ]
+        pior_limpa, melhor_coberta = max(limpas), min(cobertas)
+        assert melhor_coberta > 10.0 * pior_limpa, (
+            f"pior LIMPA {pior_limpa:.4f}, melhor COBERTA {melhor_coberta:.4f}"
+        )
+
+    def test_sem_dy_na_sonda_a_leitura_cai_no_comportamento_ANTIGO(
+        self, cal
+    ) -> None:
+        """Calibracao velha (so dx0/dx1/folga) nao pode virar 'aceita tudo'.
+
+        Enquanto o usuario nao rodar a varredura de novo, o `calibration.json`
+        dele ainda traz a sonda horizontal. O fallback correto e o
+        comportamento de sempre -- a linha inteira em altura --, que erra para o
+        lado de RECUSAR. Erra caro, mas erra FECHADO: e o mesmo default de
+        `sonda is None`.
+        """
+        sonda_antiga = {"dx0": 246, "dx1": 396, "folga": 2}
+        assert (
+            linha_ocluida(
+                em_cinza(LINHA_SOB_TOOLTIP),
+                sonda_antiga,
+                float(cal.mercado_limiar_de_dispersao_do_fundo),
+            )
+            is True
+        )
+        assert (
+            linha_ocluida(
+                em_cinza(LINHA_CHEIA_PAR),
+                sonda_antiga,
                 float(cal.mercado_limiar_de_dispersao_do_fundo),
             )
             is False

@@ -272,11 +272,13 @@
   },
   "mercado_limiar_do_cabecalho": 0.73,
   "mercado_sonda_do_fundo": {
-    "dx0": 246,
-    "dx1": 396,
-    "folga": 2
+    "dx0": 42,
+    "dx1": 489,
+    "dy0": 3,
+    "dy1": 11,
+    "folga": 0
   },
-  "mercado_limiar_de_dispersao_do_fundo": 0.003607,
+  "mercado_limiar_de_dispersao_do_fundo": 0.03013,
   "mercado_limiar_de_leitura_de_glifo": 0.4698309302330017,
   "mercado_margem_de_leitura_de_glifo": 0.03698354959487915,
   "mercado_corte_de_similaridade": 0.8947368421052632,

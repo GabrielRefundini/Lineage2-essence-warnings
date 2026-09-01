@@ -1179,6 +1179,50 @@ class Descarte:
     motivo: str
 
 
+def sonda_e_uma_banda(sonda: dict | None) -> bool:
+    """Esta sonda declara faixa VERTICAL, ou e a geometria antiga?
+
+    Existe para que `mercado_pagina` possa avisar UMA VEZ, na construcao, em vez
+    de a cada linha de cada tick. A pergunta e de forma, nao de valor: `dy0` e
+    `dy1` presentes e utilizaveis.
+    """
+    if not sonda:
+        return False
+    if sonda.get("dy0") is None or sonda.get("dy1") is None:
+        return False
+    try:
+        return int(sonda["dy1"]) > int(sonda["dy0"]) >= 0
+    except (TypeError, ValueError):
+        return False
+
+
+def faixa_vertical_da_sonda(
+    sonda: dict, altura_da_linha: int
+) -> tuple[int | None, int | None]:
+    """`(dy0, dy1)` da banda, ou a linha inteira quando a calibracao e antiga.
+
+    `(None, None)` quando `dy0`/`dy1` existem mas nao servem — invertidos,
+    negativos, ou nao numericos. Quem chama trata isso como "nao da para medir",
+    que e RECUSA, e nunca como "vale a linha inteira": cair no fallback por
+    causa de um numero corrompido esconderia o erro em vez de reporta-lo.
+
+    A AUSENCIA dos dois, essa sim, e o fallback legitimo — e a calibracao de
+    antes de 2026-09-01, que nao conhecia a banda.
+    """
+    dy0_bruto = sonda.get("dy0")
+    dy1_bruto = sonda.get("dy1")
+    if dy0_bruto is None and dy1_bruto is None:
+        return 0, int(altura_da_linha)
+    try:
+        dy0 = int(dy0_bruto)
+        dy1 = int(dy1_bruto)
+    except (TypeError, ValueError):
+        return None, None
+    if dy0 < 0 or dy1 <= dy0:
+        return None, None
+    return dy0, dy1
+
+
 def linha_ocluida(
     cinza_da_linha: np.ndarray,
     sonda: dict | None,
@@ -1204,46 +1248,87 @@ def linha_ocluida(
     sobre as 8 gravacoes); a MEDICAO mora em `mercado_geometria`. Um corte
     escrito no fonte viajaria de layout em layout sem ser remedido.
 
-    ONDE ELA COMECA, E POR QUE EXATAMENTE ALI. A sonda ve o trecho `dx0..dx1` da
-    grade e ele e ESTREITO E ENCOSTADO NO FIM DO PIOR NOME CONHECIDO: 150 px
-    comecando logo depois de onde a tinta do nome mais comprido do censo termina.
-    Esse nome tem endereco, e o texto abaixo so vale enquanto ele for o pior:
+    ONDE ELA MEDE, E POR QUE A DIRECAO MUDOU EM 2026-09-01. A sonda e uma BANDA
+    HORIZONTAL FINA que atravessa a linha inteira em x — `dx0..dx1` — dentro de
+    uma faixa de altura `dy0..dy1` que fica ACIMA do texto. Ela nao e mais um
+    trecho estreito espremido depois da ponta do nome.
 
-        `Protecting Scroll: Enchant C-grade Armor` — 40 caracteres, tinta ate
-        x=246, medido em `053105-mercado-aberto/frame_000060` nas dez linhas.
+    A DIFERENCA E DE PREMISSA, E A PREMISSA ANTIGA ERA FALSA. Ate aqui o desenho
+    supunha que existisse uma faixa VERTICAL vazia a direita do nome onde a sonda
+    coubesse. Nao existe: a coluna do nome vai de x=42 a x=366 e a de quantidade
+    comeca em 366, coladas, e o nome cresce para dentro do espaco que a sonda
+    ocuparia. O maior corredor que as linhas limpas deixam livre e de 172 px
+    contra frames conferidos, e de 56 a 91 px contra o censo de 3.994 linhas.
 
-    ATE 2026-08-31 ESTE PARAGRAFO DIZIA OUTRA COISA, E ERA MENTIRA. Ele afirmava
-    que a sonda ficava "entre o fim dos nomes e o inicio dos numeros". Nao havia
-    tal vao: a coluna do nome vai de 42 a 366 e a de quantidade comeca em 366,
-    coladas. A sonda calibrada de entao (207..417) ficava em cima da METADE
-    DIREITA da coluna do NOME — 159 px de sobreposicao, 49% da coluna. Enquanto
-    todo nome conferido foi curto, ninguem viu; na aba Enhancement > Scrolls o
-    nome de 40 caracteres pos 40 px de glifo dentro da sonda, as quatro linhas
-    dele foram recusadas em 32 ticks seguidos, sobraram 6 linhas contra um piso
-    de 7, e as 31 paginas da sessao morreram. Nao havia tooltip nenhuma.
+    E O CAMPO COBROU ESSA PREMISSA DUAS VEZES, COM UM CARACTERE DE DIFERENCA:
 
-    Nem a nova posicao e "o vao entre nome e numero", porque ele nao existe. Ela
-    e o maior corredor que as linhas limpas do censo deixam livre — 172 px, de
-    x=248 a x=419 — e a sonda pousa dentro dele com a ponta esquerda encostada em
-    246. Estreitar foi o preco: 210 px nao cabiam em corredor nenhum sem comer
-    nome. Em troca o limiar ficou 7x mais apertado (0,026377 -> 0,003607) e a
-    separacao entre limpa e coberta subiu de 2,8x para 32,0x.
+        207..417  ficava sobre 159 px da coluna do nome (49% dela). Morreu
+                  contra `Protecting Scroll: Enchant C-grade Armor` — 40
+                  caracteres, tinta ate x=246. As quatro linhas dele foram
+                  recusadas em 32 ticks seguidos, sobraram 6 linhas contra um
+                  piso de 7, e as 31 paginas da sessao morreram. Sem tooltip
+                  nenhuma na tela.
+        246..396  o conserto de 31/08. Morreu contra `Protecting Scroll: Enchant
+                  C-grade Weapon` — 41 caracteres, tinta ate x=255. UM caractere
+                  a mais empurrou a tinta 8 px, e a sonda nasceu com margem de
+                  -9 px. As DEZ linhas foram recusadas, em todos os frames.
 
-    ONDE ELA NAO ALCANCA, E ISSO E MEDIDO. Sendo um trecho da metade esquerda,
-    uma tooltip inteiramente a DIREITA dela passa despercebida: em
-    `pagina-cheia/frame_000010` a tooltip cobre a coluna Total das linhas 0 a 3
-    e a dispersao le 0,0000 nas dez linhas. Quem pega esse caso e a peneira
-    seguinte (tudo-ou-nada + gramatica), e e por isso que ha tres e nao uma.
+    Mover a sonda uma terceira vez so escolheria qual item quebra a seguir.
 
-    E HA UM SEGUNDO BURACO, QUE NASCEU COM O ESTREITAMENTO E NAO PODE SUMIR DA
-    PROSA. Sonda estreita cabe mais facilmente INTEIRA dentro de um vao uniforme
-    do desenho da tooltip, e ali leria fundo limpo sobre linha coberta. A
-    refutacao original disso esta medida com blocos de 30 px em
-    `tooltip/frame_000015` e continua de pe; 150 px esta longe de 30 e as 10
-    linhas cobertas conhecidas seguem recusadas com ~5x de folga sobre o limiar
-    novo — mas a margem contra esse modo de falha DIMINUIU, e quem for estreitar
-    de novo precisa medi-la antes. O bloco `LARGURA_DA_SONDA` de
-    `tools/medir_oclusao.py` carrega a conta inteira.
+    A BANDA NAO DISPUTA ESPACO COM O TEXTO, e e isso que a torna definitiva. A
+    linha tem 45 px de altura e o nome ocupa 12 deles. MEDIDO sobre as 120 linhas
+    limpas do gabarito ampliado, dentro da janela x[42, 489):
+
+        icone   x[  0, 42)   tinta em dy[ 6, 37]   (fica FORA da janela)
+        nome    x[ 42,366)   tinta em dy[15, 26]
+        qtd     x[366,489)   tinta em dy[19, 26]
+        total   x[489,698)   tinta em dy[ 0, 44]   (fica FORA da janela)
+        unit    x[698,872)   tinta em dy[ 0, 44]   (fica FORA da janela)
+
+    Sobram 15 px de margem em cima e 16 embaixo, e NENHUM DOS DOIS ENCOLHE
+    QUANDO O NOME CRESCE. A banda escolhida, dy[2, 10), passa 5 px acima do topo
+    do texto. Um nome de 60 caracteres continua escrevendo em dy[15, 26].
+
+    A MOLDURA ENTRE LINHAS FOI MEDIDA E REPROVADA, e o registro fica para quem
+    tiver a mesma ideia. O separador da grade e desenho fixo da UI, do tamanho
+    certo, independente do nome — e mesmo assim nao serve, porque ele e o DEGRAU
+    da listra alternada (48 -> 66) e esta primitiva mede UNIFORMIDADE. Sobre um
+    degrau a dispersao e ~0,5 por construcao, a mesma magnitude de uma tooltip:
+    medido, x[42,489) dy[43,45) le 0,5000 numa linha LIMPA contra 0,4944 sob
+    tooltip. Nao ha limiar que separe.
+
+    A BANDA APERTA A PENEIRA EM VEZ DE AFROUXA-LA, e os dois lados foram medidos
+    contra o mesmo gabarito ampliado (120 limpas, 10 cobertas):
+
+        sonda           pior LIMPA   tooltip   marca de alvo   folga
+        246..396          0,0119     0,3200      0,0208         1,8x
+        dy[2,10)          0,0031     0,4944      0,2497        81,2x
+
+    O MARCADOR DE ALVO DEIXA DE SER O GARGALO, e por mecanismo. Em toda sonda
+    horizontal o aperto vinha dele (0,077 / 0,022 / 0,021), nunca da tooltip
+    (0,32 a 0,62): ele e uma MOLDURA em volta da linha, e uma sonda de 150x41 px
+    cruza a borda horizontal dela em ~2 de 41 linhas de pixel. A banda de 447x8
+    cruza a mesma borda em 2 de 8 — e le 0,2497, que e 2/8.
+
+    ONDE ELA NAO ALCANCA, E ISSO CONTINUA MEDIDO. A janela e a uniao das colunas
+    do nome e da quantidade, entao uma tooltip inteiramente a DIREITA dela passa
+    despercebida: em `pagina-cheia/frame_000010` a tooltip cobre a coluna Total
+    das linhas 0 a 3 e a dispersao le 0,0000 nas dez. Quem pega esse caso e a
+    peneira seguinte (tudo-ou-nada + gramatica), e e por isso que ha tres e nao
+    uma. As colunas Total e Unit price NAO podem entrar na janela: a arte delas
+    escreve de dy 0 a dy 44 e nao deixa margem vertical nenhuma.
+
+    A DIVIDA DA SONDA ESTREITA ANDA PARA TRAS, e isso e um ganho de graca. O
+    bloco `LARGURA_DA_SONDA` de `tools/medir_oclusao.py` registrava que 150 px
+    cabem dentro de um vao uniforme do desenho da tooltip com mais facilidade que
+    210 px — sonda estreita e sonda que pode se esconder na arte que deveria
+    enxergar. A banda tem 447 px de largura: tres vezes mais dificil de esconder.
+
+    SEM `dy0`/`dy1` NA CALIBRACAO, VALE O COMPORTAMENTO ANTIGO — a linha inteira
+    em altura. Nao e "aceita tudo": e a geometria de 31/08, que erra caro mas
+    erra FECHADO, recusando linha limpa em vez de aprovar linha coberta. O
+    usuario que ainda nao rodou `tools/medir_oclusao.py --gravar` fica com ela, e
+    `mercado_pagina` avisa uma vez no log em vez de a cada tick.
 
     Sem sonda calibrada, ou com a medicao impossivel, a resposta e `True`:
     "nao da para medir" NAO e "esta limpa", e feature OFF e o unico default
@@ -1265,9 +1350,18 @@ def linha_ocluida(
         )
         return True
 
-    altura = int(cinza_da_linha.shape[0])
+    altura_da_linha = int(cinza_da_linha.shape[0])
+    dy0, dy1 = faixa_vertical_da_sonda(sonda, altura_da_linha)
+    if dy0 is None or dy1 is None:
+        log.warning(
+            "mercado_sonda_do_fundo esta com dy0/dy1 impossiveis (%r) — a "
+            "leitura de mercado nao acontece. Recalibre o mercado.",
+            sonda,
+        )
+        return True
+
     medido = nivel_de_fundo_da_linha(
-        cinza_da_linha, (dx0, 0, dx1 - dx0, altura), folga
+        cinza_da_linha, (dx0, dy0, dx1 - dx0, dy1 - dy0), folga
     )
     if medido is None:
         return True

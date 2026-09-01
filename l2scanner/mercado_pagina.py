@@ -77,6 +77,7 @@ from .mercado_leitura import (
     LinhaLida,
     casamento_do_cabecalho,
     ler_linha,
+    sonda_e_uma_banda,
 )
 from .mercado_visao import RastreioDoPainel, cabecalho_de_calibracao
 
@@ -397,6 +398,23 @@ class LeitorDePagina:
         # duas paginas em que tudo foi descartado "concordam" por falta de
         # material.
         self._minimo_comparado = cal.mercado_minimo_de_linhas_comparadas
+
+        # A SONDA DE OCLUSAO E UMA BANDA DESDE 2026-09-01, e uma calibracao
+        # anterior a isso ainda funciona -- cai no comportamento antigo, que
+        # erra FECHADO. So que ela erra fechado CARO: e a geometria que recusou
+        # as dez linhas de `Protecting Scroll: Enchant C-grade Weapon` e matou
+        # 31 paginas de campo. O aviso sai UMA VEZ, na construcao, e nao a cada
+        # linha de cada tick: um aviso por captura seria ruido, e ruido some.
+        if cal.mercado_sonda_do_fundo and not sonda_e_uma_banda(
+            cal.mercado_sonda_do_fundo
+        ):
+            log.warning(
+                "mercado_sonda_do_fundo ainda e a sonda HORIZONTAL antiga "
+                "(%r): ela mede a linha inteira em altura e recusa linha limpa "
+                "de nome comprido como se houvesse tooltip. Rode "
+                "`tools/medir_oclusao.py --gravar` para remedir a banda.",
+                cal.mercado_sonda_do_fundo,
+            )
 
         self._anterior: LeituraDaPagina | None = None
         self._ultima_leitura: LeituraDaPagina | None = None
