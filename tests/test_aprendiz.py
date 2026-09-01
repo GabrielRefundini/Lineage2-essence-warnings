@@ -172,11 +172,30 @@ class SilencioParado:
 
 
 def montar_sessao(cal, tmp_path, *, aprendiz, configuradas=False, ajustes=None):
-    """Uma `Sessao` de verdade, com o disco inteiro preso a `tmp_path`."""
+    """Uma `Sessao` de verdade, com o disco inteiro preso a `tmp_path`.
+
+    A TOLERANCIA DA VOLTA DA VISAO E ZERADA NO DEFAULT, e isso e uma decisao
+    escrita e nao um descuido.
+
+    Desde 2026-08-31 o aprendiz so aprende com o portao global em `RASTREANDO`,
+    e o portao NASCE `CEGO`: o primeiro tick visivel de qualquer sessao e uma
+    REAQUISICAO, que dura `segundos_de_tolerancia_na_volta` (3.0 s em
+    producao). Os casos desta suite contam ticks de um em um segundo e falam de
+    OUTRA coisa — quantas leituras estaveis viram uma entrada, o que a cegueira
+    congela, quem nunca e candidato. Deixar a tolerancia de producao ligada
+    neles deslocaria toda contagem em tres ticks sem que nenhum deles passasse
+    a medir a reaquisicao: eles apenas mediriam o mesmo de antes, com numeros
+    piores de ler.
+
+    Quem fala da reaquisicao PEDE A TOLERANCIA DE VOLTA, pelo parametro
+    `ajustes` (ver `TestReaquisicaoNaoEnsina`). Ou seja: o portao novo continua
+    provado, e provado num lugar so.
+    """
     rastreador = Rastreador(
         nomes=list(cal.nomes),
         assinaturas_configuradas=configuradas,
-        ajustes=ajustes or Ajustes(confirmacoes_para_morte=2),
+        ajustes=ajustes
+        or Ajustes(confirmacoes_para_morte=2, segundos_de_tolerancia_na_volta=0.0),
     )
     return Sessao(
         cal=cal,
@@ -1420,6 +1439,21 @@ class TestARecusaDizQuantoMediu:
                 )
             ],
             {0: outra},
+        )
+
+        # O PORTAO GLOBAL PRECISA ESTAR ASSENTADO, e a linha nao e cerimonia.
+        #
+        # Desde 2026-08-31 o aprendiz so aprende com o portao em `RASTREANDO`,
+        # e o portao NASCE `CEGO`. Este caso chama `_aprender` DIRETO, sem
+        # passar por `tick`, entao ninguem levou o rastreador para frente: sem
+        # esta leitura o laco de 300 voltas sairia cedo em todas elas e o caso
+        # passaria a provar o portao novo, em vez do resumo das recusas.
+        #
+        # Uma leitura basta porque `montar_sessao` zera
+        # `segundos_de_tolerancia_na_volta` (ver a docstring dele).
+        sessao.rastreador.observar(obs_a, 0.0)
+        assert sessao.rastreador.portao is PortaoGlobal.RASTREANDO, (
+            "premissa: o portao global esta assentado"
         )
 
         with caplog.at_level(logging.INFO, logger="l2scanner"):

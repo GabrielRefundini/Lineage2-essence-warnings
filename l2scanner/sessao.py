@@ -64,7 +64,7 @@ from .frames import Frame, SaudeDoFrame
 from .loot import Designacao, nick_para_o_aviso
 from .notificador import Categoria
 from .presenca import fechar_e_narrar
-from .rastreador import Evento
+from .rastreador import Evento, PortaoGlobal
 from .respawn import (
     JANELA_DO_EPISODIO,
     anunciar_janelas,
@@ -674,13 +674,45 @@ class Sessao:
     def _aprender(self, observacao: Observacao, resultado: ResultadoDoTick) -> None:
         """Grava a assinatura de quem ficou parado tempo suficiente.
 
-        SAI CEDO SOB CEGUEIRA, e o portao repete de proposito o que
-        `_candidatas_para_aprender` ja faz: nao chamar o aprendiz e o que CONGELA
-        a contagem em vez de zera-la, exatamente como `_contar_linhas_sem_nome`.
-        Nao dava para ver, entao nao da para afirmar nada — nem que reconheceu,
-        nem que deixou de reconhecer. O congelamento e seguro justamente porque
-        a contagem e por CONTEUDO: se a pessoa mudou durante a cegueira, a
-        mascara muda e o vigia cai na primeira leitura visivel.
+        SO APRENDE COM O PORTAO GLOBAL EM `RASTREANDO`. Nem cego, nem em
+        reaquisicao, e a segunda metade e um CONSERTO medido em campo.
+
+        Ate 2026-08-31 o portao daqui era so `ui_visivel`, e `ui_visivel` cai na
+        CEGUEIRA e so nela. A volta da visao e outro estado: `PortaoGlobal`
+        (`rastreador.py`) tem tres, e o do meio e `REAQUISICAO` — "acabou de
+        voltar, ainda em tolerancia" —, que e a palavra "reajustando" que o
+        console mostra. Nesse estado o rastreador LE e nao CONCLUI nada, porque
+        a UI ainda esta se desenhando e as barras mentem por um ou dois frames.
+        O aprendiz nao tinha esse portao, e o que vale para a barra vale muito
+        mais para o RECORTE DO NOME, que e a coisa que ele grava para sempre.
+
+        MEDIDO NO `scanner.log` DO USUARIO, com a party recem calibrada minutos
+        antes:
+
+            23:14:37 [reajustando]   (todas as linhas com "?")
+            23:15:03 Aprendi uma assinatura nova (criado) da linha 1: chave
+                     6288ee95..., 77 pixels de texto, confianca 0.1083
+            23:15:07 [vigiando]
+
+        A linha 1 era o TITANDER, que JA TINHA assinatura calibrada. Confianca
+        0.1083 contra `LIMIAR_DE_CASAMENTO` 0.75 quer dizer que aquele recorte
+        nao pareceu com NADA — e 0.1083 e, ate hoje, a medida de campo de quanto
+        uma leitura de reaquisicao pode divergir da mesma pessoa lida assentada.
+        A entrada nasceu anonima, permanente, numa pasta que nao e podada.
+
+        O portao repete de proposito o que `_candidatas_para_aprender` ja faz
+        para a cegueira: nao chamar o aprendiz e o que CONGELA a contagem em vez
+        de zera-la, exatamente como `_contar_linhas_sem_nome`. Nao dava para
+        afirmar nada — nem que reconheceu, nem que deixou de reconhecer. O
+        congelamento e seguro justamente porque a contagem e por CONTEUDO: se a
+        pessoa mudou durante a cegueira ou durante a reaquisicao, a mascara muda
+        e o vigia cai na primeira leitura ja assentada.
+
+        E A SEMANTICA E UMA SO PARA OS DOIS ESTADOS, de proposito. Congelar na
+        cegueira e zerar na reaquisicao (ou o contrario) seriam dois regimes
+        para o mesmo fato — "nao da para confiar nestes pixels" —, e o segundo
+        regime so apareceria no dia em que alguem tivesse de explicar por que a
+        conta reiniciou.
 
         NUNCA LEVANTA, no precedente ja escrito para o mercado: uma falha aqui
         nao pode derrubar o farm, e tambem nao pode ficar muda para sempre.
@@ -694,7 +726,14 @@ class Sessao:
         e por isso ela nao passa pelo rastreador nem vira `Evento`. Ela sai
         pelo mesmo funil de `_despachar` que todo o resto usa, e so.
         """
-        if self.aprendiz is None or not observacao.ui_visivel:
+        if self.aprendiz is None:
+            return
+        # `RASTREANDO` ja implica `ui_visivel`: um frame sem party window poe o
+        # portao em `CEGO` no MESMO tick, antes de qualquer linha ser avaliada.
+        # Escrever as duas condicoes daria a impressao de que uma protege o que
+        # a outra nao protege, e a proxima pessoa a ler gastaria tempo
+        # procurando o caso que separa as duas. Ele nao existe.
+        if self.rastreador.portao is not PortaoGlobal.RASTREANDO:
             return
 
         try:
