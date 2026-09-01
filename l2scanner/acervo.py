@@ -139,13 +139,110 @@ def chave_da_assinatura(assinatura: Assinatura) -> str:
 class Identidades:
     """Quem o scanner conhece neste arranque: as calibradas mais o acervo.
 
-    `conhecidas`, `sem_nome` e `resumo` sao DERIVADOS da lista, e nao campos
-    guardados: um par de contadores gravado ao lado da lista e um par de
-    contadores que pode discordar dela, e a linha de arranque que o usuario le
-    seria justamente onde a discordancia apareceria.
+    `conhecidas`, `sem_nome`, `resumo`, `fora_de_forma` e `aviso_de_forma` sao
+    DERIVADOS da lista, e nao campos guardados: um par de contadores gravado ao
+    lado da lista e um par de contadores que pode discordar dela, e a linha de
+    arranque que o usuario le seria justamente onde a discordancia apareceria.
     """
 
     assinaturas: list[Assinatura] = field(default_factory=list)
+
+    # (altura, largura) da regiao de nome DESTE arranque, para reconhecer
+    # assinatura gravada sob outra geometria. `None` significa "ninguem disse",
+    # e ai nada e acusado — e o que mantem a chamada de dois argumentos valendo
+    # exatamente como antes.
+    forma_esperada: tuple[int, int] | None = None
+
+    @property
+    def fora_de_forma(self) -> int:
+        """Quantas assinaturas foram gravadas sob outra regiao de nome.
+
+        A forma sao as DUAS dimensoes, e nao so a largura: `nome_altura` tambem
+        e calibravel, e olhar so um dos lados deixaria a mesma falha silenciosa
+        entrar pelo outro.
+        """
+        if self.forma_esperada is None:
+            return 0
+        return sum(
+            1
+            for a in self.assinaturas
+            if tuple(a.mascara.shape) != self.forma_esperada
+        )
+
+    @property
+    def aviso_de_forma(self) -> str | None:
+        """A linha que impede a mudanca de geometria de calar sem sintoma.
+
+        POR QUE ELE PRECISA EXISTIR
+
+        Mudar `nome_largura` de 100 para 110 (e `nome_dx` de 26 para 16, ver
+        `LayoutDaParty`) torna obsoleta TODA assinatura ja gravada. Uma
+        assinatura de forma diferente nunca mais casa: ela e comparada no
+        alinhamento calibrado com o conteudo deslocado 10 colunas. O membro
+        simplesmente vira "Membro N" e fica assim.
+
+        Isso ja aconteceu por outro motivo, e o custo esta medido: em
+        2026-08-25 um membro passou DUAS HORAS como "Membro 1", atravessando um
+        reinicio do scanner, sem uma linha de log dizendo por que. Silencio sem
+        sintoma e o modo de falha que este projeto mais combate.
+
+        POR QUE ELAS CONTINUAM NA LISTA, E NAO SAO DESCARTADAS
+
+        Descartar parece a limpeza obvia e e a pior das duas opcoes.
+
+        `Rastreador.assinaturas_configuradas` recebe `bool(self.assinaturas)`, e
+        e esse booleano que separa "Membro N" (feio e honesto) de
+        `nomes[indice]` (o nome de quem esta vivo em OUTRA linha). Logo depois
+        de a geometria mudar, TODAS as assinaturas estao fora de forma —
+        descarta-las esvazia a lista e devolve o scanner ao modo em que a
+        POSICAO e a identidade. Ou seja: "proteger" o reconhecimento jogando o
+        lixo fora entregaria de volta a mentira que a identidade visual existe
+        para impedir. Em vez de "Membro 3", um "Mostarda morreu" com a Mostarda
+        viva na linha de cima.
+
+        E manter nao custa reconhecimento, medido e nao suposto: uma assinatura
+        de largura 100 contra os recortes de largura 110 da fixture pontuou no
+        maximo 0.281 nos 16 pares, contra LIMIAR_DE_CASAMENTO 0.75 e
+        MARGEM_MINIMA_SOBRE_O_SEGUNDO 0.12. Ela nao ganha linha nenhuma e nem
+        chega perto de suprimir quem ganha.
+
+        Manter ainda preserva o nome dela em `Calibracao.nomes_com_assinatura`,
+        e com isso a recusa de `nome_da_linha` em emprestar aquele nome para uma
+        linha nao reconhecida. A degradacao segue apontando para o silencio.
+
+        Entao: anunciar, e deixar o descarte para quem recalibrar.
+        """
+        if self.forma_esperada is None:
+            return None
+        fora = [
+            a
+            for a in self.assinaturas
+            if tuple(a.mascara.shape) != self.forma_esperada
+        ]
+        if not fora:
+            return None
+
+        altura, largura = self.forma_esperada
+        formas = ", ".join(
+            sorted({f"{a.mascara.shape[0]}x{a.mascara.shape[1]}" for a in fora})
+        )
+        aviso = (
+            f"{len(fora)} assinatura(s) foram gravadas com a regiao de nome "
+            f"{formas} e a atual e {altura}x{largura}: elas nao podem casar com "
+            f"nada e essas pessoas vao aparecer como Membro N. Rode "
+            'calibrar.bat --nomes "..." de novo para regravar.'
+        )
+
+        # O COMANDO SAI COM RETICENCIAS, e a lista vem depois como INFORMACAO.
+        #
+        # Montar o `--nomes` com os nomes daqui seria util e estaria errado:
+        # `--nomes` e POSICIONAL (nome por linha da party) e esta lista e
+        # alfabetica sobre quem por acaso tem nome — entradas do acervo antes do
+        # batismo sao anonimas e nem apareceriam. Entregar essa ordem pronta
+        # seria a posicao se passando por identidade, que e o defeito que este
+        # modulo inteiro existe para impedir. So o usuario sabe a ordem de hoje.
+        nomes = ", ".join(sorted(a.nome for a in fora if a.nome))
+        return f"{aviso} Afetadas: {nomes}." if nomes else aviso
 
     @property
     def configuradas(self) -> bool:
@@ -558,7 +655,9 @@ class AcervoDeIdentidades:
 
 
 def carregar_identidades(
-    calibradas: list[Assinatura], acervo: AcervoDeIdentidades
+    calibradas: list[Assinatura],
+    acervo: AcervoDeIdentidades,
+    forma_esperada: tuple[int, int] | None = None,
 ) -> Identidades:
     """Funde as assinaturas do `calibration.json` com as do acervo em disco.
 
@@ -626,7 +725,15 @@ def carregar_identidades(
     em que a resposta importa.
 
     Recebe `list[Assinatura]` e nao `Calibracao` de proposito — e o que mantem
-    este modulo sem importar `calibracao`.
+    este modulo sem importar `calibracao`. `forma_esperada` chega pelo mesmo
+    motivo como uma TUPLA `(altura, largura)`, e nao como um `Regiao` ou um
+    `LayoutDaParty`.
+
+    `forma_esperada` NAO FILTRA NADA. Ela so viaja ate `Identidades`, que a usa
+    para ANUNCIAR as assinaturas gravadas sob outra geometria — nunca para
+    descarta-las. A razao inteira esta em `Identidades.aviso_de_forma`, e o
+    resumo e que esvaziar a lista desligaria `assinaturas_configuradas` e
+    devolveria o scanner ao modo em que a POSICAO e a identidade.
     """
     fundidas = list(calibradas)
     chaves_calibradas = {chave_da_assinatura(a) for a in fundidas}
@@ -639,4 +746,4 @@ def carregar_identidades(
             continue
         fundidas.append(do_acervo)
 
-    return Identidades(assinaturas=fundidas)
+    return Identidades(assinaturas=fundidas, forma_esperada=forma_esperada)
