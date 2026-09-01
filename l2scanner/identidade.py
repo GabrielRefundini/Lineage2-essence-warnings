@@ -83,6 +83,40 @@ VALOR_MINIMO_DO_TEXTO = 180
 # extras de falso positivo que produziram o bug do "entra e sai". E um SEGUNDO
 # PASSE que testa UM alinhamento a mais, escolhido pelo conteudo do proprio
 # recorte, so nas linhas que o primeiro passe deixou sem nome.
+#
+# O SENTIDO INVERSO, medido em campo em 2026-08-31.
+#
+# O paragrafo acima descreve a coroa aparecendo NO RECORTE ao vivo. Ela quebra o
+# reconhecimento tambem no sentido oposto: gravada NA ASSINATURA e sumida da
+# tela — quem calibrou ENQUANTO era lider e depois deixou de ser.
+#
+# Party de quatro, os quatro calibrados, e mesmo assim dois viraram "Membro N".
+# Os dois que falharam foram exatamente os dois cuja condicao de lideranca mudou
+# entre a calibracao e o dia:
+#
+#     assinatura de Mostarda -> a imagem dela COM a coroa (era lider entao)
+#     recorte de hoje        -> "ostarda", sem coroa (nao e mais lider)
+#     assinatura de Welazkez -> sem coroa; recorte de hoje COM coroa
+#
+# Os outros dois, cuja lideranca nao mudou, casaram sem tropeco. O discriminador
+# do defeito e a MUDANCA, e ela acontece nas duas direcoes.
+#
+# O desenho e o MESMO, e de proposito: um alinhamento a mais por par, lido da
+# estrutura "bloco, lacuna, bloco" de um dos lados e ancorado no outro, cobrado
+# com limiar e margem mais caros. Muda so de que lado a lacuna e lida:
+#
+#     lacuna no RECORTE     -> desloca o RECORTE   (`_pontuar_com_ornamento`)
+#     lacuna na ASSINATURA  -> desloca a ASSINATURA
+#                              (`_pontuar_sem_o_ornamento_da_assinatura`)
+#
+# Medido com os pixels reais da coroa, o recorte do ex-lider contra as quatro
+# assinaturas da fixture:
+#
+#     primeiro passe   0.266  0.146  0.252  0.298   <- a propria em 0.266
+#     sentido inverso  1.000  0.000  0.000  0.000
+#
+# Os tres zeros nao sao sorte: as outras assinaturas nao tem lacuna nenhuma,
+# entao elas nem entram neste sentido.
 
 
 # Quantas colunas em branco separam a coroa do nome que ela empurrou.
@@ -276,38 +310,91 @@ def _inicio_do_nome_apos_ornamento(mascara: np.ndarray) -> int | None:
     return int(colunas[lacunas[0] + 1])
 
 
+def _deslocar_para_a_esquerda(
+    mascara: np.ndarray, deslocamento: int
+) -> np.ndarray | None:
+    """Puxa a mascara `deslocamento` colunas para tras, preenchendo com vazio.
+
+    UMA funcao para os dois sentidos do ornamento, e nao duas iguais. As duas
+    reancoragens fazem exatamente este recorte-e-cola; escrever o `zeros_like` e
+    a fatia duas vezes seria duas chances de elas divergirem numa correcao
+    futura, e o sintoma de uma divergencia aqui e um alinhamento de 1 px errado
+    — que derruba a correlacao de 1.000 para 0.24 sem quebrar teste nenhum do
+    outro sentido.
+
+    Devolve None quando o deslocamento nao e para a ESQUERDA, ou quando ele
+    engoliria a mascara inteira. "Nao e para a esquerda" e recusa deliberada, e
+    nao defesa contra indice negativo: um ornamento so empurra o texto para a
+    direita, entao descontar um so pode puxa-lo de volta. Aceitar o sentido
+    contrario seria um alinhamento que a coroa nunca produz — pura chance extra
+    de um nome errado dar sorte.
+    """
+    if deslocamento <= 0:
+        return None
+    largura = mascara.shape[1] - deslocamento
+    if largura <= 0:
+        return None
+    reancorada = np.zeros_like(mascara)
+    reancorada[:, :largura] = mascara[:, deslocamento:]
+    return reancorada
+
+
 def _reancorar_apos_ornamento(
     mascara: np.ndarray, inicio_do_nome: int, assinatura: Assinatura
 ) -> np.ndarray | None:
     """Puxa o nome para o lugar onde ESTA assinatura o gravou.
 
+    O sentido em que a coroa esta NO RECORTE ao vivo e falta na assinatura: quem
+    foi calibrado sem coroa e depois virou lider.
+
     Alinhar na coluna 0 nao serve: assinaturas reais comecam na coluna 0 OU na
     1, conforme o nome, e 1 px de erro derruba a correlacao de 1.000 para 0.24.
     Entao o deslocamento e sempre medido contra a primeira coluna da assinatura.
-
-    Devolve None quando o deslocamento nao seria para a DIREITA. Um ornamento so
-    empurra o texto para a direita; exigir isso descarta de graca uma familia
-    inteira de alinhamentos acidentais.
     """
     coluna_da_assinatura = _primeira_coluna_com_texto(assinatura.mascara)
     if coluna_da_assinatura is None:
         return None
-    deslocamento = inicio_do_nome - coluna_da_assinatura
-    if deslocamento <= 0:
-        return None
+    return _deslocar_para_a_esquerda(
+        mascara, inicio_do_nome - coluna_da_assinatura
+    )
 
-    reancorada = np.zeros_like(mascara)
-    largura = mascara.shape[1] - deslocamento
-    if largura <= 0:
+
+def _reancorar_a_assinatura_sem_ornamento(
+    assinatura: Assinatura, coluna_do_recorte: int | None
+) -> np.ndarray | None:
+    """Tira a coroa DA ASSINATURA e poe o nome onde o recorte o mostra.
+
+    O sentido inverso do de cima, e o que faltava: a coroa esta gravada na
+    ASSINATURA e sumiu da tela — quem calibrou enquanto era lider e depois
+    deixou de ser. Visto em campo em 2026-08-31; ver a nota da coroa no topo.
+
+    O que se desloca aqui e a ASSINATURA, e nao o recorte, porque e nela que
+    esta o ornamento a descontar. O destino e a primeira coluna DO RECORTE, pelo
+    mesmo motivo que o outro sentido ancora na primeira coluna da assinatura:
+    um nome sem coroa comeca na coluna 0, 1 ou 2 conforme o nome, e ancorar na
+    origem erraria por ate 2 px — 1 px ja leva 1.000 para 0.24.
+
+    Devolve None quando a assinatura nao tem ornamento (bloco unico, que e o
+    caso de todo membro que nao e lider) ou quando o recorte esta vazio. E a
+    trava que faz quase todo o trabalho e nao custa nada: medido em 10
+    assinaturas reais de 3 calibracoes, 9 sao bloco unico.
+    """
+    if coluna_do_recorte is None:
         return None
-    reancorada[:, :largura] = mascara[:, deslocamento:]
-    return reancorada
+    depois_do_ornamento = _inicio_do_nome_apos_ornamento(assinatura.mascara)
+    if depois_do_ornamento is None:
+        return None
+    return _deslocar_para_a_esquerda(
+        assinatura.mascara, depois_do_ornamento - coluna_do_recorte
+    )
 
 
 def _pontuar_com_ornamento(
     mascara: np.ndarray, assinaturas: list[Assinatura]
 ) -> list[float] | None:
     """Pontuacao supondo que um ornamento empurrou o nome para a direita.
+
+    A coroa esta NO RECORTE ao vivo e falta na assinatura.
 
     Devolve None quando a mascara nao tem a estrutura "bloco, lacuna, bloco" —
     isto e, quando nao ha ornamento para descontar.
@@ -324,6 +411,34 @@ def _pontuar_com_ornamento(
             continue
         pontos.append(_correlacionar(reancorada, assinatura.mascara))
     return pontos
+
+
+def _pontuar_sem_o_ornamento_da_assinatura(
+    mascara: np.ndarray, assinaturas: list[Assinatura]
+) -> list[float] | None:
+    """Pontuacao supondo que a assinatura foi gravada COM um ornamento que sumiu.
+
+    O sentido inverso do de cima, e o que faltava. Aqui quem carrega a estrutura
+    "bloco, lacuna, bloco" e a ASSINATURA, entao a pergunta e feita uma vez por
+    assinatura e nao uma vez pela linha.
+
+    Devolve None quando NENHUMA assinatura tem ornamento — o caso comum, em que
+    este sentido nem existe. Uma lista de zeros diria outra coisa: diria "avaliei
+    e nao casou com ninguem", e faria a linha entrar na disputa do segundo passe
+    sem ter candidato nenhum.
+    """
+    coluna_do_recorte = _primeira_coluna_com_texto(mascara)
+
+    pontos: list[float] = []
+    algum_ornamento = False
+    for assinatura in assinaturas:
+        molde = _reancorar_a_assinatura_sem_ornamento(assinatura, coluna_do_recorte)
+        if molde is None or int(molde.sum()) < PIXELS_MINIMOS_DE_TEXTO:
+            pontos.append(0.0)
+            continue
+        algum_ornamento = True
+        pontos.append(_correlacionar(mascara, molde))
+    return pontos if algum_ornamento else None
 
 
 def _pontuar(
@@ -462,6 +577,36 @@ def identificar_linhas(
     return resultado
 
 
+def _melhor_dos_dois_sentidos(
+    mascara: np.ndarray, assinaturas: list[Assinatura]
+) -> list[float] | None:
+    """A pontuacao do segundo passe: o melhor dos dois sentidos, par a par.
+
+    QUANTOS ALINHAMENTOS ISSO CUSTA, que e a unica pergunta que importa aqui.
+    No maximo DOIS por par (linha, assinatura), e cada um sai da estrutura dos
+    pixels — nao ha varredura. O `.max()` que foi removido testava 25 por par e
+    levava o pior casamento errado de 0.213 para 0.586. Dois alinhamentos
+    determinados nao sao meio caminho de volta para aquilo: sao dois.
+
+    E na pratica quase sempre e UM so. Os dois sentidos pedem lacunas em lados
+    opostos — um no recorte, outro na assinatura — e uma pessoa e lider ou nao
+    e. Os dois valerem ao mesmo tempo significa recorte E assinatura com coroa,
+    e nesse caso o alinhamento calibrado ja casa e o primeiro passe resolveu a
+    linha antes de este codigo rodar.
+
+    Devolve None quando NENHUM dos dois sentidos se aplica, e ai a linha nem
+    entra na disputa.
+    """
+    no_recorte = _pontuar_com_ornamento(mascara, assinaturas)
+    na_assinatura = _pontuar_sem_o_ornamento_da_assinatura(mascara, assinaturas)
+
+    if no_recorte is None:
+        return na_assinatura
+    if na_assinatura is None:
+        return no_recorte
+    return [max(a, b) for a, b in zip(no_recorte, na_assinatura)]
+
+
 def _segundo_passe_do_ornamento(
     mascaras: dict[int, np.ndarray],
     assinaturas: list[Assinatura],
@@ -479,6 +624,12 @@ def _segundo_passe_do_ornamento(
     reconhecimento e nao volta nem apos reiniciar o scanner. Aconteceu, e custou
     duas horas de operacao cega em 2026-08-25.
 
+    O INVERSO custa o mesmo e acontece igual: quem foi calibrado ENQUANTO era
+    lider e depois deixou de ser tem a coroa gravada na ASSINATURA e ausente da
+    tela. Visto em 2026-08-31, numa party de quatro com os quatro calibrados,
+    onde os dois membros perdidos foram exatamente os dois cuja lideranca havia
+    mudado. Os dois sentidos entram por `_melhor_dos_dois_sentidos`.
+
     POR QUE ELE E SEGURO
 
     Tres travas, e cada uma sozinha ja limita o estrago:
@@ -486,18 +637,21 @@ def _segundo_passe_do_ornamento(
       1. So olha linhas que o primeiro passe deixou SEM NOME, e so usa
          assinaturas que ele NAO consumiu. E estritamente aditivo: nao existe
          caminho por onde ele tire ou troque um nome que o primeiro passe deu.
-      2. Testa UM alinhamento a mais, e nao um leque. O alinhamento nao e
-         varrido: sai da estrutura do proprio recorte (a lacuna entre a coroa e o
-         nome) e e ancorado na primeira coluna DA ASSINATURA. Deslizar 0..14 px
+      2. Testa UM alinhamento a mais POR SENTIDO, e nao um leque. O alinhamento
+         nao e varrido: sai da estrutura de um dos lados (a lacuna entre a coroa
+         e o nome) e e ancorado na primeira coluna do outro. Deslizar 0..14 px
          levaria o pior casamento errado de 0.371 para 0.579 — foi o que produziu
-         o bug do "entra e sai". Aqui nao ha deslize.
+         o bug do "entra e sai". Aqui nao ha deslize. Com os dois sentidos o teto
+         por par vai a DOIS alinhamentos, e a conta de por que dois nao e meio
+         caminho de volta para vinte e cinco esta em `_melhor_dos_dois_sentidos`.
       3. Cobra mais caro: LIMIAR_DO_ORNAMENTO e MARGEM_DO_ORNAMENTO sao bem
          acima dos do primeiro passe. Uma afirmacao mais forte precisa de
          evidencia mais forte.
 
     E, antes das tres, a trava que faz quase todo o trabalho: um nome sem coroa e
     um bloco unico de texto, entao `_inicio_do_nome_apos_ornamento` devolve None
-    e o passe nem comeca para ele. Medido em 10 assinaturas reais de 3
+    e o passe nem comeca para ele — vale para o recorte no primeiro sentido e
+    para a assinatura no segundo. Medido em 10 assinaturas reais de 3
     calibracoes: 9 sao bloco unico, e a unica que se parte em dois e a do lider.
     """
     # Sem guarda de saida antecipada aqui de proposito: o `while` abaixo ja nao
@@ -506,7 +660,7 @@ def _segundo_passe_do_ornamento(
     # teste de mutacao confirmou que era equivalente.
     candidatos: dict[int, list[float]] = {}
     for i in linhas_livres:
-        p = _pontuar_com_ornamento(mascaras[i], assinaturas)
+        p = _melhor_dos_dois_sentidos(mascaras[i], assinaturas)
         if p is not None:
             candidatos[i] = p
 

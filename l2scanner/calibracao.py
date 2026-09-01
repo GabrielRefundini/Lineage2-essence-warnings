@@ -128,9 +128,32 @@ class LayoutDaParty:
     # O recorte precisa ser JUSTO: medido na tela real, um recorte largo deixa
     # o terreno dominar a comparacao e a margem entre nomes cai de 0.55 para
     # 0.04 — a diferenca entre funcionar e nao funcionar.
-    nome_dx: int = 26  # a partir do icone, pulando o emblema de classe
+    #
+    # A MEDICAO QUE FIXA ESTES DOIS NUMEROS. Colunas da JANELA, tela viva do
+    # usuario em 2026-08-31, com `icone_x = 12`:
+    #
+    #     emblema de classe      13 a 26
+    #     nome SEM coroa         comeca em 30
+    #     coroa do lider         31 a 44
+    #     nome COM coroa         comeca em 48
+    #     recorte com dx = 26    comecava em 38   <- 8 colunas do nome perdidas
+    #
+    # Com `nome_dx = 26` a esquerda caia em 12+26 = 38, ou seja DENTRO do nome,
+    # e cada assinatura era gravada mutilada: "TANDER", "RULTO", "elazkez". O
+    # corte era CONSTANTE, entao ele nao aparecia — o pedaco gravado casava com
+    # o mesmo pedaco na tela. O que ele quebrava era a MUDANCA de lider: a coroa
+    # desloca o nome 18 colunas, e com 8 ja perdidas na esquerda o pedaco que
+    # sobra dentro do recorte deixa de ser o mesmo. Visto em campo: os dois
+    # membros que o scanner perdeu foram exatamente os dois cuja condicao de
+    # lider mudou entre a calibracao e o dia do teste.
+    #
+    # `nome_dx = 16` poe a esquerda em 28, dois pixels depois do fim do emblema.
+    # `nome_largura = 110` devolve as mesmas 10 colunas na direita, entao a
+    # borda direita continua em 138 e o fim do nome do lider (coluna 93) segue
+    # dentro. O recorte anda para a esquerda sem ficar mais largo do que era.
+    nome_dx: int = 16  # a partir do icone, logo apos o emblema de classe
     nome_dy: int = -24
-    nome_largura: int = 100
+    nome_largura: int = 110
     nome_altura: int = 20
 
     # Limiares de contraste para "tem icone aqui".

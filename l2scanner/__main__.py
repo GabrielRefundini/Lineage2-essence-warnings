@@ -2275,9 +2275,23 @@ def laco_principal(
     # `if dry_run` em cada ponto de chamada resolveria os de hoje e garantiria
     # que o proximo nascesse errado.
     acervo = AcervoDeIdentidades(PASTA_IDENTIDADES, simulando=args.dry_run)
-    identidades = carregar_identidades(list(cal.assinaturas), acervo)
+    # A FORMA ESPERADA VEM DE `regiao_do_nome`, e nao do `layout` direto, porque
+    # e ela que `visao._recorte_do_nome` usa para cortar. Ler do mesmo lugar que
+    # producao corta e o que impede o aviso de acusar uma divergencia que nao
+    # existe, ou calar sobre uma que existe.
+    regiao_do_nome = cal.regiao_do_nome(0)
+    identidades = carregar_identidades(
+        list(cal.assinaturas),
+        acervo,
+        forma_esperada=(regiao_do_nome.altura, regiao_do_nome.largura),
+    )
     cal.assinaturas = identidades.assinaturas
     log.info("%s", identidades.resumo)
+    # UMA VEZ, NO ARRANQUE, e nao a cada frame. Uma assinatura de forma antiga
+    # nunca mais casa, entao o aviso nao muda enquanto o processo vive — repeti-
+    # lo no laco viraria ruido, e ruido e como um aviso deixa de ser lido.
+    if identidades.aviso_de_forma:
+        log.warning("%s", identidades.aviso_de_forma)
 
     # O APRENDIZ RECEBE A MESMA INSTANCIA DE ACERVO QUE A CARGA USOU. Construir
     # uma segunda seriam duas verdades sobre a mesma pasta.
