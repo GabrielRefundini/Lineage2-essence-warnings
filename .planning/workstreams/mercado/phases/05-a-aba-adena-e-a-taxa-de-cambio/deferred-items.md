@@ -213,3 +213,64 @@ fase: cabe num `/gsd-quick`.
 **Nada aqui virou codigo nesta fase.** Os quatro itens sao registro; o unico
 deles que a Fase 5 encosta e o item 1, e ela o encosta **so na Adena**, pela
 guarda do 05-01.
+
+---
+
+## [CAMPO 2026-09-01 17:29] A coluna Total Price da Adena tem valores em CIANO, e eles nao se leem
+
+**Achado em campo, depois da calibracao da Adena pelo usuario.** O layout foi
+calibrado e o portao ACEITA (a mensagem `PARADO` sumiu). Mas **todas as paginas sao
+perdidas**, e a causa esta medida.
+
+### A verdade de campo, lida do frame `20260901-172911-adena-diagnostico/frame_000003.png`
+
+    linha | Total Price | 5 mln increment | o leitor devolveu
+        3 |     100,00  |          50,00  | total=18888  incremento=5000
+        5 |     100,00  |          50,00  | total=18888  incremento=5000
+        9 |     104,00  |          52,00  | total=18488  incremento=5200
+
+**O incremento le CERTO. So o total erra**, trocando `0` por `8` — com os MESMOS
+digitos que a outra coluna acerta na mesma linha.
+
+### A causa, MEDIDA nos canais de cor
+
+    linha 0  total  (98,00)   B=214.2  G=214.2  R=214.2   <- branco neutro
+    linha 3  total  (100,00)  B=236.0  G=236.0  R=128.7   <- CIANO
+    linha 0  increm (49,00)   B=217.1  G=217.1  R=217.1   <- branco
+    linha 3  increm (50,00)   B=220.3  G=220.3  R=220.3   <- branco
+
+A coluna `Total Price` renderiza ALGUMAS linhas em ciano (canal vermelho a ~129
+contra ~236 dos outros dois); a coluna do incremento e sempre branca. **As linhas
+recusadas sao exatamente as cianas.**
+
+Hipotese nao medida do mecanismo: os 13 moldes de digito foram cortados sobre texto
+BRANCO. Em ciano o canal vermelho cai antes nas bordas antialiasadas, o traco fica
+com outro perfil em escala de cinza, e a largura do run muda — e largura de run e o
+que decide qual molde casa.
+
+### O que FUNCIONOU, e vale registrar
+
+**A guarda de cruzamento rejeitou TODAS as linhas corrompidas.** Foi para isso que
+ela foi construida nesta fase, e ela fez exatamente o trabalho: `total=18888` com
+`incremento=5000` da residuo 1112 contra limite 2,0. **Nenhuma taxa falsa entrou no
+CSV** — o arquivo ficou em 93 linhas antes e depois.
+
+Sem ela, `188,88 por 10 milhoes` teria virado observacao de taxa, e a mediana do
+cambio nasceria envenenada.
+
+### O que NAO fazer
+
+- **Nao afrouxar a guarda** para "deixar passar". Ela e o unico motivo de o dado
+  estar limpo agora.
+- **Nao baixar o corte de brilho as cegas.** O ciano tem brilho ALTO (236) — o
+  problema nao e o valor passar do corte, e o PERFIL da borda.
+
+### Caminho plausivel, a medir
+
+Cortar um segundo conjunto de moldes sobre texto ciano, ou normalizar por canal
+antes de segmentar (usar `max(B,G,R)` em vez de escala de cinza ponderada, que
+penaliza o vermelho). **Medir antes de escolher** — os dois defeitos de calibracao
+desta sessao nasceram de escolher numero contra material sem o caso dificil.
+
+**Material disponivel:** `recordings/20260901-172911-adena-diagnostico` (11 frames,
+janela completa) tem linhas brancas E cianas na mesma pagina — o par que discrimina.
