@@ -1417,7 +1417,16 @@ class TestAPersistenciaDosGlifos:
             gravacao=None,
             frame=str(frame),
             indice=None,
-            layout="adena",
+            # `negociacao` E O UNICO QUE `--so-digitos` ACEITA, desde o 05-04.
+            # Este campo sempre foi DECORACAO neste caminho: `_calibrar_so_digitos`
+            # nao le `layout` em linha nenhuma — ele corta glifo, e glifo nao
+            # carrega coluna. O exemplo era `adena` por acaso; o portao de escrita
+            # por layout passou a recusar a combinacao, porque os moldes de digito
+            # nao sao cortados fora da negociacao. A VERDADE presa por esta classe
+            # (o que dos glifos chega ao arquivo, e o que nunca chega) nao mudou.
+            # A recusa em si tem caso proprio, com controle negativo, em
+            # tests/test_calibrar_layout_nao_apaga_negociacao.py.
+            layout="negociacao",
             so_digitos=so_digitos,
         )
         return l2scanner.calibrar_mercado.calibrar(args)
@@ -1447,7 +1456,9 @@ class TestAPersistenciaDosGlifos:
         antes = json.loads(calibracao.read_text(encoding="utf-8"))
         args = argparse.Namespace(
             calibracao=str(calibracao), gravacao=None, frame=str(frame),
-            indice=None, layout="adena", so_digitos=True,
+            # DECORACAO, e agora tambem a unica aceita — ver o comentario em
+            # `_rodar` acima.
+            indice=None, layout="negociacao", so_digitos=True,
         )
         assert l2scanner.calibrar_mercado.calibrar(args) == 0
 
