@@ -26,7 +26,7 @@ from pathlib import Path  # noqa: E402
 from .acervo import AcervoDeIdentidades, carregar_identidades  # noqa: E402
 from .aprendiz import AjustesDoAprendiz, Aprendiz, ToleranciaAlemDoTeto  # noqa: E402
 from .batismo import (  # noqa: E402
-    montar_pergunta,
+    montar_pergunta_com_imagens,
     pendentes_do_acervo,
     responder_batismo,
 )
@@ -2513,17 +2513,29 @@ def laco_principal(
     # sem `.env` e sem `--dry-run` simplesmente ainda nao perguntou, e vai
     # perguntar no dia em que configurar a entrega.
     if despachante is not None:
-        pergunta = montar_pergunta(acervo, pendentes_do_acervo(acervo))
+        pergunta = montar_pergunta_com_imagens(acervo, pendentes_do_acervo(acervo))
         if pergunta:
             log.info(
                 "Ha assinatura sem nome no acervo. Perguntando quem e, uma "
-                "vez so por assinatura."
+                "vez so por assinatura, com %d imagem(ns) do nome.",
+                len(pergunta.imagens),
             )
             # `Categoria.SEMPRE` pela mesma razao do gatilho do aprendizado: o
-            # marcador ja foi queimado dentro de `montar_pergunta`, entao uma
-            # mensagem cortada pelo silencio de TvT seria uma pergunta perdida
-            # para sempre.
-            despachante.despachar(pergunta, Categoria.SEMPRE)
+            # marcador ja foi queimado dentro de `montar_pergunta_com_imagens`,
+            # entao uma mensagem cortada pelo silencio de TvT seria uma
+            # pergunta perdida para sempre.
+            #
+            # ESTE E O CAMINHO QUE MAIS PRECISA DA IMAGEM. As entradas que ja
+            # estavam no disco sao as unicas que existem no acervo real do
+            # usuario, e sao exatamente as que ele nao consegue reconhecer pelo
+            # hash — foi olhando para elas que ele perguntou "como vou saber
+            # qual hash representa qual nome?".
+            despachante.despachar(
+                pergunta.texto,
+                Categoria.SEMPRE,
+                anexos=pergunta.imagens,
+                texto_sem_anexos=pergunta.texto_sem_imagens,
+            )
 
     # A SESSAO carrega o que antes eram variaveis locais deste laco. Movidas
     # para um objeto, elas viram construiveis num teste — e e por isso que

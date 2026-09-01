@@ -175,13 +175,32 @@ class DespachanteQueGrava:
 
     Truthy de proposito: `atender_comandos` e `Sessao._despachar` testam
     `if not despachante` e `if self.despachante`.
+
+    `anexos` e `texto_sem_anexos` entraram com OCRN-03, quando a pergunta do
+    batismo passou a levar a imagem do nome. Eles sao GRAVADOS, e nao
+    engolidos: um falso que aceitasse os argumentos e os jogasse fora deixaria
+    de acusar o dia em que as imagens parassem de sair.
     """
 
     def __init__(self) -> None:
         self.despachos: list[tuple[str, object, str | None]] = []
+        # Os nomes dos arquivos anexados a cada despacho, na mesma ordem.
+        self.anexados: list[tuple[str, ...]] = []
+        self.reservas: list[str | None] = []
 
-    def despachar(self, texto, categoria=None, conversa_alvo=None) -> None:
+    def despachar(
+        self,
+        texto,
+        categoria=None,
+        conversa_alvo=None,
+        anexos=None,
+        texto_sem_anexos=None,
+    ) -> None:
         self.despachos.append((texto, categoria, conversa_alvo))
+        self.anexados.append(
+            tuple(anexo.nome_do_arquivo for anexo in anexos or ())
+        )
+        self.reservas.append(texto_sem_anexos)
 
     @property
     def alvos(self) -> list:
@@ -2346,7 +2365,7 @@ class TestSemDespachanteONemOArranqueNemOTickMarcam:
             for no in ast.walk(arvore)
             if isinstance(no, ast.Call)
             and isinstance(no.func, ast.Name)
-            and no.func.id == "montar_pergunta"
+            and no.func.id in NOMES_QUE_PERGUNTAM
         ]
         assert chamadas, "laco_principal nao varre o acervo no arranque"
 
@@ -2357,7 +2376,7 @@ class TestSemDespachanteONemOArranqueNemOTickMarcam:
             and any(
                 isinstance(dentro, ast.Call)
                 and isinstance(dentro.func, ast.Name)
-                and dentro.func.id == "montar_pergunta"
+                and dentro.func.id in NOMES_QUE_PERGUNTAM
                 for dentro in ast.walk(no)
             )
             and "despachante" in ast.dump(no.test)
@@ -3594,6 +3613,18 @@ def _alvo_da_chamada(no: ast.Call) -> str | None:
     return getattr(no.func, "id", None) or getattr(no.func, "attr", None)
 
 
+# As funcoes que MARCAM e REDIGEM a pergunta. O portao aceita as duas porque a
+# de producao passou a ser `montar_pergunta_com_imagens` em OCRN-03, quando a
+# pergunta passou a levar a imagem do nome; `montar_pergunta` continua sendo o
+# involucro que devolve so o texto.
+#
+# ACEITAR OS DOIS NOMES NAO AFROUXA O PORTAO. O que ele prova e que
+# `laco_principal` VARRE o acervo, e a mutacao que ele precisa acusar continua
+# sendo a mesma: o bloco inteiro arrancado. Os casos de veneno abaixo cobrem
+# exatamente isso e nao mudaram.
+NOMES_QUE_PERGUNTAM = {"montar_pergunta", "montar_pergunta_com_imagens"}
+
+
 def _acervos_ligados(arvore: ast.Module) -> set[str]:
     """Os nomes locais que recebem o resultado de `AcervoDeIdentidades(...)`.
 
@@ -3719,7 +3750,7 @@ def _elos_do_batismo(
             f"{arquivo}:{filho.lineno}"
             for filho in ast.walk(no)
             if isinstance(filho, ast.Call)
-            and _alvo_da_chamada(filho) == "montar_pergunta"
+            and _alvo_da_chamada(filho) in NOMES_QUE_PERGUNTAM
         ]
         if varreduras:
             achados[ELO_VARREDURA].extend(varreduras)

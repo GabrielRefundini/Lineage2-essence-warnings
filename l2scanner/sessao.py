@@ -58,7 +58,7 @@ from .aprendiz import Candidata
 # IMPORTA o acervo, lido da arvore sintatica, e essa distincao e deliberada: a
 # sessao SEGURA um `AcervoDeIdentidades` que o `__main__` construiu, e nunca
 # constroi um.
-from .batismo import Pendente, montar_pergunta
+from .batismo import Pendente, montar_pergunta_com_imagens
 from .console import moldurar
 from .frames import Frame, SaudeDoFrame
 from .loot import Designacao, nick_para_o_aviso
@@ -337,17 +337,37 @@ class Sessao:
         categoria: Categoria = Categoria.NORMAL,
         conversa_alvo: str | None = None,
         resultado: ResultadoDoTick | None = None,
+        anexos=None,
+        texto_sem_anexos: str | None = None,
     ) -> None:
         """Um único ponto de saída, e é de propósito.
 
         Com o despacho espalhado por cinco lugares do laço, cada um podia
         errar o destino sozinho — e um errou. Aqui todo despacho passa pelo
         mesmo caminho e cai no resultado, onde o teste consegue ver.
+
+        `anexos` so aparece na pergunta do batismo, que e a unica mensagem do
+        produto que leva imagem. Quando nao ha imagem, a chamada ao despachante
+        e a de SEMPRE, com tres argumentos e nada mais: e o que mantem servindo
+        os despachantes falsos que a suite ja tem, e o que garante que nenhuma
+        outra mensagem passou a andar por um caminho novo.
+
+        `resultado.despachos` continua sendo a tripla de sempre. Ele existe
+        para o teste ver ONDE a mensagem saiu, e uma imagem nao muda destino.
         """
         if resultado is not None:
             resultado.despachos.append((texto, categoria, conversa_alvo))
         if self.despachante:
-            self.despachante.despachar(texto, categoria, conversa_alvo)
+            if anexos:
+                self.despachante.despachar(
+                    texto,
+                    categoria,
+                    conversa_alvo,
+                    anexos=anexos,
+                    texto_sem_anexos=texto_sem_anexos,
+                )
+            else:
+                self.despachante.despachar(texto, categoria, conversa_alvo)
 
     # -- o tick -------------------------------------------------------------
 
@@ -883,7 +903,7 @@ class Sessao:
                 for aprendizado in saida.aprendizados
                 if aprendizado.desfecho == "criado"
             ]
-            pergunta = montar_pergunta(self.acervo, pendentes)
+            pergunta = montar_pergunta_com_imagens(self.acervo, pendentes)
             if pergunta:
                 # `Categoria.SEMPRE`, E A RAZAO PRECISA FICAR ESCRITA: o
                 # marcador de D-04 e de MAO UNICA. `Categoria.NORMAL` e cortada
@@ -893,7 +913,18 @@ class Sessao:
                 # em que a party mais muda de gente. A varredura do proximo
                 # arranque salvaria o caso, mas depender dela seria transformar
                 # uma perda evitavel em rotina.
-                self._despachar(pergunta, Categoria.SEMPRE, resultado=resultado)
+                #
+                # A RESERVA VAI JUNTO, e ela nao e detalhe: se o anexo falhar,
+                # o transporte manda `texto_sem_imagens`, que e a pergunta de
+                # hoje. Sem ela sairia um texto prometendo uma imagem que nao
+                # chegou, e o dono procuraria um arquivo que nao existe.
+                self._despachar(
+                    pergunta.texto,
+                    Categoria.SEMPRE,
+                    resultado=resultado,
+                    anexos=pergunta.imagens,
+                    texto_sem_anexos=pergunta.texto_sem_imagens,
+                )
 
     def _registrar_recusas(self, recusas: list) -> None:
         """O auto-diagnostico de D-07, com a cadencia que nao foi inventada.
