@@ -15,10 +15,12 @@ hypothesis: >
   melhor que com o `0` partido (0,5976). Nao e largura de run e nao e conversao
   ponderada para cinza.
 next_action: >
-  DECISAO DO USUARIO. Toda correcao por PISO DE BRILHO esta refutada por medicao
-  (conjunto admissivel = 1 ponto, folga zero). A direcao que sobra e cortar um
-  segundo conjunto de moldes sobre texto CIANO, e isso exige recalibracao pelo
-  usuario — o agente nao pode escrever `calibration.json`.
+  A RECALIBRACAO E DO USUARIO, e o mecanismo esta pronto e fechado. Ele roda
+  `calibrar-mercado.bat --so-digitos --tinta cromatica --frame <frame>` ate os
+  onze rotulos estarem completos. NAO ha regra de indice de linha (medido: a
+  paridade nao e estavel entre frames); quem confere o corte do `0` e a guarda
+  da propria ferramenta. Enquanto o conjunto nao existir ou estiver incompleto,
+  a celula ciana continua RECUSADA -- a metade B, intacta.
 ---
 
 # A coluna Total Price da Adena tem valores em ciano, e eles nao se leem
@@ -349,3 +351,196 @@ por pagina que liam certo. A metade A e quem as devolve, e ela nao comeca aqui.
   a fixtura do teste vermelho.
 - `tests/fixtures/mercado/glifos_colados_total_f105.png` — o `149,44`
   documentado, que e o TETO de qualquer piso.
+
+
+## METADE A — EM CURSO
+
+focus: >
+  A metade A comeca pela MEDICAO de maior risco, e nao pelo codigo: o `0` ciano
+  sai sempre com a mesma forma? A metade B mediu duas celulas cianas de
+  saturacao quase igual (117 e 116) com desfechos OPOSTOS — uma le `100,00`
+  (anel PARTIDO) e a outra `158,88` (anel FECHADO). Se essa divergencia for da
+  COR, um conjunto ciano nao existe e a metade A esta morta.
+teste: >
+  Extrair todo glifo cuja verdade de tela e `0` das celulas CIANAS com verdade
+  conferida, e comparar as mascaras entre si pixel a pixel. Um conjunto ciano so
+  serve se houver UMA forma canonica.
+next_action: >
+  Rodar a varredura de variancia intra-ciano sobre `janela_adena_f014.png` L5,
+  `janela_negociacao_f010.png` L4, `janela_tooltip_f012.png` L3 e as oito linhas
+  cianas de `20260901-172911-adena-diagnostico/frame_000003.png`.
+
+### A VARIANCIA DENTRO DO CIANO — MEDIDA, E ELA TEM CAUSA MECANICA
+
+A metade B viu duas celulas CIANAS de saturacao quase igual com desfechos
+opostos e nao soube por que. **Nao e o antisserrilhamento sorteando.** E a
+FAIXA ZEBRADA da grade, que o proprio `calibrar_mercado` ja documenta ("o FUNDO
+da linha alterna entre 48 e 66").
+
+Medido em `20260901-172911-adena-diagnostico/frame_000003.png`, dez linhas:
+
+    paridade  fundo  pico  saturacao  hastes do `0`   tinta   leitura
+    par       48     255   117        176/178         12 px   CERTA
+    impar     66     255   113        181/183         16 px   `88`  ERRADA
+
+**As hastes laterais do `0` valem 178 sobre fundo 48 e 183 sobre fundo 66.** O
+piso absoluto e 180. Um degrau de 18 niveis no FUNDO desloca a borda
+antisserrilhada em 5 niveis e ela atravessa o piso. A borda esta sempre a
+alpha ~= 0,62 do caminho entre fundo e pico:
+
+    branco impar:  66 + 0,62*(230-66) = 168   -> abaixo de 180, some
+    branco par:    48 + 0,62*(226-48) = 158   -> abaixo de 180, some
+    ciano  par:    48 + 0,62*(255-48) = 176   -> abaixo de 180, some
+    ciano  impar:  66 + 0,62*(255-66) = 183   -> ACIMA de 180, FICA
+
+O branco fica FORA do piso nas duas paridades (por isso ele nunca quebrou); o
+ciano cai dos DOIS lados do piso. **O defeito e de UMA paridade so.** Confirmado
+em `janela_tooltip_f012.png`: toda celula ciana de fundo 48 le CERTO hoje
+(`380,00`, `125,00`, `140,00`, `134,40`) e toda ciana de fundo 66 erra
+(`158,88` por `150,00`, `128,88` por `120,00`) — e isso explica a divisao 87/46
+das 133 recusadas pela metade B.
+
+### O VEREDITO: UM conjunto ciano BASTA — mas SO se cortado na paridade CLARA
+
+Medido com material REAL, sem modelo: o `8` ciano vem de
+`janela_tooltip_f012.png` L2 (`380,00`, fundo 48, 18 px), e os dois `0` cianos
+do frame de diagnostico.
+
+    conjunto ciano cortado em   obs fundo 48 (12px)   obs fundo 66 (16px)
+    fundo 48 (par)              OK  folga 0,4107      FALHA  folga 0,0080
+    fundo 66 (impar)            OK  folga 0,2013      OK     folga 0,2174
+
+A margem exigida e 0,03698. **Cortar na paridade ESCURA (fundo 48) NAO conserta
+a paridade que esta quebrada** — a folga cai para 0,0080, um quinto da exigida.
+Cortar na paridade CLARA (fundo 66) serve as DUAS, com 5x a margem.
+
+**Isto e a resposta ao ponto 4, e ela nao e "sim" nem "nao": e "sim, se cortar
+na linha certa".** As linhas certas sao exatamente aquelas cujo total HOJE
+termina em `88`.
+
+Um modelo de re-renderizacao (`V' = fundo + alpha*(pico-fundo)`, alpha do
+glifo branco) foi validado antes de qualquer conclusao: ele preve o `0` ciano
+CLARO byte a byte (16 px identicos) e o ESCURO com 1 px de erro (13 previsto,
+12 observado). Ele so serviu de conferencia — os numeros do veredito acima sao
+todos de pixel observado.
+
+
+## METADE A — FEITA: o segundo conjunto existe, e quem o escolhe e a tinta
+
+status: mecanismo pronto; falta SO o corte dos 13 glifos, que e do usuario
+
+### (a) A CHAVE PROPRIA
+
+`mercado_templates_de_digito_cromatico`, chave de TOPO em `calibracao.py`,
+paralela a `mercado_templates_de_digito`. `calibrar_mercado` ganhou
+`--tinta {acromatica,cromatica}`, que so vale com `--so-digitos` e que decide,
+num unico lugar (`_gravar_os_glifos`), em qual chave escrever.
+
+**A protecao virou ESTRUTURAL.** `fundir_glifos` funde por ROTULO, e o rotulo
+`0` e o mesmo nas duas cores: com uma chave so, cortar ciano APAGARIA os treze
+brancos, calado, no fim de uma sessao que o usuario acharia bem-sucedida. Com
+duas chaves isso deixa de ser uma regra a lembrar. Preso nos dois sentidos em
+`tests/test_moldes_cromaticos.py`.
+
+A rodada ciana tambem NAO reescreve `mercado_limiar_de_glifo` — e UM escalar
+compartilhado, e uma calibracao OPCIONAL nao pode mexer no piso de que o
+caminho branco depende.
+
+### (b) O SELETOR POR CELULA
+
+`moldes_da_tinta(bgr, valor_minimo, moldes, moldes_cromaticos)` em
+`mercado_leitura.py`. A MESMA medicao da metade B, usada ao contrario:
+
+    tinta ACROMATICA        -> devolve `moldes` (o MESMO objeto)
+    tinta CROMATICA + conjunto COMPLETO -> devolve `moldes_cromaticos`
+    tinta CROMATICA sem conjunto/incompleto -> devolve None, o chamador RECUSA
+
+Os cinco pontos de chamada da metade B viraram cinco selecoes. `ler_linha` e
+`ler_linha_de_adena` ganharam `moldes_cromaticos=None` — **por omissao, a
+metade B inteira**, e por isso todos os testes dela seguem verdes sem uma linha
+de mudanca.
+
+**Conjunto INCOMPLETO vale o mesmo que nenhum, por medicao.** O `8` CIANO real
+contra um conjunto sem o `8` casa 0,7826 com o `0` e 0,6198 com o `5`: folga
+0,1628, um `8` viraria `0` com a mesma confianca com que hoje um `0` vira `8`.
+`conjunto_descreve_numeros` exige os ONZE rotulos de numero.
+
+### A GUARDA DE PARIDADE, que e o que impede o esforco jogado fora
+
+`conferir_a_paridade_do_ciano` RECUSA, antes de escrever, um conjunto ciano
+cujo `0` seja um anel PARTIDO — a assinatura de corte sobre fundo 48. A
+mensagem diz onde cortar. Sem ela, os treze recortes de mouse do usuario
+produziriam um conjunto que parece calibrado e que erra exatamente as linhas
+que ja erram, com folga 0,0080 contra os 0,03698 exigidos.
+
+### O CONTROLE NEGATIVO, POR LEITURA CERTA E NAO POR CONTAGEM
+
+Varridas **5.232 celulas de numero que liam antes**, em 5 gravacoes de
+negociacao, com o codigo de HEAD contra o de hoje:
+
+    ACROMATICAS  valor IDENTICO ........ 4.527
+    ACROMATICAS  valor DIFERENTE .......     0
+    CROMATICAS   corrigidas ............   243   (237 terminavam em `88`)
+    CROMATICAS   mesmo valor de antes ..   280
+    CROMATICAS   recusadas (None) ......   182
+    CROMATICAS   trocadas por valor errado    0
+
+As 6 que a peneira automatica marcou como "trocadas" foram conferidas NO PIXEL
+e sao CORRECOES que a peneira nao reconheceu (ela so procurava `88`):
+`216,58` -> `216,50` e `134,48` -> `134,40`, os dois com o anel FECHADO de 16 px
+no ultimo glifo. **Zero regressoes em 5.232 celulas.**
+
+Validacao CRUZADA entre arquivos, que e o que tira a circularidade: os moldes
+cortados de `janela_tooltip_f012.png` leem as dez linhas de verdade de campo de
+`20260901-172911-adena-diagnostico/frame_000003.png`:
+
+    antes:   6 certas, 4 ERRADAS (`149,88`, `188,88` x3, `184,88`)
+    depois:  8 certas, 2 recusadas, 0 ERRADAS
+
+E das quatro falhas conferidas no pixel no ciclo anterior, TRES passam a ler
+certo (`125,00`, `100,00`, `700,00`) e uma e recusada (`140,00`). O `149,44`
+tambem e recusado: e o custo declarado, e ele nunca devolve outro valor.
+
+### O TESTE VERMELHO DELIBERADO
+
+`TestOTotalCianoSeLe::test_a_linha_ciana_le_o_que_esta_na_tela` esta VERDE,
+lendo `135,00`. A classe foi aposentada e a MESMA afirmacao vive em
+`TestOCianoSELE`, agora passando pelo SELETOR DE PRODUCAO. O `0` que a conserta
+e recorte REAL de OUTRO arquivo — nenhum molde vem da celula sob teste.
+
+Suite: **4366 passed, 2 skipped, 0 failures** (era 4325 + 1 vermelho).
+
+### O QUE FALTA, E E DO USUARIO
+
+Os treze glifos cianos. O comando esta em `calibrar-mercado.bat`, e a restricao
+de paridade e obrigatoria — ver a guarda acima.
+
+
+### A REGRA "CORTE DAS LINHAS IMPARES" FOI TESTADA E REPROVADA
+
+A tentacao obvia era mandar o usuario cortar das linhas impares, ja que no
+`frame_000003` as impares sao as de fundo 66. **Varridos 293 frames de 4
+gravacoes, ela nao se sustenta:**
+
+    linhas PARES   (0,2,4,6,8) -> fundos observados 44, 45, 47, 48, 53, 66
+    linhas IMPARES (1,3,5,7,9) -> fundos observados 45, 47, 48, 52, 53, 56,
+                                                    60, 65, 66
+
+As DUAS paridades aparecem clara e escura. A rolagem desloca a grade por
+fracao de linha e o realce de selecao muda o fundo, entao o indice da linha NAO
+identifica a faixa. Uma instrucao baseada nele mandaria o usuario cortar no
+lugar errado com confianca — exatamente o modo de falha que esta sessao existe
+para nao repetir.
+
+**Quem confere e a ferramenta, e nao o olho do usuario:**
+`conferir_a_paridade_do_ciano` recusa o conjunto cujo `0` saiu com anel
+partido, que e o unico glifo em que o corte errado produz LEITURA ERRADA em vez
+de recusa.
+
+**E os outros dez rotulos degradam para RECUSA, nao para erro.** Um molde
+cortado na faixa errada simplesmente nao alcanca o piso de 0,4698, e a celula
+cai fechada. E o que a varredura mediu: o conjunto de teste tem procedencia
+MISTA (7 recortes reais, 4 derivados) e ainda assim deu **0 leituras erradas em
+5.232 celulas**, com 182 recusas. Se em campo sobrarem recusas cianas demais, a
+resposta e recortar aqueles glifos noutro frame — a fusao por rotulo preserva
+os que ja estao bons.
