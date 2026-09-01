@@ -732,6 +732,11 @@ class TestNadaAquiLeNome:
             "recorte_do_total",
             "recorte_do_incremento",
             "moldes",
+            # O segundo conjunto de moldes, o CROMATICO. Ele entra na assinatura
+            # OPCIONAL e por omissao `None`, e e isso que faz a metade B
+            # sobreviver a metade A: sem conjunto ciano gravado, a celula ciana
+            # continua sendo RECUSADA e nao adivinhada.
+            "moldes_cromaticos",
             "piso",
             "margem",
             "valor_minimo_do_numero",

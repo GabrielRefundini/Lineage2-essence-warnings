@@ -305,30 +305,23 @@ class TestOCaminhoDaNegociacaoNaoMuda:
         assert ler(cal, moldes, ler_fixtura(GLIFOS_COLADOS_TOTAL_F105)) == "149,44"
 
 
-class TestOTotalCianoSeLe:
-    """O ALVO. Hoje ele falha: a tela diz `135,00` e a leitura devolve `135,88`.
-
-    Ele passa quando a leitura souber lidar com a curva tonal do ciano — e a
-    medicao ja disse que isso NAO pode vir de mexer no piso de brilho (ver a
-    docstring do modulo: o conjunto admissivel e um ponto, sem folga).
-    """
-
-    def test_a_linha_ciana_le_o_que_esta_na_tela(self, cal, janela, moldes):
-        assert ler(cal, moldes, recorte_do_total(cal, janela, LINHA_CIANA)) == (
-            TOTAL_NA_TELA
-        )
-
-    def test_e_a_falha_de_hoje_e_trocar_zero_por_oito(
-        self, cal, janela, moldes
-    ):
-        """A ASSINATURA do defeito, presa para que a correcao seja reconhecivel.
-
-        Enquanto o defeito existir esta leitura e `135,88`. Quando ele morrer
-        este teste deve ser APAGADO junto — ele descreve o defeito, nao o
-        contrato.
-        """
-        lido = ler(cal, moldes, recorte_do_total(cal, janela, LINHA_CIANA))
-        assert lido in (TOTAL_NA_TELA, "135,88")
+# A CLASSE `TestOTotalCianoSeLe` FOI APAGADA AQUI, E ISSO NAO E AFROUXAMENTO.
+#
+# Ela era o ALVO VERMELHO deixado de proposito pela metade B: a tela diz
+# `135,00` e a leitura devolvia `135,88`. A metade A a torna VERDE lendo
+# CERTO, e a MESMA afirmacao -- mesma celula, mesmo valor esperado -- mudou
+# de casa para `TestOCianoSELE::test_a_linha_ciana_le_o_que_esta_na_tela`,
+# agora passando pelo SELETOR DE PRODUCAO (`moldes_da_tinta`) em vez de
+# receber um conjunto na mao. O teste ficou MAIS forte, e nao mais fraco: ele
+# exige que a escolha do conjunto seja feita pelo codigo, olhando so para os
+# pixels da celula.
+#
+# O segundo teste da classe (`test_e_a_falha_de_hoje_e_trocar_zero_por_oito`)
+# pedia, na propria docstring, para ser APAGADO quando o defeito morresse --
+# ele descrevia o defeito, e nao o contrato. O que ele protegia (saber QUEM
+# consertou) virou `TestOCianoSELE::
+# test_o_CONTROLE_e_que_sem_o_conjunto_ciano_ela_ainda_erraria`, que afirma
+# que SEM o conjunto ciano a mesma celula continua devolvendo `135,88`.
 
 
 # ---------------------------------------------------------------------------
@@ -706,3 +699,547 @@ class TestOCaminhoBrancoNaoSEMOVE:
                 cal, moldes, janela_negociacao, indice
             )
             assert not isinstance(resultado, mercado_leitura.Descarte)
+
+
+# ---------------------------------------------------------------------------
+# A METADE A — o SEGUNDO conjunto de moldes, e quem escolhe entre os dois
+# ---------------------------------------------------------------------------
+#
+# A VARIANCIA DENTRO DO CIANO TEM CAUSA MECANICA, E ELA DECIDE TUDO.
+#
+# A metade B viu duas celulas CIANAS de saturacao quase igual (117 e 116) com
+# desfechos OPOSTOS e nao soube por que. Nao e o antisserrilhamento sorteando:
+# e a FAIXA ZEBRADA da grade, que o proprio `calibrar_mercado` ja documenta ("o
+# FUNDO da linha alterna entre 48 e 66").
+#
+# A borda antisserrilhada de um glifo fica a ~0,62 do caminho entre o fundo e o
+# pico, e o piso da mascara e ABSOLUTO em 180:
+#
+#     branco sobre fundo 48:  48 + 0,62*(226-48) = 158  -> some
+#     branco sobre fundo 66:  66 + 0,62*(230-66) = 168  -> some
+#     ciano  sobre fundo 48:  48 + 0,62*(255-48) = 176  -> some
+#     ciano  sobre fundo 66:  66 + 0,62*(255-66) = 183  -> FICA
+#
+# O BRANCO fica abaixo do piso nas DUAS paridades, e por isso ele nunca se
+# partiu. O CIANO cai dos DOIS lados: o `0` sai com 12 px sobre fundo 48 (anel
+# PARTIDO, casa com `0`, le CERTO) e com 16 px sobre fundo 66 (anel FECHADO,
+# casa com `8`, le `88`).
+#
+# MEDIDO em `20260901-172911-adena-diagnostico/frame_000003.png`, dez linhas de
+# verdade conferida no pixel: TODA linha ciana de fundo 66 erra, e TODA linha
+# ciana de fundo 48 acerta. O mesmo em `janela_tooltip_f012.png`. E isso explica
+# a divisao 87/46 das 133 linhas que a metade B passou a recusar.
+#
+# O VEREDITO: UM conjunto ciano BASTA, mas SO cortado na paridade CLARA
+# ---------------------------------------------------------------------
+# Medido com material REAL (o `8` ciano de `janela_tooltip_f012.png` L2,
+# `380,00`, 18 px) e os dois `0` cianos do frame de diagnostico:
+#
+#     conjunto cortado em    obs fundo 48       obs fundo 66
+#     fundo 48 (escuro)      OK  folga 0,4107   FALHA  folga 0,0080
+#     fundo 66 (claro)       OK  folga 0,2013   OK     folga 0,2174
+#
+# A margem exigida e 0,03698. Cortar na paridade ESCURA NAO conserta a paridade
+# quebrada -- um quinto da folga necessaria. Cortar na CLARA serve as duas.
+# `conferir_a_paridade_do_ciano` recusa o corte errado ANTES de gravar.
+#
+# POR QUE O CONJUNTO SO ENTRA EM USO INTEIRO
+# -------------------------------------------
+# Um conjunto cromatico INCOMPLETO falha ABERTO, que e o modo que a metade B
+# existe para fechar. Medido com o `8` ciano REAL contra um conjunto SEM o `8`:
+#
+#     `8` ciano observado vs molde `0` ciano = 0,7826  <- VENCE
+#     `8` ciano observado vs molde `5` ciano = 0,6198
+#
+# Folga 0,1628 sobre o segundo: um `8` viraria `0` com a mesma confianca com
+# que hoje um `0` vira `8`. Por isso `conjunto_descreve_numeros` exige os ONZE
+# rotulos, e meio conjunto vale o mesmo que nenhum -- a recusa da metade B.
+
+
+def _partes_da_celula(cal, janela, indice):
+    """Mascara e V CRU de cada glifo da celula, mais o fundo e o pico da linha."""
+    recorte = recorte_do_total(cal, janela, indice)
+    faixa, runs = mercado_leitura.segmentar_glifos_no_brilho(
+        recorte, VALOR_MINIMO_DO_TEXTO
+    )
+    topo, base = faixa
+    v = cv2.cvtColor(recorte, cv2.COLOR_BGR2HSV)[:, :, 2].astype(float)
+    mascara = (
+        mercado_leitura.mascara_de_numero(recorte, VALOR_MINIMO_DO_TEXTO) * 255
+    ).astype(np.uint8)
+    partes = [(mascara[topo:base, i:f], v[topo:base, i:f]) for i, f in runs]
+    return partes, float(np.median(v[v <= 100])), float(v.max())
+
+
+# O FUNDO e o PICO da faixa CLARA, que e a paridade em que o conjunto ciano tem
+# de ser cortado. Medidos, nao escolhidos.
+FUNDO_CLARO, PICO_CIANO = 66.0, 255.0
+
+
+def _rerenderizar(v_cru, fundo, pico, fundo_novo, pico_novo):
+    """O MESMO glifo redesenhado noutra faixa tonal, pelo alpha da borda.
+
+    ESTE MODELO FOI VALIDADO ANTES DE SER USADO, e a validacao e o unico motivo
+    de ele estar aqui. Previsto a partir de glifos BRANCOS de fundo 48 e
+    conferido contra o pixel CIANO CLARO real de `janela_tooltip_f012.png`:
+
+        `0`: previsto 16 px, real 16 px, ZERO pixels diferentes
+        `2`: previsto 13 px, real 13 px, ZERO pixels diferentes
+        `5`: previsto 15 px, real 15 px, ZERO pixels diferentes
+
+    Byte a byte em 3 de 3. Ele serve so para completar os rotulos que NENHUMA
+    fixtura versionada tem em ciano claro -- material nao existe, e inventar um
+    numero contra material que nao tem o caso dificil e exatamente o erro que
+    este arquivo inteiro documenta. Os moldes assim obtidos sao mais GORDOS que
+    os reais (o `8` sai com 22 px contra os 18 px do `8` ciano real medido), o
+    que os torna concorrentes MAIS DUROS para o `0` -- o erro do modelo empurra
+    para o lado da recusa, nunca para o do palpite.
+    """
+    alpha = np.clip((v_cru - fundo) / (pico - fundo), 0, 1)
+    return ((fundo_novo + alpha * (pico_novo - fundo_novo)) > 180).astype(
+        np.uint8
+    ) * 255
+
+
+@pytest.fixture(scope="module")
+def moldes_cianos(cal, janela, janela_tooltip) -> dict:
+    """O conjunto CROMATICO, cortado na paridade CLARA. Onze rotulos.
+
+    A PROVENIENCIA DE CADA MOLDE ESTA ESCRITA, porque metade da historia deste
+    defeito e "de onde veio esse numero":
+
+        REAIS, recortados de pixel CIANO CLARO (fundo 66):
+            `1` `5` `0` `,`  <- janela_tooltip_f012 L3, tela `150,00`
+            `2`              <- janela_tooltip_f012 L7, tela `120,00`
+            `4`              <- janela_tooltip_f012 L9, tela `149,44`
+
+        DERIVADOS pelo modelo validado acima, por FALTA DE MATERIAL:
+            `3`              <- o `3` CIANO ESCURO de L2 (`380,00`)
+            `6` `7` `8` `9`  <- glifos BRANCOS de janela_adena_f014
+
+    NENHUM molde vem da celula sob teste. O `0` -- o glifo que carrega o
+    defeito inteiro -- e recorte REAL de OUTRO ARQUIVO, e e por isso que
+    `test_a_linha_ciana_le_o_que_esta_na_tela` nao e circular.
+    """
+    conjunto = {}
+    partes, _, _ = _partes_da_celula(cal, janela_tooltip, 3)  # `150,00` claro
+    for rotulo, indice in (("1", 0), ("5", 1), ("0", 2), (",", 3)):
+        conjunto[rotulo] = partes[indice][0]
+    partes, _, _ = _partes_da_celula(cal, janela_tooltip, 7)  # `120,00` claro
+    conjunto["2"] = partes[1][0]
+    partes, _, _ = _partes_da_celula(cal, janela_tooltip, 9)  # `149,44` claro
+    conjunto["4"] = partes[3][0]
+
+    partes, fundo, pico = _partes_da_celula(cal, janela_tooltip, 2)  # `380,00`
+    conjunto["3"] = _rerenderizar(
+        partes[0][1], fundo, pico, FUNDO_CLARO, PICO_CIANO
+    )
+    for rotulo, (linha, glifo) in (
+        ("6", (0, 0)),  # `62,00`
+        ("7", (4, 1)),  # `67,00`
+        ("8", (6, 1)),  # `68,00`
+        ("9", (1, 3)),  # `64,99`
+    ):
+        partes, fundo, pico = _partes_da_celula(cal, janela, linha)
+        conjunto[rotulo] = _rerenderizar(
+            partes[glifo][1], fundo, pico, FUNDO_CLARO, PICO_CIANO
+        )
+    return conjunto
+
+
+def ler_pela_tinta(cal, moldes, moldes_cromaticos, recorte):
+    """A celula lida pelo SELETOR DE PRODUCAO, e nao por um conjunto na mao.
+
+    Passar o conjunto ciano direto provaria que moldes cianos leem ciano, que
+    ninguem duvida. O que precisa de prova e que `moldes_da_tinta` ESCOLHE o
+    conjunto certo sozinho, olhando so para os pixels da celula.
+    """
+    escolhidos = mercado_leitura.moldes_da_tinta(
+        recorte, VALOR_MINIMO_DO_TEXTO, moldes, moldes_cromaticos
+    )
+    if escolhidos is None:
+        return None
+    return ler(cal, escolhidos, recorte)
+
+
+def _argumentos_da_linha(cal, janela, indice):
+    rastreio = RastreioDoPainel(
+        ancoras_de_calibracao(cal.mercado_ancoras),
+        float(cal.mercado_limiar_da_ancora),
+    )
+    rastreio.observar(janela)
+    ox, oy = rastreio.origem
+    grade = cal.mercado_grade
+    altura = int(grade["altura_da_linha"])
+    topo = oy + int(grade["dy"]) + indice * altura
+
+    def coluna(rect):
+        x = ox + int(rect["dx"])
+        return janela[topo : topo + altura, x : x + int(rect["largura"])]
+
+    faixa = janela[
+        topo : topo + altura,
+        ox + int(grade["dx"]) : ox + int(grade["dx"]) + int(grade["largura"]),
+    ]
+    return (
+        indice,
+        faixa,
+        coluna(cal.mercado_coluna_do_nome),
+        coluna(cal.mercado_coluna_do_total),
+        coluna(cal.mercado_coluna_da_quantidade),
+        coluna(cal.mercado_coluna_do_unitario),
+    )
+
+
+def _opcoes_da_linha(cal):
+    return dict(
+        piso=float(cal.mercado_limiar_de_leitura_de_glifo),
+        margem=float(cal.mercado_margem_de_leitura_de_glifo),
+        valor_minimo_do_numero=VALOR_MINIMO_DO_TEXTO,
+        valor_minimo_da_quantidade=int(
+            cal.mercado_limiar_de_brilho_da_quantidade
+        ),
+        folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
+        sonda=cal.mercado_sonda_do_fundo,
+        limiar_de_dispersao=float(cal.mercado_limiar_de_dispersao_do_fundo),
+        tolerancia_do_cruzamento=cal.mercado_tolerancia_do_cruzamento,
+        trava_da_observacao=mercado_leitura.TravaDaObservacao(),
+        catalogo={},
+        corte_de_similaridade=float(cal.mercado_corte_de_similaridade),
+        piso_de_similaridade=float(cal.mercado_piso_de_similaridade),
+        ler_texto=lambda _img: "Item De Teste",
+        ler_texto_conferencia=lambda _img: "Item De Teste",
+    )
+
+
+class TestAZebraEACausaDaVarianciaDentroDoCiano:
+    """A medicao que decide se a metade A e possivel. Ela vem antes do resto."""
+
+    def test_as_duas_paridades_tem_fundos_diferentes(self, cal, janela):
+        """48 e 66, e nao "mais ou menos": e o degrau que move a borda."""
+        fundos = {}
+        for indice in range(10):
+            _, fundo, _ = _partes_da_celula(cal, janela, indice)
+            fundos.setdefault(indice % 2, set()).add(fundo)
+        assert fundos[0] == {48.0}
+        assert fundos[1] == {66.0}
+
+    def test_o_zero_ciano_tem_DUAS_formas_e_a_paridade_diz_qual(
+        self, cal, janela_tooltip
+    ):
+        """`150,00` (fundo 66) fecha o anel; `125,00` (fundo 48) o deixa aberto.
+
+        Mesma cor, mesma fonte, mesmo frame. So o fundo muda.
+        """
+        claro, _, _ = _partes_da_celula(cal, janela_tooltip, 3)
+        escuro, _, _ = _partes_da_celula(cal, janela_tooltip, 4)
+        assert int((claro[-1][0] > 0).sum()) == 16
+        assert int((escuro[-1][0] > 0).sum()) == 12
+
+    def test_e_e_a_paridade_CLARA_que_erra_hoje(
+        self, cal, moldes, janela_tooltip
+    ):
+        """O defeito e de UMA faixa so, e e a de fundo 66.
+
+        Com os moldes BRANCOS: as linhas de fundo 48 leem certo e as de fundo
+        66 devolvem `88`. Este teste e o controle que impede a metade A de ser
+        creditada por consertar algo que nunca esteve quebrado.
+        """
+        for indice, esperado in ((4, "125,00"), (6, "140,00")):  # fundo 48
+            assert ler(
+                cal, moldes, recorte_do_total(cal, janela_tooltip, indice)
+            ) == esperado
+        for indice in (3, 7):  # fundo 66, tela `150,00` e `120,00`
+            lido = ler(
+                cal, moldes, recorte_do_total(cal, janela_tooltip, indice)
+            )
+            assert lido is not None and lido.endswith("88")
+
+    def test_um_conjunto_cortado_na_paridade_ESCURA_nao_conserta(
+        self, cal, janela_tooltip
+    ):
+        """O NUMERO QUE JUSTIFICA A GUARDA DE PARIDADE, preso aqui.
+
+        Se um dia alguem achar que "ciano e ciano" e cortar o conjunto na faixa
+        escura, o resultado nao e um erro barulhento: e uma folga de 0,0080
+        contra os 0,03698 exigidos, num conjunto que parece calibrado.
+        """
+        claro, _, _ = _partes_da_celula(cal, janela_tooltip, 3)  # `150,00`
+        escuro, _, _ = _partes_da_celula(cal, janela_tooltip, 4)  # `125,00`
+        oito, _, _ = _partes_da_celula(cal, janela_tooltip, 2)  # `380,00`
+        obs_claro, obs_escuro = claro[-1][0], escuro[-1][0]
+        molde_oito = oito[1][0]
+
+        def score(observacao, molde):
+            a, b = mercado_leitura._alinhar_por_preenchimento(observacao, molde)
+            return float(casamento_da_ancora(a, b))
+
+        margem = float(cal.mercado_margem_de_leitura_de_glifo)
+        # cortado no ESCURO: nao separa `0` de `8` na observacao CLARA
+        folga_escuro = score(obs_claro, obs_escuro) - score(
+            obs_claro, molde_oito
+        )
+        assert 0 < folga_escuro < margem, folga_escuro
+        # cortado no CLARO: separa nas DUAS
+        assert (
+            score(obs_claro, obs_claro) - score(obs_claro, molde_oito) > margem
+        )
+        assert (
+            score(obs_escuro, obs_claro) - score(obs_escuro, molde_oito)
+            > margem
+        )
+
+
+class TestOSeletorEscolheOConjuntoPelaTinta:
+    """O andar (b): quem decide qual conjunto le qual celula."""
+
+    def test_celula_ACROMATICA_recebe_o_conjunto_de_hoje(
+        self, cal, janela, moldes, moldes_cianos
+    ):
+        """E o MESMO OBJETO, e nao um conjunto equivalente.
+
+        O controle negativo sobre o caminho branco e ESTRUTURAL por causa desta
+        identidade: a celula acromatica nao percorre um caminho medido como
+        igual, ela percorre o mesmo.
+        """
+        for indice in sorted(TOTAIS_BRANCOS):
+            escolhido = mercado_leitura.moldes_da_tinta(
+                recorte_do_total(cal, janela, indice),
+                VALOR_MINIMO_DO_TEXTO,
+                moldes,
+                moldes_cianos,
+            )
+            assert escolhido is moldes, f"linha {indice}"
+
+    def test_celula_CROMATICA_recebe_o_conjunto_ciano(
+        self, cal, janela, moldes, moldes_cianos
+    ):
+        escolhido = mercado_leitura.moldes_da_tinta(
+            recorte_do_total(cal, janela, LINHA_CIANA),
+            VALOR_MINIMO_DO_TEXTO,
+            moldes,
+            moldes_cianos,
+        )
+        assert escolhido is moldes_cianos
+
+    def test_SEM_conjunto_ciano_a_celula_cromatica_e_RECUSADA(
+        self, cal, janela, moldes
+    ):
+        """A metade B, intacta, como caso de borda da metade A."""
+        assert (
+            mercado_leitura.moldes_da_tinta(
+                recorte_do_total(cal, janela, LINHA_CIANA),
+                VALOR_MINIMO_DO_TEXTO,
+                moldes,
+                None,
+            )
+            is None
+        )
+
+    def test_conjunto_ciano_INCOMPLETO_vale_o_MESMO_que_nenhum(
+        self, cal, janela, moldes, moldes_cianos
+    ):
+        """Meio conjunto falha ABERTO, e por isso ele nao entra em uso.
+
+        Medido: o `8` CIANO real contra um conjunto ciano sem o `8` casa 0,7826
+        com o `0` e 0,6198 com o `5` -- ele viraria `0` com folga de 0,1628.
+        """
+        pela_metade = {k: v for k, v in moldes_cianos.items() if k != "8"}
+        assert not mercado_leitura.conjunto_descreve_numeros(pela_metade)
+        assert (
+            mercado_leitura.moldes_da_tinta(
+                recorte_do_total(cal, janela, LINHA_CIANA),
+                VALOR_MINIMO_DO_TEXTO,
+                moldes,
+                pela_metade,
+            )
+            is None
+        )
+
+    def test_o_conjunto_completo_sao_os_ONZE_rotulos_do_numero(self):
+        """`XM Coin` e `Adena` NAO entram: sao sufixo, vivem abaixo do piso."""
+        assert mercado_leitura.GLIFOS_DO_NUMERO == frozenset("0123456789,")
+        assert not mercado_leitura.conjunto_descreve_numeros({})
+        assert not mercado_leitura.conjunto_descreve_numeros(None)
+
+
+class TestOCaminhoBrancoContinuaIDENTICO:
+    """O CONTROLE NEGATIVO da metade A, por LEITURA CERTA e nao por contagem.
+
+    Cada valor abaixo esta escrito. Um valor errado que continuasse sendo
+    aceito reprovaria aqui, que e exatamente o que contar linhas aceitas nao
+    faz -- e foi contar linhas aceitas que escondeu este defeito por uma sessao
+    de campo inteira.
+    """
+
+    @pytest.mark.parametrize("indice,esperado", sorted(TOTAIS_BRANCOS.items()))
+    def test_as_nove_linhas_brancas_com_o_conjunto_ciano_PRESENTE(
+        self, cal, janela, moldes, moldes_cianos, indice, esperado
+    ):
+        assert (
+            ler_pela_tinta(
+                cal,
+                moldes,
+                moldes_cianos,
+                recorte_do_total(cal, janela, indice),
+            )
+            == esperado
+        )
+
+    def test_o_run_colado_de_11px_nunca_devolve_outro_valor(
+        self, cal, moldes, moldes_cianos
+    ):
+        """O `149,44` versionado e CIANO CLARO, e o conjunto ciano nao o quebra.
+
+        Ele nao volta a ser lido: com o conjunto ciano ele e RECUSADO (`None`),
+        e recusa e o modo de falha certo. O que este teste prende e que ele
+        NUNCA devolve um valor DIFERENTE de `149,44`.
+        """
+        lido = ler_pela_tinta(
+            cal, moldes, moldes_cianos, ler_fixtura(GLIFOS_COLADOS_TOTAL_F105)
+        )
+        assert lido in (None, "149,44")
+
+    def test_a_linha_branca_da_negociacao_nao_se_move_no_nivel_da_LINHA(
+        self, cal, moldes, moldes_cianos, janela_negociacao
+    ):
+        """O andar em que o seletor mora, com o conjunto ciano LIGADO."""
+        for indice, esperado in sorted(LINHAS_BRANCAS_DA_NEGOCIACAO.items()):
+            resultado = mercado_leitura.ler_linha(
+                *_argumentos_da_linha(cal, janela_negociacao, indice),
+                moldes=moldes,
+                moldes_cromaticos=moldes_cianos,
+                **_opcoes_da_linha(cal),
+            )
+            assert isinstance(resultado, mercado_leitura.LinhaLida)
+            assert (
+                resultado.total_em_centesimos,
+                resultado.quantidade,
+            ) == esperado
+
+
+class TestOCianoSELE:
+    """O ALVO DA METADE A. As linhas cianas voltam a virar dado CERTO."""
+
+    def test_a_linha_ciana_le_o_que_esta_na_tela(
+        self, cal, janela, moldes, moldes_cianos
+    ):
+        """O teste que a metade B deixou VERMELHO de proposito.
+
+        Ele passa lendo CERTO, pelo seletor de producao. O `0` que o conserta e
+        recorte REAL de `janela_tooltip_f012.png`, outro arquivo -- nenhum
+        molde vem da celula sob teste.
+        """
+        assert (
+            ler_pela_tinta(
+                cal,
+                moldes,
+                moldes_cianos,
+                recorte_do_total(cal, janela, LINHA_CIANA),
+            )
+            == TOTAL_NA_TELA
+        )
+
+    def test_o_CONTROLE_e_que_sem_o_conjunto_ciano_ela_ainda_erraria(
+        self, cal, janela, moldes
+    ):
+        """Substitui o teste-de-assinatura da metade B, e prova o mesmo ponto.
+
+        Sem ele, "a linha ciana le certo" nao diria QUEM a consertou -- poderia
+        ser qualquer coisa que mudou no caminho. Com ele, o conjunto ciano e o
+        unico suspeito.
+        """
+        assert ler(cal, moldes, recorte_do_total(cal, janela, LINHA_CIANA)) == (
+            "135,88"
+        )
+
+    @pytest.mark.parametrize(
+        "indice,na_tela",
+        [(3, "150,00"), (7, "120,00")],  # fundo 66: as que erram hoje
+    )
+    def test_as_linhas_CLARAS_da_negociacao_passam_a_ler_certo(
+        self, cal, moldes, moldes_cianos, janela_tooltip, indice, na_tela
+    ):
+        """Verdade conferida no PIXEL, glifo a glifo, e nao suposta.
+
+        Hoje elas devolvem `158,88` e `128,88`. Ver
+        `TestAZebraEACausaDaVarianciaDentroDoCiano`.
+        """
+        assert (
+            ler_pela_tinta(
+                cal,
+                moldes,
+                moldes_cianos,
+                recorte_do_total(cal, janela_tooltip, indice),
+            )
+            == na_tela
+        )
+
+    @pytest.mark.parametrize(
+        "indice,na_tela",
+        [(2, "380,00"), (4, "125,00"), (6, "140,00"), (8, "134,40")],
+    )
+    def test_e_NENHUMA_linha_ESCURA_passa_a_ler_ERRADO(
+        self, cal, moldes, moldes_cianos, janela_tooltip, indice, na_tela
+    ):
+        """A propriedade que importa: `None` e aceitavel, valor errado NAO.
+
+        As linhas de fundo 48 ja liam certo com os moldes brancos, e o conjunto
+        ciano nao as certifica todas de volta -- um molde cortado na faixa
+        clara nao descreve exatamente a erosao da faixa escura, e quando ele
+        nao alcanca o piso a celula cai RECUSADA. Perder dado e o custo;
+        devolver dado errado seria o defeito, e este teste separa os dois.
+        """
+        lido = ler_pela_tinta(
+            cal,
+            moldes,
+            moldes_cianos,
+            recorte_do_total(cal, janela_tooltip, indice),
+        )
+        assert lido in (None, na_tela), lido
+
+    def test_a_linha_ciana_vira_DADO_pelo_caminho_de_producao_da_adena(
+        self, cal, moldes, moldes_cianos, janela
+    ):
+        """A metade B a derrubava por `tinta`; agora ela e LIDA.
+
+        E o cruzamento -- que NAO foi afrouxado -- passa a fechar sobre o valor
+        CERTO em vez de derrubar a linha.
+        """
+        rastreio = RastreioDoPainel(
+            ancoras_de_calibracao(cal.mercado_ancoras),
+            float(cal.mercado_limiar_da_ancora),
+        )
+        rastreio.observar(janela)
+        ox, oy = rastreio.origem
+        grade = cal.mercado_grade
+        altura = int(grade["altura_da_linha"])
+        topo = oy + int(grade["dy"]) + LINHA_CIANA * altura
+        colunas = cal.mercado_layouts["adena"]["colunas"]
+
+        def coluna(rect):
+            x = ox + int(rect["dx"])
+            return janela[topo : topo + altura, x : x + int(rect["largura"])]
+
+        resultado = mercado_leitura.ler_linha_de_adena(
+            LINHA_CIANA,
+            janela[
+                topo : topo + altura,
+                ox + int(grade["dx"]) : ox
+                + int(grade["dx"])
+                + int(grade["largura"]),
+            ],
+            coluna(colunas["total"]),
+            coluna(colunas["unitario"]),
+            moldes=moldes,
+            moldes_cromaticos=moldes_cianos,
+            piso=float(cal.mercado_limiar_de_leitura_de_glifo),
+            margem=float(cal.mercado_margem_de_leitura_de_glifo),
+            valor_minimo_do_numero=VALOR_MINIMO_DO_TEXTO,
+            folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
+            sonda=cal.mercado_sonda_do_fundo,
+            limiar_de_dispersao=float(cal.mercado_limiar_de_dispersao_do_fundo),
+            catalogo={},
+        )
+        assert isinstance(resultado, mercado_leitura.LinhaLida)
+        assert resultado.total_em_centesimos == 13500

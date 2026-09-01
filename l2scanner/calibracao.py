@@ -328,6 +328,26 @@ class Calibracao:
     # `62,00 XM Coin`), e quem desambigua e o sufixo, nao o numero.
     mercado_templates_de_digito: list | None = None
 
+    # O SEGUNDO conjunto de moldes, cortado sobre texto CROMATICO (o ciano dos
+    # precos), e uma CHAVE PROPRIA e nao um apendice do conjunto de cima.
+    #
+    # SEPARADA POR MEDICAO, E NAO POR ARRUMACAO. Os moldes de cima foram
+    # cortados com piso de brilho ABSOLUTO (V > 180) sobre texto BRANCO de pico
+    # 226-230; o ciano desenha o MESMO glifo com pico 255, e a borda
+    # antisserrilhada — que fica a ~0,62 do caminho entre o fundo e o pico —
+    # atravessa o piso. O `0` branco e gravado como um anel PARTIDO de 8 px; o
+    # `0` ciano observado e um anel FECHADO de 16 px, e anel fechado casa com
+    # `8` (0,7242) melhor que com o `0` partido (0,5976). A forma que um molde
+    # codifica so se reproduz no brilho em que ele foi cortado.
+    #
+    # E POR ISSO ELAS NAO PODEM COMPARTILHAR CHAVE: `fundir_glifos` funde por
+    # ROTULO, entao cortar treze glifos cianos na mesma lista APAGARIA os treze
+    # brancos, calado, e o caminho branco — que e o que hoje vira dado — sairia
+    # ilegivel de uma sessao de calibracao que o usuario acharia bem-sucedida.
+    # Com duas chaves isso deixa de ser uma regra a lembrar e passa a ser
+    # impossivel.
+    mercado_templates_de_digito_cromatico: list | None = None
+
     # O limiar SUGERIDO pela matriz de confusao medida na calibracao, com
     # margem sobre o pior score inter-classe daquela watchlist.
     mercado_limiar_de_template: float | None = None
@@ -682,6 +702,9 @@ class Calibracao:
             "mercado_grade": self.mercado_grade,
             "mercado_templates_de_nome": self.mercado_templates_de_nome,
             "mercado_templates_de_digito": self.mercado_templates_de_digito,
+            "mercado_templates_de_digito_cromatico": (
+                self.mercado_templates_de_digito_cromatico
+            ),
             "mercado_limiar_de_template": self.mercado_limiar_de_template,
             "mercado_limiar_de_glifo": self.mercado_limiar_de_glifo,
             # As quatorze da leitura de pagina, no MESMO trilho: um campo nao
@@ -820,6 +843,9 @@ class Calibracao:
             mercado_grade=dados.get("mercado_grade"),
             mercado_templates_de_nome=dados.get("mercado_templates_de_nome"),
             mercado_templates_de_digito=dados.get("mercado_templates_de_digito"),
+            mercado_templates_de_digito_cromatico=dados.get(
+                "mercado_templates_de_digito_cromatico"
+            ),
             mercado_limiar_de_template=dados.get("mercado_limiar_de_template"),
             mercado_limiar_de_glifo=dados.get("mercado_limiar_de_glifo"),
             # E as quatorze da leitura de pagina, pelo MESMO `.get` e pelo mesmo
@@ -1019,6 +1045,7 @@ def _conferir_as_chaves_de_mercado(dados: dict) -> None:
         "mercado_ancoras",
         "mercado_templates_de_nome",
         "mercado_templates_de_digito",
+        "mercado_templates_de_digito_cromatico",
     ):
         valor = dados.get(chave)
         if valor is not None and not isinstance(valor, list):

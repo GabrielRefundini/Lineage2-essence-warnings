@@ -303,6 +303,62 @@ def tinta_fora_da_curva_dos_moldes(bgr: np.ndarray, valor_minimo: int) -> bool:
     return medida > LIMIAR_DE_SATURACAO_DA_TINTA
 
 
+# Os rotulos que um NUMERO pode conter. `XM Coin` e `Adena` ficam de fora de
+# proposito: sao palavras de SUFIXO, vivem abaixo do piso de brilho desta
+# mascara e nenhuma celula de numero as contem.
+GLIFOS_DO_NUMERO = frozenset("0123456789,")
+
+
+def conjunto_descreve_numeros(moldes: dict | None) -> bool:
+    """O conjunto cobre os ONZE rotulos que um numero pode conter?
+
+    A EXIGENCIA DE CONJUNTO COMPLETO NAO E ZELO, E MEDICAO. Um conjunto
+    cromatico INCOMPLETO falha ABERTO, que e o pior modo — o mesmo que a metade
+    B foi instalada para fechar. Medido com o `8` CIANO real de
+    `janela_tooltip_f012.png` L2 (`380,00`), contra um conjunto ciano SEM o `8`:
+
+        `8` ciano observado  vs molde `0` ciano = 0,7826   <- VENCE
+        `8` ciano observado  vs molde `5` ciano = 0,6198
+        piso de leitura 0,4698, margem exigida 0,03698
+
+    Folga de 0,1628 sobre o segundo colocado: um `8` viraria `0` com a mesma
+    confianca com que hoje um `0` vira `8`. Por isso o conjunto so entra em uso
+    INTEIRO, e um conjunto pela metade equivale a nao ter conjunto nenhum.
+    """
+    if not moldes:
+        return False
+    return GLIFOS_DO_NUMERO.issubset(set(moldes))
+
+
+def moldes_da_tinta(
+    bgr: np.ndarray,
+    valor_minimo: int,
+    moldes: dict[str, np.ndarray],
+    moldes_cromaticos: dict[str, np.ndarray] | None,
+) -> dict[str, np.ndarray] | None:
+    """O conjunto de moldes que descreve a TINTA desta celula, ou `None`.
+
+    `None` significa "nao existe conjunto para esta cor" e o chamador RECUSA a
+    celula — e exatamente a recusa que a metade B instalou, preservada aqui
+    como o caso de borda em vez de como a regra.
+
+    A MESMA MEDICAO, USADA DUAS VEZES. `tinta_fora_da_curva_dos_moldes` era um
+    portao de RECUSA; aqui ela vira o SELETOR. Uma celula ACROMATICA devolve o
+    conjunto de hoje, e por isso o caminho branco continua BYTE A BYTE o de
+    antes — nao "um caminho medido como equivalente", o mesmo objeto.
+
+    A ORDEM DOS TESTES IMPORTA: a cor e medida ANTES de olhar o conjunto
+    cromatico. Sem conjunto cromatico nenhum, a funcao devolve os moldes
+    acromaticos para tinta acromatica e `None` para tinta cromatica — que e
+    literalmente o comportamento da metade B, sem um `if` a mais.
+    """
+    if not tinta_fora_da_curva_dos_moldes(bgr, valor_minimo):
+        return moldes
+    if conjunto_descreve_numeros(moldes_cromaticos):
+        return moldes_cromaticos
+    return None
+
+
 def segmentar_glifos_no_brilho(
     recorte: np.ndarray, valor_minimo: int
 ) -> tuple[tuple[int, int] | None, list[tuple[int, int]]]:
@@ -1752,6 +1808,7 @@ def ler_linha(
     recorte_do_unitario: np.ndarray,
     *,
     moldes: dict[str, np.ndarray],
+    moldes_cromaticos: dict[str, np.ndarray] | None = None,
     piso: float,
     margem: float,
     valor_minimo_do_numero: int,
@@ -1853,9 +1910,10 @@ def ler_linha(
         # que conferir. Uma substituicao `0`->`8` em tinta ciana devolve um
         # numero de gramatica PERFEITA, e nenhuma peneira a jusante distingue
         # o `100,00` ciano certo do `188,88` ciano errado.
-        if tinta_fora_da_curva_dos_moldes(
-            recorte_do_total, valor_minimo_do_numero
-        ):
+        moldes_do_total = moldes_da_tinta(
+            recorte_do_total, valor_minimo_do_numero, moldes, moldes_cromaticos
+        )
+        if moldes_do_total is None:
             return _recusar(
                 indice,
                 MOTIVO_DA_TINTA,
@@ -1864,7 +1922,7 @@ def ler_linha(
             )
         total = ler_celula_de_numero(
             recorte_do_total,
-            moldes,
+            moldes_do_total,
             piso,
             margem,
             valor_minimo=valor_minimo_do_numero,
@@ -1876,9 +1934,13 @@ def ler_linha(
             )
         # O MESMO portao, com o piso de brilho PROPRIO da Quantity: medir a cor
         # sobre a tinta que a leitura NAO usa descreveria outra celula.
-        if tinta_fora_da_curva_dos_moldes(
-            recorte_da_quantidade, valor_minimo_da_quantidade
-        ):
+        moldes_da_quantidade = moldes_da_tinta(
+            recorte_da_quantidade,
+            valor_minimo_da_quantidade,
+            moldes,
+            moldes_cromaticos,
+        )
+        if moldes_da_quantidade is None:
             return _recusar(
                 indice,
                 MOTIVO_DA_TINTA,
@@ -1887,7 +1949,7 @@ def ler_linha(
             )
         quantidade = ler_celula_de_quantidade(
             recorte_da_quantidade,
-            moldes,
+            moldes_da_quantidade,
             piso,
             margem,
             valor_minimo=valor_minimo_da_quantidade,
@@ -1911,14 +1973,18 @@ def ler_linha(
         # conferencia, entao um unitario que nao se pode ler CALA a guarda em
         # vez de custar a linha inteira. Derrubar aqui perderia dado SAO por
         # causa de uma coluna que nao vira dado nenhum.
+        moldes_do_unitario = moldes_da_tinta(
+            recorte_do_unitario,
+            valor_minimo_do_numero,
+            moldes,
+            moldes_cromaticos,
+        )
         unitario = (
             None
-            if tinta_fora_da_curva_dos_moldes(
-                recorte_do_unitario, valor_minimo_do_numero
-            )
+            if moldes_do_unitario is None
             else ler_celula_de_numero(
                 recorte_do_unitario,
-                moldes,
+                moldes_do_unitario,
                 piso,
                 margem,
                 valor_minimo=valor_minimo_do_numero,
@@ -1973,6 +2039,7 @@ def ler_linha_de_adena(
     recorte_do_incremento: np.ndarray,
     *,
     moldes: dict[str, np.ndarray],
+    moldes_cromaticos: dict[str, np.ndarray] | None = None,
     piso: float,
     margem: float,
     valor_minimo_do_numero: int,
@@ -2061,9 +2128,10 @@ def ler_linha_de_adena(
         # estar limpo; o que muda e que a linha ciana passa a ser recusada pelo
         # que ela E ("nao sei ler esta cor") e nao por uma consequencia
         # aritmetica disso ("o total nao bate com o incremento").
-        if tinta_fora_da_curva_dos_moldes(
-            recorte_do_total, valor_minimo_do_numero
-        ):
+        moldes_do_total = moldes_da_tinta(
+            recorte_do_total, valor_minimo_do_numero, moldes, moldes_cromaticos
+        )
+        if moldes_do_total is None:
             return _recusar(
                 indice,
                 MOTIVO_DA_TINTA,
@@ -2072,7 +2140,7 @@ def ler_linha_de_adena(
             )
         total = ler_celula_de_numero(
             recorte_do_total,
-            moldes,
+            moldes_do_total,
             piso,
             margem,
             valor_minimo=valor_minimo_do_numero,
@@ -2085,9 +2153,13 @@ def ler_linha_de_adena(
         # E AQUI O PORTAO DERRUBA A LINHA, ao contrario do unitario da
         # negociacao: sem incremento nao ha quantidade, e sem quantidade nao ha
         # taxa. E a mesma regra que o incremento ILEGIVEL ja seguia.
-        if tinta_fora_da_curva_dos_moldes(
-            recorte_do_incremento, valor_minimo_do_numero
-        ):
+        moldes_do_incremento = moldes_da_tinta(
+            recorte_do_incremento,
+            valor_minimo_do_numero,
+            moldes,
+            moldes_cromaticos,
+        )
+        if moldes_do_incremento is None:
             return _recusar(
                 indice,
                 MOTIVO_DA_TINTA,
@@ -2096,7 +2168,7 @@ def ler_linha_de_adena(
             )
         incremento = ler_celula_de_numero(
             recorte_do_incremento,
-            moldes,
+            moldes_do_incremento,
             piso,
             margem,
             valor_minimo=valor_minimo_do_numero,

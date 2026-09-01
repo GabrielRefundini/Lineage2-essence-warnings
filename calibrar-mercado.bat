@@ -49,6 +49,36 @@ REM     nenhum. Esta segunda invocacao corta so os glifos que
 REM     faltam, sobre um frame que os tenha, SEM refazer as
 REM     ancoras e a grade -- e FUNDE com o que ja estava gravado.
 REM
+REM  3) OS GLIFOS DO TEXTO CIANO, num conjunto SEPARADO:
+REM
+REM       calibrar-mercado.bat --so-digitos --tinta cromatica --frame <frame.png>
+REM
+REM     O PRECO EM CIANO NAO SE LE COM OS MOLDES BRANCOS, e isso
+REM     foi medido e nao suposto. Os moldes brancos foram cortados
+REM     de texto com pico de brilho 226-230; o ciano desenha o
+REM     MESMO glifo com pico 255, e a borda antisserrilhada do `0`
+REM     passa a sobreviver ao corte. O `0` vira um anel FECHADO, e
+REM     anel fechado casa melhor com o `8`. Resultado em campo:
+REM     `100,00` lido como `188,88`, com gramatica perfeita.
+REM
+REM     `--tinta cromatica` grava numa CHAVE PROPRIA. Ela NAO toca
+REM     nos moldes brancos -- e nao e questao de cuidado, e que sao
+REM     duas chaves diferentes no arquivo.
+REM
+REM     ENQUANTO O CONJUNTO CIANO NAO ESTIVER COMPLETO (os dez
+REM     digitos e a virgula), NADA MUDA: a celula ciana continua
+REM     sendo DESCARTADA, como ja e hoje. Conjunto pela metade
+REM     vale o mesmo que conjunto nenhum -- meio conjunto leria
+REM     um `8` como `0`, que e o mesmo defeito ao contrario.
+REM
+REM     SE ELA RECUSAR DIZENDO QUE O `0` E UM ANEL PARTIDO: voce
+REM     cortou de uma linha da faixa ESCURA da grade. A grade e
+REM     zebrada, e so os moldes cortados na faixa CLARA servem as
+REM     duas. Nao ha regra de "linha par ou impar" -- a rolagem
+REM     desloca a faixa. Corte de uma linha cujo total apareca
+REM     ERRADO hoje (um `8` onde a tela mostra `0`): essas estao,
+REM     por definicao, na faixa clara. Nada foi gravado.
+REM
 REM  Ele mantem TODO o resto da calibracao anterior intacto.
 REM  Rode o calibrar.bat normal UMA vez antes, se nunca rodou.
 REM ============================================================

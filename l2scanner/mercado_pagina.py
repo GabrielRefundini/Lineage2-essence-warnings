@@ -519,6 +519,16 @@ class LeitorDePagina:
 
         self._moldes = glifos_de_calibracao(cal.mercado_templates_de_digito)
 
+        # O SEGUNDO conjunto, o CROMATICO. Ele e OPCIONAL e a ausencia dele nao
+        # e falta de calibracao: sem ele o leitor RECUSA a celula cromatica, que
+        # e o comportamento que a metade B instalou e que continua correto.
+        # Por isso ele NAO entra em `pecas_de_calibracao_de_mercado_faltando` —
+        # anunciar "falta" para uma peca cuja ausencia ja tem resposta segura
+        # ensinaria o usuario a ignorar a lista de faltas.
+        self._moldes_cromaticos = glifos_de_calibracao(
+            cal.mercado_templates_de_digito_cromatico
+        )
+
         # O molde do cabecalho e decodificado UMA VEZ, no arranque, e nao a cada
         # tick: ele e ~28 KB de hex, e refaze-lo 3.600 vezes por hora de farm
         # seria trabalho puro. Entrada nao confiavel continua sendo tratada como
@@ -1047,6 +1057,7 @@ class LeitorDePagina:
                     recortes["total"],
                     recortes["unitario"],
                     moldes=self._moldes,
+                    moldes_cromaticos=self._moldes_cromaticos,
                     piso=float(self._piso),
                     margem=float(self._margem),
                     valor_minimo_do_numero=int(self._valor_minimo_do_numero),
@@ -1064,6 +1075,7 @@ class LeitorDePagina:
                     recortes["quantidade"],
                     recortes["unitario"],
                     moldes=self._moldes,
+                    moldes_cromaticos=self._moldes_cromaticos,
                     piso=float(self._piso),
                     margem=float(self._margem),
                     valor_minimo_do_numero=int(self._valor_minimo_do_numero),

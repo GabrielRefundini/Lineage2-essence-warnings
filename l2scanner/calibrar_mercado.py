@@ -1125,6 +1125,75 @@ def cobertura_dos_glifos(
     return existem, faltam
 
 
+# A PARIDADE DA LINHA DE ONDE O CIANO FOI CORTADO DECIDE SE ELE FUNCIONA.
+#
+# MEDIDO, e nao temido. A grade e ZEBRADA: o fundo da linha alterna entre 48 e
+# 66 -- o mesmo fato que a nota de `MINIMO_PARA_PROPOR_ROTULO` ja registra. A
+# borda antisserrilhada de um glifo fica a ~0,62 do caminho entre o fundo e o
+# pico, e o piso da mascara e ABSOLUTO em 180:
+#
+#     ciano sobre fundo 48:  48 + 0,62*(255-48) = 176  -> some,  `0` com 12 px
+#     ciano sobre fundo 66:  66 + 0,62*(255-66) = 183  -> FICA,  `0` com 16 px
+#
+# O BRANCO fica abaixo de 180 nas DUAS paridades (pico 226-230), e por isso ele
+# nunca se partiu. O CIANO cai dos dois lados, e o `0` sai com DUAS formas.
+#
+# Cortar o conjunto ciano na paridade ERRADA nao conserta nada. Medido contra o
+# `8` CIANO REAL de `janela_tooltip_f012.png` L2 (`380,00`):
+#
+#     conjunto cortado em    obs fundo 48       obs fundo 66
+#     fundo 48 (escuro)      OK  folga 0,4107   FALHA  folga 0,0080
+#     fundo 66 (claro)       OK  folga 0,2013   OK     folga 0,2174
+#
+# A margem exigida e 0,03698. Um conjunto cortado sobre fundo 48 erra
+# exatamente as linhas que ja estao erradas hoje, com um QUINTO da folga
+# necessaria -- e o usuario so descobriria isso em campo, depois de gastar
+# treze recortes de mouse.
+#
+# A ASSINATURA E LEGIVEL NO PROPRIO MOLDE, e por isso da para recusar aqui: o
+# `0` cortado sobre fundo 66 e um anel FECHADO; o cortado sobre fundo 48 e um
+# anel PARTIDO, com linhas inteiramente vazias entre o arco de cima e o de
+# baixo -- a MESMA assinatura do `0` branco, que e o defeito que o conjunto
+# ciano existe para consertar.
+def anel_do_zero_esta_partido(molde) -> bool:
+    """O molde do `0` tem alguma linha VAZIA entre o arco de cima e o de baixo?
+
+    `False` quando nao ha molde: quem cobra a PRESENCA dos glifos e
+    `cobertura_dos_glifos`, e roubar essa recusa daria a mensagem errada.
+    """
+    if molde is None or getattr(molde, "size", 0) == 0:
+        return False
+    linhas = [bool(linha.any()) for linha in (np.asarray(molde) > 0)]
+    if not any(linhas):
+        return False
+    primeira = linhas.index(True)
+    ultima = len(linhas) - 1 - linhas[::-1].index(True)
+    return not all(linhas[primeira : ultima + 1])
+
+
+def conferir_a_paridade_do_ciano(fundidos: dict) -> None:
+    """Recusa um conjunto CROMATICO cortado sobre a faixa zebrada errada.
+
+    LEVANTA, e levanta ANTES de qualquer escrita. Ver a nota acima: a diferenca
+    entre as duas paridades e a diferenca entre consertar o defeito e gravar
+    treze moldes que nao consertam nada.
+    """
+    if not anel_do_zero_esta_partido(fundidos.get("0")):
+        return
+    raise MercadoNaoCalibravel(
+        """o `0` que voce cortou e um anel PARTIDO, e anel partido nao conserta nada.
+  A grade e ZEBRADA: o fundo da linha alterna entre 48 e 66, e a borda
+  antisserrilhada do ciano cai dos DOIS lados do piso 180 -- sobre fundo 48 ela
+  some (anel PARTIDO, 12 px) e sobre fundo 66 ela fica (anel FECHADO, 16 px).
+  MEDIDO: um conjunto cortado sobre fundo 48 erra exatamente as linhas que ja
+  estao erradas hoje, com folga 0,0080 contra os 0,03698 exigidos. Um cortado
+  sobre fundo 66 acerta as DUAS paridades, com folga 0,2013 e 0,2174.
+  CORTE DAS LINHAS CUJO TOTAL HOJE TERMINA EM `88` -- sao essas, e so essas,
+  que estao sobre o fundo claro.
+  Nada foi gravado."""
+    )
+
+
 def fundir_glifos(
     anteriores: dict[str, np.ndarray], desta_rodada: dict[str, np.ndarray]
 ) -> dict[str, np.ndarray]:
@@ -2396,6 +2465,7 @@ def _gravar_os_glifos(
     cortados: dict[str, np.ndarray],
     fundidos: dict[str, np.ndarray],
     resultado: ResultadoDaConfusao,
+    cromatica: bool = False,
 ) -> None:
     """Escreve os glifos e o limiar deles -- FUNDINDO, nunca substituindo.
 
@@ -2404,13 +2474,34 @@ def _gravar_os_glifos(
     rodada de subconjunto e o caso NORMAL, nao a excecao -- o frame que calibra
     a grade nao tem os dez digitos.
     """
+    # A CHAVE E ESCOLHIDA AQUI, E ESTE E O UNICO LUGAR QUE A ESCOLHE. Duas
+    # chaves distintas sao o que torna IMPOSSIVEL -- e nao apenas indesejado --
+    # que uma rodada CIANA apague os moldes BRANCOS: `fundir_glifos` funde por
+    # ROTULO, e o rotulo `0` e o mesmo nas duas cores.
+    chave = (
+        "mercado_templates_de_digito_cromatico"
+        if cromatica
+        else "mercado_templates_de_digito"
+    )
     if cortados:
-        cal.mercado_templates_de_digito = glifos_para_calibracao(fundidos)
-    elif cal.mercado_templates_de_digito:
+        if cromatica:
+            # LEVANTA ANTES DE ESCREVER: um conjunto ciano cortado na faixa
+            # zebrada errada tem de custar uma mensagem, e nao uma sessao de
+            # farm. Ver `conferir_a_paridade_do_ciano`.
+            conferir_a_paridade_do_ciano(fundidos)
+        setattr(cal, chave, glifos_para_calibracao(fundidos))
+    elif getattr(cal, chave):
         print(
-            f"\nMantidos os {len(cal.mercado_templates_de_digito)} molde(s) de "
+            f"\nMantidos os {len(getattr(cal, chave))} molde(s) de "
             f"glifo da calibracao anterior — nenhum foi recortado nesta rodada."
         )
+
+    # O LIMIAR DERIVADO E SO DO CONJUNTO ACROMATICO. `mercado_limiar_de_glifo`
+    # e UM escalar compartilhado pelos dois conjuntos, e deixar a rodada ciana
+    # reescreve-lo faria uma calibracao OPCIONAL mexer no piso de que o caminho
+    # branco -- o que hoje vira dado -- depende.
+    if cromatica:
+        return
 
     # So quando a matriz DERIVOU um limiar. Com menos de dois glifos ela nao
     # deriva, e um numero inventado aqui iria para o `calibration.json` onde a
@@ -2451,6 +2542,7 @@ def _calibrar_so_digitos(
     pixels: np.ndarray,
     glifos_anteriores: dict[str, np.ndarray],
     ancoras_anteriores: list[AncoraDoPainel] | None = None,
+    cromatica: bool = False,
 ) -> int:
     """O modo de corte ISOLADO: so os glifos, sem refazer ancoras e grade.
 
@@ -2484,6 +2576,14 @@ def _calibrar_so_digitos(
         print(f"  achei a grade neste frame: {medida.linhas} linhas de "
               f"{medida.passo} px a partir de y={medida.topo}")
 
+    if cromatica:
+        print("  (--tinta cromatica: gravando em "
+              "mercado_templates_de_digito_cromatico, um conjunto SEPARADO)")
+        print("  CORTE DAS LINHAS CUJO TOTAL HOJE TERMINA EM `88` -- sao as "
+              "que estao sobre a faixa clara,")
+        print("  e sao as unicas cuja forma serve as DUAS paridades da grade "
+              "zebrada (medido).")
+
     cortados = cortar_glifos(pixels, glifos_anteriores, grade=medida)
     fundidos = fundir_glifos(glifos_anteriores, cortados)
     resultado = _conferir_os_glifos(fundidos)
@@ -2492,7 +2592,7 @@ def _calibrar_so_digitos(
     # neste modo.
     conferencia = _gravar_conferencia(montar_glifos(fundidos))
 
-    _gravar_os_glifos(cal, cortados, fundidos, resultado)
+    _gravar_os_glifos(cal, cortados, fundidos, resultado, cromatica=cromatica)
 
     try:
         cal.salvar(arquivo)
@@ -2736,7 +2836,24 @@ def calibrar(args: argparse.Namespace) -> int:
     # Os glifos ja gravados, para a cobertura e para a FUSAO. Decodificados
     # cedo: um `mercado_templates_de_digito` corrompido tem de recusar ANTES de
     # o usuario gastar o trabalho de mouse, e nao depois.
-    glifos_anteriores = glifos_de_calibracao(cal.mercado_templates_de_digito)
+    # DE QUAL CONJUNTO ESTA RODADA PARTE. `--tinta cromatica` le e funde APENAS
+    # o conjunto cromatico; o acromatico nao e nem lido aqui, e por isso ele nao
+    # tem como ser reescrito por engano.
+    cromatica = getattr(args, "tinta", "acromatica") == "cromatica"
+    if cromatica and not getattr(args, "so_digitos", False):
+        raise MercadoNaoCalibravel(
+            """--tinta cromatica so vale com --so-digitos.
+  A calibracao completa marca ancoras, grade e colunas, e grava o conjunto
+  ACROMATICO -- que e o que hoje vira dado. O conjunto cromatico e um acrescimo
+  OPCIONAL sobre uma calibracao que ja existe, nunca o comeco de uma.
+  Rode: python -m l2scanner.calibrar_mercado --so-digitos --tinta cromatica
+        --frame <um frame com precos em CIANO>"""
+        )
+    glifos_anteriores = glifos_de_calibracao(
+        cal.mercado_templates_de_digito_cromatico
+        if cromatica
+        else cal.mercado_templates_de_digito
+    )
     # As ancoras da rodada anterior, que sao o que permite PROPOR os retangulos
     # em vez de descreve-los em prosa. Lista vazia e um estado legitimo (a
     # primeira calibracao de mercado da vida) e o fluxo continua pedindo o
@@ -2752,7 +2869,8 @@ def calibrar(args: argparse.Namespace) -> int:
 
     if getattr(args, "so_digitos", False):
         return _calibrar_so_digitos(args, cal, arquivo, caminho, pixels,
-                                    glifos_anteriores, ancoras_anteriores)
+                                    glifos_anteriores, ancoras_anteriores,
+                                    cromatica=cromatica)
 
     # O PASSO DA WATCHLIST NAO EXISTE MAIS AQUI, E ELE MORREU POR MEDICAO.
     #
@@ -3153,6 +3271,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--so-digitos", action="store_true", dest="so_digitos",
         help="corta SO os glifos de preco, sem tocar em ancoras, grade e watchlist",
+    )
+    # A TINTA ESCOLHE A CHAVE, E ESSA E A UNICA COISA QUE ELA FAZ.
+    #
+    # `--tinta cromatica` grava em `mercado_templates_de_digito_cromatico`, uma
+    # chave PROPRIA. Sem ela, cortar treze glifos cianos APAGARIA os treze
+    # brancos: `fundir_glifos` funde por ROTULO, e o rotulo `0` e o mesmo nas
+    # duas cores. Com duas chaves isso deixa de ser uma regra a lembrar e passa
+    # a ser impossivel.
+    parser.add_argument(
+        "--tinta", default="acromatica", choices=("acromatica", "cromatica"),
+        help=(
+            "qual conjunto de moldes cortar: 'acromatica' (o texto BRANCO, o "
+            "conjunto de sempre) ou 'cromatica' (o texto CIANO, um conjunto "
+            "SEPARADO). So vale com --so-digitos."
+        ),
     )
     args = parser.parse_args(argv)
 
