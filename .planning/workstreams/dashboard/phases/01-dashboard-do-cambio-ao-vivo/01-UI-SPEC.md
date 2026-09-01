@@ -425,7 +425,17 @@ esta fase existe para não cometer.
 Cobertura de **estado** enraizada na forma da tela. As frases de estado vazio e de erro moram no
 `## Copywriting Contract` — aqui as linhas **referenciam**, não repetem.
 
-**Resolvidas: 9 aplicáveis — 7 ✅ covered, 2 🧪 backstop, 0 ⚠ unresolved.**
+**Como esta seção foi produzida.** A tabela abaixo foi escrita à mão e depois **conferida pela
+sonda** `ui-consideration-probe`, com os tipos de elemento autorados (`#destaque` =
+`static-content`; `#serie` = `interactive-control` + `list-collection` + `static-content`;
+`#procedencia` = `form` + `static-content`). A primeira passagem da sonda devolveu os três
+elementos como `unclassified` — as pistas do motor são em inglês e a prosa deste documento é em
+português. **Isso é registrado porque importa:** um `unclassified` que passasse batido teria
+dado cobertura zero com cara de "nada se aplica". Com os tipos corrigidos a sonda levantou **16
+considerações**, contra as 9 escritas à mão, e as sete a mais estão nas linhas marcadas
+`(sonda)` — todas no rodapé `#procedencia`, cujo formulário não tinha estados especificados.
+
+**Resolvidas: 16 aplicáveis — 13 ✅ covered, 3 🧪 backstop, 0 ⚠ unresolved.**
 
 | Categoria | Elemento(s) | Status | Resolução / Razão |
 |-----------|-------------|--------|---------------------|
@@ -438,6 +448,13 @@ Cobertura de **estado** enraizada na forma da tela. As frases de estado vazio e 
 | long-text | `#serie` (título da série) | ✅ covered | O componente é genérico e o `nome_exibido` vem de OCR, que oscila. Título com `text-overflow: ellipsis`, uma linha, `title=` com o texto completo. Nunca invade a área do número. |
 | zero-one-many | componente de série (DASH-05) | 🧪 backstop | Zero e um estão desenhados. **Muitas** séries não têm tela no v1 por decisão travada; a generalidade é provada por teste instanciando uma segunda série sem código de gráfico novo. Sem evidência explícita de que a segunda instância renderiza, isto vira `human_needed` — não passa calado. |
 | stale | `#destaque`, `#procedencia` | 🧪 backstop | Com o scanner parado, o valor permanece e a recência vira `--cor-frio` com a frase de dado velho; a tela nunca afirma "agora". A regra de precedência é testável no endpoint, mas **o desenho do estado velho é verificação humana declarada** no fim da fase, como a casa já faz com OCR real. |
+| long-text | `#destaque` **(sonda)** | ✅ covered | O número não é o único texto do cartão: o rótulo de unidade (`XM por milhão de adena (derivado)`) vem inteiro do Python e é longo. Ele quebra em até duas linhas dentro do cartão, `--font-num` 14px, e **nunca empurra o número de 48px** — o cartão cresce em altura, não em largura. Encurtar a string no JS é proibido: seria o segundo formatador que DASH-03 recusa. |
+| error | `#procedencia` **(sonda)** | ✅ covered | **Câmbio inválido é a consideração mais cara desta tela, porque é dinheiro real.** Texto que não seja um número positivo (letras, vazio, `0`, negativo, mais de uma vírgula) **não é salvo**: o formulário recusa com uma frase que diz o que se espera (`Digite quantos reais vale 1 XM — por exemplo 0,50`), **o câmbio anterior continua valendo**, e o R$ na tela continua sendo o do câmbio antigo, nunca um valor calculado a partir do texto recusado. Falha fechada, igual ao resto do projeto. |
+| empty | `#procedencia` **(sonda)** | ✅ covered | Sem nenhum câmbio já informado, o campo nasce **vazio com placeholder `0,50`** (exemplo, não valor), o carimbo de "informado em" não aparece, e a linha diz `R$ indisponível — informe o câmbio`. O cartão de R$ some do destaque pela regra ortogonal já declarada. Placeholder nunca é submetido como valor. |
+| loading | `#procedencia` **(sonda)** | ✅ covered | Enquanto o `POST` do câmbio está em voo, o botão fica desabilitado com o rótulo `Salvando…`; ele **não** vira spinner e o campo não é limpo. Se a resposta demorar ou falhar, o botão volta e a frase de erro de gravação aparece — o valor digitado **permanece no campo** para o usuário não redigitar. |
+| partial | `#procedencia` **(sonda)** | ✅ covered | O rodapé mostra cada peça de procedência que existe e **nomeia a que falta**, em vez de sumir com a linha: sem `n` suficiente, a frase de piso do Python; sem câmbio, `R$ indisponível`; com linha final incompleta descartada, a nota de DASH-01. Rodapé com buraco silencioso seria pior que rodapé feio. |
+| overflow | `#procedencia` **(sonda)** | ✅ covered | O campo do câmbio tem `maxlength` e largura fixa em `ch`; um número absurdamente longo é recusado pela validação antes de virar layout. O caminho do arquivo na linha de fonte usa `text-overflow: ellipsis` com `title=` completo. |
+| long-text | `#procedencia` **(sonda)** | 🧪 backstop | A frase de recência e a de piso de evidência vêm do Python em ASCII (`ha 8 h (31/08 10:00)`), com comprimento que varia com o estado. Elas envolvem em várias linhas sem empurrar o formulário para fora do painel. **Reacentuar ou reescrever essas strings no JS é proibido** — seria o segundo formatador. Sem teste de layout de navegador, isto fica como verificação humana declarada. |
 
 ---
 
