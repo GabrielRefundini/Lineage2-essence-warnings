@@ -97,6 +97,13 @@ from .mercado_leitura import (  # noqa: E402
     recortar_sufixo,
     segmentar_glifos,
 )
+# A LISTA DOS CAMPOS HERDAVEIS VEM DO LEITOR, e nao de uma segunda copia aqui.
+# `modelo_de_layout` HERDA exatamente estes campos de `mercado_grade` quando o
+# bloco aninhado nao os traz; quem ESCREVE o bloco tem de calcular o delta sobre
+# a mesma lista. Duas listas divergiriam, e o dia em que divergissem o
+# calibrador gravaria um campo que o leitor nao le — ou omitiria um que ele nao
+# herda, deixando o recorte apontar para o vazio.
+from .mercado_pagina import CAMPOS_HERDADOS_DA_GRADE  # noqa: E402
 from .mercado_visao import (  # noqa: E402
     CASAMENTO_MINIMO_DA_ANCORA,
     AncoraDoPainel,
@@ -1893,6 +1900,40 @@ COLUNAS_A_MARCAR = (
 COLUNAS_DE_NUMERO = ("quantidade", "total", "unitario")
 
 
+# A ADENA MARCA DUAS COLUNAS, E AS DUAS QUE FALTAM FALTAM POR MEDICAO.
+#
+# `Auction List` NAO entra, e nao e economia de arrasto: a coluna nao se le com
+# os moldes deste projeto — varridos os pisos de brilho 180/200/210/220/230/240/
+# 250 no 05-01, `None` nas dez linhas —, e o retangulo do NOME da negociacao
+# comeca a -1 px do primeiro run dela. Herdado, ele cortaria o `1` de
+# `10,000,000` e produziria `0,000,000`: numero plausivel, errado por um fator
+# de dez. A quantidade da Adena e DERIVADA das duas colunas de moeda (ADEN-02).
+#
+# `Quantity` nao entra porque a aba NAO TEM uma.
+#
+# Os textos citam os rotulos que a ADENA escreve na tela, e nao os da
+# negociacao: o usuario confere o retangulo verde contra o que ele esta vendo.
+COLUNAS_DA_ADENA = (
+    ("total", "Total Price (o preco em XM Coin da oferta INTEIRA)"),
+    ("unitario", "5 mln increment (o preco em XM Coin por CINCO MILHOES)"),
+)
+
+# Qual conjunto de colunas cada layout marca. `busca` NAO esta aqui de
+# proposito: ninguem mediu o modelo de coluna dela, ela nao tem leitora de
+# linha (`LEITORAS_DE_LINHA_POR_LAYOUT`, 05-02) e marcar as quatro da
+# negociacao gravaria geometria que nada consome.
+COLUNAS_A_MARCAR_POR_LAYOUT = {
+    "negociacao": COLUNAS_A_MARCAR,
+    "adena": COLUNAS_DA_ADENA,
+}
+
+# O rotulo da faixa de cabecalho, por layout, como o usuario o LE na tela.
+FAIXA_DE_CABECALHO_POR_LAYOUT = {
+    "negociacao": "Goods | Quantity | Total | Unit price",
+    "adena": "Auction List | Total Price | 5 mln increment | Buy",
+}
+
+
 def _grade_do_desenho(
     caixa_da_grade: tuple[int, int, int, int],
     caixa_da_primeira_linha: tuple[int, int, int, int],
@@ -2470,6 +2511,211 @@ def _calibrar_so_digitos(
 
 
 
+def grade_que_difere_do_topo(grade: dict, grade_de_topo: dict | None) -> dict:
+    """Só os campos da grade deste layout que NÃO batem com a de negociação.
+
+    O BLOCO ANINHADO E DELTA, E NAO COPIA (D-D). Hoje `dx`, `dy`, `largura`,
+    `altura`, `altura_da_linha` e `linhas_por_pagina` da Adena sao IDENTICOS aos
+    da negociacao — medido no 05-02 —, entao isto tende a sair vazio, e sair
+    vazio e o resultado certo: duas copias do mesmo numero envelhecem separadas,
+    e a que envelhecer pior recorta a coluna alguns pixels fora do lugar e
+    devolve um preco plausivel. E o mesmo argumento que `_banda_do_cabecalho` ja
+    escreve para nao gravar o `dx` duas vezes.
+
+    `layout` NAO entra: quem le monta `grade["layout"] = nome` a partir da chave
+    do bloco (`modelo_de_layout`), e grava-lo aqui criaria a segunda verdade
+    exata que esta funcao existe para evitar.
+
+    Os campos percorridos sao `CAMPOS_HERDADOS_DA_GRADE`, importados do leitor.
+    """
+    de_topo = grade_de_topo if isinstance(grade_de_topo, dict) else {}
+    return {
+        campo: grade[campo]
+        for campo in CAMPOS_HERDADOS_DA_GRADE
+        if campo in grade and grade[campo] != de_topo.get(campo)
+    }
+
+
+def _conferir_a_base_do_layout(cal: Calibracao, layout: str, so_digitos: bool) -> None:
+    """As duas recusas que acontecem ANTES do primeiro arrasto de mouse.
+
+    RECUSAR NO INICIO E NAO NO FIM E A DIFERENCA ENTRE UMA MENSAGEM E UMA SESSAO
+    DE MARCACAO JOGADA FORA. Onze janelas de selecao mais tarde o usuario ja
+    gastou o trabalho; aqui ele so gastou o Enter.
+
+    1. UM LAYOUT ANINHADO HERDA A GEOMETRIA DA GRADE DE NEGOCIACAO (D-D). Sem
+       `mercado_grade`, ou com uma `mercado_grade` que nao e da negociacao, nao
+       ha de quem herdar: `modelo_de_layout` cairia em `None` campo a campo e o
+       bloco gravado seria geometria morta. A negociacao mora nas chaves de
+       TOPO e e a base; os demais moram em `mercado_layouts` e sao delta.
+
+    2. `--so-digitos` FORA DA NEGOCIACAO NAO TEM O QUE FAZER. Esta ferramenta
+       nao corta glifo fora da negociacao (ver a razao medida na escrita do
+       bloco), entao a combinacao pediria um arrasto para jogar o resultado
+       fora.
+
+    Nao vale para `negociacao`: aquele caminho e o de hoje, byte a byte, e ele
+    e quem CRIA a base que este confere.
+    """
+    if layout == "negociacao":
+        return
+
+    if layout not in COLUNAS_A_MARCAR_POR_LAYOUT:
+        conhecidos = ", ".join(sorted(COLUNAS_A_MARCAR_POR_LAYOUT))
+        raise MercadoNaoCalibravel(
+            f"o layout '{layout}' nao tem modelo de coluna MEDIDO — os que tem "
+            f"sao: {conhecidos}.\n"
+            f"  Marcar as colunas da negociacao aqui gravaria geometria que "
+            f"leitora nenhuma consome, e o portao de layout nunca escolheria "
+            f"este bloco."
+        )
+
+    if so_digitos:
+        raise MercadoNaoCalibravel(
+            f"--so-digitos so vale com --layout negociacao, e voce pediu "
+            f"'{layout}'.\n"
+            f"  Os moldes de digito sao cortados das colunas de moeda da "
+            f"NEGOCIACAO, e a pesquisa mediu que eles ja leem a Adena exatamente "
+            f"(6200/6200, 6499/6499, 6500, 6600, 6700, 6800, 6850, 7000). Nao "
+            f"ha o que ganhar cortando aqui, e fundir moldes de uma aba com "
+            f"outra iluminacao arriscaria o conjunto de que a negociacao depende."
+        )
+
+    grade = cal.mercado_grade
+    if not isinstance(grade, dict) or grade.get("layout") != "negociacao":
+        tem = (
+            f"ela esta la com layout '{grade.get('layout')}'"
+            if isinstance(grade, dict)
+            else "ela nao esta la"
+        )
+        raise MercadoNaoCalibravel(
+            f"nao da para calibrar o layout '{layout}' sem a grade de "
+            f"NEGOCIACAO — {tem}.\n"
+            f"  Os layouts aninhados guardam SO o que difere, e herdam de "
+            f"`mercado_grade` o dx, o dy, a largura, a altura da linha e as "
+            f"linhas por pagina. Sem ela nao ha de quem herdar, e o bloco "
+            f"gravado apontaria para o vazio.\n"
+            f"  Rode primeiro: python -m l2scanner.calibrar_mercado --layout "
+            f"negociacao --frame <um frame com a aba de negociacao aberta>"
+        )
+
+
+def _gravar_o_layout_aninhado(
+    cal: Calibracao,
+    arquivo: Path,
+    layout: str,
+    grade: dict,
+    caixas_de_coluna: dict[str, tuple[int, int, int, int]],
+    origem: tuple[int, int],
+    cabecalho: dict | None,
+    limiar_do_cabecalho: float | None,
+    conferencia: Path | None,
+) -> int:
+    """A escrita de UMA rodada de layout aninhado — e de NADA além dela.
+
+    ESTA FUNCAO NAO ATRIBUI UMA CHAVE DE TOPO. Nem uma. E o portao inteiro
+    desta fase do lado da ferramenta: ate hoje `calibrar` gravava
+    `mercado_ancora`, `mercado_molde_da_ancora`, `mercado_limiar_da_ancora`,
+    `mercado_geometria_da_captura`, `mercado_ancoras`, `mercado_grade` e as
+    QUATRO colunas INCONDICIONALMENTE, entao uma rodada `--layout adena` apagava
+    a calibracao de negociacao — conferida em campo em 2026-09-01, 353 paginas
+    lidas contra 2 perdidas. O arquivo e gitignored: nao existe `git checkout`
+    que o traga de volta, e o projeto ja pagou esse preco uma vez (o resgate
+    manual de `calibration.RESGATE-13-glifos.json`).
+
+    Ela e a extensao dos DOIS precedentes de aditividade que ja moram na escrita
+    de negociacao: o molde de cabecalho que so substitui quando houve molde
+    novo, e o CR-04, que tirou `mercado_templates_de_nome` do fluxo por ter
+    apagado calibracao sem perguntar. O cabecalho deste modulo promete "muta so
+    os campos de mercado"; aqui a promessa fica mais estreita ainda — muta so
+    `mercado_layouts[<este layout>]`.
+
+    SEM MOLDE DE CABECALHO, NADA E GRAVADO (T-05-11). O molde E o portao: um
+    bloco sem ele e um layout que `LeitorDePagina._casamento_do_layout` nunca
+    escolhe. Gravar geometria muda seria pior que nao gravar, porque o arquivo
+    passaria a AFIRMAR uma calibracao que nao existe.
+    """
+    if cabecalho is None or limiar_do_cabecalho is None:
+        raise MercadoNaoCalibravel(
+            f"o molde do cabecalho nao pode ser cortado nesta rodada, entao o "
+            f"bloco '{layout}' NAO foi gravado.\n"
+            f"  O molde E o portao de layout: sem ele o leitor nunca escolheria "
+            f"este layout, e o bloco ficaria no arquivo como geometria muda, "
+            f"afirmando uma calibracao que nao existe.\n"
+            f"  Nada mais desta rodada foi gravado — a calibracao de negociacao "
+            f"esta intacta. Tente um frame com os rotulos de coluna inteiros na "
+            f"faixa ({FAIXA_DE_CABECALHO_POR_LAYOUT[layout]})."
+        )
+
+    ox, _oy = origem
+    colunas = {}
+    for nome, _descricao in COLUNAS_A_MARCAR_POR_LAYOUT[layout]:
+        x, _y, larg, _alt = caixas_de_coluna[nome]
+        # EM DESLOCAMENTO, como as de topo e pela mesma razao: o painel ANDA
+        # 827x831 px, e uma coluna absoluta apontaria para o vazio assim que o
+        # usuario arrastasse a janela.
+        colunas[nome] = {"dx": int(x - ox), "largura": int(larg)}
+
+    bloco: dict = {
+        "cabecalho": cabecalho,
+        "limiar_do_cabecalho": float(limiar_do_cabecalho),
+        "colunas": colunas,
+    }
+    delta_da_grade = grade_que_difere_do_topo(grade, cal.mercado_grade)
+    if delta_da_grade:
+        bloco["grade"] = delta_da_grade
+
+    # SUBSTITUI SO A ENTRADA DESTE LAYOUT. Um `cal.mercado_layouts = {layout:
+    # bloco}` recalibraria a Adena e apagaria qualquer outro layout aninhado no
+    # mesmo gesto — a forma pequena do defeito que esta funcao inteira existe
+    # para matar.
+    layouts = dict(cal.mercado_layouts) if isinstance(cal.mercado_layouts, dict) else {}
+    layouts[layout] = bloco
+    cal.mercado_layouts = layouts
+
+    try:
+        cal.salvar(arquivo)
+    except OSError as erro:
+        raise MercadoNaoCalibravel(
+            f"nao consegui gravar {arquivo}: {erro}\n"
+            f"  A calibracao NAO foi salva. O motivo mais comum e o arquivo "
+            f"estar aberto noutro programa, ou a pasta ser somente-leitura."
+        ) from erro
+
+    # O RESUMO DIZ O QUE ESTA RODADA GRAVOU, E NADA ALEM.
+    #
+    # O laco de impressao da negociacao le `cal.mercado_coluna_do_nome` e as
+    # outras tres chaves de TOPO. Reusa-lo aqui mostraria a calibracao ANTIGA
+    # como se fosse resultado desta rodada: plausivel, e falso — e o usuario
+    # fecharia o terminal achando que marcou quatro colunas que ele nao marcou.
+    print(f"\nCalibracao de mercado gravada em {arquivo.name}")
+    print(f"  layout       : '{layout}', em mercado_layouts (bloco ANINHADO)")
+    for nome, coluna in colunas.items():
+        print(
+            f"  coluna {nome:<6}: dx={coluna['dx']}, "
+            f"largura={coluna['largura']} px"
+        )
+    print(
+        f"  cabecalho    : {cabecalho['altura']}x{cabecalho['largura']} px, "
+        f"corte de brilho {cabecalho['corte_de_brilho']}, limiar "
+        f"{bloco['limiar_do_cabecalho']}"
+    )
+    if delta_da_grade:
+        print(f"  grade        : difere da de negociacao em {delta_da_grade}")
+    else:
+        print(
+            "  grade        : IDENTICA a de negociacao — nada gravado, o bloco "
+            "herda dx, dy, largura, altura, altura_da_linha e linhas_por_pagina"
+        )
+    print(
+        "  chaves de topo: NENHUMA tocada — a calibracao de negociacao "
+        "(ancoras, grade, as quatro colunas e os moldes de digito) esta como "
+        "estava"
+    )
+    _texto_final_da_conferencia(conferencia, arquivo)
+    return 0
+
+
 def calibrar(args: argparse.Namespace) -> int:
     arquivo = Path(args.calibracao) if args.calibracao else ARQUIVO_CALIBRACAO
     cal = carregar_calibracao(arquivo)
@@ -2497,6 +2743,13 @@ def calibrar(args: argparse.Namespace) -> int:
     # arrasto -- so sem a sugestao do titulo.
     ancoras_anteriores = ancoras_de_calibracao(cal.mercado_ancoras)
 
+    # AS RECUSAS DE LAYOUT VEM ANTES DO PRIMEIRO ARRASTO. Ver
+    # `_conferir_a_base_do_layout`: sem grade de negociacao nao ha de quem
+    # herdar, e `--so-digitos` fora da negociacao nao tem o que fazer.
+    layout = args.layout
+    e_negociacao = layout == "negociacao"
+    _conferir_a_base_do_layout(cal, layout, bool(getattr(args, "so_digitos", False)))
+
     if getattr(args, "so_digitos", False):
         return _calibrar_so_digitos(args, cal, arquivo, caminho, pixels,
                                     glifos_anteriores, ancoras_anteriores)
@@ -2517,11 +2770,19 @@ def calibrar(args: argparse.Namespace) -> int:
     # principal: elas sao o precedente medido citado por outros textos, e apagar
     # a funcao apagaria a medicao junto.
 
+    colunas_a_marcar = COLUNAS_A_MARCAR_POR_LAYOUT[layout]
+    # Titulo + as outras duas ancoras + grade + primeira linha + as colunas
+    # deste layout + a banda do cabecalho. Contado e nao escrito a mao: com
+    # DUAS colunas na Adena o texto prometeria dez janelas e abriria oito, e
+    # quem confere um numero errado deixa de conferir os certos. Para a
+    # negociacao a conta devolve os mesmos 10 de sempre.
+    janelas = len(ANCORAS_SUGERIDAS) + 2 + len(colunas_a_marcar) + 1
+
     altura, largura = pixels.shape[:2]
     print(f"\nCalibrando o mercado sobre {caminho.name} ({largura}x{altura})")
     print("")
     print("  " + "-" * 58)
-    print("  VAO ABRIR 10 JANELAS DE SELECAO, uma de cada vez, no CANTO")
+    print(f"  VAO ABRIR {janelas} JANELAS DE SELECAO, uma de cada vez, no CANTO")
     print("  SUPERIOR ESQUERDO do monitor principal.")
     print("")
     print("  Se nao ver a janela, ela pode estar ATRAS deste terminal")
@@ -2594,7 +2855,6 @@ def calibrar(args: argparse.Namespace) -> int:
     #
     # Custa duas linhas de texto avisar antes; custa uma sessao inteira de
     # marcacao descobrir depois.
-    layout = args.layout
     medida = medir_a_grade(pixels, caixas["titulo"])
     print("")
     print("  " + "-" * 58)
@@ -2643,18 +2903,27 @@ def calibrar(args: argparse.Namespace) -> int:
     propostas = sugerir_as_colunas(pixels, grade_desenhada)
     print("")
     print("  " + "-" * 58)
-    print("  AGORA AS QUATRO COLUNAS, uma de cada vez.")
-    print("")
-    print("  A do NOME tem de comecar DEPOIS do icone do item e terminar")
-    print("  depois do fim do nome MAIS LONGO da pagina, sem invadir a")
-    print("  coluna Quantity. Medido em campo: um nome num recorte de 143 px")
-    print("  saiu truncado; com 270 px saiu inteiro. Se o verde parecer")
-    print("  curto, arraste mais largo — cortar do nosso lado e um modo de")
-    print("  falha conhecido e medido.")
+    if e_negociacao:
+        print("  AGORA AS QUATRO COLUNAS, uma de cada vez.")
+        print("")
+        print("  A do NOME tem de comecar DEPOIS do icone do item e terminar")
+        print("  depois do fim do nome MAIS LONGO da pagina, sem invadir a")
+        print("  coluna Quantity. Medido em campo: um nome num recorte de 143 px")
+        print("  saiu truncado; com 270 px saiu inteiro. Se o verde parecer")
+        print("  curto, arraste mais largo — cortar do nosso lado e um modo de")
+        print("  falha conhecido e medido.")
+    else:
+        print("  AGORA AS DUAS COLUNAS DE MOEDA, uma de cada vez.")
+        print("")
+        print("  A aba Adena NAO tem coluna de nome nem de quantidade para")
+        print("  marcar: `Auction List` nao se le com os moldes deste projeto,")
+        print("  e a quantidade de adena e DERIVADA das duas colunas abaixo")
+        print("  (`Total Price` dividido por `5 mln increment` x 5.000.000).")
+        print("  Marque so o que a tela escreve em XM Coin.")
     print("  " + "-" * 58)
 
     caixas_de_coluna: dict[str, tuple[int, int, int, int]] = {}
-    for nome, descricao in COLUNAS_A_MARCAR:
+    for nome, descricao in colunas_a_marcar:
         caixa = _marcar(
             pixels,
             f"Coluna: {nome}",
@@ -2673,7 +2942,8 @@ def calibrar(args: argparse.Namespace) -> int:
     caixa_cabecalho = _marcar(
         pixels,
         "Cabecalho de coluna",
-        "Confira a FAIXA DE CABECALHO (Goods | Quantity | Total | Unit price).",
+        f"Confira a FAIXA DE CABECALHO "
+        f"({FAIXA_DE_CABECALHO_POR_LAYOUT[layout]}).",
         retangulo_da_banda_do_cabecalho(grade_desenhada, pixels.shape[:2]),
     )
     cabecalho, limiar_do_cabecalho = _cortar_o_cabecalho(
@@ -2681,9 +2951,22 @@ def calibrar(args: argparse.Namespace) -> int:
     )
 
     # --- os glifos de preco ---
-    glifos_cortados = cortar_glifos(pixels, glifos_anteriores, grade=medida)
-    glifos_fundidos = fundir_glifos(glifos_anteriores, glifos_cortados)
-    resultado_glifos = _conferir_os_glifos(glifos_fundidos)
+    #
+    # SO NA NEGOCIACAO, E A OMISSAO E MEDIDA — NAO E PREGUICA.
+    #
+    # Os treze moldes de digito foram cortados das colunas de moeda da
+    # negociacao, e a pesquisa desta fase mediu que eles ja leem a Adena
+    # EXATAMENTE: 6200/6200, 6499/6499, 6500, 6600, 6700, 6800, 6850, 7000,
+    # 7000. Nao ha o que ganhar cortando de novo. E ha o que perder: fundir
+    # moldes cortados de uma aba com iluminacao diferente entra em
+    # `mercado_templates_de_digito`, que e chave de TOPO, e arriscaria o
+    # conjunto de que a NEGOCIACAO depende — os mesmos treze que ja custaram um
+    # resgate manual em 2026-08-30. Uma rodada de layout aninhado nao toca em
+    # chave de topo nenhuma, e esta e a mais cara delas.
+    if e_negociacao:
+        glifos_cortados = cortar_glifos(pixels, glifos_anteriores, grade=medida)
+        glifos_fundidos = fundir_glifos(glifos_anteriores, glifos_cortados)
+        resultado_glifos = _conferir_os_glifos(glifos_fundidos)
 
     # --- grava a conferencia e o arquivo ---
     #
@@ -2697,12 +2980,25 @@ def calibrar(args: argparse.Namespace) -> int:
     for nome, caixa in caixas_de_coluna.items():
         regioes[f"coluna_{nome}"] = caixa
     regioes["cabecalho"] = caixa_cabecalho
-    conferencia = _gravar_conferencia(
-        _empilhar(
-            desenhar_conferencia(pixels, regioes),
-            montar_glifos(glifos_fundidos),
+    tela_da_conferencia = desenhar_conferencia(pixels, regioes)
+    if e_negociacao:
+        tela_da_conferencia = _empilhar(
+            tela_da_conferencia, montar_glifos(glifos_fundidos)
         )
-    )
+    conferencia = _gravar_conferencia(tela_da_conferencia)
+
+    if not e_negociacao:
+        return _gravar_o_layout_aninhado(
+            cal,
+            arquivo,
+            layout,
+            grade,
+            caixas_de_coluna,
+            origem,
+            cabecalho,
+            limiar_do_cabecalho,
+            conferencia,
+        )
 
     tx, ty, tlarg, talt = caixas["titulo"]
     cal.mercado_ancora = Regiao(esquerda=tx, topo=ty, largura=tlarg, altura=talt)
@@ -2841,7 +3137,10 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "qual dos TRES layouts de coluna esta na tela "
             "(padrao: negociacao — o unico que tem nome de item, e o de ~283 "
-            "dos ~308 frames com painel aberto no censo das gravacoes)"
+            "dos ~308 frames com painel aberto no censo das gravacoes). "
+            "ELE DECIDE ONDE SE ESCREVE: negociacao grava as chaves de TOPO; "
+            "adena grava SO mercado_layouts.adena e nao toca em nenhuma delas; "
+            "busca ainda nao tem modelo de coluna medido e e recusada"
         ),
     )
     parser.add_argument("--calibracao", help="outro calibration.json (para teste)")
