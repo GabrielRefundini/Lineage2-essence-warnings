@@ -20,18 +20,27 @@ from __future__ import annotations
 
 import json
 import random
+import secrets
 import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from .rastreador import Evento, TipoDeEvento
+
+if TYPE_CHECKING:  # pragma: no cover - so para o type checker
+    # SO em tempo de checagem, e a razao e a direcao da dependencia: o
+    # transporte nao pode importar o desenho, porque o desenho arrasta `cv2`
+    # para um modulo cuja unica funcao e falar HTTP. Em execucao, `montar_
+    # multipart` so precisa dos tres campos de `Anexo`.
+    from .retrato import Anexo
 
 TIMEOUT_CONEXAO = (3, 10)  # (conectar, ler) em segundos
 MAX_TENTATIVAS = 4
@@ -330,9 +339,21 @@ def formatar_tick(
 
 
 class Notificador(Protocol):
-    """Para onde os alertas vao. Trocar o adaptador e o modo simulacao."""
+    """Para onde os alertas vao. Trocar o adaptador e o modo simulacao.
 
-    def enviar(self, texto: str, conversa_alvo: str | None = None) -> None: ...
+    `anexos` e `texto_sem_anexos` sao OPCIONAIS e so aparecem no caminho da
+    pergunta do batismo, que e o unico que leva imagem. Quem entrega texto
+    continua sendo chamado com dois argumentos, e nada no caminho de sempre
+    precisou aprender o que e um anexo.
+    """
+
+    def enviar(
+        self,
+        texto: str,
+        conversa_alvo: str | None = None,
+        anexos: Sequence["Anexo"] | None = None,
+        texto_sem_anexos: str | None = None,
+    ) -> None: ...
 
 
 class NotificadorDeConsole:
@@ -341,9 +362,18 @@ class NotificadorDeConsole:
     def __init__(self, escrever=print) -> None:
         self._escrever = escrever
 
-    def enviar(self, texto: str, conversa_alvo: str | None = None) -> None:
+    def enviar(
+        self,
+        texto: str,
+        conversa_alvo: str | None = None,
+        anexos: Sequence["Anexo"] | None = None,
+        texto_sem_anexos: str | None = None,
+    ) -> None:
         destino = f" -> conversa {conversa_alvo}" if conversa_alvo else ""
-        self._escrever(f"  [simulacao{destino}] {texto}")
+        # O sufixo so aparece quando ha imagem: o `--dry-run` de todo o resto
+        # do produto tem de continuar imprimindo a linha de sempre.
+        imagens = f" (+{len(anexos)} imagens)" if anexos else ""
+        self._escrever(f"  [simulacao{destino}] {texto}{imagens}")
 
 
 class NotificadorEmMemoria:
@@ -353,10 +383,21 @@ class NotificadorEmMemoria:
         self.enviados: list[str] = []
         # (texto, conversa_alvo), para os testes que verificam ONDE saiu.
         self.destinos: list[tuple[str, str | None]] = []
+        # Os anexos de cada envio, na ordem dos envios.
+        self.anexados: list[tuple[str, ...]] = []
 
-    def enviar(self, texto: str, conversa_alvo: str | None = None) -> None:
+    def enviar(
+        self,
+        texto: str,
+        conversa_alvo: str | None = None,
+        anexos: Sequence["Anexo"] | None = None,
+        texto_sem_anexos: str | None = None,
+    ) -> None:
         self.enviados.append(texto)
         self.destinos.append((texto, conversa_alvo))
+        self.anexados.append(
+            tuple(anexo.nome_do_arquivo for anexo in anexos or ())
+        )
 
 
 @dataclass
@@ -386,23 +427,154 @@ class ErroDeEntrega(Exception):
         self.transitorio = transitorio
 
 
+# ---------------------------------------------------------------------------
+# O ANEXO: `multipart/form-data` montado a mao, com a stdlib
+# ---------------------------------------------------------------------------
+#
+# POR QUE A MAO, E NAO UMA BIBLIOTECA
+#
+# Este projeto fala `urllib.request`. `requests` NAO esta na arvore, e o
+# `test_firewall_escopo` existe justamente para que a arvore de dependencias
+# seja uma decisao e nao um acidente. Montar o envelope custa ~20 linhas.
+#
+# E o custo vem com um ganho que uma biblioteca nao daria: como o corpo e
+# construido por uma funcao pura, ele e COMPARAVEL BYTE A BYTE NUM TESTE SEM
+# REDE NENHUMA. A peca mais chata do recurso e tambem a unica que da para
+# provar inteira offline.
+
+_CRLF = b"\r\n"
+
+# Quantos bytes de aleatorio a fronteira carrega. 16 bytes hex (128 bits) e
+# folga absurda para o unico requisito real, que e nao aparecer dentro de um
+# PNG de ~5 KB.
+_BYTES_DA_FRONTEIRA = 16
+
+
+def escolher_fronteira(
+    anexos: Sequence["Anexo"], gerar: Callable[[], str] | None = None
+) -> str:
+    """Uma fronteira que NAO aparece dentro de nenhum anexo.
+
+    Uma fronteira que existe no conteudo corta a mensagem ao meio: o servidor
+    aceita o que veio antes dela e o usuario recebe meio PNG. Com 128 bits de
+    aleatorio a chance e desprezivel — e "desprezivel" nao e "impossivel", e o
+    desfecho de um anexo truncado nao e um erro visivel, e uma imagem
+    corrompida que o dono nao consegue ler.
+
+    Conferir custa uma varredura sobre ~40 KB. `gerar` e injetavel para que o
+    teste force a colisao e prove que a escolha REAGE, em vez de confiar na
+    sorte de nunca colidir.
+    """
+    gerar = gerar or (lambda: secrets.token_hex(_BYTES_DA_FRONTEIRA))
+    for _ in range(16):
+        candidata = gerar()
+        marca = candidata.encode("ascii")
+        if not any(marca in anexo.conteudo for anexo in anexos):
+            return candidata
+    # Dezesseis sorteios de 128 bits colidindo seguidos nao acontece por acaso.
+    raise ErroDeEntrega(
+        "nao consegui escolher uma fronteira livre", transitorio=False
+    )
+
+
+def _nome_de_arquivo_seguro(nome: str) -> str:
+    """Sem aspas, sem barras e sem quebra de linha.
+
+    O nome do arquivo entra DENTRO de um cabecalho. Hoje ele e sempre o apelido
+    hex, que nao tem como conter nada disso; o dia em que alguem passar o nick
+    do jogador aqui e o dia em que um `"` ou um CRLF vira cabecalho HTTP
+    inventado. Fechar agora custa uma linha.
+    """
+    limpo = "".join(c for c in nome if c not in '"\\\r\n' and c.isprintable())
+    return limpo or "anexo.png"
+
+
+def montar_multipart(
+    campos: Mapping[str, str], anexos: Sequence["Anexo"], fronteira: str
+) -> bytes:
+    """O corpo `multipart/form-data`, com os campos e depois os anexos.
+
+    TODA quebra de linha e CRLF, e isso nao e preciosismo de RFC: um `\\n`
+    solto faz o parser do outro lado ver UMA parte gigante em vez de tres, e o
+    desfecho e um 422 que se parece com erro de token.
+
+    A ORDEM DOS ANEXOS E A ORDEM DA LISTA, e ela e contrato. O texto da
+    pergunta lista os apelidos numa ordem; se as imagens sairem noutra, o dono
+    batiza a pessoa errada — que e exatamente a mentira plausivel que este
+    projeto combate. (A defesa de verdade e o apelido desenhado DENTRO da
+    imagem; a ordem e o segundo cinto.)
+    """
+    marca = f"--{fronteira}".encode("ascii")
+    partes: list[bytes] = []
+
+    for nome, valor in campos.items():
+        partes.append(
+            marca
+            + _CRLF
+            + f'Content-Disposition: form-data; name="{nome}"'.encode("utf-8")
+            + _CRLF
+            + _CRLF
+            + str(valor).encode("utf-8")
+            + _CRLF
+        )
+
+    for anexo in anexos:
+        arquivo = _nome_de_arquivo_seguro(anexo.nome_do_arquivo)
+        partes.append(
+            marca
+            + _CRLF
+            + (
+                'Content-Disposition: form-data; name="attachments[]"; '
+                f'filename="{arquivo}"'
+            ).encode("utf-8")
+            + _CRLF
+            + f"Content-Type: {anexo.tipo}".encode("utf-8")
+            + _CRLF
+            + _CRLF
+            + anexo.conteudo
+            + _CRLF
+        )
+
+    partes.append(marca + b"--" + _CRLF)
+    return b"".join(partes)
+
+
 class NotificadorChatwoot:
     """Envia via API do Chatwoot. Um POST por conversa de destino."""
 
     def __init__(self, config: ConfigChatwoot) -> None:
         self._config = config
+        # Quantas vezes o anexo falhou e a mensagem saiu em texto puro. Contado
+        # em vez de logado porque este modulo nao tem logger: quem quiser
+        # mostrar isso no console le o numero.
+        self.anexos_que_falharam = 0
 
-    def enviar(self, texto: str, conversa_alvo: str | None = None) -> None:
+    def enviar(
+        self,
+        texto: str,
+        conversa_alvo: str | None = None,
+        anexos: Sequence["Anexo"] | None = None,
+        texto_sem_anexos: str | None = None,
+    ) -> None:
         """Sem alvo, vai para as conversas de AVISO. Com alvo, so para ela.
 
         O alvo existe para RESPONDER onde perguntaram. Sem ele, um `.status`
         mandado no privado era respondido no grupo — mediu-se isso ao vivo:
         pergunta as 23:04:42 na conversa 1, resposta as 23:04:52 na 13.
+
+        SEM `anexos`, NADA MUDA: o corpo continua sendo o mesmo JSON de
+        sempre, byte a byte. O multipart e um caminho NOVO, e ele so existe
+        quando ha imagem.
         """
         erros = []
         for conversa in [conversa_alvo] if conversa_alvo else self._config.conversas:
             try:
-                self._postar(conversa, texto)
+                if anexos:
+                    self._postar_com_reserva(
+                        conversa, texto, anexos, texto_sem_anexos or texto
+                    )
+                else:
+                    self._postar(conversa, texto)
             except ErroDeEntrega as erro:
                 erros.append((conversa, erro))
 
@@ -413,18 +585,85 @@ class NotificadorChatwoot:
             raise ErroDeEntrega(detalhes, transitorio=transitorio)
 
     def _postar(self, conversa: str, texto: str) -> None:
+        corpo = json.dumps(
+            {"content": texto, "message_type": "outgoing"}
+        ).encode("utf-8")
+        self._enviar_corpo(conversa, corpo, "application/json")
+
+    def _postar_com_anexos(
+        self, conversa: str, texto: str, anexos: Sequence["Anexo"]
+    ) -> None:
+        """UMA mensagem com N imagens, e nao N mensagens.
+
+        O Chatwoot aceita varios `attachments[]` no mesmo POST, e usar isso e
+        deliberado: a pergunta lista todas as pendentes de uma vez desde o
+        inicio (D-04), e voltar a mandar uma bolha por pessoa desfaria o
+        trabalho que CORR-03 acabou de fazer consolidando rajada. O grupo de
+        WhatsApp e o ativo mais fragil do produto: um grupo que recebe rajada
+        aprende a ignorar o grupo.
+        """
+        fronteira = escolher_fronteira(anexos)
+        corpo = montar_multipart(
+            {"content": texto, "message_type": "outgoing"}, anexos, fronteira
+        )
+        self._enviar_corpo(
+            conversa, corpo, f"multipart/form-data; boundary={fronteira}"
+        )
+
+    def _postar_com_reserva(
+        self,
+        conversa: str,
+        texto: str,
+        anexos: Sequence["Anexo"],
+        texto_de_reserva: str,
+    ) -> None:
+        """Tenta com imagem; se falhar, manda o texto puro assim mesmo.
+
+        A ORDEM E A DECISAO, E ELA E SOBRE O MARCADOR. Quando esta funcao roda,
+        o `perguntado_<chave>` de D-04 JA FOI QUEIMADO — ele e de mao unica e
+        vale para sempre, entao daqui para a frente uma pergunta que nao sai e
+        uma pessoa que fica "Membro N" ate alguem apagar um arquivo a mao. A
+        unica regra que importa, entao, e: NENHUM caminho pode terminar sem uma
+        tentativa de texto puro.
+
+        Duas ordens cumprem essa regra, e a escolha entre elas e sobre o custo
+        no caso NORMAL:
+
+        - texto puro primeiro e imagens depois cumpriria, e custaria DUAS
+          bolhas no grupo TODA VEZ — inclusive quando tudo funciona;
+        - multipart primeiro e texto puro so na falha custa duas bolhas SO
+          quando falha, e no caso de falha o dono ja perdeu a imagem de
+          qualquer jeito.
+
+        O QUE SE PAGA POR ISSO, ESCRITO: se o multipart chegar ao servidor e a
+        resposta se perder no caminho, saem DUAS perguntas iguais. Pergunta
+        repetida e barulho; pergunta que nunca sai e uma pessoa anonima para
+        sempre. A escolha e pelo barulho.
+
+        O `texto_de_reserva` e um texto DIFERENTE de proposito: o texto com
+        imagem diz "mandei junto a imagem", e repetir essa frase numa mensagem
+        sem anexo nenhum mandaria o dono procurar um arquivo que nao existe.
+        """
+        try:
+            self._postar_com_anexos(conversa, texto, anexos)
+            return
+        except ErroDeEntrega:
+            self.anexos_que_falharam += 1
+
+        self._postar(conversa, texto_de_reserva)
+
+    def _enviar_corpo(
+        self, conversa: str, corpo: bytes, tipo_do_conteudo: str
+    ) -> None:
         url = (
             f"{self._config.url}/api/v1/accounts/{self._config.conta}"
             f"/conversations/{conversa}/messages"
         )
-        corpo = json.dumps(
-            {"content": texto, "message_type": "outgoing"}
-        ).encode("utf-8")
 
         req = urllib.request.Request(url, data=corpo, method="POST")
         # Header plano, sem prefixo Bearer — e assim que o Chatwoot espera
         req.add_header("api_access_token", self._config.token)
-        req.add_header("Content-Type", "application/json")
+        req.add_header("Content-Type", tipo_do_conteudo)
         req.add_header("User-Agent", USER_AGENT)
         req.add_header("Accept", "application/json")
 
@@ -484,7 +723,11 @@ class Despachante:
         # (texto, conversa_alvo). O alvo atravessa a fila porque a resposta
         # tem de sair na conversa onde a pergunta chegou, e a fila e
         # assincrona — a informacao se perderia se ficasse so na chamada.
-        self._fila: Queue[tuple[str, str | None] | None] = Queue(maxsize=200)
+        # (texto, conversa_alvo, anexos, texto_sem_anexos). Os dois ultimos
+        # sao vazios em tudo que nao e a pergunta do batismo.
+        self._fila: Queue[
+            tuple[str, str | None, tuple, str | None] | None
+        ] = Queue(maxsize=200)
         self._thread: threading.Thread | None = None
         self._rodando = False
         self.entregues = 0
@@ -502,6 +745,8 @@ class Despachante:
         texto: str,
         categoria: Categoria = Categoria.NORMAL,
         conversa_alvo: str | None = None,
+        anexos: Sequence["Anexo"] | None = None,
+        texto_sem_anexos: str | None = None,
     ) -> None:
         """Enfileira. Grava no outbox ANTES de qualquer tentativa de rede.
 
@@ -521,11 +766,20 @@ class Despachante:
 
         if self._outbox:
             registro = {"momento": time.time(), "texto": texto}
+            if anexos:
+                # SO os nomes: o outbox e um registro duravel para forense
+                # pos-farm, e enfiar ~40 KB de PNG por pergunta dentro de um
+                # JSONL que ninguem poda trocaria a utilidade dele por peso.
+                registro["anexos"] = [
+                    anexo.nome_do_arquivo for anexo in anexos
+                ]
             with self._outbox.open("a", encoding="utf-8") as arquivo:
                 arquivo.write(json.dumps(registro, ensure_ascii=False) + "\n")
 
         try:
-            self._fila.put_nowait((texto, conversa_alvo))
+            self._fila.put_nowait(
+                (texto, conversa_alvo, tuple(anexos or ()), texto_sem_anexos)
+            )
         except Exception:
             # Fila cheia: o evento ja esta no outbox, entao nada se perdeu de
             # verdade — mas o usuario precisa saber.
@@ -541,14 +795,33 @@ class Despachante:
             if item is None:
                 break
 
-            texto, conversa_alvo = item
-            self._tentar_entregar(texto, conversa_alvo)
+            texto, conversa_alvo, anexos, texto_sem_anexos = item
+            self._tentar_entregar(
+                texto, conversa_alvo, anexos, texto_sem_anexos
+            )
             self._fila.task_done()
 
-    def _tentar_entregar(self, texto: str, conversa_alvo: str | None = None) -> None:
+    def _tentar_entregar(
+        self,
+        texto: str,
+        conversa_alvo: str | None = None,
+        anexos: Sequence["Anexo"] = (),
+        texto_sem_anexos: str | None = None,
+    ) -> None:
         for tentativa in range(1, MAX_TENTATIVAS + 1):
             try:
-                self._notificador.enviar(texto, conversa_alvo)
+                if anexos:
+                    self._notificador.enviar(
+                        texto,
+                        conversa_alvo,
+                        anexos=anexos,
+                        texto_sem_anexos=texto_sem_anexos,
+                    )
+                else:
+                    # A CHAMADA DE SEMPRE, com dois argumentos e nada mais.
+                    # Um notificador de teste que so aceita `(texto)` ou
+                    # `(texto, conversa_alvo)` continua servindo — e ha varios.
+                    self._notificador.enviar(texto, conversa_alvo)
                 self.entregues += 1
                 return
             except ErroDeEntrega as erro:

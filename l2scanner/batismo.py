@@ -32,8 +32,14 @@ nenhuma. Nao acrescentar aqui nenhum ramo que aceite numero de linha.
 O QUE ESTE MODULO NAO CONHECE
 
 Ele nao importa `visao`, `sessao`, `rastreador`, `calibracao`, `loot`, `agenda`
-nem `presenca`. Fala `AcervoDeIdentidades`, `chave_da_assinatura`, `Assinatura`
-e stdlib, e so.
+nem `presenca`. Fala `AcervoDeIdentidades`, `chave_da_assinatura`, `Assinatura`,
+`retrato` e stdlib, e so.
+
+`retrato` entrou com OCRN-03, quando a pergunta passou a levar a IMAGEM do
+nome. Ele nao arrasta cadeia nenhuma: fala `cv2`, `numpy` e stdlib, nao tem
+relogio e nao sabe o que e Chatwoot. E o transporte continua do outro lado da
+parede — este modulo MONTA os anexos e nao sabe como eles viajam, que e o que
+permite provar o desenho offline e o envelope HTTP offline, em separado.
 
 A AUSENCIA DE `loot` E DELIBERADA E TEM PRECEDENTE ESCRITO: `acervo.py` ja se
 recusou a importar `loot.NICK_VALIDO` porque `loot` importa `agenda`, e
@@ -55,8 +61,27 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+import cv2
+
 from .acervo import NOME_VALIDO, AcervoDeIdentidades, chave_da_assinatura
 from .identidade import Assinatura
+from .retrato import anexo_do_nome
+
+# Quantas IMAGENS cabem numa pergunta.
+#
+# O TETO E SOBRE GENTE, E NAO SOBRE BYTES, e o numero foi medido antes de ser
+# escolhido:
+#
+# - MEDIDO em 01/09/2026 sobre as 15 entradas do acervo real: cada PNG ficou
+#   entre 3.9 KB e 6.4 KB (media 4.8 KB). Oito somam ~39 KB, que nao aperta
+#   nada. Ou seja, peso nunca foi o argumento;
+# - o argumento e humano. A party window do L2 mostra no maximo oito pessoas
+#   alem de voce, entao mais de oito anonimas de uma vez NAO e uma party na
+#   tela: e acervo acumulado de varias sessoes, e uma bolha de WhatsApp com
+#   vinte imagens e uma bolha que ninguem abre;
+# - o resto NAO some. Todos os apelidos continuam na lista, e o texto diz
+#   quantas ficaram sem imagem. Truncar em silencio e proibido.
+TETO_DE_IMAGENS = 8
 
 # Quantos digitos hex da chave a pergunta MOSTRA.
 #
@@ -196,9 +221,51 @@ def pendentes_do_acervo(acervo: AcervoDeIdentidades) -> list[Pendente]:
     return [Pendente(chave=chave, indice=None) for chave in acervo.anonimas()]
 
 
+@dataclass(frozen=True)
+class PerguntaDoBatismo:
+    """A pergunta pronta: o texto com imagem, o texto sem, e as imagens.
+
+    POR QUE SAO DOIS TEXTOS, E NAO UM
+
+    O anexo pode falhar (erro HTTP, imagem que nao codifica, o que for), e a
+    pergunta tem de sair MESMO ASSIM — uma pessoa que nunca e perguntada fica
+    anonima para sempre, porque o marcador `perguntado_<chave>` e de uma vez
+    so. Mas o texto que promete "mandei junto a imagem" numa mensagem SEM
+    imagem nenhuma manda o dono procurar um arquivo que nao existe: e uma
+    mensagem que parece perfeitamente normal e esta errada, que e a forma de
+    mentira que este projeto combate em todo lugar.
+
+    Entao a reserva e um texto DIFERENTE: o mesmo de hoje, sem a promessa.
+    Quem entrega escolhe qual dos dois sai, e a escolha depende de o anexo ter
+    ido ou nao.
+    """
+
+    texto: str
+    texto_sem_imagens: str
+    imagens: tuple = ()
+
+
 def montar_pergunta(
     acervo: AcervoDeIdentidades, pendentes: Sequence[Pendente]
 ) -> str | None:
+    """O TEXTO da pergunta, para quem nao carrega imagem. `None` se nada saiu.
+
+    ESTE E UM INVOLUCRO, E NAO UM SEGUNDO CAMINHO. Ele existe porque cerca de
+    trinta casos afirmam o texto por esta porta, e mudar a assinatura deles
+    nao provaria nada novo. Quem entrega de verdade usa
+    `montar_pergunta_com_imagens`, que devolve tambem as imagens e a reserva.
+
+    ATENCAO: o texto que sai daqui PROMETE imagem. Chamar isto e mandar a
+    string por um caminho que nao leva anexo produz uma mensagem que pede para
+    o dono olhar uma imagem que nunca chegou.
+    """
+    pergunta = montar_pergunta_com_imagens(acervo, pendentes)
+    return pergunta.texto if pergunta else None
+
+
+def montar_pergunta_com_imagens(
+    acervo: AcervoDeIdentidades, pendentes: Sequence[Pendente]
+) -> PerguntaDoBatismo | None:
     """O UNICO lugar que MARCA e o UNICO lugar que REDIGE. `None` se nada saiu.
 
     Os dois gatilhos desta fase — o aprendizado e a varredura de arranque —
@@ -249,8 +316,14 @@ def montar_pergunta(
             # BASE 1: e como o usuario conta as linhas olhando a party window.
             linhas.append(f"  {apelido} (vi na linha {pendente.indice + 1})")
 
+    imagens = _imagens_das_vencedoras(acervo, vencedoras)
+    # As duas redacoes divergem AQUI e so aqui: a frase da imagem entra logo
+    # depois da lista que ela explica, e a reserva simplesmente nao a tem.
+    aviso = _frase_da_imagem(len(imagens), quantas)
+    linhas_com_imagem = linhas + ([""] + aviso if aviso else [])
+
     primeiro = apelido_da_chave(vencedoras[0].chave)
-    linhas += [
+    rodape = [
         "",
         "Para dar o nome, responda: /batizar <apelido> <nick>",
         f"Exemplo: /batizar {primeiro} Fulano",
@@ -270,7 +343,96 @@ def montar_pergunta(
         # responder".
         "Se alguma delas nao for gente, e so nao responder: nao pergunto de novo.",
     ]
-    return "\n".join(linhas)
+    return PerguntaDoBatismo(
+        texto="\n".join(linhas_com_imagem + rodape),
+        texto_sem_imagens="\n".join(linhas + rodape),
+        imagens=imagens,
+    )
+
+
+def _imagens_das_vencedoras(
+    acervo: AcervoDeIdentidades, vencedoras: Sequence[Pendente]
+) -> tuple:
+    """As imagens dos nomes, NA ORDEM DAS VENCEDORAS, ate o teto.
+
+    UMA LEITURA SO DO DISCO. `acervo.entradas()` releria a pasta inteira a cada
+    chamada, e entre duas leituras a OUTRA instancia do usuario roda sobre a
+    MESMA pasta: a mensagem descreveria um estado que nunca existiu. E o mesmo
+    argumento que `entradas()` ja escreve para o lote do `/esquecer`.
+
+    UMA ENTRADA QUE NAO DESENHA E PULADA, E NAO PROPAGA. A pergunta e cara
+    demais para morrer por causa de um PNG: o marcador ja foi queimado quando
+    esta funcao roda, entao levantar aqui deixaria a pessoa anonima para
+    sempre. Sem imagem ela ainda aparece na lista de apelidos, que e a pergunta
+    de hoje.
+    """
+    try:
+        assinaturas = dict(acervo.entradas())
+    except OSError:
+        return ()
+
+    imagens = []
+    for pendente in vencedoras[:TETO_DE_IMAGENS]:
+        assinatura = assinaturas.get(pendente.chave)
+        if assinatura is None:
+            continue
+        try:
+            imagens.append(
+                anexo_do_nome(apelido_da_chave(pendente.chave), assinatura.mascara)
+            )
+        except (ValueError, TypeError, cv2.error):
+            continue
+    return tuple(imagens)
+
+
+def _frase_da_imagem(quantas_imagens: int, quantas_pendentes: int) -> list[str]:
+    """O que a mensagem diz sobre as imagens. Lista vazia quando nao ha nenhuma.
+
+    A FRASE NUNCA PROMETE O QUE NAO VAI JUNTO. Ela e escrita a partir do numero
+    de imagens que DE FATO desenharam, e nao do numero de pendentes — senao uma
+    mascara que falhou viraria uma promessa quebrada.
+
+    E ELA NUNCA CITA POSICAO. A varredura de arranque nao sabe em que linha
+    aquela pessoa estava (D-03), e inventar uma seria a primeira mentira do
+    caminho. A palavra "linha" nao aparece aqui de proposito, e
+    `test_a_varredura_NAO_cita_posicao_nenhuma` cobre o texto inteiro.
+
+    As redacoes sao por EXTENSO, e nao um sufixo colado, pela razao que o
+    cabecalho ja escreve: "esta" + "s" da "estas", e uma regra de plural por
+    concatenacao acerta o substantivo e erra o verbo.
+    """
+    if quantas_imagens == 0:
+        return []
+
+    dentro = "com o apelido escrito dentro"
+    if quantas_imagens == quantas_pendentes:
+        if quantas_imagens == 1:
+            frases = [f"Mandei junto a imagem do nome dela, {dentro} da imagem."]
+        else:
+            frases = [
+                f"Mandei junto a imagem do nome de cada uma, na mesma ordem "
+                f"desta lista, {dentro} de cada imagem."
+            ]
+        return frases
+
+    # SOBROU GENTE, E O TEXTO DIZ. Truncar em silencio seria entregar uma
+    # mensagem que parece completa e nao esta — de novo a mentira plausivel.
+    if quantas_imagens == 1:
+        frases = [f"Mandei junto a imagem do nome da primeira, {dentro} da imagem."]
+    else:
+        frases = [
+            f"Mandei junto a imagem do nome das {quantas_imagens} primeiras, "
+            f"na mesma ordem desta lista, {dentro} de cada imagem."
+        ]
+
+    sobrando = quantas_pendentes - quantas_imagens
+    if sobrando == 1:
+        frases.append("A outra ficou sem imagem, e esta so na lista acima.")
+    else:
+        frases.append(
+            f"As outras {sobrando} ficaram sem imagem, e estao so na lista acima."
+        )
+    return frases
 
 
 @dataclass(frozen=True)
