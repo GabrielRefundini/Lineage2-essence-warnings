@@ -101,6 +101,46 @@ DIGITOS = "0123456789"
 # separador `;` que a Fase 3 usa no CSV.
 SEPARADOR_DA_ASSINATURA = "#"
 
+# O piso da TRAVA POR PALAVRA (D-09). Abaixo dele o candidato e VETADO e nem
+# chega a ser comparado pela similaridade do nome inteiro.
+#
+# A POPULACAO CONTRA A QUAL ELE FOI MEDIDO, E POR QUE E ESSA
+# -----------------------------------------------------------
+# Um par cuja similaridade do NOME INTEIRO ja fica ABAIXO do piso global vira
+# serie nova sozinho — a trava nao muda o veredito dele. Entao a trava so
+# precisa acertar nos pares que CHEGAM a faixa cinzenta (>= 0,8837). Medir sobre
+# os 44 pares do catalogo inteiro misturaria 41 pares que a trava nem alcanca e
+# produziria um piso calibrado contra a populacao errada.
+#
+# Medido em 2026-09-01 sobre `.mercado/catalogo-de-nomes.csv` do usuario mais o
+# ruido de OCR que o repositorio NOMEIA por medicao (`Chll`/`Doll`, `Kng`/`King`,
+# `Evolution`/`Ewlution`, `Hunteds`/`Hunter's`, `St«kings`/`Stockings`):
+#
+#     metrica                   pior AGRUPAR   pior SEPARAR       VAO
+#     similaridade do nome         0,8889         0,8889       0,0000
+#     similaridade do RESTO        0,5000         0,4000      +0,1000
+#
+#     piso do resto = (0,4000 + 0,5000) / 2 = 0,4500
+#
+# A primeira linha e a refutacao da recalibracao: o pior par que precisa agrupar
+# e o pior que precisa separar sao o MESMO NUMERO, com quatro casas. Nao existe
+# vao para calibrar, e nenhuma quantidade de material novo cria um.
+#
+# QUEM ENCOSTA NAS DUAS BORDAS, para a proxima medicao nao precisar redescobrir:
+#     0,5000  `Chll` x `Doll`      PRECISA AGRUPAR (2 caracteres tortos em 4)
+#     0,4000  `Earth` x `Water`    PRECISA SEPARAR (palavras inteiras distintas)
+# A folga do lado de AGRUPAR e de 0,05, e ela e apertada porque `Doll` e curto:
+# um token de 3 letras com 2 tortas daria 0,3333 e seria vetado. O erro nessa
+# direcao cria SERIE NOVA, nunca fusao — e o lado barato do D-06.
+#
+# ELE NAO MORA NO `calibration.json`, E ISSO E DELIBERADO. `mercado_pagina`
+# EXIGE as chaves de mercado presentes e PARA sem elas: uma chave nova
+# obrigatoria deixaria o scanner morto no proximo start ate o usuario rodar a
+# recalibracao. O numero entra aqui, com a medicao ao lado, e `agrupar` o aceita
+# por nome para a ferramenta poder varre-lo. Move-lo para a calibracao depois
+# nao exige reescrever nada.
+PISO_DO_RESTO = 0.45
+
 
 @dataclass(frozen=True)
 class EntradaDoCatalogo:
@@ -157,6 +197,75 @@ def similaridade(a: str | None, b: str | None) -> float:
     if not a or not b:
         return 0.0
     return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def _resto_apos_tokens_iguais(a: str, b: str) -> tuple[list[str], list[str]]:
+    """Os tokens de cada lado depois de remover os que sao IDENTICOS nos dois.
+
+    MULTICONJUNTO, e nao conjunto: `Coin Coin Azul` contra `Coin Azul` tem de
+    deixar UM `Coin` sobrando do lado esquerdo. Com conjunto os dois lados
+    ficariam vazios e o par viraria identico, que e a fusao que a trava existe
+    para impedir.
+
+    A ORDEM DE APARICAO E PRESERVADA nos dois lados. Ela nao muda o veredito de
+    `difflib` na maioria dos casos, mas ordenar aqui faria duas execucoes sobre
+    o mesmo frame poderem comparar strings diferentes — o mesmo motivo pelo qual
+    `assinatura_por_ocr` nao ordena os digitos.
+    """
+    resto_a: list[str] = []
+    sobra_b = b.split()
+    for token in a.split():
+        if token in sobra_b:
+            sobra_b.remove(token)
+        else:
+            resto_a.append(token)
+    return resto_a, sobra_b
+
+
+def similaridade_do_resto(a: str | None, b: str | None) -> float:
+    """A similaridade do que SOBRA depois que as palavras identicas saem. Nunca levanta.
+
+    A TRAVA POR PALAVRA (D-09), e ela e a trava de digitos do D-03 um nivel
+    acima: o que bate por igualdade EXATA sai da conta ANTES, e a similaridade
+    decide so o RESTO. La o que sai e a sequencia de digitos; aqui sao os TOKENS.
+
+    POR QUE A SIMILARIDADE DO NOME INTEIRO NAO PODE DECIDIR SOZINHA
+    ================================================================
+    `difflib.ratio()` e uma RAZAO, entao ela dilui a diferenca no prefixo
+    compartilhado. Medido, e este par de numeros e o defeito inteiro:
+
+        'Hunteds Tunic'     x  "Hunter's Tunic"     = 0,8889   MESMO item
+        '...C-grade Weapon' x  '...C-grade Armor'   = 0,8889   itens DIFERENTES
+
+    O MESMO numero, com quatro casas, precisa decidir coisas OPOSTAS. A
+    refutacao e ARITMETICA e nao empirica: `Protecting Scroll: Enchant C-grade `
+    sao 34 caracteres iguais, entao uma PALAVRA trocada (6 caracteres) vale o
+    mesmo que UM caractere torto num nome de 13. **Nenhum par (piso, corte)
+    sobre esta metrica separa os dois casos**, por mais material que se junte.
+
+    O resto e escala-livre em relacao ao prefixo, e ai o vao aparece:
+
+        resto('...C-grade Weapon', '...C-grade Armor')  ->  'Weapon' x 'Armor'
+        resto('Hunteds Tunic',     "Hunter's Tunic")    ->  'Hunteds' x "Hunter's"
+
+    `Armor` e `Weapon` sao TOKENS INTEIROS diferentes; `St«kings` x `Stockings` e
+    UM token com 2 caracteres tortos. A separacao passa a ser por MECANISMO.
+
+    VAZIO DOS DOIS LADOS E 1,0, E NAO 0,0. `similaridade` devolve 0,0 para vazio
+    contra vazio de proposito, e herdar esse 0,0 aqui vetaria uma leitura contra
+    ela mesma — exatamente o oposto do que a trava faz.
+
+    VAZIO DE UM LADO SO E 0,0, por heranca de `similaridade`, e isso e o
+    veredito CERTO: `Common Aztac` contra `Common Aztac M. Def. +200` deixa `''`
+    contra `'M. Def. +200'`, e os dois precisam separar (D-05, o par que
+    derrubou o `WRatio` com corte 88 fundindo-os a 90,00).
+    """
+    if not a or not b:
+        return 0.0
+    resto_a, resto_b = _resto_apos_tokens_iguais(a, b)
+    if not resto_a and not resto_b:
+        return 1.0
+    return similaridade(" ".join(resto_a), " ".join(resto_b))
 
 
 def _slug(nome: str) -> str:
@@ -294,15 +403,46 @@ def agrupar(
     catalogo: Iterable[EntradaDoCatalogo],
     corte: float,
     piso: float,
+    *,
+    piso_do_resto: float = PISO_DO_RESTO,
 ) -> ResultadoDoAgrupamento:
     """Em que serie esta leitura cai — ou por que ela nao cai em nenhuma.
 
-    A ORDEM DAS DUAS DECISOES E O DESENHO INTEIRO:
+    A ORDEM DAS TRES DECISOES E O DESENHO INTEIRO:
 
     1. A TRAVA DE DIGITOS filtra os candidatos por igualdade EXATA da
        assinatura. `+6 X` nunca chega perto de `+4 X`, por mais alta que seja a
        similaridade (medida: 0,9677).
-    2. A SIMILARIDADE decide so o resto, entre os que sobraram.
+    2. A TRAVA POR PALAVRA (D-09) veta os candidatos cujo RESTO — o que sobra
+       depois de remover as palavras identicas — nao chega a `piso_do_resto`.
+       `...C-grade Weapon` nunca chega perto de `...C-grade Armor`, porque o
+       resto e `Weapon` contra `Armor` (0,1818), por mais que o nome inteiro
+       diga 0,8889.
+    3. A SIMILARIDADE DO NOME INTEIRO decide so o resto, entre os que sobraram.
+
+    AS DUAS TRAVAS SAO A MESMA IDEIA EM DOIS NIVEIS: o que bate por igualdade
+    EXATA sai da conta ANTES, e a similaridade decide so o que sobrou. No D-03
+    o que sai e a sequencia de DIGITOS; no D-09 sao as PALAVRAS INTEIRAS.
+
+    A TRAVA POR PALAVRA SO REMOVE CANDIDATO, NUNCA ACRESCENTA
+    ----------------------------------------------------------
+    Isso e propriedade de CONSTRUCAO, e nao resultado de teste: ela e um filtro
+    sobre a lista de candidatos, entao nenhum par que hoje nao funde pode passar
+    a fundir por causa dela. E o que a deixa honrar a assimetria do D-06 —
+    fusao no CSV e irreversivel, descarte e serie nova nao sao. O caminho que
+    ela abre e sempre da FAIXA CINZENTA para a SERIE NOVA, nunca para a fusao.
+
+    O DEFEITO QUE ELA CONSERTA, com o numero que o nomeia
+    ------------------------------------------------------
+    Sessao do usuario de 2026-09-01 04:32: 10 de 10 linhas recusadas por
+    `faixa-cinzenta`, com as DUAS escalas de OCR concordando e lendo o nome
+    CERTO. `Protecting Scroll: Enchant C-grade Weapon` dava 0,8889 contra o
+    `...C-grade Armor` que ja estava no catalogo, e 0,8837 <= 0,8889 < 0,8947.
+    Enquanto o `Armor` existisse, o `Weapon` NUNCA agrupava e NUNCA criava
+    serie. Nao era transitorio, e a faixa que o engoliu tem 0,011 de largura.
+
+    Recalibrar nao resolvia, e a refutacao esta em `similaridade_do_resto`: o
+    MESMO 0,8889 e "mesmo item" em `'Hunteds Tunic'` x `"Hunter's Tunic"`.
 
     Os tres desfechos:
 
@@ -326,12 +466,18 @@ def agrupar(
             None, "leitura vazia: nem chave nem serie", False
         )
 
+    mesma_assinatura = [
+        entrada for entrada in catalogo if entrada.assinatura == assinatura
+    ]
+    candidatos = [
+        entrada
+        for entrada in mesma_assinatura
+        if similaridade_do_resto(leitura, entrada.nome) >= piso_do_resto
+    ]
+    vetados = len(mesma_assinatura) - len(candidatos)
+
     pontuados = sorted(
-        (
-            (similaridade(leitura, entrada.nome), entrada.chave)
-            for entrada in catalogo
-            if entrada.assinatura == assinatura
-        ),
+        ((similaridade(leitura, entrada.nome), entrada.chave) for entrada in candidatos),
         key=lambda par: (-par[0], par[1]),
     )
 
@@ -351,11 +497,21 @@ def agrupar(
                 False,
             )
 
+    # O motivo diz quantos candidatos a TRAVA POR PALAVRA vetou, e nao so que
+    # ninguem chegou ao piso. Sem esse numero, "serie nova" fica indistinguivel
+    # entre "o catalogo nao tinha nada parecido" e "tinha, e a trava mordeu" —
+    # e sao as duas leituras que o log rotativo precisa separar depois do farm.
+    porque_vetados = (
+        f", {vetados} vetado(s) pela trava por palavra (piso do resto "
+        f"{piso_do_resto:.4f})"
+        if vetados
+        else ""
+    )
     return ResultadoDoAgrupamento(
         chave_nova,
         (
             f"serie NOVA {chave_nova}: nenhum candidato de assinatura "
-            f"{assinatura!r} chegou ao piso {piso:.4f}"
+            f"{assinatura!r} chegou ao piso {piso:.4f}{porque_vetados}"
         ),
         True,
     )

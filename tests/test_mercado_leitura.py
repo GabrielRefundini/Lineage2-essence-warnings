@@ -705,21 +705,34 @@ class TestOsQuatroMotivosDeDescarte:
     def test_a_faixa_cinzenta_produz_o_motivo_dela(self, cal, janela_f010) -> None:
         """Similaridade entre o piso e o corte: nao agrupa NEM cria serie.
 
-        O par e MEDIDO com a mesma `difflib` da producao: `Earth Spirit
-        Evolution Stone` x `Water Spirit Evolution Stone` da 0,892857, que cai
-        dentro de [0,883732 ; 0,894737).
+        O par e MEDIDO com a mesma `difflib` da producao: `Hunteds Tunic` x
+        `Hunter's Tunic` da 0,888889, que cai dentro de [0,883732 ; 0,894737).
+
+        A FIXTURA MUDOU EM 2026-09-01, E O MOTIVO PRECISA ESTAR ESCRITO. Ate a
+        TRAVA POR PALAVRA (D-09) este teste usava `Earth Spirit Evolution Stone`
+        x `Water Spirit Evolution Stone` (0,892857). Esse par e de ITENS
+        DIFERENTES, e a faixa cinzenta o descartava PARA SEMPRE — o mesmo
+        defeito que a trava foi escrita para consertar, so que com `Earth` e
+        `Water` no lugar de `Armor` e `Weapon`. A trava agora o resolve antes
+        (resto 0,4000 < piso 0,4500) e ele vira SERIE NOVA, que e o veredito
+        certo; ele e cobrado assim em
+        `test_mercado_catalogo.py::TestATravaPorPalavra`.
+
+        A faixa cinzenta continua existindo e continua sendo cobrada — agora com
+        um par cuja duvida e de CARACTERE dentro de UMA palavra (resto 0,8000,
+        passa pela trava), que e a duvida que ela existe para absorver.
         """
         catalogo = {
-            "earth-spirit-evolution-stone#": EntradaDoCatalogo(
-                chave="earth-spirit-evolution-stone#",
-                nome="Earth Spirit Evolution Stone",
+            "hunter-s-tunic#": EntradaDoCatalogo(
+                chave="hunter-s-tunic#",
+                nome="Hunter's Tunic",
                 assinatura="",
             )
         }
         leitor, _b, _c, _v2, _v3 = montar_leitor(
             cal,
-            "Water Spirit Evolution Stone",
-            "Water Spirit Evolution Stone",
+            "Hunteds Tunic",
+            "Hunteds Tunic",
             catalogo=catalogo,
         )
         leitor.observar(janela_f010)

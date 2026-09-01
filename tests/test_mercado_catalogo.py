@@ -52,7 +52,9 @@ from l2scanner.mercado_catalogo import (
     assinatura_por_ocr,
     chave_da_serie,
     similaridade,
+    similaridade_do_resto,
 )
+from l2scanner.mercado_catalogo import PISO_DO_RESTO
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -66,6 +68,29 @@ EVOLUTION = "Earth Spirit Evolution Stone"
 EWLUTION = "Earth Spirit Ewlution Stone"
 AZTAC = "Common Aztac"
 AZTAC_LONGO = "Common Aztac M. Def. +200"
+
+# O par que fez a faixa cinzenta engolir um item REAL, na sessao de 2026-09-01
+# 04:32 do usuario: 10 de 10 linhas recusadas, com as DUAS escalas de OCR
+# concordando e lendo o nome CERTO. Os dois nomes estao no `.mercado/` dele.
+SCROLL_ARMOR = "Protecting Scroll: Enchant C-grade Armor"
+SCROLL_WEAPON = "Protecting Scroll: Enchant C-grade Weapon"
+SCROLL_D_WEAPON = "Scroll: Enchant D-grade Weapon"
+
+# As DUAS series que o catalogo do usuario tem DUPLICADAS por ruido de OCR:
+# `4-hunter-s-st-kings#4` e `4-hunter-s-stockings#4` sao o MESMO item.
+STOCKINGS = "+4 Hunter's Stockings"
+STKINGS = "+4 Hunter's St«kings"
+
+# O par que REFUTA qualquer recalibracao: ele da EXATAMENTE o mesmo 0,8889 do
+# par Armor/Weapon, e e o MESMO item.
+TUNIC = "Hunter's Tunic"
+TUNIC_TORTO = "Hunteds Tunic"
+
+# Os dois numeros que estao no `calibration.json` do usuario HOJE. Os testes que
+# reproduzem a sessao dele cobram contra ESTES, e nao contra numeros de
+# conveniencia: o defeito so existe nesta faixa de 0,011 de largura.
+CORTE_DA_PRODUCAO = 0.8947
+PISO_DA_PRODUCAO = 0.8837
 
 
 def _entrada(nome: str) -> EntradaDoCatalogo:
@@ -235,13 +260,27 @@ class TestOAgrupamento:
 
         Os dois nomes entram com a MESMA assinatura de proposito — com
         assinaturas diferentes a trava de digitos ja separaria e a faixa
-        cinzenta nunca seria exercitada. O piso 0,60 e escolhido para colocar o
-        0,6486 medido do par DENTRO da faixa.
+        cinzenta nunca seria exercitada.
+
+        A FIXTURA MUDOU EM 2026-09-01, E O MOTIVO PRECISA ESTAR ESCRITO. Ate a
+        TRAVA POR PALAVRA (D-09) este teste usava `Common Aztac` contra
+        `Common Aztac M. Def. +200` (0,6486). Esse par agora e resolvido ANTES,
+        pela trava: o resto e `''` contra `'M. Def. +200'`, o veto morde, e ele
+        vira SERIE NOVA — que e o veredito CERTO, porque os dois precisam
+        separar (D-05). Ele nao sumiu da suite: virou
+        `TestATravaPorPalavra::test_um_nome_que_e_o_outro_MAIS_palavras_vira_serie_nova`.
+
+        A faixa cinzenta continua existindo e continua sendo cobrada — so que
+        agora com o par cuja duvida e de CARACTERE e nao de PALAVRA, que e a
+        duvida que ela existe para absorver. `Evolution` x `Ewlution` passa pela
+        trava (resto 0,8235) e e a similaridade do nome inteiro que o coloca
+        dentro da faixa.
         """
-        catalogo = [EntradaDoCatalogo(chave_da_serie(AZTAC, ""), AZTAC, "")]
-        similar = similaridade(AZTAC_LONGO, AZTAC)
-        assert 0.60 <= similar < self.CORTE, similar
-        r = agrupar(AZTAC_LONGO, "", catalogo, self.CORTE, 0.60)
+        catalogo = [_entrada(EVOLUTION)]
+        similar = similaridade(EWLUTION, EVOLUTION)
+        assert similaridade_do_resto(EWLUTION, EVOLUTION) >= PISO_DO_RESTO
+        assert 0.90 <= similar < 0.95, similar
+        r = agrupar(EWLUTION, "", catalogo, 0.95, 0.90)
         assert r.chave is None
         assert r.nova is False
         assert "cinzenta" in r.motivo.lower()
@@ -284,6 +323,214 @@ class TestOAgrupamento:
         r = agrupar(AGATHION_6, "6", [], 0.90, 0.70)
         assert isinstance(r, ResultadoDoAgrupamento)
         assert r.motivo
+
+
+class TestATravaPorPalavra:
+    """D-09: os tokens IDENTICOS saem da conta ANTES de a similaridade opinar.
+
+    A MESMA forma do D-03, um nivel acima. La o que sai por igualdade EXATA e a
+    assinatura de DIGITOS; aqui saem as PALAVRAS INTEIRAS que as duas leituras
+    tem em comum. Nos dois casos a similaridade decide so O RESTO.
+
+    O DEFEITO QUE ESTA CLASSE PRENDE, com o numero que o nomeia
+    ------------------------------------------------------------
+    `difflib` sobre o nome INTEIRO e uma RAZAO, e por isso dilui a diferenca no
+    prefixo compartilhado:
+
+        'Hunteds Tunic'     x  "Hunter's Tunic"          = 0,8889  MESMO item
+        '...C-grade Weapon' x  '...C-grade Armor'        = 0,8889  DIFERENTES
+
+    O mesmo numero, com quatro casas, precisa decidir coisas OPOSTAS. Nenhum par
+    (piso, corte) sobre esta metrica separa os dois casos, e a refutacao e
+    ARITMETICA: 34 caracteres iguais de prefixo fazem uma PALAVRA trocada valer
+    o mesmo que UM caractere torto num nome de 13.
+
+    O resto e escala-livre em relacao ao prefixo, e ai o vao aparece. Medido
+    sobre o catalogo REAL do usuario — 41 pares que precisam separar contra 4
+    que precisam agrupar: pior AGRUPAR 0,8000, pior SEPARAR 0,4800, vao +0,3200.
+    """
+
+    def test_a_metrica_de_hoje_da_o_MESMO_numero_para_os_dois_vereditos(self):
+        """A refutacao, presa como teste para que ninguem a redescubra."""
+        ruido = similaridade(TUNIC_TORTO, TUNIC)
+        itens_diferentes = similaridade(SCROLL_WEAPON, SCROLL_ARMOR)
+        assert ruido == itens_diferentes
+        assert PISO_DA_PRODUCAO <= ruido < CORTE_DA_PRODUCAO
+
+    def test_o_resto_separa_o_que_a_similaridade_do_nome_inteiro_confunde(self):
+        assert similaridade_do_resto(TUNIC_TORTO, TUNIC) >= PISO_DO_RESTO
+        assert similaridade_do_resto(SCROLL_WEAPON, SCROLL_ARMOR) < PISO_DO_RESTO
+
+    def test_uma_palavra_inteira_diferente_vira_SERIE_NOVA_e_nao_faixa_cinzenta(self):
+        """O defeito da sessao de 2026-09-01 04:32, com os numeros dela.
+
+        Enquanto `...C-grade Armor` estivesse no catalogo, `...C-grade Weapon`
+        NUNCA agrupava e NUNCA criava serie. Nao era transitorio.
+        """
+        catalogo = [_entrada(SCROLL_ARMOR)]
+        r = agrupar(
+            SCROLL_WEAPON,
+            assinatura_por_ocr(SCROLL_WEAPON),
+            catalogo,
+            CORTE_DA_PRODUCAO,
+            PISO_DA_PRODUCAO,
+        )
+        assert r.chave == chave_da_serie(SCROLL_WEAPON, "")
+        assert r.nova is True
+        assert "cinzenta" not in r.motivo.lower()
+
+    def test_o_catalogo_INTEIRO_do_usuario_nao_engole_mais_a_leitura(self):
+        """Nao so contra `Armor`: contra as outras series de assinatura vazia.
+
+        `Scroll: Enchant D-grade Weapon` esta no catalogo real e COMPARTILHA a
+        palavra `Weapon` com a leitura — ele e o candidato que sobraria se a
+        trava olhasse so a ULTIMA palavra.
+        """
+        catalogo = [
+            _entrada(nome)
+            for nome in (SCROLL_ARMOR, SCROLL_D_WEAPON, TUNIC, "Hunter's Breastplate")
+        ]
+        r = agrupar(SCROLL_WEAPON, "", catalogo, CORTE_DA_PRODUCAO, PISO_DA_PRODUCAO)
+        assert r.nova is True
+
+    def test_o_ruido_de_OCR_de_UMA_palavra_continua_agrupando(self):
+        """O controle negativo do lado que NAO pode regredir.
+
+        `St«kings` x `Stockings` e UM token com 2 caracteres tortos, e ele tem de
+        sobreviver a trava. Os dois estao DUPLICADOS no catalogo do usuario hoje.
+        """
+        catalogo = [_entrada(STOCKINGS)]
+        r = agrupar(STKINGS, "4", catalogo, 0.90, 0.70)
+        assert r.nova is False
+        assert r.chave == catalogo[0].chave
+
+    def test_o_ruido_do_par_de_0_8889_continua_agrupando(self):
+        """O outro lado do numero que refuta a recalibracao."""
+        catalogo = [_entrada(TUNIC)]
+        r = agrupar(TUNIC_TORTO, "", catalogo, 0.88, 0.70)
+        assert r.nova is False
+        assert r.chave == catalogo[0].chave
+
+    def test_o_ruido_do_nome_inteiro_medido_pela_pesquisa_continua_agrupando(self):
+        """`Evolution` x `Ewlution`: 0,9455 no nome inteiro, 0,8235 no resto."""
+        assert similaridade_do_resto(EWLUTION, EVOLUTION) >= PISO_DO_RESTO
+        r = agrupar(EWLUTION, "", [_entrada(EVOLUTION)], 0.90, 0.70)
+        assert r.nova is False
+
+    def test_a_trava_so_REMOVE_candidato_e_NUNCA_acrescenta(self):
+        """A propriedade que honra o D-06: fusao NOVA e impossivel por construcao.
+
+        Varre TODO par de nomes conhecidos deste arquivo que compartilhe
+        assinatura: nenhum que hoje NAO agrupa pode passar a agrupar. Sem esta
+        varredura a trava poderia mover a fronteira na direcao IRREVERSIVEL sem
+        ninguem ver — e e justamente essa direcao que o D-06 protege.
+        """
+        nomes = [
+            AGATHION_6, AGATHION_4, AGATHION_0, HARDIN_1, HARDIN_3, HARDIN_I,
+            EVOLUTION, EWLUTION, AZTAC, AZTAC_LONGO, SCROLL_ARMOR, SCROLL_WEAPON,
+            SCROLL_D_WEAPON, STOCKINGS, STKINGS, TUNIC, TUNIC_TORTO,
+        ]
+        for leitura in nomes:
+            assinatura = assinatura_por_ocr(leitura)
+            catalogo = [
+                _entrada(outro)
+                for outro in nomes
+                if outro != leitura and assinatura_por_ocr(outro) == assinatura
+            ]
+            if not catalogo:
+                continue
+            veredito = agrupar(
+                leitura, assinatura, catalogo, CORTE_DA_PRODUCAO, PISO_DA_PRODUCAO
+            )
+            if veredito.nova or veredito.chave is None:
+                continue
+            alvo = next(e for e in catalogo if e.chave == veredito.chave)
+            assert similaridade(leitura, alvo.nome) >= CORTE_DA_PRODUCAO, (
+                f"{leitura!r} passou a agrupar em {alvo.nome!r} e antes nao agrupava"
+            )
+
+    def test_um_nome_que_e_o_outro_MAIS_palavras_vira_serie_nova(self):
+        """`Common Aztac` x `Common Aztac M. Def. +200`: 0,6486, precisa separar.
+
+        Antes da trava este par caia na FAIXA CINZENTA e era descartado. Agora o
+        resto e `''` contra `'M. Def. +200'`, o veto morde, e a serie nova nasce.
+        Este e tambem o par que derrubou o `WRatio` com corte 88 (D-05): la ele
+        FUNDIA a 90,00. A trava fecha essa porta por MECANISMO, e nao por limiar.
+        """
+        catalogo = [EntradaDoCatalogo(chave_da_serie(AZTAC, ""), AZTAC, "")]
+        r = agrupar(AZTAC_LONGO, "", catalogo, 0.90, 0.60)
+        assert r.nova is True
+        assert r.chave == chave_da_serie(AZTAC_LONGO, "")
+
+    def test_as_DUAS_bordas_do_vao_medido_ficam_de_cada_lado_do_piso(self):
+        """Quem encosta no piso dos dois lados, preso com nome e numero.
+
+        Estes dois pares SAO o vao. Se um deles se mexer, o piso 0,4500 deixa de
+        ser o meio de coisa nenhuma e a medicao tem de ser refeita — e e melhor
+        descobrir isso aqui do que numa sessao de farm.
+
+            0,5000  `Chll` x `Doll`     PRECISA AGRUPAR — 2 caracteres em 4
+            0,4000  `Earth` x `Water`   PRECISA SEPARAR — palavras inteiras
+
+        O `Chll`/`Doll` e o par que derrubou a PRIMEIRA proposta desta trava:
+        medida so contra o catalogo, ela propos 0,6400, e esse piso vetava um
+        ruido de OCR que o repositorio nomeia por medicao ha tres fases.
+        """
+        assert similaridade_do_resto("Common Valakas Chll", "Common Valakas Doll") == 0.5
+        assert similaridade_do_resto(EVOLUTION, "Water Spirit Evolution Stone") == 0.4
+        assert 0.4 < PISO_DO_RESTO <= 0.5
+
+    def test_o_ruido_de_DUAS_letras_num_token_curto_continua_agrupando(self):
+        """`Chll` x `Doll`: 0,8947 no nome inteiro, e a borda de baixo do vao."""
+        catalogo = [_entrada("Common Valakas Doll")]
+        r = agrupar("Common Valakas Chll", "", catalogo, 0.89, 0.70)
+        assert r.nova is False
+        assert r.chave == catalogo[0].chave
+
+    def test_dois_elementos_diferentes_no_mesmo_molde_de_nome_viram_series(self):
+        """`Earth Spirit ...` x `Water Spirit ...`: 0,8929, dentro da faixa.
+
+        O MESMO defeito do `Armor`/`Weapon` com outras palavras: dois itens
+        reais que a faixa cinzenta descartava para sempre.
+        """
+        catalogo = [_entrada(EVOLUTION)]
+        agua = "Water Spirit Evolution Stone"
+        assert PISO_DA_PRODUCAO <= similaridade(agua, EVOLUTION) < CORTE_DA_PRODUCAO
+        r = agrupar(agua, "", catalogo, CORTE_DA_PRODUCAO, PISO_DA_PRODUCAO)
+        assert r.nova is True
+        assert r.chave == chave_da_serie(agua, "")
+
+    def test_sem_token_em_comum_a_trava_e_transparente(self):
+        """O resto vira o nome inteiro, e a trava nao opina."""
+        assert similaridade_do_resto("Stockings", "St«kings") == similaridade(
+            "Stockings", "St«kings"
+        )
+
+    def test_o_resto_e_MULTICONJUNTO_e_nao_conjunto(self):
+        """Uma palavra REPETIDA a mais nao pode virar "nome identico".
+
+        Com conjunto, `Coin Coin Azul` contra `Coin Azul` esvaziaria os dois
+        lados, a trava devolveria 1,0, e o par passaria como se fosse o mesmo
+        nome — a FUSAO que a trava existe para impedir, entrando justamente pela
+        funcao que deveria barra-la. Com multiconjunto sobra UM `Coin` de um
+        lado so, e o resto e `'Coin'` contra `''`, que e 0,0 e veta.
+        """
+        assert similaridade_do_resto("Coin Coin Azul", "Coin Azul") == 0.0
+        assert similaridade_do_resto("Coin Azul", "Coin Coin Azul") == 0.0
+
+    def test_dois_nomes_identicos_dao_resto_perfeito(self):
+        """Sem resto nenhum dos dois lados, a resposta e 1,0 e nao 0,0.
+
+        `similaridade` devolve 0,0 para vazio contra vazio, e herdar esse 0,0
+        aqui vetaria uma leitura contra ela mesma — o oposto do que a trava faz.
+        """
+        assert similaridade_do_resto(EVOLUTION, EVOLUTION) == 1.0
+
+    def test_o_resto_nunca_levanta_no_vazio_nem_no_None(self):
+        assert similaridade_do_resto(None, EVOLUTION) == 0.0
+        assert similaridade_do_resto("", EVOLUTION) == 0.0
+        assert similaridade_do_resto("   ", EVOLUTION) == 0.0
+        assert similaridade_do_resto(None, None) == 0.0
 
 
 class TestAAssinaturaPorMolde:
