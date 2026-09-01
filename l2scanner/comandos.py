@@ -62,6 +62,7 @@ from typing import NamedTuple
 # precedente do `interpretar_pegou` logo ao lado: uma gramatica so, que valida
 # na interpretacao e le no responder.
 from .batismo import interpretar_batismo
+from .esquecimento import interpretar_esquecimento
 from .loot import NICK_VALIDO, apelido, interpretar_pegou
 
 # O prefixo OFICIAL, e o unico que aparece em TEXTO: ajuda, respostas, README,
@@ -268,6 +269,33 @@ class Comando(Enum):
     # party se reorganiza entre a pergunta e a resposta, e resolver por posicao
     # batizaria a pessoa errada em silencio.
     BATIZAR = "batizar"
+
+    # Tirar do acervo uma assinatura que nunca deveria ter entrado.
+    #
+    # E O COMANDO MAIS DESTRUTIVO DO PROJETO, e por isso a razao dele ficar
+    # FORA de `COMANDOS_DE_MEMBRO` e mais forte que a do `/batizar` logo acima,
+    # e nao apenas igual. Um batismo errado corrompe um NOME, e o proximo
+    # alerta mostra a mentira. Um esquecimento errado tira do reconhecimento
+    # uma pessoa que o scanner enxerga hoje, e o sintoma e ela virar "Membro N"
+    # no meio de um farm, sem uma linha de log dizendo por que. Foi assim que
+    # um membro passou DUAS HORAS como "Membro 1" em 2026-08-25.
+    #
+    # Ele fica de fora SOZINHO, sem ninguem ter lembrado de excluir nada:
+    # `COMANDOS_DE_MEMBRO` e LISTA DE INCLUSAO, exatamente para que o proximo
+    # comando destrutivo do projeto NASCA fora do alcance de um party-mate.
+    #
+    # E ELE NAO E "APAGAR", nem no nome nem no efeito. `acervo.esquecer`
+    # RENOMEIA os dois arquivos da entrada, e a resposta diz para quais nomes:
+    # a operacao inteira e desfeita a mao, com dois `rename` e um reinicio. Um
+    # `unlink` comandado por WhatsApp numa pasta sem backup seria a unica
+    # operacao irreversivel deste projeto.
+    #
+    # ELE NAO ENTRA NO `_VOCABULARIO`: tem ARGUMENTO, entao quem o reconhece e
+    # `interpretar_dinamico`, como o `/batizar`.
+    #
+    # O ALVO E A CHAVE DE CONTEUDO, E NUNCA UMA LINHA, pela razao ja escrita em
+    # D-03: a party se reorganiza entre a pergunta e a resposta.
+    ESQUECER = "esquecer"
 
     # O UNICO comando que nao muda estado nenhum, e o unico cujo conteudo e
     # DERIVADO dos outros: ele le a tabela `_AJUDA` e devolve o que os demais
@@ -592,6 +620,28 @@ _AJUDA: dict[Comando, LinhaDeAjuda] = {
         "Dou nome a alguem que eu aprendi sozinho. O apelido e o codigo de "
         "digitos que eu cito na pergunta",
         ("/nomear <apelido> <nick>",),
+    ),
+    # Logo depois do `/batizar` porque a ordem de insercao E a ordem da
+    # resposta, e os dois tem que ser lidos JUNTOS: sao as duas unicas coisas
+    # que se pode fazer com uma assinatura, e a recusa de nome ocupado do
+    # batismo aponta para ca.
+    #
+    # A FORMA EM LOTE E ANUNCIADA COMO APELIDO, e nao escondida. Sao 7 entradas
+    # mortas na pasta do usuario hoje: uma forma que existe e nao aparece na
+    # ajuda nao existe para quem tem que digitar. O tripwire
+    # `test_todo_apelido_anunciado_volta_como_o_comando_certo` roda esta linha
+    # pelo caminho real, entao ela nao pode ensinar sintaxe morta.
+    #
+    # A DESCRICAO DIZ "TIRO DE CIRCULACAO" E NAO "APAGO", porque nao apaga
+    # mesmo: uma ajuda que dissesse "apago" ensinaria um medo errado (e o
+    # usuario nao usaria o comando) ou uma confianca errada (e ele acharia que
+    # ha um desfazer que nao existe). As duas leituras sao caras.
+    Comando.ESQUECER: LinhaDeAjuda(
+        "Identidade",
+        "/esquecer <apelido>",
+        "Tiro de circulacao uma assinatura que nao e gente, ou que ficou "
+        "velha. Nada e apagado: eu digo como desfazer na mao",
+        ("/esquecer fora-de-forma",),
     ),
     Comando.AJUDA: LinhaDeAjuda(
         "Ajuda", "/help", "Esta lista", ("/ajuda", "/comandos")
@@ -1183,6 +1233,49 @@ def interpretar_dinamico(
             # "batizar" e "nomear", e um personagem homonimo transformaria o
             # comando numa consulta dele.
             return None
+
+    # `/esquecer <apelido>`, `/esquecer-<apelido>` e as duas formas irmas com a
+    # palavra do lote. Tirar do acervo uma assinatura que nunca deveria ter
+    # entrado.
+    #
+    # A GRAMATICA MORA NO `esquecimento.py`, e nao aqui: precedente exato do
+    # `.pegou` e do `/batizar`, com a razao ja escrita nos dois — uma gramatica
+    # so, que valida na interpretacao e le no responder.
+    #
+    # UMA PALAVRA SO, e nao duas como `batizar`/`nomear`. Cada palavra
+    # registrada num ramo destes e um personagem que deixa de ser consultavel
+    # por `/<nick>`, e um comando que se digita uma vez por limpeza nao compra
+    # sinonimo com esse dinheiro. A auditoria de colisao, feita como o
+    # comentario do topo do `_VOCABULARIO` manda:
+    #
+    #   esquecer   8 letras   casa `_NICK_VALIDO`  -> "Esquecer" perde o /<nick>
+    #
+    # Nao colide com o roster real (Mostarda, Titander, Pirulito, Welazkez) e
+    # nao e nome de personagem plausivel. Preco aceito e documentado, o mesmo
+    # ja pago por `batizar` e por `desativarboss`.
+    #
+    # AS DUAS FORMAS (hifen e espaco) NAO SAO OPCIONAIS. Tratar so o hifen foi
+    # exatamente o erro que fez `.loot cancelar` DESIGNAR um personagem chamado
+    # "cancelar", e a forma de duas palavras nunca e opcional num comando que
+    # mexe em estado duravel. Aqui ela mexe em estado duravel E destrutivo.
+    #
+    # ESTE RAMO FICA ANTES do `.{nick}`, que continua sendo o ultimo.
+    if crua.lower().startswith("esquecer-"):
+        argumento = " ".join(
+            [crua[len("esquecer-") :], *palavras[1:]]
+        ).strip()
+        if interpretar_esquecimento(argumento) is not None:
+            return (Comando.ESQUECER, argumento)
+        return None
+    if crua.lower() == "esquecer":
+        argumento = " ".join(palavras[1:])
+        if interpretar_esquecimento(argumento) is not None:
+            return (Comando.ESQUECER, argumento)
+        # O `return None` NAO e redundancia, pela mesma razao do `.corrigir`,
+        # do `.pegou` e do `/batizar` acima: sem ele o fluxo cai no ramo de
+        # consulta logo abaixo, onde `_NICK_VALIDO` casa a palavra "esquecer",
+        # e um personagem homonimo transformaria o comando numa consulta dele.
+        return None
 
     # `.{nick}` sozinho: o portao por nick conhecido e decisao do usuario —
     # sem ele o scanner responderia a qualquer `.palavra` do grupo.

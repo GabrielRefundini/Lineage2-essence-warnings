@@ -753,6 +753,215 @@ class TestOComandoENivelDeDono:
 
 
 # ---------------------------------------------------------------------------
+# A COSTURA COM O LACO
+# ---------------------------------------------------------------------------
+
+
+class DespachanteQueGrava:
+    """Grava `(texto, categoria, conversa_alvo)` em vez de mandar para a rede.
+
+    Truthy de proposito: `atender_comandos` testa `if not despachante`.
+    """
+
+    def __init__(self) -> None:
+        self.despachos: list[tuple[str, object, str | None]] = []
+
+    def despachar(self, texto, categoria=None, conversa_alvo=None) -> None:
+        self.despachos.append((texto, categoria, conversa_alvo))
+
+    @property
+    def alvos(self) -> list:
+        return [conversa for _, _, conversa in self.despachos]
+
+    @property
+    def textos(self) -> list:
+        return [texto for texto, _, _ in self.despachos]
+
+
+class LeitorDeUmaMensagem:
+    """Um `LeitorDeComandos` falso que devolve UMA mensagem CRUA.
+
+    Crua (dict, como a API do Chatwoot devolve) de proposito: as travas de
+    `comandos_novos` (tipo, nota privada, id repetido, vocabulario e
+    autorizacao) tem de rodar de verdade, e nao ser puladas pelo teste.
+    """
+
+    ativo = True
+    DONO = "+5544997077000"
+
+    def __init__(self, texto: str) -> None:
+        self.telefones = [self.DONO]
+        self.membros = []
+        self._mensagem = {
+            "id": 8888,
+            "content": texto,
+            "message_type": 0,
+            "private": False,
+            "sender": {"name": "Yazalaque", "phone_number": self.DONO},
+            "conversation_id": "1",
+        }
+
+    def ler(self, _monotonico):
+        return [self._mensagem]
+
+
+def pelo_whatsapp(
+    texto: str,
+    tmp_path,
+    *,
+    acervo=None,
+    assinaturas_vivas=None,
+    forma_esperada=None,
+) -> DespachanteQueGrava:
+    """Roda `atender_comandos` como o LACO roda, e devolve o que saiu.
+
+    Os dois relogios entram separados porque eles NAO sao intercambiaveis:
+    `agora` e `datetime` de parede e `monotonico` e segundos corridos. Passar
+    um so para os dois ja derrubou o scanner em producao com um `TypeError`
+    que a suite nao pegava, porque os testes chamavam o leitor direto.
+    """
+    import time
+    from datetime import datetime
+
+    from l2scanner.__main__ import atender_comandos
+    from l2scanner.agenda import RegistroEmDisco
+
+    despachante = DespachanteQueGrava()
+    atender_comandos(
+        LeitorDeUmaMensagem(texto),
+        RegistroEmDisco(tmp_path / "agenda"),
+        [],
+        despachante,
+        datetime(2026, 8, 31, 20, 30),
+        time.monotonic(),
+        acervo=acervo,
+        assinaturas_vivas=assinaturas_vivas,
+        forma_esperada=forma_esperada,
+    )
+    return despachante
+
+
+class TestACosturaComOLaco:
+    """O funil unico por onde TODA resposta de comando passa.
+
+    Um erro aqui nao quebra um recurso: ele muda o destino de todos ao mesmo
+    tempo, em silencio. A mensagem chega, no lugar errado.
+    """
+
+    def test_o_caminho_feliz_responde_SO_na_conversa_de_origem(
+        self, tmp_path, acervo, pasta
+    ):
+        chave = semear(pasta, assinatura_de(1), nome="TITANDER")
+
+        despachante = pelo_whatsapp(
+            f"/esquecer {apelido_da_chave(chave)}", tmp_path, acervo=acervo
+        )
+
+        assert despachante.alvos == ["1"], (
+            "esquecer nao responde pergunta publica nenhuma, entao nao ecoa "
+            f"no grupo. Destinos: {despachante.alvos}"
+        )
+        assert acervo.chaves() == []
+        assert "TITANDER" in despachante.textos[0]
+
+    def test_a_resposta_atravessa_o_silencio(self, tmp_path, acervo, pasta):
+        """Resposta de comando e `Categoria.SEMPRE`, sem excecao.
+
+        `Categoria.NORMAL` e cortada no transporte quando ha silencio de
+        TvT/Prime, e uma resposta cortada assim e indistinguivel, do lado de
+        quem digitou, de o bot ter morrido.
+        """
+        from l2scanner.notificador import Categoria
+
+        chave = semear(pasta, assinatura_de(1))
+        despachante = pelo_whatsapp(
+            f"/esquecer {apelido_da_chave(chave)}", tmp_path, acervo=acervo
+        )
+
+        assert {c for _, c, _ in despachante.despachos} == {Categoria.SEMPRE}
+
+    def test_o_lote_atravessa_a_costura_com_a_geometria(
+        self, tmp_path, acervo, pasta
+    ):
+        mortas = [
+            semear(pasta, assinatura_de(s, forma=FORMA_DE_ONTEM)) for s in (1, 2)
+        ]
+        viva = semear(pasta, assinatura_de(4, forma=FORMA_DE_HOJE))
+
+        despachante = pelo_whatsapp(
+            f"/esquecer {PALAVRA_DO_LOTE}",
+            tmp_path,
+            acervo=acervo,
+            forma_esperada=FORMA_DE_HOJE,
+        )
+
+        assert acervo.chaves() == [viva]
+        assert despachante.alvos == ["1"]
+        for chave in mortas:
+            assert apelido_da_chave(chave) in despachante.textos[0]
+
+    def test_sem_acervo_o_ramo_RECUSA_e_nao_levanta(self, tmp_path):
+        """O laco da agenda sem acervo, e o `--dry-run` sem pasta.
+
+        `atender_comandos` nunca levanta: vigiar a party e o trabalho, ouvir
+        comando e um extra.
+        """
+        despachante = pelo_whatsapp("/esquecer 0123ab", tmp_path)
+        assert despachante.alvos == ["1"]
+        assert "identidades" in despachante.textos[0].lower()
+
+    def test_o_LACO_PRINCIPAL_entrega_a_geometria(self):
+        """Portao de AST, e ele guarda uma falha SILENCIOSA.
+
+        Sem `forma_esperada` na chamada do laco principal, o lote responderia
+        para sempre "nao sei qual e a regiao de nome de agora" no unico lugar
+        em que ele deveria funcionar, e do lado do usuario isso e
+        indistinguivel do comando estar quebrado. Nao ha entrada que produza
+        esse defeito num teste de comportamento sem subir um laco com tela;
+        o que se afirma aqui e a propriedade que impede o defeito de nascer.
+
+        Afirma a FORMA e nao o valor: tem de ser uma EXPRESSAO, e nunca o
+        literal `None`. O nome da variavel fica livre de proposito, pela mesma
+        razao ja escrita no portao do `bosses`.
+        """
+        import inspect
+
+        from l2scanner import __main__ as principal
+
+        arvore = ast.parse(inspect.getsource(principal.laco_principal))
+        chamadas = [
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.Call)
+            and getattr(no.func, "id", None) == "atender_comandos"
+        ]
+        assert chamadas, "o laco principal nao chama `atender_comandos`"
+        for chamada in chamadas:
+            passados = {
+                palavra.arg: palavra.value
+                for palavra in chamada.keywords
+                if palavra.arg
+            }
+            assert "forma_esperada" in passados, (
+                "o laco principal nao entrega a regiao de nome de agora, e o "
+                "lote do /esquecer nunca vai funcionar em campo"
+            )
+            valor = passados["forma_esperada"]
+            assert not (
+                isinstance(valor, ast.Constant) and valor.value is None
+            ), "a geometria foi entregue como None literal"
+
+    def test_a_prova_do_portao_pega_a_ausencia(self):
+        """Guarda contra prova vazia: o detector acha o que deveria achar."""
+        arvore = ast.parse("atender_comandos(leitor, acervo=acervo)\n")
+        chamada = next(
+            no for no in ast.walk(arvore) if isinstance(no, ast.Call)
+        )
+        passados = {p.arg for p in chamada.keywords if p.arg}
+        assert "forma_esperada" not in passados
+
+
+# ---------------------------------------------------------------------------
 # O TEXTO CHEGA NO CELULAR
 # ---------------------------------------------------------------------------
 
