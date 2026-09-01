@@ -1,6 +1,17 @@
 ---
 workstream: dashboard
 created: 2026-09-01
+milestone: v1-dashboard
+milestone_name: O câmbio Adena → XM → BRL, ao vivo, no navegador local
+status: Roadmap e requisitos criados, aguardando planejamento da Fase 1
+progress:
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+current_phase: 1
+current_phase_name: O câmbio em BRL, ao vivo
 ---
 
 # Project State

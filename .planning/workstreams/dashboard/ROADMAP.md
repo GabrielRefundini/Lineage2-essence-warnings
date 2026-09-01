@@ -25,14 +25,11 @@ Duas razões, e a segunda é a que decide.
 
 ---
 
-## Phase 1: O câmbio em BRL, ao vivo
+## Phase 1: Dashboard do cambio ao vivo
 
-**Goal**: uma página no navegador local responde *"quanto vale 1 milhão de adena agora, em XM
-e em R$"* e mostra a história dessa taxa com zoom — lendo o CSV que o `--mercado` já grava,
-sem tocar na coleta.
+**Goal**: uma página no navegador local responde "quanto vale 1 milhão de adena agora, em XM e em R$" e mostra a história dessa taxa com zoom — lendo o CSV que o `--mercado` já grava, sem tocar na coleta.
 
-**Depends on**: v2-mercado Fase 5 (ADEN-03 já grava a taxa; ADEN-04 já a exibe em XM por
-milhão). Nada a construir do lado do mercado.
+**Depends on**: Nothing — dentro deste workstream esta é a primeira fase. A dependência externa (a taxa da Adena gravada no CSV) já está pronta e verificada no workstream `mercado`, e não há nada a construir do lado de lá.
 
 **Requirements**: DASH-01 a DASH-06
 
@@ -119,7 +116,7 @@ escopos de commit não podem colidir entre workstreams.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. O câmbio em BRL, ao vivo | 0/? | Not planned | - |
+| 1. Dashboard do cambio ao vivo | 0/? | Not planned | - |
 
 ## Coverage
 
