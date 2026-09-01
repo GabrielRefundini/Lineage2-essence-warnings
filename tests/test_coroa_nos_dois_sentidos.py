@@ -49,6 +49,7 @@ Medido com esses pixels, o recorte do ex-lider contra as quatro assinaturas:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -59,6 +60,7 @@ from l2scanner.identidade import (
     LIMIAR_DE_CASAMENTO,
     LIMIAR_DO_ORNAMENTO,
     Assinatura,
+    _correlacionar,
     _inicio_do_nome_apos_ornamento,
     _pontuar,
     _pontuar_sem_o_ornamento_da_assinatura,
@@ -358,4 +360,165 @@ class TestAsTravasDoSentidoNovo:
         assert res[0].nome is None, (
             f"casou {pontuou:.3f} sendo o unico candidato — o limiar de "
             f"{LIMIAR_DO_ORNAMENTO} tem que barrar por conta propria"
+        )
+
+
+def _carregar(nome: str) -> dict:
+    return json.loads((FIXTURES / nome).read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def assinaturas_do_incidente() -> list[Assinatura]:
+    """As quatro assinaturas REAIS do usuario em 2026-09-01.
+
+    Welazkez era LIDER quando calibrou, entao a coroa esta gravada na
+    assinatura dele. Os outros tres nao eram.
+    """
+    dados = _carregar("incidente_2026-09-01_assinaturas.json")
+    return [Assinatura.de_dict(d) for d in dados["assinaturas"]]
+
+
+@pytest.fixture
+def welazkez_sem_coroa() -> np.ndarray:
+    """A mascara REAL do Welazkez depois que ele deixou de ser lider.
+
+    Nao e fabricada: e o recorte que o aprendiz gravou no acervo do usuario
+    (chave aee450..., confianca 0.2928) quando o reconhecimento falhou.
+    """
+    dados = _carregar("incidente_2026-09-01_welazkez_sem_coroa.json")
+    return Assinatura.de_dict(dados).mascara
+
+
+class TestACoroaRealTemLacunaMaisEstreitaQueAFixture:
+    """A regressao de 2026-09-01: o sentido inverso nao dispara em campo.
+
+    O servidor caiu, a party foi remontada, e o Welazkez virou "Membro 2"
+    apesar de calibrado. Os outros tres casaram. O aprendiz entao gravou uma
+    duplicata ANONIMA dele — que, quando ele deixasse a lideranca, sequestraria
+    a linha e deixaria o nome orfao para sempre.
+
+    O CONSERTO DE 2026-08-31 NAO PEGA ESTE CASO, e o motivo e um numero:
+
+        assinatura do Korzis (fixture)   coroa, LACUNA DE 4 colunas em branco
+        assinatura do Welazkez (campo)   coroa, LACUNA DE 3 colunas em branco
+
+    `_inicio_do_nome_apos_ornamento` cobra `diff > COLUNAS_DE_LACUNA_DO_ORNAMENTO`,
+    e `diff` e "colunas em branco + 1". Com a constante em 4 ele exige 4 brancos.
+    A fixture tem exatamente 4 e passa raspando; a coroa real do usuario tem 3 e
+    e lida como "sem ornamento". O sentido inverso nem comeca.
+
+    A CORRELACAO PROVA QUE E A MESMA PESSOA. Deslocando a assinatura calibrada
+    para a esquerda, medido contra este recorte:
+
+         0 px -> 0.1843    12 px -> 0.2098
+         2 px -> 0.2645    14 px -> 0.3245
+         4 px -> 0.2124    16 px -> 0.3187
+         6 px -> 0.2342    18 px -> 0.2901
+         8 px -> 0.2697    19 px -> 0.9667   <<<
+        10 px -> 0.2755    20 px -> 0.3015
+                           24 px -> 0.3428
+
+    E 19 e exatamente onde a lacuna manda ancorar: coroa em 2..15, brancos em
+    16..18, nome a partir de 19.
+
+    E O PICO SER AGUDO E A SEGURANCA DO CONSERTO. 0.9667 no 19 e ~0.3 em TODOS
+    os 29 vizinhos medidos significa que baixar a exigencia de lacuna nao abre
+    porta para mentira: um ornamento lido onde nao ha produz um alinhamento
+    qualquer, e um alinhamento qualquer pontua ~0.3, recusado com folga pelo
+    limiar de 0.85 do segundo passe. O que muda nao e a chance de acertar
+    errado, e a chance de sequer TENTAR quando ha o que acertar.
+    """
+
+    def test_a_assinatura_real_do_welazkez_tem_a_lacuna_da_coroa(
+        self, assinaturas_do_incidente
+    ):
+        """O discriminador, no pixel real: coroa 2..15, brancos 16..18, nome 19."""
+        welazkez = assinaturas_do_incidente[0]
+        assert welazkez.nome == "Welazkez"
+
+        assert _inicio_do_nome_apos_ornamento(welazkez.mascara) == 19, (
+            "a coroa real do usuario tem 3 colunas em branco, nao 4 como a da "
+            "fixture. Lida como 'sem ornamento', ela desliga o sentido inverso "
+            "inteiro e o membro fica 'Membro N' para sempre"
+        )
+
+    def test_as_outras_tres_assinaturas_continuam_sem_ornamento(
+        self, assinaturas_do_incidente
+    ):
+        """A trava que faz quase todo o trabalho nao pode afrouxar junto.
+
+        Se baixar a exigencia de lacuna passasse a ver coroa em quem nao tem, o
+        segundo passe deixaria de ser a excecao rara que ele e.
+        """
+        for assinatura in assinaturas_do_incidente[1:]:
+            assert _inicio_do_nome_apos_ornamento(assinatura.mascara) is None, (
+                f"{assinatura.nome} nao era lider e nao pode ter lacuna de coroa"
+            )
+
+    def test_o_recorte_sem_coroa_nao_e_lido_como_tendo_uma(self, welazkez_sem_coroa):
+        """O outro sentido nao pode se intrometer neste caso.
+
+        Se o recorte ao vivo fosse lido como "tem ornamento", entrariamos pelo
+        sentido errado e a linha ganharia um alinhamento que a coroa nunca
+        produziu.
+        """
+        assert _inicio_do_nome_apos_ornamento(welazkez_sem_coroa) is None
+
+    def test_o_primeiro_passe_sozinho_erra_a_pessoa(
+        self, welazkez_sem_coroa, assinaturas_do_incidente
+    ):
+        """A reproducao em numero, e ela e pior do que "nao reconheceu".
+
+        Medido: 0.1843 contra a PROPRIA assinatura e 0.2928 contra a Mostarda.
+        No alinhamento calibrado o Welazkez se parece MENOS com ele mesmo do que
+        com outra pessoa. So o limiar de 0.75 impede isso de virar alerta com o
+        nome errado.
+        """
+        pontos = _pontuar(recorte_de(welazkez_sem_coroa), assinaturas_do_incidente)
+
+        assert pontos[0] < LIMIAR_DE_CASAMENTO
+        assert max(pontos) > pontos[0], (
+            "o cenario nao se reproduziu: aqui a propria assinatura tem de ser "
+            "PIOR que a de outra pessoa"
+        )
+
+    def test_o_welazkez_real_volta_a_ser_reconhecido(
+        self, welazkez_sem_coroa, assinaturas_do_incidente
+    ):
+        """O conserto, pelo caminho de producao e com os pixels do incidente."""
+        res = identificar_linhas(
+            {0: recorte_de(welazkez_sem_coroa)}, assinaturas_do_incidente
+        )
+
+        assert res[0].nome == "Welazkez", (
+            f"casou {res[0].nome!r} com {res[0].confianca:.4f}. Sem isto o "
+            f"aprendiz grava uma duplicata ANONIMA de quem JA TEM NOME, e "
+            f"quando ele deixar a lideranca a duplicata sequestra a linha: "
+            f"'Membro N' para sempre e o nome orfao"
+        )
+
+    def test_o_reconhecimento_nao_e_sorte_de_alinhamento(
+        self, welazkez_sem_coroa, assinaturas_do_incidente
+    ):
+        """O pico e agudo, e por isso um ornamento lido errado nao mente.
+
+        Um pixel para o lado e a correlacao desaba de 0.9667 para ~0.30, muito
+        abaixo do limiar de 0.85 do segundo passe. E isso que autoriza baixar a
+        exigencia de lacuna sem devolver as chances extras de falso positivo que
+        o `.max()` deslizante produzia.
+        """
+        welazkez = assinaturas_do_incidente[0].mascara
+        vizinhos = []
+        for k in range(0, 30):
+            if k == 19:
+                continue
+            largura = welazkez.shape[1] - k
+            deslocada = np.zeros_like(welazkez)
+            deslocada[:, :largura] = welazkez[:, k:]
+            vizinhos.append(_correlacionar(welazkez_sem_coroa, deslocada))
+
+        assert max(vizinhos) < LIMIAR_DO_ORNAMENTO, (
+            f"o melhor vizinho pontuou {max(vizinhos):.4f} — se um alinhamento "
+            f"errado chegasse ao limiar, o argumento de seguranca deste "
+            f"conserto cairia"
         )
