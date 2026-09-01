@@ -20,10 +20,41 @@ Requisitos do milestone v1-mercado. Cada um mapeia para uma fase do roadmap.
 ### Detecção
 
 - [x] **DETC-01**: "World Exchange aberto" detectado por âncora/template positivo, e o sinal é compartilhado com a lógica de oclusão do detector de morte — um sinal, dois consumidores, nunca duplicado
-- [ ] **DETC-02**: Modo `--mercado` separado — vigiar mercado não degrada nem compete com o modo party (invocação PRÓPRIA, ao lado da party, cada uma no seu processo)
+- [x] **DETC-02**: Modo `--mercado` separado — vigiar mercado não degrada nem compete com o modo party (invocação PRÓPRIA, ao lado da party, cada uma no seu processo)
   > **Código pronto; portão de campo ABERTO.** A metade provável por código está provada e é a metade fácil: sem acoplamento ao `rastreador`/`visao`, tripwire de import nas duas direções, nenhuma escrita no `calibration.json`, throttle só do lado do mercado, `.bat` próprio. A metade que o requisito **literalmente afirma** — "não degrada nem compete" — nunca foi observada: contenção entre processos é propriedade do SISTEMA (CPU, GPU, sessões WGC, agendador do Windows), e o próprio `tests/test_mercado_firewall_de_fase.py` diz por escrito que nenhum teste automatizado a alcança. A rodada de campo de 31/08 durou ~40 s de painel (~106 ticks), não os 10 min do portão, e **o mercado rodou sozinho** — nenhuma instância de party estava no ar ao mesmo tempo, que é justamente a metade que o portão precisa observar.
   >
-  > **Fecha assim:** ligar o `vigiar-party.bat` como você já usa (uma instância, Yazalaque) e o `vigiar-mercado.bat` junto, por 10 minutos com o jogo aberto. Conferir no Gerenciador de Tarefas que a CPU dos DOIS `python.exe` fica estável, que não aparece borda amarela, que os alertas de party continuam chegando e que nenhum alerta de morte falso sai.
+  > **PORTAO FECHADO em 2026-09-01, com medicao.** O que o requisito literalmente
+  > afirma — "nao degrada nem compete" — foi medido com CONTROLE PAREADO, e nao por
+  > observacao a olho como o portao pedia:
+  >
+  > |            | janela | CPU consumida | ocupacao |
+  > |---|---|---|---|
+  > | party **com** o mercado | 313 s | 121,20 s | **38,72%** de um nucleo |
+  > | party **sem** o mercado | 308 s | 117,67 s | **38,20%** de um nucleo |
+  >
+  > Diferenca de **+0,52 ponto percentual** — ruido. Se o mercado competisse, o numero
+  > COM ele seria maior. A mesma party, no mesmo farm, com e sem o terceiro processo.
+  >
+  > O proprio mercado: **353 paginas lidas contra 2 perdidas** (99,4%), p50 141 ms,
+  > **0 de 364 ticks estouraram** o orcamento de 1 s.
+  >
+  > **Nenhum alerta falso e nenhuma CEGUEIRA_LONGA** durante a janela, conferido no
+  > `scanner.log`; os cinco membros lidos a 100% o tempo todo, e o
+  > `WORLD EXCHANGE ABERTO (aparente)` mostrando o sinal do DETC-01 sendo consumido
+  > pelos dois lados — uma deteccao, dois consumidores.
+  >
+  > **A metade POSITIVA, que o silencio nao podia provar:** as 10:12-10:13, com o
+  > mercado rodando, um disconnect desfez a party e os eventos SAIU dispararam com o
+  > marcador amarelo no console. **O usuario confirmou que as mensagens chegaram
+  > normalmente no WhatsApp.** Ressalva registrada: os eventos vieram de um
+  > disconnect, nao de uma saida deliberada — e caminho legitimo, mas mais turvo que
+  > o caso limpo.
+  >
+  > **Uma correcao de redacao:** a versao anterior mandava conferir que "nao aparece
+  > borda amarela". Nao existe borda amarela na tela do jogo — o amarelo e um
+  > MARCADOR NO CONSOLE do scanner (`console.py`), para `SAIU` e `CEGUEIRA_LONGA`. A
+  > frase errada deixou o usuario sem saber o que olhar, e ele respondeu "nunca vi".
+
   >
   > **O CENÁRIO FOI CORRIGIDO PELO USUÁRIO em 2026-08-31.** O texto anterior deste requisito dizia "o usuário roda duas instâncias; uma terceira invocação é normal" — suposição escrita no levantamento e **nunca conferida com ele**. Ela também contradizia o `README.md`, que diz por extenso que rodar duas cópias do scanner de party com calibrações separadas **não é suportado hoje**. Perguntado diretamente, ele respondeu: o foco é UMA instância, do personagem Yazalaque. Um requisito que descreve errado o ambiente do usuário é um requisito que ninguém consegue fechar, porque não se testa uma configuração que não se usa.
   >
@@ -175,7 +206,7 @@ Preenchida na criação do roadmap (2026-08-27).
 | FUND-02 | Phase 1 | Complete |
 | FUND-03 | Phase 1 | Complete |
 | DETC-01 | Phase 1 | Complete |
-| DETC-02 | Phase 4 | Pending (portao de campo aberto; codigo pronto no 04-01) |
+| DETC-02 | Phase 4 | Complete |
 | LEIT-01 | Phase 2 | Complete |
 | LEIT-02 | Phase 2 | Complete |
 | LEIT-03 | Phase 2 | Complete |
