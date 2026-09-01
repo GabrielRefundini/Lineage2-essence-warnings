@@ -44,6 +44,7 @@ import ast
 import inspect
 import logging
 import os
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -61,12 +62,16 @@ from l2scanner.acervo import (
 from l2scanner.agenda import AgendaInvalida, RegistroEmDisco
 from l2scanner.aprendiz import (
     LEITURAS_PARA_APRENDER,
+    REGIME_DE_CINTILACAO,
+    REGIME_DE_TURBULENCIA,
     TETO_DE_CELULAS_TOLERADAS,
     AjustesDoAprendiz,
     Aprendiz,
     Candidata,
     ToleranciaAlemDoTeto,
     distancia_de_hamming,
+    resumo_das_recusas,
+    retrato_das_distancias,
 )
 from l2scanner.config import ler_ajustes_do_aprendiz
 from l2scanner.calibracao import Calibracao
@@ -1503,6 +1508,257 @@ class TestARecusaDizQuantoMediu:
         assert retrato.mediana is not None and retrato.mediana < 40, (
             "a mediana existe justamente para o outlier nao mandar sozinho"
         )
+
+
+class TestOConselhoCitaOTetoESugereUmValorValido:
+    """O defeito de 2026-09-01: a mensagem mandava fazer o que o arranque recusa.
+
+    O texto antigo terminava em "suba [identidade] celulas_toleradas para um
+    valor dentro dessa faixa". A faixa relatada em campo ia de 1 a 1067 celulas,
+    e o TETO aceito e 12: quase todo "valor dentro dessa faixa" levantava
+    `ToleranciaAlemDoTeto` no arranque seguinte. O usuario leu, foi seguir, e
+    teve de perguntar.
+
+    Tres coisas o texto passa a fazer, e cada uma tem um caso aqui: citar o teto
+    junto da faixa, dizer QUANTAS das recusas cabem embaixo dele, e entregar um
+    valor CONCRETO que o `__post_init__` aceita, ou dizer que subir a tolerancia
+    nao resolve.
+    """
+
+    # A MEDICAO DE CAMPO DE 2026-09-01, contra a tela real do usuario: 12 frames
+    # consecutivos, 1 s de intervalo, party estavel, mascara de 2200 celulas.
+    #
+    #     linha 0: 165 px de texto | min 3, MEDIANA 8, max 25
+    #     linha 1: 123 px de texto | min 0, MEDIANA 2, max 31
+    #     linha 2: 105 px de texto | min 1, MEDIANA 3, max 99
+    #     linha 3: 106 px de texto | min 0, MEDIANA 0, max 176
+    #
+    # Esta tupla REPRODUZ a linha 0, que e a pior das quatro: min 3, mediana 8,
+    # max 25. A linha 0 e a escolhida de proposito, porque um conselho que serve
+    # para a pior linha serve para as outras tres.
+    CINTILACAO = (3, 5, 8, 20, 25)
+
+    # A TURBULENCIA de 2026-08-31, a party se remontando apos um disconnect:
+    # 104 recusas, min 1, MEDIANA 298.5, max 1067. Esta tupla reproduz os tres
+    # numeros com seis valores, que e o que o retrato precisa para decidir.
+    TURBULENCIA = (1, 200, 297, 300, 900, 1067)
+
+    def test_as_duas_medicoes_de_campo_caem_em_regimes_diferentes(self):
+        """O discriminante e o TETO, e nao um numero novo.
+
+        Acima de 12 celulas o proprio reconhecedor ja trata as duas leituras
+        como pessoas DIFERENTES, entao uma mediana acima do teto nao pode ser
+        "a mesma pessoa cintilando". As duas medicoes de campo caem uma de cada
+        lado com folga (8 contra 298.5), que e o que torna o teto um
+        discriminante medido em vez de uma constante inventada.
+        """
+        cintilacao = retrato_das_distancias(
+            self.CINTILACAO, recusas=len(self.CINTILACAO)
+        )
+        turbulencia = retrato_das_distancias(
+            self.TURBULENCIA, recusas=len(self.TURBULENCIA)
+        )
+
+        assert cintilacao.mediana == 8.0, "premissa: a mediana medida na linha 0"
+        assert turbulencia.mediana == 298.5, "premissa: a mediana relatada ontem"
+
+        assert cintilacao.regime == REGIME_DE_CINTILACAO
+        assert turbulencia.regime == REGIME_DE_TURBULENCIA
+
+    def test_o_valor_sugerido_e_aceito_pelo_arranque(self):
+        """O caso que o defeito reprovava, e a razao inteira desta mudanca.
+
+        Nao basta o texto ser mais bonito: o numero que ele entrega tem de
+        passar pelo `__post_init__` que recusa acima do teto. Se este caso cair,
+        a mensagem voltou a mandar o usuario num valor que o scanner recusa.
+        """
+        retrato = retrato_das_distancias(self.CINTILACAO, recusas=5)
+
+        assert retrato.sugestao is not None
+        assert 0 < retrato.sugestao <= TETO_DE_CELULAS_TOLERADAS
+        ajustes = AjustesDoAprendiz(celulas_toleradas=retrato.sugestao)
+        assert ajustes.celulas_toleradas == retrato.sugestao
+
+    def test_o_valor_sugerido_sai_das_recusas_que_cabem_no_teto(self):
+        """A mediana das que estao ABAIXO do teto, e nao a mediana de tudo.
+
+        Incluir os outliers de 20 e de 25 celulas na conta empurraria a
+        sugestao para cima sem necessidade: sao frames com algo por cima do
+        nome, e nao a cintilacao que a tolerancia existe para absorver.
+        """
+        retrato = retrato_das_distancias(self.CINTILACAO, recusas=5)
+
+        assert retrato.abaixo_do_teto == 3, "3, 5 e 8 cabem no teto; 20 e 25 nao"
+        assert retrato.sugestao == 5, "a mediana de (3, 5, 8)"
+
+    def test_o_resumo_cita_o_teto_e_quantas_recusas_cabem_nele(self):
+        """O numero que decide se vale mexer.
+
+        Se 90 das 104 recusas cabem no teto, subir resolve. Se 1 de 6 cabe, nao
+        resolve, e o usuario precisa ler isso em vez de tentar valores.
+        """
+        retrato = retrato_das_distancias(self.TURBULENCIA, recusas=104)
+        texto = resumo_das_recusas(retrato, tolerado=0)
+
+        assert retrato.medidas == 6
+        assert retrato.abaixo_do_teto == 1, "so o 1 cabe no teto de 12"
+        assert str(TETO_DE_CELULAS_TOLERADAS) in texto, "o texto cita o TETO"
+        assert f"{retrato.abaixo_do_teto} das {retrato.medidas}" in texto, (
+            "o texto diz QUANTAS das recusas medidas cabem embaixo do teto"
+        )
+
+    def test_na_turbulencia_o_texto_nao_manda_escolher_dentro_da_faixa(self):
+        """O defeito literal: nenhum valor sai da boca da mensagem aqui.
+
+        Com mediana 298.5 nao existe tolerancia que conserte, porque o teto e
+        12. Entregar qualquer numero seria repetir o erro com outra redacao.
+        """
+        retrato = retrato_das_distancias(self.TURBULENCIA, recusas=104)
+        texto = resumo_das_recusas(retrato, tolerado=0)
+
+        assert retrato.sugestao is None
+        assert re.search(r"celulas_toleradas\s*=\s*\d", texto) is None, (
+            "no regime de turbulencia a mensagem NAO entrega valor nenhum"
+        )
+        assert "dentro dessa faixa" not in texto, "o texto do defeito de 2026-09-01"
+        assert "celulas_toleradas" in texto, "ainda diz QUAL chave nao resolve"
+
+    def test_na_cintilacao_o_texto_entrega_a_linha_pronta_para_copiar(self):
+        retrato = retrato_das_distancias(self.CINTILACAO, recusas=5)
+        texto = resumo_das_recusas(retrato, tolerado=0)
+
+        assert f"celulas_toleradas = {retrato.sugestao}" in texto, (
+            "uma linha pronta para copiar, no idioma de `_EXEMPLO_DA_IDENTIDADE`"
+        )
+        assert "identidade" in texto, "diz a SECAO"
+
+    def test_os_dois_regimes_sao_nomeados_no_texto(self):
+        """O usuario tem de saber em qual dos dois esta.
+
+        Uma mediana de 2 a 8 e cintilacao da borda das letras, normal e
+        tratavel; uma mediana de centenas e a party se remontando, e nesse caso
+        a resposta certa e ESPERAR, e nao configurar.
+        """
+        cintilacao = resumo_das_recusas(
+            retrato_das_distancias(self.CINTILACAO, recusas=5), tolerado=0
+        )
+        turbulencia = resumo_das_recusas(
+            retrato_das_distancias(self.TURBULENCIA, recusas=104), tolerado=0
+        )
+
+        assert "cintilacao" in cintilacao.lower()
+        assert "esperar" in turbulencia.lower(), (
+            "no regime de turbulencia a acao certa e esperar, e nao configurar"
+        )
+
+    def test_sem_distancia_medida_o_texto_nao_manda_configurar_nada(self):
+        """Forma diferente nao e "muito diferente": e uma pergunta sem sentido.
+
+        Duas mascaras de retangulos diferentes nao sao duas leituras da mesma
+        coisa, e nenhum valor de tolerancia muda isso.
+        """
+        retrato = retrato_das_distancias((), recusas=4)
+        texto = resumo_das_recusas(retrato, tolerado=0)
+
+        assert retrato.regime is None
+        assert retrato.sugestao is None
+        assert re.search(r"celulas_toleradas\s*=\s*\d", texto) is None
+
+    @pytest.mark.parametrize("distancias", [CINTILACAO, TURBULENCIA, ()])
+    def test_o_texto_cabe_no_console_cp1252(self, distancias):
+        texto = resumo_das_recusas(
+            retrato_das_distancias(distancias, recusas=9), tolerado=0
+        )
+        assert "—" not in texto, "travessao quebra o console cp1252"
+        assert texto == texto.encode("ascii", "ignore").decode("ascii"), (
+            "portugues SEM acento em texto de usuario"
+        )
+
+    def test_o_aprendiz_de_verdade_produz_um_conselho_utilizavel(self, tmp_path):
+        """A ponta a ponta: o retrato de uma sessao de verdade chega no valor.
+
+        As distancias vao de 3 a 25 celulas, que e a faixa medida hoje na linha
+        0. O que este caso prende e que o numero que sai do `Aprendiz` passa
+        pelo `__post_init__` sem levantar.
+        """
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=99)
+
+        base = mascara_cheia()
+        aprendiz.observar((Candidata(indice=0, mascara=base, confianca=0.1),))
+        for celulas in (3, 8, 25):
+            aprendiz.observar(
+                (
+                    Candidata(
+                        indice=0,
+                        mascara=mascaras_com_distancia(base, celulas),
+                        confianca=0.1,
+                    ),
+                )
+            )
+            aprendiz.observar((Candidata(indice=0, mascara=base, confianca=0.1),))
+
+        retrato = aprendiz.retrato()
+        assert retrato.regime == REGIME_DE_CINTILACAO
+        assert retrato.sugestao is not None
+        AjustesDoAprendiz(celulas_toleradas=retrato.sugestao)
+
+    def test_o_conselho_chega_ao_scanner_log(
+        self, tmp_path, pixels, tres_conhecidas, caplog
+    ):
+        """Um valor que so o teste ve nao ajuda quem escolhe a tolerancia."""
+        cal = tres_conhecidas
+        outro = com_nome_perturbado(pixels, cal, LINHA_ALVO, 5)
+
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        sessao = montar_sessao(cal, tmp_path, aprendiz=aprendiz)
+
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            rodar(sessao, pixels, 1)
+            rodar(sessao, outro, 1, inicio=1)
+
+        texto = "\n".join(r.getMessage() for r in caplog.records)
+        assert "celulas_toleradas = 5" in texto, (
+            "a linha pronta para copiar, com o numero medido NA tela do usuario"
+        )
+        assert str(TETO_DE_CELULAS_TOLERADAS) in texto, "e o teto ao lado dela"
+
+
+def _docstring_do_aprendiz() -> str:
+    """O texto do modulo `aprendiz.py`, para prender uma medicao no lugar."""
+    return (RAIZ / "l2scanner" / "aprendiz.py").read_text(encoding="utf-8")
+
+
+class TestACintilacaoEstaMedidaEEscrita:
+    """A hipotese errada ja circulou entre duas sessoes, e vai voltar.
+
+    Ela e: "o cenario esta vazando pela mascara, sobe o `VALOR_MINIMO_DO_TEXTO`".
+    Medida com `distanceTransform` sobre o nucleo estavel de 8 frames, a
+    cintilacao esta COLADA no texto: 23 de 23 celulas da linha 0 a no maximo
+    1.5 px de um pixel de texto. E serrilhado de borda de letra, e mexer no
+    limiar de brilho nao conserta nada. Sem isso escrito, a terceira sessao
+    reabre a mesma porta.
+    """
+
+    def test_a_medicao_da_cintilacao_esta_no_modulo(self):
+        fonte = _docstring_do_aprendiz().lower()
+
+        assert "distancetransform" in fonte, "diz COMO foi medido"
+        assert "serrilhado" in fonte, "diz O QUE a cintilacao e"
+        assert "valor_minimo_do_texto" in fonte.upper().lower(), (
+            "nomeia o limiar que a medicao ABSOLVE, para a hipotese errada nao "
+            "voltar pela terceira vez"
+        )
+
+    def test_o_modulo_registra_as_medianas_das_quatro_linhas(self):
+        """Zero, 2, 3 e 8. Elas sao a base do regime de cintilacao."""
+        fonte = _docstring_do_aprendiz()
+
+        assert "2026-09-01" in fonte, "a medicao tem DATA"
+        for numero in ("165", "123", "105", "106"):
+            assert numero in fonte, (
+                f"os pixels de texto por linha ({numero}) sao a condicao de "
+                "validade da medida, do mesmo jeito que os 48 do teto"
+            )
 
 
 # ---------------------------------------------------------------------------
