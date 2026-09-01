@@ -856,7 +856,9 @@ class TestATravaDoDestaque:
         """
         linha, destaque = _linha_de_oferta(), _destaque_abaixo()
         assert TravaDoDestaque().anunciar(linha, destaque, AGORA) == (
-            destaque_ao_vivo(linha.nome_exibido, destaque, AGORA)
+            destaque_ao_vivo(
+                linha.nome_exibido, linha.chave_da_serie, destaque, AGORA
+            )
         )
 
     def test_cada_SESSAO_comeca_com_a_trava_limpa(self) -> None:
@@ -904,3 +906,280 @@ class TestOLacoCONSULTA_A_TRAVA:
             and no.func.id == "TravaDoDestaque"
         ]
         assert construcoes_dentro_do_laco == []
+
+
+# ===========================================================================
+# A UNIDADE DA ABA ADENA (ADEN-04) — e o `0,00` que justifica as duas funcoes
+# ===========================================================================
+#
+# A CONTA, REFEITA AQUI E NAO COPIADA. `05-RESEARCH.md:621` escreve
+# `-> x 1.000.000 = 11600 centesimos = 116,00 XM por milhao` e esta ERRADO POR
+# UM FATOR DE DEZ: `Fraction(11600, 10_000_000)` e CENTESIMO POR ADENA; vezes
+# 1.000.000 da 1.160 CENTESIMOS, e 1.160 centesimos sao `11,60`, que e o numero
+# que o ROADMAP e o `05-CONTEXT.md` trazem. O erro da pesquisa foi carregar o
+# `11600` intacto para depois da multiplicacao, como se ele ja fosse o
+# resultado dela.
+#
+# O PERIGO QUE TORNA AS DUAS FUNCOES IRMAS, E NAO UMA COM PARAMETRO: a mesma
+# `Fraction` no formatador de negociacao arredonda para ZERO. O erro nao seria
+# feio — seria `0,00 por unidade (derivado)`, plausivel, e ninguem olharia duas
+# vezes. Por isso ha um teste para CADA formatador sobre a MESMA fracao.
+
+TAXA_DA_ADENA = Fraction(11600, 10_000_000)
+"""10.000.000 de adena por 116,00 XM — a captura do usuario de 2026-09-01 17h."""
+
+
+def observacao_de_adena(
+    total: int = 11600,
+    quantidade: int = 10_000_000,
+    *,
+    quando: datetime | None = None,
+) -> ObservacaoLida:
+    """Uma observacao da serie-sentinela da Adena, ja tipada."""
+    from l2scanner.mercado_catalogo import (
+        CHAVE_DA_SERIE_DA_ADENA,
+        NOME_EXIBIDO_DA_ADENA,
+    )
+
+    return observacao(
+        CHAVE_DA_SERIE_DA_ADENA,
+        total,
+        quantidade,
+        nome=NOME_EXIBIDO_DA_ADENA,
+        quando=quando,
+    )
+
+
+class TestOsDoisFormatadoresSobreAMESMAFracao:
+    """O par que torna EXECUTAVEL o perigo, em vez de deixa-lo num comentario."""
+
+    def test_a_taxa_da_adena_sai_em_XM_por_MILHAO(self) -> None:
+        """`11,60`, recalculado — e nao `116,00`, que e o erro da pesquisa."""
+        assert mercado_console.formatar_taxa_derivada(TAXA_DA_ADENA) == (
+            "11,60 XM por milhao de adena (derivado)"
+        )
+
+    def test_a_MESMA_fracao_no_formatador_de_negociacao_da_ZERO(self) -> None:
+        """O CONTROLE NEGATIVO, e ele e a razao de a funcao nova existir.
+
+        Sem este teste, "a Adena sai em XM por milhao" seria uma preferencia de
+        formatacao. Com ele, esta escrito que o formatador errado nao erra feio:
+        erra `0,00`, com toda a confianca do mundo.
+        """
+        assert mercado_console.formatar_unitario_derivado(TAXA_DA_ADENA) == (
+            "0,00 por unidade (derivado)"
+        )
+
+    def test_a_unidade_e_o_MILHAO_e_ela_tem_nome_no_fonte(self) -> None:
+        """Constante nomeada e nao um `1_000_000` solto no meio de um f-string."""
+        assert mercado_console.UNIDADE_DA_TAXA == 1_000_000
+
+    def test_a_taxa_carrega_a_MARCA_de_derivado(self) -> None:
+        """Pela mesma razao ja escrita em `formatar_unitario_derivado`: sem a
+        marca, alguem copia a linha para o WhatsApp e o numero DERIVADO vira
+        "o que o scanner leu"."""
+        assert "(derivado)" in mercado_console.formatar_taxa_derivada(
+            Fraction(30000, 15_000_000)
+        )
+
+    def test_a_outra_captura_do_usuario_tambem_confere(self) -> None:
+        """`15.000.000 de adena por 300,00 XM` -> `20,00 XM por milhao`.
+
+        Um segundo par MEDIDO na tela: com um so, um `x 1.000.000` trocado por
+        uma constante de ajuste ficaria verde.
+        """
+        assert mercado_console.formatar_taxa_derivada(
+            Fraction(30000, 15_000_000)
+        ) == "20,00 XM por milhao de adena (derivado)"
+
+
+class TestAEscolhaDoFormatadorEUMPontoSO:
+    """`chave_da_serie` -> qual formatador. Quatro `if` divergiriam um dia."""
+
+    def test_a_sentinela_da_adena_escolhe_a_taxa(self) -> None:
+        from l2scanner.mercado_catalogo import CHAVE_DA_SERIE_DA_ADENA
+
+        formatador = mercado_console.formatador_do_unitario(
+            CHAVE_DA_SERIE_DA_ADENA
+        )
+        assert formatador(TAXA_DA_ADENA) == (
+            "11,60 XM por milhao de adena (derivado)"
+        )
+
+    def test_uma_chave_de_ITEM_escolhe_o_unitario(self) -> None:
+        """O controle negativo da escolha: sem ele, um `return` fixo passaria."""
+        formatador = mercado_console.formatador_do_unitario("dragon-belt")
+        assert formatador(TAXA_DA_ADENA) == "0,00 por unidade (derivado)"
+
+    def test_a_quantidade_da_adena_e_descrita_em_ADENA(self) -> None:
+        from l2scanner.mercado_catalogo import CHAVE_DA_SERIE_DA_ADENA
+
+        assert (
+            mercado_console.descrever_a_quantidade(
+                CHAVE_DA_SERIE_DA_ADENA, 10_000_000
+            )
+            == "10.000.000 de adena"
+        )
+
+    def test_a_quantidade_de_um_item_mantem_unidade_e_unidades(self) -> None:
+        """O singular de hoje NAO se perde na extracao da frase inline."""
+        assert mercado_console.descrever_a_quantidade("dragon-belt", 1) == (
+            "1 unidade"
+        )
+        assert mercado_console.descrever_a_quantidade("dragon-belt", 6) == (
+            "6 unidades"
+        )
+
+
+class TestOParQueDISCRIMINA_NoMESMOTexto:
+    """Adena e negociacao no MESMO `secao_do_vale_quanto`.
+
+    UM TESTE QUE EXERCITASSE SO A ADENA PASSARIA COM A ESCOLHA TROCADA EM
+    QUALQUER SENTIDO — um formatador de taxa aplicado a TUDO ficaria verde. O
+    par e o unico arranjo em que os dois sentidos do erro caem.
+    """
+
+    def _texto(self) -> str:
+        observacoes = serie("dragon-belt", 5, nome="Dragon Belt") + [
+            observacao_de_adena(
+                11600 + i,
+                10_000_000,
+                quando=datetime(2026, 8, 31, 10, 0, 0) + i * UM_MINUTO,
+            )
+            for i in range(5)
+        ]
+        modelo = ModeloDeMercado.de_observacoes(observacoes)
+        return secao_do_vale_quanto(modelo, [], AGORA)
+
+    def test_a_ADENA_sai_em_XM_por_milhao(self) -> None:
+        assert "11,60 XM por milhao de adena (derivado)" in self._texto()
+
+    def test_a_NEGOCIACAO_no_MESMO_texto_continua_por_unidade(self) -> None:
+        assert "por unidade (derivado)" in self._texto()
+
+    def test_a_linha_da_adena_NAO_diz_unidades(self) -> None:
+        """A quantidade da Adena e adena, e chama-la de "unidade" seria a
+        mesma familia de mentira plausivel que o `0,00`."""
+        linha_da_adena = [
+            linha
+            for linha in self._texto().splitlines()
+            if "menor pedido visivel" in linha and "adena" in linha
+        ]
+        assert linha_da_adena, "a linha do menor pedido da Adena sumiu do texto"
+        assert "unidades" not in linha_da_adena[0]
+        assert "10.000.000 de adena" in linha_da_adena[0]
+
+    def test_a_linha_da_NEGOCIACAO_continua_dizendo_unidade(self) -> None:
+        """O controle negativo do anterior, no MESMO texto."""
+        linhas = [
+            linha
+            for linha in self._texto().splitlines()
+            if "menor pedido visivel" in linha and "adena" not in linha
+        ]
+        assert linhas, "a linha do menor pedido da negociacao sumiu do texto"
+        assert "1 unidade" in linhas[0]
+
+    def test_a_MEDIANA_da_adena_sai_na_MESMA_unidade_do_menor(self) -> None:
+        """Dois numeros da MESMA serie em unidades diferentes seriam pior que
+        os dois errados: o usuario compararia um com o outro."""
+        mediana = [
+            linha
+            for linha in self._texto().splitlines()
+            if linha.strip().startswith("mediana:") and "XM por milhao" in linha
+        ]
+        assert mediana, (
+            "a mediana da Adena nao saiu em XM por milhao — ela e a outra "
+            "metade do mesmo bloco do menor pedido"
+        )
+
+    def test_a_MEDIANA_da_negociacao_no_MESMO_texto_fica_por_unidade(
+        self,
+    ) -> None:
+        medianas = [
+            linha
+            for linha in self._texto().splitlines()
+            if linha.strip().startswith("mediana:")
+        ]
+        assert len(medianas) == 2, "as duas series tem de ter mediana no texto"
+        assert any("por unidade (derivado)" in linha for linha in medianas)
+        assert any("XM por milhao" in linha for linha in medianas)
+
+    def test_o_n_e_a_recencia_continuam_na_linha_da_adena(self) -> None:
+        """ADEN-04 pede a taxa COM `n` e recencia; a disciplina do 04 nao pode
+        ter se perdido na troca de formatador."""
+        linha_da_adena = [
+            linha
+            for linha in self._texto().splitlines()
+            if "menor pedido visivel" in linha and "adena" in linha
+        ][0]
+        assert "n=" in linha_da_adena
+        assert "31/08" in linha_da_adena
+
+
+class TestODestaqueAoVivoDaAdena:
+    def test_a_moldura_traz_a_taxa_em_XM_por_milhao(self) -> None:
+        """`TravaDoDestaque.anunciar` ja tem `linha.chave_da_serie` na mao — e
+        o destaque e o texto que o usuario mais copia para o WhatsApp."""
+        from l2scanner.mercado_catalogo import (
+            CHAVE_DA_SERIE_DA_ADENA,
+            NOME_EXIBIDO_DA_ADENA,
+        )
+
+        linha = _linha_de_oferta(
+            chave_da_serie=CHAVE_DA_SERIE_DA_ADENA,
+            nome_exibido=NOME_EXIBIDO_DA_ADENA,
+            total_em_centesimos=11600,
+            quantidade=10_000_000,
+        )
+        destaque = Destaque(
+            estado=ABAIXO_DA_MEDIANA,
+            unitario_da_linha=TAXA_DA_ADENA,
+            mediana_de_referencia=Fraction(12000, 10_000_000),
+            evidencia=Evidencia(n=7, piso=N_MINIMO_PARA_MEDIANA),
+        )
+        texto = TravaDoDestaque().anunciar(linha, destaque, AGORA)
+        assert texto is not None
+        assert "11,60 XM por milhao de adena (derivado)" in texto
+        assert "12,00 XM por milhao de adena (derivado)" in texto
+
+    def test_uma_oferta_de_ITEM_continua_saindo_por_unidade(self) -> None:
+        """O controle negativo do anterior, pela trava e nao pela funcao."""
+        texto = TravaDoDestaque().anunciar(
+            _linha_de_oferta(), _destaque_abaixo(), AGORA
+        )
+        assert texto is not None
+        assert "por unidade (derivado)" in texto
+        assert "XM por milhao" not in texto
+
+
+class TestAFraseDeMercadoVAZIO:
+    def test_ela_cita_as_DUAS_abas_que_o_scanner_sabe_ler(self) -> None:
+        """Ela mandava abrir a aba de negociacao e SO ela. Depois desta fase
+        isso seria uma instrucao que esconde metade do que o modo faz."""
+        texto = secao_do_vale_quanto(
+            ModeloDeMercado.de_observacoes([]), [], AGORA
+        )
+        assert "negociacao" in texto.lower()
+        assert "adena" in texto.lower()
+
+
+class TestAMENSAGEMDeRecusaDeLayoutNaoMENTE:
+    def test_ela_nao_afirma_mais_que_o_v1_le_SOMENTE_negociacao(self) -> None:
+        """A recusa por `mercado_grade.layout` continua igual — o que muda e a
+        FRASE, que passaria a mentir assim que a Adena for lida."""
+        fonte = inspect.getsource(mercado_modo.laco_do_mercado)
+        assert "le SOMENTE a grade de" not in fonte
+
+    def test_ela_diz_o_que_e_VERDADE_depois_desta_fase(self) -> None:
+        fonte = inspect.getsource(mercado_modo.laco_do_mercado)
+        assert "mercado_layouts" in fonte, (
+            "a mensagem tem de dizer por onde a Adena entra, senao o usuario "
+            "conclui que a aba Adena nao e lida de jeito nenhum"
+        )
+
+    def test_a_RECUSA_em_si_nao_mudou(self) -> None:
+        """O controle negativo dos dois acima: o portao continua exigindo
+        `layout == "negociacao"`. Trocar a frase nao pode ter afrouxado a
+        condicao — a negociacao segue sendo a grade de TOPO."""
+        fonte = inspect.getsource(mercado_modo.laco_do_mercado)
+        assert 'layout != "negociacao"' in fonte

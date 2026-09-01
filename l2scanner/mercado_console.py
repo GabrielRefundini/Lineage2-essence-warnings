@@ -51,6 +51,11 @@ from .mercado_analise import (
     tendencia,
 )
 
+# A SENTINELA DA SERIE DA ADENA (05-01). Ela e a UNICA coisa que a exibicao
+# precisa saber sobre a aba Adena, e ela chega sem aresta de import nova:
+# `mercado_catalogo` so importa `.config`, entao nao ha ciclo por aqui.
+from .mercado_catalogo import CHAVE_DA_SERIE_DA_ADENA
+
 # A IDENTIDADE DE UMA OFERTA VEM DO REGISTRO, e nao e reescrita aqui: e a mesma
 # `serie + total + quantidade` com que o CSV dedupa (D-05), e a `TravaDoDestaque`
 # usa exatamente ela. Nao ha ciclo: `mercado_registro` so importa
@@ -241,7 +246,101 @@ def formatar_unitario_derivado(unitario: Fraction) -> str:
     return f"{formatar_centesimos(round(unitario))} por unidade (derivado)"
 
 
-def destaque_ao_vivo(nome: str, destaque, agora: datetime) -> str:
+# A UNIDADE UTIL DA TAXA DE CAMBIO, E A UNICA COISA QUE A EXIBICAO PRECISA
+# SABER SOBRE A ABA ADENA (ADEN-04).
+#
+# Uma oferta de adena e da ordem de dez milhoes de unidades, entao o unitario
+# por ADENA e da ordem de um milesimo de centesimo — inexibivel em duas casas.
+# O milhao e a escala em que o numero volta a ser legivel por um humano: "11,60
+# XM por milhao" e o que o usuario diz em voz alta.
+#
+# ELA MORA AQUI E NAO NO `calibration.json` porque nao e medicao nem limiar: e
+# a escala em que a taxa se fala, do mesmo jeito que `ADENA_POR_INCREMENTO`
+# mora no fonte por ser como o jogo escreve a coluna. Grava-la na calibracao
+# criaria duas verdades sobre uma unidade so.
+#
+# E ELA E DE EXIBICAO, SO. `mercado_analise` continua sem saber que existe aba:
+# menor pedido, mediana e tendencia comparam `Fraction(total, quantidade)`
+# exata, e a escala nao muda ordenacao nenhuma.
+UNIDADE_DA_TAXA = 1_000_000
+
+
+def formatar_taxa_derivada(taxa: Fraction) -> str:
+    """A taxa da Adena em XM por MILHAO de adena, com a marca de derivado.
+
+    IRMA DE `formatar_unitario_derivado`, E NAO UM PARAMETRO COM DEFAULT — e a
+    razao esta MEDIDA: `round(Fraction(11600, 10_000_000))` vale **zero**. A
+    taxa por unidade nao e apenas pequena, ela e INEXIBIVEL em centesimos, e
+    chamar o formatador errado imprimiria `0,00 por unidade (derivado)` com
+    toda a confianca do mundo. Um default e uma chamada que alguem esquece de
+    passar; duas funcoes com nomes diferentes sao duas coisas que ninguem
+    confunde por omissao.
+
+    A CONTA, ESCRITA POR EXTENSO porque a pesquisa a errou por um fator de dez
+    (`05-RESEARCH.md:621` diz `116,00`):
+
+        10.000.000 de adena por 116,00 XM
+          -> taxa = Fraction(11600, 10_000_000) centesimos POR ADENA
+          -> x 1.000.000 = 1.160 centesimos por milhao
+          -> 1.160 centesimos = 11,60 XM por milhao
+
+    O erro da pesquisa foi carregar o `11600` intacto para depois da
+    multiplicacao, como se ele ja fosse o resultado dela. O ROADMAP e o
+    `05-CONTEXT.md` trazem o `11,60`, e ha teste sobre os dois pares que o
+    usuario viu na tela (`10M/116,00 -> 11,60` e `15M/300,00 -> 20,00`).
+
+    A MARCA `(derivado)` PELA MESMA RAZAO DA IRMA: o CSV guarda `total` e
+    `quantidade`, e a taxa e derivacao. Sem o rotulo, alguem copia a linha para
+    o WhatsApp e o numero derivado vira "o que o scanner leu", que e falso.
+
+    O ARREDONDAMENTO ACONTECE SO AQUI, sobre a `Fraction` exata — a comparacao
+    entre ofertas ja aconteceu, e ela aconteceu sem perder um bit.
+    """
+    return (
+        f"{formatar_centesimos(round(taxa * UNIDADE_DA_TAXA))} "
+        f"XM por milhao de adena (derivado)"
+    )
+
+
+def formatador_do_unitario(chave_da_serie: str):
+    """A serie -> qual das duas irmas a desenha. UM ponto de decisao, e so um.
+
+    QUATRO `if` ESPALHADOS PELOS QUATRO PONTOS DE CHAMADA DIVERGIRIAM, e o dia
+    em que um deles divergisse ele imprimiria `0,00` — o modo de falha mais
+    convincente que este modulo tem. Concentrar a escolha aqui e o que faz
+    "menor pedido" e "mediana" da MESMA serie nao poderem sair em unidades
+    diferentes.
+
+    O CRITERIO E A `chave_da_serie` CONTRA `CHAVE_DA_SERIE_DA_ADENA` (D-A), e
+    nao o nome exibido: o nome e rotulo e o OCR o faz oscilar, enquanto a chave
+    da Adena e uma SENTINELA — ela nao vem de leitura nenhuma, foi escrita pelo
+    05-01 exatamente para carregar esta identidade.
+    """
+    if chave_da_serie == CHAVE_DA_SERIE_DA_ADENA:
+        return formatar_taxa_derivada
+    return formatar_unitario_derivado
+
+
+def descrever_a_quantidade(chave_da_serie: str, quantidade: int) -> str:
+    """`6 unidades` para um item, `10.000.000 de adena` para a Adena.
+
+    PELO MESMO CRITERIO DO FORMATADOR, e por isso as duas frases nunca podem
+    discordar sobre o que a linha esta contando: chamar dez milhoes de adena de
+    "unidades" e a mesma familia de mentira plausivel que o `0,00`, porque o
+    numero continua certo e so a palavra fica errada.
+
+    O SINGULAR DE HOJE E PRESERVADO. `_linha_do_menor` montava esta frase
+    inline; ela saiu para ca para virar uma verdade so, e `1 unidade` continua
+    saindo no singular.
+    """
+    if chave_da_serie == CHAVE_DA_SERIE_DA_ADENA:
+        return f"{quantidade:,}".replace(",", ".") + " de adena"
+    return f"{quantidade} {'unidade' if quantidade == 1 else 'unidades'}"
+
+
+def destaque_ao_vivo(
+    nome: str, chave_da_serie: str, destaque, agora: datetime
+) -> str:
     """O bloco que aparece NA HORA quando uma leitura entra abaixo da mediana.
 
     ANAL-02, e ele so existe acima do piso da mediana - quem decide isso e
@@ -261,12 +360,19 @@ def destaque_ao_vivo(nome: str, destaque, agora: datetime) -> str:
     `agora` ENTRA POR PARAMETRO e vem do `Relogio`, nunca de `datetime.now()`:
     num dual boot a hora crua do Windows esta errada, e o `Relogio` existe
     exatamente para corrigir isso.
+
+    `chave_da_serie` VEM JUNTO DO NOME, e nao e derivada dele: quem chama e
+    `TravaDoDestaque.anunciar`, que tem `linha.chave_da_serie` na mao. Ela
+    escolhe o formatador, e este bloco e justamente o texto que o usuario mais
+    copia para o WhatsApp — uma taxa de Adena impressa como `0,00 por unidade`
+    aqui seria a copia mais convincente do erro.
     """
+    formatar = formatador_do_unitario(chave_da_serie)
     linha = (
         f"{nome} ABAIXO DA MEDIANA: "
-        f"{formatar_unitario_derivado(destaque.unitario_da_linha)}, "
+        f"{formatar(destaque.unitario_da_linha)}, "
         f"contra mediana de "
-        f"{formatar_unitario_derivado(destaque.mediana_de_referencia)} "
+        f"{formatar(destaque.mediana_de_referencia)} "
         f"com n={destaque.evidencia.n}"
     )
     return "\n" + console.moldurar(linha, agora.strftime("%H:%M"))
@@ -334,7 +440,9 @@ class TravaDoDestaque:
         if chave in self.ja_anunciadas:
             return None
         self.ja_anunciadas.add(chave)
-        return destaque_ao_vivo(linha.nome_exibido, destaque, agora)
+        return destaque_ao_vivo(
+            linha.nome_exibido, linha.chave_da_serie, destaque, agora
+        )
 
 
 def transicao_do_painel(aberto: bool) -> str:
@@ -411,7 +519,7 @@ def _recencia_em_duas_formas(quando: datetime, agora: datetime) -> str:
     return f"ha {int(segundos // 86400)} dias ({absoluta})"
 
 
-def _linha_do_menor(observacoes, agora: datetime) -> str:
+def _linha_do_menor(observacoes, agora: datetime, chave_da_serie: str) -> str:
     """O menor pedido visivel: total E quantidade juntos, `n` e carimbo DELE.
 
     O ROTULO E `menor pedido visivel`, E ESSA E A PALAVRA DO REQUISITO. A razao
@@ -428,6 +536,11 @@ def _linha_do_menor(observacoes, agora: datetime) -> str:
     O CARIMBO E O DAQUELA OFERTA, e nunca `recencia_do_preco` (que e o
     `max(primeira_vez)` da SERIE). Exibir um minimo de manha ao lado da recencia
     de agora e a mentira plausivel que este projeto inteiro combate.
+
+    `chave_da_serie` ENTRA POR PARAMETRO e escolhe as DUAS frases da linha — o
+    formatador do unitario e a descricao da quantidade. Ela vem de `serie.chave`
+    no laco de `secao_do_vale_quanto`, que ja a tem: derivar a aba do nome
+    exibido seria confiar num rotulo que o OCR faz oscilar.
     """
     menor = menor_pedido_visivel(observacoes)
     if menor.total_em_centesimos is None:
@@ -435,18 +548,17 @@ def _linha_do_menor(observacoes, agora: datetime) -> str:
             f"    menor pedido visivel: sem evidencia - "
             f"{menor.evidencia.n} de {menor.evidencia.piso} ofertas distintas"
         )
-    unidades = "unidade" if menor.quantidade == 1 else "unidades"
     return (
         f"    menor pedido visivel: "
         f"{formatar_centesimos(menor.total_em_centesimos)} por "
-        f"{menor.quantidade} {unidades} = "
-        f"{formatar_unitario_derivado(menor.unitario)} | "
+        f"{descrever_a_quantidade(chave_da_serie, menor.quantidade)} = "
+        f"{formatador_do_unitario(chave_da_serie)(menor.unitario)} | "
         f"n={menor.evidencia.n} | "
         f"{_recencia_em_duas_formas(menor.primeira_vez, agora)}"
     )
 
 
-def _linha_da_mediana(observacoes, agora: datetime) -> str:
+def _linha_da_mediana(observacoes, agora: datetime, chave_da_serie: str) -> str:
     """A mediana com `n` e a recencia da SERIE, ou o que FALTA para existir.
 
     ABAIXO DO PISO O TEXTO DIZ O QUE FALTA, e nao um numero. Uma mediana de duas
@@ -458,6 +570,11 @@ def _linha_da_mediana(observacoes, agora: datetime) -> str:
     catalogo, que diz quando o ITEM foi visto em qualquer valor e pode ser de
     agora mesmo sobre uma leitura de tres dias atras. Sao dois fatos diferentes
     com nomes parecidos, e este modulo so conhece o primeiro.
+
+    `chave_da_serie` ENTRA PELA MESMA RAZAO DE `_linha_do_menor`, e ela e a
+    razao de a escolha ser UMA funcao e nao um `if` por ponto de chamada: o
+    menor pedido e a mediana da MESMA serie saindo em unidades diferentes seria
+    pior que os dois errados, porque o usuario compararia um com o outro.
     """
     mediana = mediana_dos_unitarios(observacoes)
     if mediana.unitario is None:
@@ -473,7 +590,8 @@ def _linha_da_mediana(observacoes, agora: datetime) -> str:
         else ""
     )
     return (
-        f"    mediana: {formatar_unitario_derivado(mediana.unitario)} | "
+        f"    mediana: "
+        f"{formatador_do_unitario(chave_da_serie)(mediana.unitario)} | "
         f"n={mediana.evidencia.n}{carimbo}"
     )
 
@@ -515,9 +633,14 @@ def secao_do_vale_quanto(
 
     series = ordenar_para_o_console(modelo, watchlist)
     if not series:
+        # AS DUAS ABAS, e nao so uma: depois da Fase 5 o modo le a grade de
+        # negociacao E a aba Adena, e uma instrucao que cita so a primeira
+        # esconderia metade do que o scanner faz de quem esta olhando um
+        # console vazio e tentando descobrir o que abrir.
         linhas.append(
             "  Nenhuma observacao ainda. Abra o World Exchange na aba de "
-            "negociacao e deixe o painel aberto."
+            "negociacao (ou na aba Adena, para a taxa de cambio) e deixe o "
+            "painel aberto."
         )
         return "\n".join(linhas)
 
@@ -526,8 +649,11 @@ def secao_do_vale_quanto(
         observacoes = modelo.observacoes_de(serie.chave)
         linhas += [
             f"  {serie.nome_exibido}{marca}",
-            _linha_do_menor(observacoes, agora),
-            _linha_da_mediana(observacoes, agora),
+            # `serie.chave` E O UNICO CRITERIO de unidade, e as duas linhas do
+            # bloco recebem a MESMA: e o que impede o menor pedido e a mediana
+            # da mesma serie de sairem em unidades diferentes.
+            _linha_do_menor(observacoes, agora, serie.chave),
+            _linha_da_mediana(observacoes, agora, serie.chave),
             # A TENDENCIA SAI COM O TAMANHO DA JANELA SEMPRE JUNTO, e a unidade
             # e "ofertas distintas". As duas coisas moram em
             # `descrever_a_tendencia`, que ja e a unica frase de tendencia do
