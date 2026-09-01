@@ -42,6 +42,21 @@ if exist ".venv\Scripts\python.exe" (
     )
 )
 
+REM Quem passou argumento na linha de comando NAO e perguntado de novo.
+REM
+REM Ate 31/08/2026 este arquivo ignorava %* por completo e sempre abria o
+REM prompt. Quem digitava `calibrar.bat --nomes "A,B,C,D"` via a pergunta
+REM aparecer assim mesmo e concluia, com razao, que a opcao nao existia. O
+REM `avisos-tvt.bat` ja repassava %*; este ficou para tras.
+REM
+REM O `%~1` (sem aspas em volta na comparacao) trata o caso de o argumento ja
+REM vir aspeado, que e o normal para --nomes "A,B,C,D".
+if not "%~1"=="" (
+    echo.
+    "%PY%" -m l2scanner.calibrar --auto %*
+    goto :conferencia
+)
+
 echo.
 set /p NOMES="Nomes da party em ordem, separados por virgula (ENTER para pular): "
 
@@ -51,6 +66,8 @@ if "%NOMES%"=="" (
 ) else (
     "%PY%" -m l2scanner.calibrar --auto --nomes "%NOMES%"
 )
+
+:conferencia
 
 echo.
 echo  ------------------------------------------------------------
