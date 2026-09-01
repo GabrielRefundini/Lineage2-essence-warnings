@@ -2,7 +2,7 @@
 slug: faixa-cinzenta-engole-item-real
 workstream: mercado
 created: 2026-09-01
-status: awaiting_human_verify
+status: resolved
 severity: alta
 hypothesis: >
   Dois itens REAIS que diferem por uma palavra inteira caem na faixa cinzenta e
@@ -400,3 +400,16 @@ Rodar uma sessao de farm e confirmar que as linhas passam a ser GRAVADAS. Nao ha
 comando de recalibracao para rodar: o numero da trava e constante medida do
 modulo e o scanner sobe como esta. Por isso o status e `awaiting_human_verify` e
 nao `resolved` — o conserto esta provado por teste, nao por campo.
+
+## RESOLVIDO — verificado em campo 2026-09-01
+
+A trava por palavra (D-09) esta em producao. Conferido contra o catalogo REAL do
+usuario: `Protecting Scroll: Enchant C-grade Weapon` passou de DESCARTADO PARA
+SEMPRE a **SERIE NOVA**, com o motivo nomeando o mecanismo ("4 vetado(s) pela
+trava por palavra"). Os oito pares de controle conferidos por mim, um a um:
+**8 de 8 com o veredito esperado** — os sete que nao podiam mudar nao mudaram, e
+`B-grade` x `C-grade Gemstone` passou de FUNDE a separado (quick `260901-g7k`).
+
+**Continua aberto e registrado:** `Hunteds Tunic` x `Hunter's Tunic` (0,8889)
+segue descartado. Mesmo item, o OCR erra o apostrofo, e a trava por palavra nao
+conserta isso — nunca prometeu. E o lado barato do D-06.

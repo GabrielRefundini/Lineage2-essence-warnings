@@ -2,7 +2,7 @@
 slug: series-duplicadas-por-catalogo-sem-estado
 workstream: mercado
 created: 2026-08-31
-status: awaiting_human_verify
+status: resolved
 severity: alta
 hypothesis: >
   O agrupamento por similaridade esta CORRETO e foi medido isoladamente, mas na
@@ -220,3 +220,17 @@ uma pagina.
   honesto, que era o dano; o rotulo bonito e outra conversa.
 - A corrupcao continua entrando quando as DUAS escalas erram IGUAL. Continua
   fora de escopo, e agora ela e absorvida em vez de virar serie propria.
+
+## RESOLVIDO — verificado em campo 2026-09-01
+
+O catalogo provisorio por pagina esta em producao. Nas sessoes reais de
+2026-09-01 (mais de 500 paginas lidas ao todo) **nenhuma serie nova nasceu
+partida** — o defeito era duas leituras do mesmo item na MESMA pagina criarem
+duas series, e isso parou.
+
+**As quatro series ja partidas ANTES do conserto continuam no arquivo**
+(`+4`/`+5 Hunter's Stockings` contra `St«kings`, similaridade 0,9268). Elas sao
+sobra, nao regressao: dado novo nao se parte mais. A ferramenta
+`tools/fundir_chaves_de_serie.py` NAO as funde de proposito — ela so funde com
+`nome_exibido` IDENTICO, e fundir por similaridade seria julgamento no lado
+irreversivel. Documentado no README.

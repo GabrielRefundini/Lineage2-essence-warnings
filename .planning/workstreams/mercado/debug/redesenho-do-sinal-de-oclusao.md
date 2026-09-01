@@ -2,7 +2,7 @@
 slug: redesenho-do-sinal-de-oclusao
 workstream: mercado
 created: 2026-09-01
-status: awaiting_human_verify
+status: resolved
 severity: alta
 hypothesis: >
   A premissa do sinal esta errada, nao a sua posicao. "Existe uma faixa
@@ -330,3 +330,13 @@ continua disponivel e nao foi consumido.
   inteira para um passo talvez fracionario; origem por casamento de molde em
   pixel inteiro). Nao foi medida diretamente em campo — foi limitada. Se
   aparecer deriva maior, o numero sobe e a varredura roda de novo.
+
+## RESOLVIDO — verificado em campo 2026-09-01
+
+Banda vertical gravada no `calibration.json` (`dx0=42 dx1=489 dy0=3 dy1=11`,
+limiar 0,030130). Sessao real do usuario na aba que falhava: **353 paginas lidas
+contra 2 perdidas** (99,4%), **0 linhas descartadas por oclusao**, 355 ticks com
+painel aberto, 0 frames congelados. Antes do conserto eram 10 de 10 linhas
+recusadas. O leitor de producao tambem foi rodado sobre os 5 frames de
+`recordings/20260901-000043-nome-longo-weapon` com catalogo frio: pagina aceita,
+10 linhas, **10 de 10 conferidas contra a captura de tela do usuario**.
