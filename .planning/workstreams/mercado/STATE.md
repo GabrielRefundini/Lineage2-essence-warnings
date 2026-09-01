@@ -6,17 +6,19 @@ current_phase: 4
 current_phase_name: Modo --mercado, analise e console
 status: in-progress
 stopped_at: "Completed 04-05-PLAN.md (onda 4, a ULTIMA da Fase 4) — vigiar-mercado.bat, a terceira invocacao com dois cliques, e o bloco [[receita]] COMENTADO no fim do config.toml. config.toml: 61 linhas ACRESCENTADAS, 0 REMOVIDAS (numstat 61 0 contra a base 460d1bc), todas comentadas ou em branco, arquivo parseia. Suite 3114 passed + 23 skipped, base deste worktree 3103 + 23: +11 testes, 0 regressoes. Diff total do plano: 3 arquivos, 482 insercoes, 0 delecoes. O .bat mira o personagem pela chave [jogo] personagem (medido em bancada cmd nos tres desfechos) e nao imprime NENHUM echo depois da execucao, com os blocos de erro acima dela; 8 mutantes medidos, 8 mortos, nenhum guarda vacuo. NAO FEITO de proposito: a recusa por OCR em mercado_modo.py:248 ainda manda rodar o vigiar-party.bat — esta fora do files_modified e o proprio criterio proibe tocar l2scanner/; registrado em deferred-items.md. Os blocos Phase/Plan/Status e current_phase seguem INTOCADOS: sao do orquestrador. PORTAO HUMANO da fase ABERTO (3 conferencias ao vivo + a auditoria das 20 decisoes do 04-CONTEXT)."
-last_updated: "2026-08-31T11:09:55.327Z"
+last_updated: "2026-09-01T13:29:03.141Z"
 last_activity: 2026-08-31
 last_activity_desc: "Fase 4 plano 01, o que LIGA OS TRES FIOS que as Fases 2 e 3 deixaram sem chamador: l2scanner/mercado_modo.py (o laco de producao), l2scanner/mercado_console.py (o desenho em texto puro, sem dependencia nova) e a flag --mercado em 54 linhas no __main__.py disputado (teto 70, zero remocoes). O modo RECUSA a subir com codigo 2 sem OCR, sem calibracao ou fora do layout de negociacao, nomeando a chave que falta, e sem calibracao nem toca o disco. Uma sessao grava no observacoes.csv E no catalogo-de-nomes.csv, provado ponta a ponta sobre fixturas versionadas com OCR REPRODUZIDO. minimum_update_interval=250 so no mercado e a unica alavanca real de DETC-02; o party fica byte-identico e o acoplamento esta preso nas DUAS direcoes. Suite 2851 passed + 23 skipped, 145 no agenda. Achado registrado em deferred-items.md: mercado_catalogo -> config -> notificador -> rastreador e cadeia de IMPORT da Fase 2, nao de uso. Portao de campo do DETC-02 ABERTO."
-state_head: a202f10c249750bb49752596e5fb4312fadf6d0d
+state_head: f2e7f5faf75601b9c11db80d70294e09a2504719
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 21
   completed_plans: 21
-  percent: 25
+  percent: 50
 ---
+
+Total Phases: 4
 
 # Project State
 
