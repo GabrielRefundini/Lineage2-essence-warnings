@@ -55,6 +55,7 @@ de observacoes e da Fase 3. Dois arquivos, dois donos — e ha teste disso.
 
 from __future__ import annotations
 
+import copy
 import inspect
 import json
 import sys
@@ -122,6 +123,19 @@ def ler_fixtura(caminho: Path) -> np.ndarray:
 @pytest.fixture(scope="module")
 def cal() -> Calibracao:
     return Calibracao.carregar(CALIBRACAO)
+
+
+@pytest.fixture(scope="module")
+def cal_sem_adena(cal: Calibracao) -> Calibracao:
+    """A calibracao de um clone que nunca calibrou a Adena — o estado de ANTES.
+
+    Ver a fixtura homonima em `test_mercado_pagina.py`: desde o 05-02 a Adena E
+    lida, entao o exemplo de "aba nao lida" passou a ser uma aba SEM layout
+    calibrado. A verdade prendida nao mudou; o exemplo mudou.
+    """
+    copia = copy.copy(cal)
+    copia.mercado_layouts = None
+    return copia
 
 
 @pytest.fixture(scope="module")
@@ -413,28 +427,46 @@ class TestAPaginaCOBERTA_PELA_TOOLTIP:
 
 
 class TestOPortaoDeLayoutNoReplay:
-    """A aba Adena e RECUSADA: zero linhas, zero chamadas de OCR."""
+    """Uma aba NAO CALIBRADA e RECUSADA: zero linhas, zero chamadas de OCR."""
 
-    def test_a_aba_adena_nao_produz_linha_nem_chamada_de_OCR(
-        self, cal, leituras
+    def test_uma_aba_nao_calibrada_nao_produz_linha_nem_chamada_de_OCR(
+        self, cal_sem_adena, leituras
     ) -> None:
-        leitor, duas, tres, _cat = montar(cal)
+        leitor, duas, tres, _cat = montar(cal_sem_adena)
         frame = ler_fixtura(FIXTURES / PAGINA_ADENA)
         gravacao, arquivo = PROVENIENCIA[PAGINA_ADENA]
-        alimentar(duas, tres, frame, cal, gravacao, arquivo, leituras)
+        alimentar(duas, tres, frame, cal_sem_adena, gravacao, arquivo, leituras)
         assert leitor.observar(frame) is None
         assert leitor.ultima_leitura is None
         assert duas.chamadas == tres.chamadas == 0
         assert leitor.paginas_de_outro_layout == 1
 
-    def test_um_frame_de_layout_ERRADO_no_meio_nao_contamina_o_acordo(
+    def test_COM_a_adena_calibrada_a_MESMA_janela_e_lida_SEM_OCR(
         self, cal, leituras
+    ) -> None:
+        """O CONTROLE NEGATIVO do teste acima, e o discriminante da fase.
+
+        A MESMA janela, o MESMO leitor, so a chave `mercado_layouts` a mais: ela
+        deixa de ser recusada e passa a ser lida. E as chamadas de OCR seguem em
+        ZERO — a identidade da Adena vem da sentinela de serie, nao de texto.
+        """
+        leitor, duas, tres, _cat = montar(cal)
+        frame = ler_fixtura(FIXTURES / PAGINA_ADENA)
+        gravacao, arquivo = PROVENIENCIA[PAGINA_ADENA]
+        alimentar(duas, tres, frame, cal, gravacao, arquivo, leituras)
+        leitor.observar(frame)
+        assert leitor.ultima_leitura is not None
+        assert leitor.paginas_de_outro_layout == 0
+        assert duas.chamadas == tres.chamadas == 0
+
+    def test_um_frame_de_layout_NAO_CALIBRADO_no_meio_nao_contamina_o_acordo(
+        self, cal_sem_adena, leituras
     ) -> None:
         """Ele apaga a memoria do frame anterior, e com razao: comparar a pagina
         de antes com a de depois de o layout mudar afirmaria estabilidade sobre
         uma descontinuidade."""
         _leitor, aceitas = replay_de_uma_janela(
-            cal,
+            cal_sem_adena,
             leituras,
             [PAGINA_CHEIA, PAGINA_ADENA, PAGINA_CHEIA_VIZINHA],
         )
