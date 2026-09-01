@@ -77,8 +77,15 @@ from .mercado_leitura import (
     LinhaLida,
     TravaDaObservacao,
     casamento_do_cabecalho,
-    ler_linha,
-    ler_linha_de_adena,
+    # AS DUAS LEITORAS SAO USADAS, e o `noqa` nao esconde codigo morto: elas
+    # sao alcancadas por NOME, via `globals()`, em `leitora_de_linha` — que e
+    # como o despacho continua enxergando um `monkeypatch` sobre o modulo (ver
+    # a razao longa em `LEITORAS_DE_LINHA_POR_LAYOUT`). O ruff nao segue
+    # resolucao dinamica; remove-las quebraria a leitura de mercado inteira, e
+    # `test_o_CONTROLE_NEGATIVO_sem_patch_a_leitora_e_a_de_verdade` prova que
+    # elas estao ligadas.
+    ler_linha,  # noqa: F401
+    ler_linha_de_adena,  # noqa: F401
     sonda_e_uma_banda,
 )
 from .mercado_visao import RastreioDoPainel, cabecalho_de_calibracao
@@ -221,12 +228,33 @@ def pecas_de_calibracao_de_mercado_faltando(cal) -> list[str]:
 # Um bloco calibrado e sem leitora produz UM AVISO NO ARRANQUE dizendo que esta
 # gravado e nao sera usado. Nao um silencio (o usuario calibrou e merece saber
 # que nao serviu) e nao uma recusa por tick (isso seria a perda acima).
+# O VALOR E O **NOME** DA FUNCAO NESTE MODULO, e nao a funcao. Guardar o objeto
+# aqui o CONGELARIA no import: `monkeypatch.setattr(mercado_pagina, "ler_linha",
+# espiao)` passaria a nao alcancar o despacho, e a suite perderia a unica prova
+# de que o leitor PASSA A SUA trava a cada `ler_linha`
+# (`TestOLeitorDePaginaCONSULTA_A_TRAVA`) — que e um criterio de CHAMADA, o
+# padrao que o 05-01 estabeleceu. Medido: com o objeto congelado aquele teste
+# falha em "`ler_linha` nao foi chamada: o teste nao cobre nada".
+#
+# Resolver tarde tambem mantem UMA ligacao so entre o nome e a funcao. Duas
+# referencias ao mesmo leitor divergiriam no dia em que uma fosse trocada.
 LEITORAS_DE_LINHA_POR_LAYOUT = {
-    "negociacao": ler_linha,
-    "adena": ler_linha_de_adena,
+    "negociacao": "ler_linha",
+    "adena": "ler_linha_de_adena",
 }
 
 LAYOUTS_COM_LEITORA = frozenset(LEITORAS_DE_LINHA_POR_LAYOUT)
+
+
+def leitora_de_linha(nome_do_layout: str):
+    """A leitora deste layout, resolvida NA HORA da chamada.
+
+    `globals()` e o que faz o despacho enxergar um `monkeypatch` sobre o modulo
+    — ver a razao escrita em `LEITORAS_DE_LINHA_POR_LAYOUT`. `KeyError` aqui e
+    impossivel por construcao: o portao so elege nomes de `LAYOUTS_COM_LEITORA`,
+    que E o conjunto de chaves deste dict.
+    """
+    return globals()[LEITORAS_DE_LINHA_POR_LAYOUT[nome_do_layout]]
 
 # Os campos de grade que um bloco aninhado pode OMITIR, herdando de
 # `mercado_grade`. Hoje eles sao IDENTICOS entre a negociacao e a Adena —
@@ -987,7 +1015,7 @@ class LeitorDePagina:
         # coluna, e o que os separa e a GEOMETRIA, nao um ramo. A leitora sai do
         # mesmo registro de onde o portao derivou os candidatos, entao um layout
         # elegivel tem leitora por construcao.
-        leitora = LEITORAS_DE_LINHA_POR_LAYOUT[modelo["nome"]]
+        leitora = leitora_de_linha(modelo["nome"])
         e_adena = modelo["nome"] == "adena"
 
         ox, oy = origem

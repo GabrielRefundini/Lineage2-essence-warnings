@@ -503,6 +503,28 @@ class TestUmLayoutSemLeitoraFicaFORADoPortao:
         assert LAYOUTS_COM_LEITORA == frozenset(LEITORAS_DE_LINHA_POR_LAYOUT)
         assert "busca" not in LAYOUTS_COM_LEITORA
 
+    def test_a_leitora_e_resolvida_NA_HORA_e_nao_congelada_no_import(
+        self, monkeypatch
+    ):
+        """Um objeto guardado no registro congelaria a ligacao no import, e o
+        despacho deixaria de enxergar um `monkeypatch` sobre o modulo — que e
+        como a suite prova CHAMADA (`TestOLeitorDePaginaCONSULTA_A_TRAVA`).
+
+        MEDIDO: com a funcao congelada, aquele teste falha em "`ler_linha` nao
+        foi chamada: o teste nao cobre nada".
+        """
+        import l2scanner.mercado_pagina as pagina
+
+        sentinela = object()
+        monkeypatch.setattr(pagina, "ler_linha", sentinela)
+        assert pagina.leitora_de_linha("negociacao") is sentinela
+
+    def test_o_CONTROLE_NEGATIVO_sem_patch_a_leitora_e_a_de_verdade(self):
+        import l2scanner.mercado_pagina as pagina
+
+        assert pagina.leitora_de_linha("negociacao") is pagina.ler_linha
+        assert pagina.leitora_de_linha("adena") is pagina.ler_linha_de_adena
+
     def test_busca_calibrada_NAO_entra_nos_candidatos(self, tmp_path):
         cal = self._cal_com_busca(tmp_path)
         leitor, _b, _c = _montar_leitor(cal)
