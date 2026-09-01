@@ -7,7 +7,7 @@ stopped_at: "Onda 2 da Fase 5 FECHADA — 05-02 e 05-03 em paralelo. 05-02: PORT
 last_updated: "2026-09-01T18:05:00.000Z"
 last_activity: 2026-09-01
 last_activity_desc: Milestone v1-mercado completed and archived
-state_head: PENDENTE
+state_head: 5a0b81c
 progress:
   total_phases: 4
   completed_phases: 4
