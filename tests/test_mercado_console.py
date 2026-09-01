@@ -856,7 +856,9 @@ class TestATravaDoDestaque:
         """
         linha, destaque = _linha_de_oferta(), _destaque_abaixo()
         assert TravaDoDestaque().anunciar(linha, destaque, AGORA) == (
-            destaque_ao_vivo(linha.nome_exibido, destaque, AGORA)
+            destaque_ao_vivo(
+                linha.nome_exibido, linha.chave_da_serie, destaque, AGORA
+            )
         )
 
     def test_cada_SESSAO_comeca_com_a_trava_limpa(self) -> None:

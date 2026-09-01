@@ -266,13 +266,27 @@ def laco_do_mercado(
             ]
         )
 
+    # A RECUSA NAO MUDOU, E A FRASE MUDOU. O portao continua exigindo que a
+    # grade de TOPO seja a de negociacao — a Adena nao substitui a negociacao,
+    # ela mora aninhada e entra por `mercado_layouts`. O que mudou e a
+    # mensagem: ate a Fase 4 ela afirmava que a unica grade lida era a de
+    # negociacao, e essa afirmacao ficou FALSA na Fase 5. Um aviso que mente
+    # sobre o proprio escopo faz o usuario concluir que a aba Adena nao e lida
+    # de jeito nenhum, e ele desiste de calibra-la.
+    #
+    # A frase antiga esta presa por teste que varre o FONTE desta funcao —
+    # comentario incluido, pelo mesmo criterio de `EXPRESSOES_PROIBIDAS`: uma
+    # afirmacao errada num comentario engana o proximo leitor exatamente como
+    # engana o usuario.
     layout = (cal.mercado_grade or {}).get("layout")
     if layout != "negociacao":
         return _recusar(
             [
                 "MODO MERCADO NAO VAI SUBIR: mercado_grade.layout esta gravado "
-                "como '" + str(layout) + "', e o v1 le SOMENTE a grade de "
+                "como '" + str(layout) + "', e a grade de TOPO tem de ser a de "
                 "negociacao.",
+                "A aba Adena TAMBEM e lida, mas ela nao entra por aqui: ela "
+                "mora aninhada, em mercado_layouts.",
                 "Recalibre com calibrar-mercado.bat sobre a aba de negociacao.",
             ]
         )
