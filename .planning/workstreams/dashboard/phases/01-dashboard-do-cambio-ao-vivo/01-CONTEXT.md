@@ -32,7 +32,12 @@ rede ou pelo celular; coleta automática do câmbio XM→BRL (é seed, não é e
 - **Dois números no destaque, lado a lado:** **XM por milhão** (a unidade que ele fala em voz
   alta, já implementada em `mercado_console.formatar_taxa_derivada`) **e R$ por milhão**. Os
   dois carregam `n` e recência, como toda a disciplina do console de mercado exige.
-- **Tema escuro.** A página fica aberta ao lado do jogo, à noite, numa segunda tela.
+- **Tema escuro E TEMÁTICO DE LINEAGE 2** (decisão do usuário, acrescentada em 2026-09-01
+  depois das quatro áreas). Não é um dashboard genérico de analytics: é um painel do jogo,
+  aberto ao lado do cliente, à noite, numa segunda tela. A identidade visual conversa com a UI
+  do L2 — moldura/relevo escuro, dourado e âmbar dos painéis do jogo, tipografia com peso de
+  fantasia nos títulos e algo legível e monoespaçado nos números. **O tema nunca custa
+  legibilidade do número**: se um ornamento disputar com o valor em destaque, o ornamento sai.
 - **Estado vazio é conteúdo, não ausência.** Hoje o CSV tem 93 linhas e **zero** com a
   sentinela `adena#` — a aba Adena foi construída na Fase 5 do mercado e nunca rodou em campo.
   Sem leitura da Adena, a página diz isso com todas as letras e explica como coletar (abrir a
