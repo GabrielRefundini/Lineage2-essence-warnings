@@ -2100,6 +2100,30 @@ class TestASecaoDoConfigToml:
             "o teto e a razao dele cabem em uma linha"
         )
 
+    def test_o_comentario_nao_manda_escolher_um_numero_qualquer_da_faixa(self):
+        """O MESMO defeito da mensagem morava aqui, com outras palavras.
+
+        O comentario dizia "Escreva aqui um numero dentro dessa faixa". A faixa
+        medida em campo foi de 1 a 1067 celulas e o teto e 12: seguir o
+        comentario ao pe da letra levantava `ToleranciaAlemDoTeto` no arranque.
+        Consertar so a linha do `scanner.log` deixaria o usuario com duas
+        instrucoes que se contradizem, num arquivo que ele abre para editar.
+        """
+        texto = (RAIZ / "config.toml").read_text(encoding="utf-8")
+        onde = texto.index("[identidade]")
+        bloco = texto[max(0, onde - 3000) : onde + 500]
+
+        assert "um numero dentro dessa faixa" not in bloco, (
+            "a faixa passa MUITO do teto; o comentario tem de mandar copiar o "
+            "valor que a propria linha do log entrega"
+        )
+        assert "copi" in bloco.lower(), (
+            "o comentario manda COPIAR o valor da linha, e nao escolher um"
+        )
+        assert "esperar" in bloco.lower(), (
+            "e diz o que fazer no regime em que subir a tolerancia nao resolve"
+        )
+
     def test_o_config_de_verdade_continua_lendo_os_defaults(self):
         """O `config.toml` versionado tem a secao COMENTADA, entao ela nao muda
         nada para quem nunca a preencheu."""
