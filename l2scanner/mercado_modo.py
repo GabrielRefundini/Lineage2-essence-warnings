@@ -68,8 +68,8 @@ from .mercado_analise import ModeloDeMercado
 from .mercado_console import (
     SEGUNDOS_ENTRE_SECOES,
     OrcamentoDoTick,
+    TravaDoDestaque,
     acumular_motivos,
-    destaque_ao_vivo,
     linha_ao_vivo,
     resumo_da_sessao,
     secao_da_margem,
@@ -501,6 +501,11 @@ def laco_do_mercado(
     # `desenhar_status` do laco principal, que tambem sai por intervalo.
     proxima_secao = time.monotonic() + SEGUNDOS_ENTRE_SECOES
 
+    # A TRAVA DO DESTAQUE, CONSTRUIDA UMA VEZ PARA A SESSAO INTEIRA — o mesmo
+    # lugar de `painel_aberto_antes`, e pela mesma razao. Dentro do `while` ela
+    # nasceria vazia a cada tick e nao travaria nada.
+    trava_do_destaque = TravaDoDestaque()
+
     # ------------------------------------------------------------------
     # 4. O TICK.
     # ------------------------------------------------------------------
@@ -572,12 +577,19 @@ def laco_do_mercado(
                         # ver; "sem destaque" nao e um fato sobre o preco, e sim
                         # sobre a evidencia, e ele ja aparece na secao de
                         # analise com o que FALTA escrito por extenso.
-                        log.info(
-                            "%s",
-                            destaque_ao_vivo(
-                                linha.nome_exibido, destaque, agora
-                            ),
+                        #
+                        # E SO A PRIMEIRA VEZ DE CADA OFERTA. A pagina e
+                        # reaceita a cada tick, entao anunciar aqui sem trava
+                        # repetia o MESMO destaque a 1 Hz enquanto a oferta
+                        # estivesse na tela — medido em producao, ~10.800
+                        # linhas por hora, que afogam a forense do log. Quem
+                        # devolve o texto e a trava, e nao ha caminho que
+                        # anuncie sem passar por ela.
+                        anuncio = trava_do_destaque.anunciar(
+                            linha, destaque, agora
                         )
+                        if anuncio is not None:
+                            log.info("%s", anuncio)
 
                     # PASSO 2 - O CATALOGO. A ordem contra o registro nao e
                     # arbitraria: a Fase 3 LE a chave que a Fase 2 produziu, e

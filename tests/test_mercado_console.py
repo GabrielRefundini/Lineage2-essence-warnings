@@ -29,6 +29,7 @@ import ast
 import inspect
 import logging
 from datetime import datetime, timedelta
+from fractions import Fraction
 
 import pytest
 
@@ -38,14 +39,22 @@ import l2scanner.mercado_modo as mercado_modo
 from l2scanner.agenda import AgendaInvalida
 from l2scanner.config import ler_watchlist_do_mercado
 from l2scanner.mercado_analise import (
+    ABAIXO_DA_MEDIANA,
     N_MINIMO_PARA_MEDIANA,
     N_MINIMO_PARA_TENDENCIA,
     SERIES_NO_TOPO,
+    Destaque,
+    Evidencia,
     ModeloDeMercado,
     ordenar_para_o_console,
 )
-from l2scanner.mercado_console import secao_do_vale_quanto
-from l2scanner.mercado_registro import ObservacaoLida
+from l2scanner.mercado_console import (
+    TravaDoDestaque,
+    destaque_ao_vivo,
+    secao_do_vale_quanto,
+)
+from l2scanner.mercado_leitura import LinhaLida
+from l2scanner.mercado_registro import ObservacaoLida, chave_da_observacao
 
 # AS EXPRESSOES PROIBIDAS, escritas UMA vez no topo do modulo.
 #
@@ -677,3 +686,221 @@ class TestASecaoNaoQuebraEMarcaAWatchlist:
             ModeloDeMercado.de_observacoes(serie_rica()), [], AGORA
         )
         assert "residuo" not in texto.lower()
+
+
+# ---------------------------------------------------------------------------
+# A TRAVA DO DESTAQUE - o anuncio e NOTICIA, e noticia nao se repete
+# ---------------------------------------------------------------------------
+#
+# O DEFEITO QUE ISTO PRENDE FOI OBSERVADO EM PRODUCAO (sessao de 2026-09-01
+# 05:37): o MESMO destaque, da MESMA oferta, saiu a cada segundo enquanto ela
+# esteve na tela, cada um dentro de uma moldura. Com tres destaques por tick a
+# 1 Hz sao ~10.800 linhas por hora, e o `scanner.log` perde exatamente a
+# forense que ele existe para guardar.
+#
+# A CAUSA e que a pagina e reaceita a cada tick e `destaque_ao_vivo` era
+# chamada por LINHA, sem trava nenhuma. O precedente do conserto ja existe
+# QUATRO vezes no projeto - `transicao_do_painel` no proprio laco, e
+# `_layout_ja_recusado`, `_congelamento_ja_avisado` e `_falta_ja_avisada` em
+# `mercado_pagina` - e o destaque era o unico anuncio repetitivo do modo SEM
+# trava.
+
+
+def _linha_de_oferta(
+    *,
+    chave_da_serie: str = "protecting-scroll-c-armor",
+    nome_exibido: str = "Protecting Scroll: Enchant C-grade Armor",
+    total_em_centesimos: int = 20000,
+    quantidade: int = 100,
+) -> LinhaLida:
+    """Uma `LinhaLida` de bancada. Os tres campos da IDENTIDADE sao nomeados.
+
+    `indice` e `serie_nova` recebem valor de proposito: eles EXISTEM na
+    `LinhaLida` e a trava tem de os deixar de fora, pela mesma razao que o
+    registro os deixa (D-04). `indice` em especial MUDA entre ticks quando a
+    grade rola um degrau - uma trava que o incluisse voltaria a repetir o
+    anuncio, que e o defeito inteiro de volta.
+    """
+    return LinhaLida(
+        indice=3,
+        chave_da_serie=chave_da_serie,
+        nome_exibido=nome_exibido,
+        total_em_centesimos=total_em_centesimos,
+        quantidade=quantidade,
+        serie_nova=False,
+        residuo_do_cruzamento=None,
+    )
+
+
+def _destaque_abaixo(unitario: str = "2.00", mediana: str = "3.50") -> Destaque:
+    return Destaque(
+        estado=ABAIXO_DA_MEDIANA,
+        unitario_da_linha=Fraction(unitario),
+        mediana_de_referencia=Fraction(mediana),
+        evidencia=Evidencia(n=7, piso=N_MINIMO_PARA_MEDIANA),
+    )
+
+
+class TestATravaDoDestaque:
+    def test_a_PRIMEIRA_ocorrencia_de_uma_oferta_SEMPRE_sai(self) -> None:
+        """A trava suprime REPETICAO, e nunca a noticia.
+
+        Este e o teste de controle dos outros: uma trava que engolisse a
+        primeira ocorrencia ficaria verde em "nao repete" e teria destruido a
+        unica coisa que o ANAL-02 promete.
+        """
+        trava = TravaDoDestaque()
+        texto = trava.anunciar(_linha_de_oferta(), _destaque_abaixo(), AGORA)
+        assert texto is not None
+        assert "ABAIXO DA MEDIANA" in texto
+
+    def test_a_mesma_oferta_em_dois_ticks_seguidos_produz_UM_anuncio(
+        self,
+    ) -> None:
+        """O defeito de producao, escrito como teste.
+
+        DOIS ticks e o minimo que reproduz; a sessao real fez isto por milhares
+        deles. `is None` no segundo, e nao "texto vazio": quem chama decide
+        pelo `None`, e uma string vazia atravessaria um `if texto:` mas nao um
+        `if texto is not None`.
+        """
+        trava = TravaDoDestaque()
+        linha, destaque = _linha_de_oferta(), _destaque_abaixo()
+
+        primeiro = trava.anunciar(linha, destaque, AGORA)
+        segundo = trava.anunciar(linha, destaque, AGORA + timedelta(seconds=1))
+
+        assert primeiro is not None
+        assert segundo is None
+
+    def test_a_oferta_continua_travada_muitos_ticks_depois(self) -> None:
+        """A trava e da SESSAO, e nao uma janela de tempo.
+
+        Enquanto a oferta estiver no quadro ela sera relida a cada tick, e uma
+        trava que expirasse por tempo so trocaria 3.600 linhas por hora por
+        algumas dezenas - continuaria sendo repeticao do mesmo fato.
+        """
+        trava = TravaDoDestaque()
+        linha, destaque = _linha_de_oferta(), _destaque_abaixo()
+        trava.anunciar(linha, destaque, AGORA)
+
+        depois = [
+            trava.anunciar(linha, destaque, AGORA + timedelta(minutes=minuto))
+            for minuto in range(1, 60)
+        ]
+        assert depois == [None] * 59
+
+    def test_uma_oferta_DIFERENTE_do_mesmo_item_sai_com_anuncio_PROPRIO(
+        self,
+    ) -> None:
+        """A trava e por OFERTA, e travar por SERIE seria o erro oposto.
+
+        Uma segunda oferta do mesmo item, mais barata que a primeira, e a
+        noticia MAIS importante que o modo tem para dar - e uma trava por
+        `chave_da_serie` a engoliria justamente por o item ja ter aparecido.
+        """
+        trava = TravaDoDestaque()
+        cara = _linha_de_oferta(total_em_centesimos=20000, quantidade=100)
+        barata = _linha_de_oferta(total_em_centesimos=9000, quantidade=100)
+        assert cara.chave_da_serie == barata.chave_da_serie
+
+        assert trava.anunciar(cara, _destaque_abaixo(), AGORA) is not None
+        assert trava.anunciar(barata, _destaque_abaixo("0.90"), AGORA) is not None
+
+    def test_mesmo_total_com_QUANTIDADE_diferente_e_outra_oferta(self) -> None:
+        """Os TRES campos formam a identidade, e o teste toca o terceiro.
+
+        `40,00 por 48 unidades` e `40,00 por 100 unidades` sao anuncios
+        diferentes a precos unitarios diferentes. Uma trava por
+        `serie + total` os confundiria.
+        """
+        trava = TravaDoDestaque()
+        cem = _linha_de_oferta(total_em_centesimos=20000, quantidade=100)
+        cinquenta = _linha_de_oferta(total_em_centesimos=20000, quantidade=50)
+
+        assert trava.anunciar(cem, _destaque_abaixo(), AGORA) is not None
+        assert trava.anunciar(cinquenta, _destaque_abaixo(), AGORA) is not None
+
+    def test_o_NOME_EXIBIDO_nao_entra_na_identidade(self) -> None:
+        """D-03: o nome e ROTULO, e o OCR o faz oscilar.
+
+        `Common Aztac` / `Cornmon Aztac` sao a MESMA oferta lida duas vezes. Se
+        o nome entrasse na trava, uma letra trocada pelo OCR reanunciaria - e
+        seria o defeito de volta, disfarcado de oferta nova.
+        """
+        trava = TravaDoDestaque()
+        lida = _linha_de_oferta(nome_exibido="Common Aztac")
+        relida = _linha_de_oferta(nome_exibido="Cornmon Aztac")
+
+        assert trava.anunciar(lida, _destaque_abaixo(), AGORA) is not None
+        assert trava.anunciar(relida, _destaque_abaixo(), AGORA) is None
+
+    def test_a_identidade_da_trava_E_a_chave_de_dedup_do_registro(self) -> None:
+        """Uma identidade so no projeto, e nao duas parecidas.
+
+        Se um dia `chave_da_observacao` mudar, a trava tem de mudar JUNTO: duas
+        nocoes de "mesma oferta" divergindo em silencio e como o console e o
+        CSV passariam a discordar sobre o que ja foi visto.
+        """
+        trava = TravaDoDestaque()
+        linha = _linha_de_oferta()
+        trava.anunciar(linha, _destaque_abaixo(), AGORA)
+        assert chave_da_observacao(linha) in trava.ja_anunciadas
+
+    def test_o_TEXTO_anunciado_e_byte_a_byte_o_de_destaque_ao_vivo(self) -> None:
+        """A trava decide SE sai, e nunca O QUE sai.
+
+        Sem esta amarra, a trava viraria um segundo lugar onde o texto do
+        destaque e montado - e o bloco do console poderia divergir do que o
+        `destaque_ao_vivo` desenha sem nenhum teste notar.
+        """
+        linha, destaque = _linha_de_oferta(), _destaque_abaixo()
+        assert TravaDoDestaque().anunciar(linha, destaque, AGORA) == (
+            destaque_ao_vivo(linha.nome_exibido, destaque, AGORA)
+        )
+
+    def test_cada_SESSAO_comeca_com_a_trava_limpa(self) -> None:
+        """Duas travas nao compartilham memoria.
+
+        O usuario que fecha o modo e reabre esta pedindo o retrato de agora, e
+        uma trava de escopo de modulo faria a segunda sessao sair muda sobre
+        ofertas que ele nunca viu anunciadas.
+        """
+        linha, destaque = _linha_de_oferta(), _destaque_abaixo()
+        TravaDoDestaque().anunciar(linha, destaque, AGORA)
+        assert TravaDoDestaque().anunciar(linha, destaque, AGORA) is not None
+
+
+class TestOLacoCONSULTA_A_TRAVA:
+    def test_o_laco_nao_chama_destaque_ao_vivo_direto(self) -> None:
+        """A prova de FIACAO, e nao so da peca.
+
+        A trava perfeita num modulo que o laco nao usa deixaria o defeito de
+        producao exatamente onde ele estava. `laco_do_mercado` tem de anunciar
+        PELA trava: uma chamada direta a `destaque_ao_vivo` no laco e, por
+        construcao, uma chamada sem trava.
+        """
+        laco = inspect.getsource(mercado_modo.laco_do_mercado)
+        assert "destaque_ao_vivo(" not in laco, (
+            "o laco voltou a chamar `destaque_ao_vivo` direto - sem trava, a "
+            "mesma oferta reanuncia a cada tick"
+        )
+        assert "trava_do_destaque.anunciar(" in laco
+
+    def test_a_trava_e_construida_UMA_vez_fora_do_laco(self) -> None:
+        """Dentro do `while` ela seria construida por tick, e nasceria vazia
+        toda vez - uma trava que nunca trava, verde no teste de unidade e
+        inutil em producao."""
+        arvore = ast.parse(inspect.getsource(mercado_modo.laco_do_mercado))
+        lacos = [
+            no for no in ast.walk(arvore) if isinstance(no, (ast.While, ast.For))
+        ]
+        construcoes_dentro_do_laco = [
+            no
+            for laco in lacos
+            for no in ast.walk(laco)
+            if isinstance(no, ast.Call)
+            and isinstance(no.func, ast.Name)
+            and no.func.id == "TravaDoDestaque"
+        ]
+        assert construcoes_dentro_do_laco == []
