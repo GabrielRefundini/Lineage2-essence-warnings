@@ -71,7 +71,13 @@ import cv2
 import numpy as np
 
 from .identidade import VALOR_MINIMO_DO_TEXTO
-from .mercado_catalogo import EntradaDoCatalogo, agrupar, assinatura_por_ocr
+from .mercado_catalogo import (
+    CHAVE_DA_SERIE_DA_ADENA,
+    NOME_EXIBIDO_DA_ADENA,
+    EntradaDoCatalogo,
+    agrupar,
+    assinatura_por_ocr,
+)
 from .mercado_geometria import nivel_de_fundo_da_linha
 from .mercado_visao import casamento_da_ancora
 
@@ -1774,6 +1780,146 @@ def ler_linha(
         )
     except Exception as erro:  # noqa: BLE001 - roda dentro do tick
         log.debug("leitura da linha %d falhou: %s", indice, erro)
+        return _recusar(indice, MOTIVO_DA_GRAMATICA, f"excecao contida: {erro}")
+
+
+def ler_linha_de_adena(
+    indice: int,
+    bgr_da_linha: np.ndarray,
+    recorte_do_total: np.ndarray,
+    recorte_do_incremento: np.ndarray,
+    *,
+    moldes: dict[str, np.ndarray],
+    piso: float,
+    margem: float,
+    valor_minimo_do_numero: int,
+    folga_de_cola: int | None,
+    sonda: dict | None,
+    limiar_de_dispersao: float,
+    catalogo: dict[str, EntradaDoCatalogo],
+) -> LinhaLida | Descarte | None:
+    """Uma linha da aba ADENA, de pixels a valor. `None` quando ela esta VAZIA.
+
+    NUNCA LEVANTA, no modelo de `ler_linha`: ela roda dentro do tick, e uma
+    excecao aqui pararia o scanner que existe para avisar que alguem da party
+    morreu (T-05-03).
+
+    A ORDEM DOS PORTOES E A DE `ler_linha` MENOS OS DOIS ULTIMOS PASSOS, e ela
+    foi COPIADA e nao reinventada:
+
+        vazia -> oclusao -> Total Price -> 5 mln increment -> cruzamento
+
+    Cada passo esta onde esta pelo mesmo motivo medido de la: a linha vazia marca
+    o fim da pagina e nao e descarte; a sonda vem antes de tudo o que custa; as
+    colunas de numero custam 13 casamentos por run.
+
+    O QUE ELA NAO TEM E TAO IMPORTANTE QUANTO O QUE ELA TEM
+    -------------------------------------------------------
+    NAO ha leitura de nome, NAO ha recorte da coluna `Auction List` e NAO ha
+    parametro por onde uma funcao de OCR pudesse entrar. A `Auction List` nao se
+    le com os moldes deste projeto em piso de brilho nenhum — a varredura esta
+    escrita em `quantidade_de_adena` —, e a identidade da serie nao vem de la:
+    vem da SENTINELA `CHAVE_DA_SERIE_DA_ADENA`.
+
+    A ADENA E UMA SERIE SO (D-A), e a decisao e do usuario. Derivar a chave do
+    nome faria a trava de digitos (D-03) partir a Adena em uma serie por
+    quantidade — 5M, 10M e 15M viram tres series e a mediana da taxa nasce
+    partida em tres. O argumento inteiro mora ao lado da constante, em
+    `mercado_catalogo.py`.
+
+    A DIFERENCA DE STATUS DO CRUZAMENTO E A PARTE QUE IMPORTA (D-C)
+    ---------------------------------------------------------------
+    Na NEGOCIACAO o cruzamento e OBSERVACAO registrada: a guarda foi REPROVADA
+    por medicao (fechamento 0,6525) e `mercado_tolerancia_do_cruzamento` esta
+    gravada como `None`, entao `_observar_o_cruzamento` so anuncia no log e a
+    linha segue.
+
+    AQUI ele e GUARDA, e derruba a linha. Ele e a UNICA rede entre uma leitura
+    errada e uma taxa plausivel no CSV, e o numero que justifica esta medido: na
+    linha 5 de `janela_adena_f014.png` a tela diz `135,00`, a leitura devolve
+    `13588` (dois `0` lidos como `8`, o par de margem 0,0370), a gramatica passa,
+    a sonda diz limpo e o acordo entre dois frames CONCORDA no erro. Sem esta
+    guarda aquela linha entra no registro como taxa `135,88`.
+
+    E o criterio nao e escolhido aqui: quem decide e `quantidade_de_adena`, que
+    reusa `limite_derivado_do_cruzamento`.
+
+    O INCREMENTO ILEGIVEL DERRUBA A LINHA, E ISSO DIVERGE DE `ler_linha`
+    --------------------------------------------------------------------
+    La o unitario ilegivel NAO derruba: ele so CALA a guarda, porque `Total` e
+    `Quantity` bastam para a observacao. Aqui nao ha `Quantity`: sem incremento
+    nao ha quantidade, e sem quantidade nao ha taxa. Falha FECHADA.
+
+    `residuo_do_cruzamento` NA `LinhaLida` E A MESMA GRANDEZA DE LA, so que a
+    escala de `n` sao INCREMENTOS de cinco milhoes e nao unidades:
+    `|total - incremento x n|` em centesimos. Guardar outra coisa no campo
+    homonimo faria a Fase 3 comparar duas grandezas diferentes na mesma coluna.
+    """
+    try:
+        if linha_vazia(bgr_da_linha):
+            return None
+
+        cinza = (
+            bgr_da_linha
+            if bgr_da_linha.ndim == 2
+            else cv2.cvtColor(bgr_da_linha, cv2.COLOR_BGR2GRAY)
+        )
+        if linha_ocluida(cinza, sonda, limiar_de_dispersao):
+            return _recusar(indice, MOTIVO_DA_OCLUSAO, "fundo nao uniforme")
+
+        total = ler_celula_de_numero(
+            recorte_do_total,
+            moldes,
+            piso,
+            margem,
+            valor_minimo=valor_minimo_do_numero,
+            folga_de_cola=folga_de_cola,
+        )
+        if total is None:
+            return _recusar(
+                indice, MOTIVO_DA_GRAMATICA, "a coluna Total Price nao se leu inteira"
+            )
+        incremento = ler_celula_de_numero(
+            recorte_do_incremento,
+            moldes,
+            piso,
+            margem,
+            valor_minimo=valor_minimo_do_numero,
+            folga_de_cola=folga_de_cola,
+        )
+        if incremento is None:
+            return _recusar(
+                indice,
+                MOTIVO_DA_GRAMATICA,
+                "a coluna 5 mln increment nao se leu inteira",
+            )
+
+        derivada = quantidade_de_adena(total, incremento)
+        if derivada is None:
+            candidato = round(total / incremento) if incremento > 0 else 0
+            return _recusar(
+                indice,
+                MOTIVO_DO_CRUZAMENTO,
+                f"total={total} incremento={incremento} n={candidato} "
+                f"residuo={residuo_do_cruzamento(total, incremento, candidato)} "
+                f"estourou o limite derivado de "
+                f"{limite_derivado_do_cruzamento(candidato)} centesimos",
+            )
+        quantidade, incrementos = derivada
+
+        return LinhaLida(
+            indice=indice,
+            chave_da_serie=CHAVE_DA_SERIE_DA_ADENA,
+            nome_exibido=NOME_EXIBIDO_DA_ADENA,
+            total_em_centesimos=total,
+            quantidade=quantidade,
+            serie_nova=CHAVE_DA_SERIE_DA_ADENA not in catalogo,
+            residuo_do_cruzamento=residuo_do_cruzamento(
+                total, incremento, incrementos
+            ),
+        )
+    except Exception as erro:  # noqa: BLE001 - roda dentro do tick
+        log.debug("leitura da linha %d da adena falhou: %s", indice, erro)
         return _recusar(indice, MOTIVO_DA_GRAMATICA, f"excecao contida: {erro}")
 
 

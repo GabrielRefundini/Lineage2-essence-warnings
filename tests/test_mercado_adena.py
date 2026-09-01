@@ -646,22 +646,51 @@ class TestNadaAquiLeNome:
         parametros = list(inspect.signature(ler_linha_de_adena).parameters)
         assert not [p for p in parametros if "nome" in p]
 
-    def test_NUNCA_levanta_e_a_excecao_vira_Descarte(self, cal, moldes) -> None:
-        """Ela roda dentro do tick, no modelo de `ler_linha`."""
-        lixo = np.zeros((3, 3), dtype=np.uint8)
-        recusada = ler_linha_de_adena(
-            7,
-            "isto nao e uma imagem",  # type: ignore[arg-type]
-            lixo,
-            lixo,
-            moldes=moldes,
-            piso=float(cal.mercado_limiar_de_leitura_de_glifo),
-            margem=float(cal.mercado_margem_de_leitura_de_glifo),
-            valor_minimo_do_numero=VALOR_MINIMO_DO_TEXTO,
-            folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
-            sonda=cal.mercado_sonda_do_fundo,
-            limiar_de_dispersao=float(cal.mercado_limiar_de_dispersao_do_fundo),
-            catalogo={},
-        )
+class TestNUNCALevanta:
+    """T-05-03: ela roda dentro do tick, no modelo de `ler_linha`.
+
+    A PRIMEIRA VERSAO DESTE TESTE ERA VACUA, E ESTA ESCRITO AQUI PARA NAO
+    VOLTAR. Ela passava `"isto nao e uma imagem"` como recorte da linha e
+    esperava `Descarte`. Mas `linha_vazia` faz `getattr(bgr, "size", 0) == 0`, e
+    uma `str` nao tem `.size`: a string era classificada como LINHA VAZIA e a
+    funcao devolvia `None` sem NUNCA chegar ao `except`. O teste media a
+    primeira peneira e afirmava a ultima.
+
+    O instrumento correto e forcar a excecao DENTRO do pipeline, sobre pixels
+    que atravessam de verdade — e provar, com o controle negativo, que sem a
+    excecao aqueles mesmos pixels viram `LinhaLida`.
+    """
+
+    def test_a_excecao_no_meio_do_pipeline_vira_Descarte(
+        self, cal, moldes, janela_adena, monkeypatch
+    ) -> None:
+        def explodir(*_args, **_kwargs):
+            raise RuntimeError("a sonda explodiu no meio do tick")
+
+        monkeypatch.setattr(mercado_leitura, "linha_ocluida", explodir)
+        recortes = fatiar_a_linha_da_adena(cal, janela_adena, 0)
+        recusada = chamar_ler_linha_da_adena(cal, moldes, recortes, 0)
         assert isinstance(recusada, Descarte)
-        assert recusada.indice == 7
+        assert recusada.indice == 0
+        assert recusada.motivo == MOTIVO_DA_GRAMATICA
+
+    def test_o_controle_negativo_sem_a_excecao_a_MESMA_linha_atravessa(
+        self, cal, moldes, janela_adena
+    ) -> None:
+        recortes = fatiar_a_linha_da_adena(cal, janela_adena, 0)
+        lida = chamar_ler_linha_da_adena(cal, moldes, recortes, 0)
+        assert isinstance(lida, LinhaLida)
+
+    def test_a_linha_vazia_de_verdade_e_um_ARRAY_e_devolve_None(
+        self, cal, moldes, janela_adena
+    ) -> None:
+        """A peneira que a versao vacua estava medindo sem saber, com pixels reais."""
+        recortes = fatiar_a_linha_da_adena(cal, janela_adena, 0)
+        vazia = ler_fixtura(LINHA_VAZIA)
+        assert isinstance(vazia, np.ndarray)
+        assert (
+            chamar_ler_linha_da_adena(
+                cal, moldes, recortes, 0, recorte_da_linha=vazia
+            )
+            is None
+        )
