@@ -90,22 +90,41 @@ Adiado para depois da v1. Rastreado mas fora do roadmap atual.
 
 ### Identificação
 
-- **OCRN-01**: Os nomes dos membros são lidos da tela automaticamente, dispensando configuração manual da lista
-- **OCRN-02**: A lista de membros se reajusta sozinha quando a composição da party muda
-- **OCRN-03**: O alerta inclui um recorte da tela no momento do evento, como evidência
+- [x] **OCRN-01**: Os nomes dos membros são lidos da tela automaticamente, dispensando
+  configuração manual da lista — **ENTREGUE em 2026-08-31**, pelo workstream `identidade`,
+  e por um caminho MELHOR do que o requisito pedia. O requisito diz "lidos" (OCR); a
+  entrega RECONHECE por imagem, que é mais forte: OCR contra a fonte do jogo erra 1 em 4
+  mesmo com o recorte certo, e um nick errado plausível manda a party socorrer a pessoa
+  errada. Ver `identidade/ROADMAP.md`, fases 1 a 3.
+- [x] **OCRN-02**: A lista de membros se reajusta sozinha quando a composição da party
+  muda — **ENTREGUE em 2026-08-31**. Uma linha que não casa com ninguém conhecido é
+  aprendida sozinha depois de estável, e batizada pelo WhatsApp com `/batizar`.
+- [ ] **OCRN-03**: O alerta inclui um recorte da tela no momento do evento, como evidência
 
 ### Captura avançada
 
-- **ADVC-01**: O scanner funciona com a janela do jogo coberta por outras janelas
-- **ADVC-02**: O scanner reencontra a party window sozinho se ela for movida
-- **ADVC-03**: O scanner inicia junto com o Windows e detecta sozinho quando o jogo abre
+- [x] **ADVC-01**: O scanner funciona com a janela do jogo coberta por outras janelas —
+  **ENTREGUE**, via `--janela` (Windows Graphics Capture). NÃO resolve janela MINIMIZADA,
+  e nada resolve: o Windows para de produzir frames. Ver `requirements.txt`.
+- [x] **ADVC-02**: O scanner reencontra a party window sozinho se ela for movida —
+  **ENTREGUE em 2026-09-01** (`l2scanner/reancoragem.py`). Reusa o detector do `--auto`,
+  adota SÓ as posições e só em memória, atrás de oito conferências de plausibilidade.
+  Não escreve no `calibration.json`: um reancoramento errado que se grava sobrevive ao
+  reinício e leva embora a calibração boa.
+- [ ] **ADVC-03**: O scanner inicia junto com o Windows e detecta sozinho quando o jogo abre
 
 ### Sinais complementares
 
-- **CORR-01**: As mensagens do chat de sistema são lidas como sinal de confirmação dos eventos
-- **CORR-02**: Um serviço externo detecta se o PC do usuário travou ou desligou
-- **CORR-03**: Mortes simultâneas são consolidadas em um único aviso de wipe
-- **CORR-04**: Cada membro pode receber alertas em um destino diferente
+- [ ] **CORR-01**: As mensagens do chat de sistema são lidas como sinal de confirmação dos
+  eventos — MEIO CAMINHO ANDADO: o vigia de bosses (`l2scanner/bosses.py`) já lê o chat e
+  já sabe casar um padrão nele. Falta usar esse sinal para confirmar morte e saída.
+- [ ] **CORR-02**: Um serviço externo detecta se o PC do usuário travou ou desligou
+- [x] **CORR-03**: Mortes simultâneas são consolidadas em um único aviso de wipe —
+  **ENTREGUE em 2026-09-01**. Agrupa SÓ dentro do mesmo tick, nunca esperando: atrasar o
+  alerta de morte custaria justamente o socorro que ele existe para provocar. `SAIU` e
+  `ENTROU` ficaram de fora porque agrupar afirma causa comum, e a tela não distingue
+  "o líder desfez a party" de "três saíram por conta própria".
+- [ ] **CORR-04**: Cada membro pode receber alertas em um destino diferente
 
 ## Out of Scope
 
