@@ -81,7 +81,12 @@ from l2scanner.identidade import (
     criar_assinatura,
     mascara_de_texto,
 )
-from l2scanner.rastreador import Ajustes, Rastreador, TipoDeEvento
+from l2scanner.rastreador import (
+    Ajustes,
+    PortaoGlobal,
+    Rastreador,
+    TipoDeEvento,
+)
 from l2scanner.sessao import ResultadoDoTick, Sessao
 from l2scanner.visao import EstadoDaLinha, LeituraDeLinha, Observacao, _recorte_do_nome, extrair
 
@@ -665,6 +670,140 @@ class TestCegueiraNaoEnsina:
         rodar(sessao, pixels, 1, inicio=7)
         assert len(assinaturas_gravadas(pasta)) == 1, (
             "a cegueira tambem nao pode ZERAR a conta"
+        )
+
+
+# ---------------------------------------------------------------------------
+# REAQUISICAO NAO ENSINA (o conserto de 2026-08-31, medido em campo)
+# ---------------------------------------------------------------------------
+
+
+class TestReaquisicaoNaoEnsina:
+    """O portao de `ui_visivel` NAO cobria a volta da visao, e isso custou lixo.
+
+    MEDIDO NO `scanner.log` DO USUARIO EM 2026-08-31, com a party recem
+    calibrada minutos antes:
+
+        23:14:35 Monitorando: Welazkez, TITANDER, Mostarda, PIRULITO, Yazalaque
+        23:14:37 [reajustando]  (todas as linhas com "?")
+        23:15:03 Aprendi uma assinatura nova (criado) da linha 1: chave
+                 6288ee95..., 77 pixels de texto, confianca 0.1083
+        23:15:07 [vigiando]
+
+    A linha 1 era o TITANDER, que ja tinha assinatura calibrada. Confianca
+    0.1083 contra `LIMIAR_DE_CASAMENTO` 0.75 quer dizer que o recorte nao
+    pareceu com NADA: ele foi colhido enquanto a UI ainda se redesenhava. Virou
+    entrada permanente numa pasta que nao e podada.
+
+    `ui_visivel` cai na CEGUEIRA, e so nela. A tolerancia da volta
+    (`segundos_de_tolerancia_na_volta`, 3.0 s por padrao) existe justamente
+    porque a party window redesenha em partes e as barras mentem por um ou dois
+    frames — e o que vale para a barra vale para o RECORTE DO NOME, que e a
+    coisa que o aprendiz grava para sempre. 0.1083 e a medida de campo de
+    quanto uma leitura de reaquisicao pode divergir.
+    """
+
+    @staticmethod
+    def _com_tolerancia_de_verdade() -> Ajustes:
+        """Os ajustes de producao para a volta da visao.
+
+        O helper `montar_sessao` zera a tolerancia de proposito (ver a
+        docstring dele), entao os casos DESTA classe precisam pedir o valor
+        real de volta — senao eles provariam o contrario do que afirmam.
+        """
+        return Ajustes(
+            confirmacoes_para_morte=2, segundos_de_tolerancia_na_volta=3.0
+        )
+
+    def test_a_reaquisicao_nao_grava_nada(self, tmp_path, pixels, tres_conhecidas):
+        """Tres leituras dentro da tolerancia, com o ajuste pedindo DUAS."""
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=2)
+        sessao = montar_sessao(
+            tres_conhecidas,
+            tmp_path,
+            aprendiz=aprendiz,
+            ajustes=self._com_tolerancia_de_verdade(),
+        )
+
+        resultado = rodar(sessao, pixels, 3)
+
+        assert resultado.observacao.ui_visivel is True, (
+            "premissa: DA para ver. Um caso que caisse em cegueira estaria "
+            "provando o portao velho, nao o novo"
+        )
+        assert sessao.rastreador.portao is PortaoGlobal.REAQUISICAO, (
+            "premissa: o portao global ainda esta em reaquisicao"
+        )
+        assert sessao._candidatas_para_aprender(resultado.observacao), (
+            "premissa: havia candidata neste tick. Sem ela o caso provaria "
+            "ausencia de candidata, e nao o portao"
+        )
+        assert assinaturas_gravadas(pasta) == [], (
+            "a reaquisicao nao pode gravar: foi assim que a confianca 0.1083 "
+            "do TITANDER virou entrada permanente"
+        )
+
+    def test_passada_a_tolerancia_ele_volta_a_aprender(
+        self, tmp_path, pixels, tres_conhecidas
+    ):
+        """O contraponto: o portao ADIA o aprendizado, nunca o mata."""
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=2)
+        sessao = montar_sessao(
+            tres_conhecidas,
+            tmp_path,
+            aprendiz=aprendiz,
+            ajustes=self._com_tolerancia_de_verdade(),
+        )
+
+        rodar(sessao, pixels, 3)
+        assert assinaturas_gravadas(pasta) == []
+
+        rodar(sessao, pixels, 2, inicio=3)
+
+        assert sessao.rastreador.portao is PortaoGlobal.RASTREANDO
+        assert len(assinaturas_gravadas(pasta)) == 1, (
+            "passada a tolerancia o aprendizado tem de acontecer; um portao "
+            "que MATA o aprendizado deixaria a pessoa como Membro N para sempre"
+        )
+
+    def test_a_reaquisicao_congela_a_contagem_em_vez_de_zerar(
+        self, tmp_path, pixels, tres_conhecidas
+    ):
+        """A MESMA semantica que a cegueira ja tem, e nao um segundo regime.
+
+        Nao chamar o aprendiz e o que CONGELA a contagem em vez de zera-la. O
+        congelamento e seguro porque a contagem e por CONTEUDO: se a pessoa
+        mudou durante a reaquisicao, a mascara muda e a sequencia recomeca
+        sozinha na primeira leitura ja assentada.
+        """
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        sessao = montar_sessao(
+            tres_conhecidas,
+            tmp_path,
+            aprendiz=aprendiz,
+            ajustes=self._com_tolerancia_de_verdade(),
+        )
+
+        # A reaquisicao do ARRANQUE: o portao global nasce CEGO, entao os
+        # primeiros ticks visiveis ja sao volta de visao.
+        rodar(sessao, pixels, 3)
+        assert assinaturas_gravadas(pasta) == []
+
+        # Quatro leituras assentadas, com o ajuste pedindo cinco.
+        rodar(sessao, pixels, 4, inicio=3)
+        assert assinaturas_gravadas(pasta) == []
+
+        # Um alt-tab, e a volta dele: tres ticks visiveis DENTRO da tolerancia.
+        rodar(sessao, cego(pixels), 1, inicio=7)
+        rodar(sessao, pixels, 3, inicio=8)
+        assert sessao.rastreador.portao is PortaoGlobal.REAQUISICAO
+        assert assinaturas_gravadas(pasta) == [], (
+            "a reaquisicao nao pode CONTAR como leitura"
+        )
+
+        rodar(sessao, pixels, 1, inicio=11)
+        assert len(assinaturas_gravadas(pasta)) == 1, (
+            "a reaquisicao tambem nao pode ZERAR a conta"
         )
 
 
