@@ -43,13 +43,18 @@ ferramenta muda e ninguem saberia). `mercado_limiar_de_glifo = 0.8555` em
 especial NAO e piso de leitura: ele e o limiar de COLISAO entre moldes, medido
 molde-contra-molde, e usado como piso rejeitaria 18% dos glifos reais de tela.
 
-A FALHA E FECHADA, EM TRES PENEIRAS, NESTA ORDEM
--------------------------------------------------
+A FALHA E FECHADA, EM QUATRO PENEIRAS, NESTA ORDEM
+---------------------------------------------------
 1. A SONDA DE OCLUSAO, antes de tudo o que custa. Uma linha coberta cai sem
    pagar ~7 ms de OCR, e a recusa NUNCA vem da confianca do casamento.
-2. O TUDO-OU-NADA da celula: um run que reprove no piso E na margem derruba a
+2. A COR DA TINTA, antes da leitura da celula. Os moldes foram cortados numa
+   curva tonal (texto BRANCO), e so nela a forma que eles codificam se
+   reproduz. Celula desenhada em outra cor nao e lida com pouca confianca --
+   ela e lida com MUITA confianca no rotulo errado, e por isso a unica saida
+   e recusar. Ver `tinta_fora_da_curva_dos_moldes`.
+3. O TUDO-OU-NADA da celula: um run que reprove no piso E na margem derruba a
    celula inteira. Preco nunca e inventado (LEIT-02).
-3. A GRAMATICA do numero: milhar em blocos de exatamente 3, decimal com
+4. A GRAMATICA do numero: milhar em blocos de exatamente 3, decimal com
    exatamente 2. Ela pega glifo perdido e glifo a mais.
 
 A quarta — a guarda de cruzamento contra `Unit price x Quantity`, a unica que
@@ -167,6 +172,135 @@ def mascara_de_numero(bgr: np.ndarray, valor_minimo: int) -> np.ndarray:
         return np.zeros((0, 0), dtype=np.uint8)
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     return (hsv[:, :, 2] > int(valor_minimo)).astype(np.uint8)
+
+# ---------------------------------------------------------------------------
+# A COR DA TINTA -- o portao que recusa o que os moldes nao descrevem
+# ---------------------------------------------------------------------------
+#
+# UM MOLDE NAO CODIFICA SO UMA FORMA: ELE CODIFICA UMA FORMA NUMA CURVA TONAL.
+# Os 13 moldes deste projeto foram cortados de uma mascara `V > 180` sobre texto
+# BRANCO, cujo pico de V vale 226-230. Nesse brilho as hastes laterais
+# antisserrilhadas do `0` caem em V = 160-177, ABAIXO do piso, e somem do molde:
+# o `0` gravado e um anel PARTIDO de 8 px de tinta.
+#
+# O texto CIANO desenha o MESMO glifo com pico 255. As MESMAS hastes sobem para
+# V = 181-199, passam do MESMO piso absoluto e SOBREVIVEM -- a observacao vira um
+# anel FECHADO de 16 px, que casa com o molde `8` (0,7242) melhor que com o `0`
+# partido (0,5976). A margem, 0,1266, e quase 4x o piso de margem de leitura:
+# a falha e ABERTA e vence com folga no rotulo ERRADO.
+#
+# E NAO ADIANTA MEXER NO PISO -- REFUTADO POR MEDICAO, e o registro fica aqui
+# pela regra deste modulo (um numero que caiu precisa dizer que caiu, senao ele
+# volta na proxima leitura). Piso absoluto: `<= 182` deixa o defeito passar,
+# `>= 183` transforma o `149,44` documentado em `149,99`; a intersecao e VAZIA.
+# Piso proporcional ao pico e piso normalizado por fundo e pico tambem caem --
+# neste ultimo o conjunto admissivel de `k` e o PONTO 0,64, e o vizinho `k=0,63`
+# INVENTA `360,00` onde a tela diz `380,00`. A razao e mecanica: um piso e UM
+# escalar, e cada glifo cruza o limiar num ritmo proprio -- subir o piso fecha o
+# anel do `0` (conserta) e erode a barra do `4` ate ele virar `9` (quebra).
+#
+# ENTAO O LEITOR NAO TENTA ADIVINHAR: ELE RECUSA. Enquanto so houver moldes
+# cortados em BRANCO, uma celula desenhada em qualquer outra cor e uma celula
+# que este leitor nao sabe ler, e "nao coletou" vence "coletou errado".
+#
+# E A RECUSA VALE MESMO ONDE A LEITURA ACERTARIA, e essa e a parte que parece
+# exagero e nao e. Duas celulas CIANAS das fixturas versionadas, mesma cor
+# (saturacao mediana 117 e 116), mesmos moldes, desfechos OPOSTOS:
+#
+#     janela_negociacao_f010.png L4   o anel do `0` sai PARTIDO  ->  100,00 ok
+#     janela_tooltip_f012.png    L3   o anel do `0` sai FECHADO  ->  158,88 ERRO
+#
+# Quem decide e o antisserrilhamento daquele glifo naquela posicao, e ele NAO
+# aparece na leitura: o `100,00` certo e o `158,88` errado chegam com a mesma
+# cara e a mesma confianca. Aceitar o primeiro e recusar o segundo exigiria uma
+# informacao que a mascara ja jogou fora.
+#
+# POR QUE SATURACAO, E NAO A RAZAO `R / max(B,G)`
+# ------------------------------------------------
+# A razao `R / max(B,G)` separa branco (1,000) de ciano (0,544-0,557) com um vao
+# de 0,44, e por isso ela foi a primeira candidata. Medida, ela e um detector de
+# CIANO e nao de croma: entre as celulas que ela chama de acromaticas a razao
+# chega a 1,8651 e a saturacao a 186,96. Amarelo e vermelho passam ilesos por
+# ela -- num pixel amarelo `R / max(B,G)` vale exatamente 1,0 --, e o dourado do
+# `Adena` e a marcacao de alvo sao cores que esta tela ja tem.
+#
+# A SATURACAO e cega a matiz e faz a pergunta certa: "esta tinta e CINZA, que e
+# a curva em que os moldes foram cortados?". E a MEDIANA, e nao a media nem o
+# maximo, porque ela e imune a um punhado de pixels de borda -- medido, duas
+# celulas BRANCAS legitimas carregam 3 e 4 pixels coloridos de sangramento
+# (`774,00` e `780,00`) e um criterio por maximo as recusaria sem motivo.
+#
+# O NUMERO, E DE ONDE ELE VEM
+# ----------------------------
+# Varridas 4.248 celulas de numero -- 4.028 de negociacao em 176 frames de 9
+# gravacoes de campo, e 220 da aba Adena nos 11 frames do diagnostico --, das
+# quais 3.823 leem hoje. A mediana da saturacao da tinta delas:
+#
+#     tinta ACROMATICA (3.422 celulas):  min 0        max 0
+#     tinta CROMATICA  (  401 celulas):  113 a 118    (+1 artefato de scroll, 59)
+#
+# O lado branco nao e "perto de zero": e ZERO nas 3.422, sem excecao. E TODO
+# limiar de 0 a 56 produz a MESMA particao dessas 3.823 celulas -- um plato de
+# 57 niveis, contra a folga ZERO de todo piso de brilho ja tentado.
+#
+# 29 e o MEIO do vao medido `[0, 59]`, e nao um numero escolhido: 0 e o maximo
+# da populacao branca e 59 e a menor mediana cromatica que apareceu em campo.
+# Ancorar no artefato de scroll (59) em vez de na populacao ciana propria (113)
+# e deliberado -- ele empurra o limiar para BAIXO, que e o lado da recusa.
+LIMIAR_DE_SATURACAO_DA_TINTA = 29
+
+
+def saturacao_da_tinta(bgr: np.ndarray, valor_minimo: int) -> float | None:
+    """A saturacao MEDIANA dos pixels de TINTA, ou `None` quando nao ha tinta.
+
+    "Tinta" e exatamente o que `mascara_de_numero` chama de tinta, no MESMO
+    piso de brilho: medir a cor sobre outro conjunto de pixels descreveria uma
+    celula que a leitura nao le. O fundo fica de fora, e e por isso que a
+    resposta nao depende de o painel estar sobre pedra, grama ou ceu.
+
+    `None` (sem tinta) NAO e "acromatica": e "nao ha o que julgar". Quem recusa
+    celula vazia e a gramatica do numero, e nao este portao.
+
+    Recorte vazio devolve `None` e NAO levanta: isto roda dentro do tick.
+    """
+    if bgr is None or getattr(bgr, "size", 0) == 0:
+        return None
+    if bgr.ndim != 3 or bgr.shape[2] != 3:
+        # Recorte ja em cinza nao tem cor a medir, e afirmar que ele e
+        # acromatico seria verdade por construcao e nao por medicao.
+        return None
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    tinta = hsv[:, :, 2] > int(valor_minimo)
+    if not tinta.any():
+        return None
+    return float(np.median(hsv[:, :, 1][tinta]))
+
+
+def tinta_fora_da_curva_dos_moldes(bgr: np.ndarray, valor_minimo: int) -> bool:
+    """Esta celula esta desenhada numa cor que os 13 moldes NAO descrevem?
+
+    `True` significa "eu nao sei ler isto", e nunca "isto esta errado". A
+    diferenca importa: a celula recusada aqui pode muito bem conter o numero
+    certo -- 193 das 313 celulas de negociacao que este portao passa a recusar
+    leem CERTO hoje, o `149,44` documentado entre elas. Elas caem porque nenhum
+    molde cortado em BRANCO pode CERTIFICAR tinta de outra cor, e o leitor nao
+    tem como saber de que lado cada uma esta.
+
+    Sem tinta devolve `False`: nao ha cor a julgar, e roubar a recusa da
+    gramatica trocaria um motivo verdadeiro por um inventado.
+
+    NUNCA LEVANTA, como todo o resto deste modulo: ele roda dentro do tick.
+
+    ESTE E O MESMO DISCRIMINADOR QUE A OUTRA METADE VAI USAR AO CONTRARIO.
+    Quando existir um segundo conjunto de moldes cortado sobre texto CIANO, esta
+    funcao deixa de ser um portao de RECUSA e vira o SELETOR do conjunto de
+    moldes por celula -- a mesma medicao, usada duas vezes. E por isso ela mede
+    e devolve a cor em vez de esconde-la dentro de um `if` da leitura.
+    """
+    medida = saturacao_da_tinta(bgr, valor_minimo)
+    if medida is None:
+        return False
+    return medida > LIMIAR_DE_SATURACAO_DA_TINTA
 
 
 def segmentar_glifos_no_brilho(
@@ -1324,6 +1458,12 @@ class TravaDaObservacao:
 MOTIVO_DA_OCLUSAO = "oclusao"
 MOTIVO_DA_GRAMATICA = "numero"
 MOTIVO_DO_CRUZAMENTO = "cruzamento"
+# A celula desenhada numa cor que os moldes nao descrevem. Ela e um motivo
+# PROPRIO e nao um caso de `numero`: "nao sei ler esta cor" e um defeito de
+# COBERTURA do leitor, e some quando a segunda metade cortar moldes cianos;
+# `numero` e a gramatica reprovando o que foi lido. Somar os dois no resumo da
+# sessao esconderia exatamente a medida que diz se vale a pena cortar os moldes.
+MOTIVO_DA_TINTA = "tinta"
 MOTIVO_DA_FAIXA_CINZENTA = "faixa-cinzenta"
 MOTIVO_DA_DISCORDANCIA = "discordancia-entre-escalas"
 
@@ -1641,6 +1781,12 @@ def ler_linha(
        buraco: medido, com a tooltip por cima da propria coluna do nome, o OCR
        devolveu frases inteiras da tooltip como se fossem nome de item. LEIT-05
        reduz a superficie; a sonda e que a fecha.
+    2b. A COR DA TINTA de cada coluna de numero, IMEDIATAMENTE antes de ler
+       aquela coluna — e nao num bloco proprio no topo. Colada a leitura, ela
+       usa o piso de brilho DAQUELA coluna (o da Quantity nao e o das de
+       moeda), e o motivo registrado nomeia a coluna que caiu. Ela vem ANTES da
+       leitura porque depois nao ha o que conferir: a substituicao que a tinta
+       fora da curva produz tem gramatica perfeita e cruzamento fechado.
     3. AS TRES COLUNAS DE NUMERO, que custam 13 casamentos por run — ordens de
        grandeza menos que os ~7 ms do OCR. Uma linha cujo preco nao se le nao vai
        virar dado de jeito nenhum, entao pagar OCR por ela seria pagar por nada.
@@ -1703,6 +1849,19 @@ def ler_linha(
         if linha_ocluida(cinza, sonda, limiar_de_dispersao):
             return _recusar(indice, MOTIVO_DA_OCLUSAO, "fundo nao uniforme")
 
+        # O PORTAO DA COR VEM ANTES DA LEITURA, e nao depois: depois nao ha o
+        # que conferir. Uma substituicao `0`->`8` em tinta ciana devolve um
+        # numero de gramatica PERFEITA, e nenhuma peneira a jusante distingue
+        # o `100,00` ciano certo do `188,88` ciano errado.
+        if tinta_fora_da_curva_dos_moldes(
+            recorte_do_total, valor_minimo_do_numero
+        ):
+            return _recusar(
+                indice,
+                MOTIVO_DA_TINTA,
+                "a coluna Total esta desenhada numa cor que os moldes nao "
+                "descrevem",
+            )
         total = ler_celula_de_numero(
             recorte_do_total,
             moldes,
@@ -1714,6 +1873,17 @@ def ler_linha(
         if total is None:
             return _recusar(
                 indice, MOTIVO_DA_GRAMATICA, "a coluna Total nao se leu inteira"
+            )
+        # O MESMO portao, com o piso de brilho PROPRIO da Quantity: medir a cor
+        # sobre a tinta que a leitura NAO usa descreveria outra celula.
+        if tinta_fora_da_curva_dos_moldes(
+            recorte_da_quantidade, valor_minimo_da_quantidade
+        ):
+            return _recusar(
+                indice,
+                MOTIVO_DA_TINTA,
+                "a coluna Quantity esta desenhada numa cor que os moldes nao "
+                "descrevem",
             )
         quantidade = ler_celula_de_quantidade(
             recorte_da_quantidade,
@@ -1734,13 +1904,26 @@ def ler_linha(
         # `Total`: o unitario tambem e moeda, carrega a mesma palavra de sufixo
         # dentro do recorte, e uma segunda opiniao lida por regra diferente
         # seria outra opiniao sobre outra coisa.
-        unitario = ler_celula_de_numero(
-            recorte_do_unitario,
-            moldes,
-            piso,
-            margem,
-            valor_minimo=valor_minimo_do_numero,
-            folga_de_cola=folga_de_cola,
+        #
+        # AQUI O PORTAO DA COR NAO DERRUBA A LINHA, e a assimetria e a mesma que
+        # o unitario ILEGIVEL ja tinha: `Total` e `Quantity` sao o dado, e os
+        # dois ja passaram pelo portao acima. O unitario so alimenta a
+        # conferencia, entao um unitario que nao se pode ler CALA a guarda em
+        # vez de custar a linha inteira. Derrubar aqui perderia dado SAO por
+        # causa de uma coluna que nao vira dado nenhum.
+        unitario = (
+            None
+            if tinta_fora_da_curva_dos_moldes(
+                recorte_do_unitario, valor_minimo_do_numero
+            )
+            else ler_celula_de_numero(
+                recorte_do_unitario,
+                moldes,
+                piso,
+                margem,
+                valor_minimo=valor_minimo_do_numero,
+                folga_de_cola=folga_de_cola,
+            )
         )
 
         residuo = residuo_do_cruzamento(total, unitario, quantidade)
@@ -1807,7 +1990,8 @@ def ler_linha_de_adena(
     A ORDEM DOS PORTOES E A DE `ler_linha` MENOS OS DOIS ULTIMOS PASSOS, e ela
     foi COPIADA e nao reinventada:
 
-        vazia -> oclusao -> Total Price -> 5 mln increment -> cruzamento
+        vazia -> oclusao -> [cor] Total Price -> [cor] 5 mln increment
+              -> cruzamento
 
     Cada passo esta onde esta pelo mesmo motivo medido de la: a linha vazia marca
     o fim da pagina e nao e descarte; a sonda vem antes de tudo o que custa; as
@@ -1867,6 +2051,25 @@ def ler_linha_de_adena(
         if linha_ocluida(cinza, sonda, limiar_de_dispersao):
             return _recusar(indice, MOTIVO_DA_OCLUSAO, "fundo nao uniforme")
 
+        # O MESMO portao da negociacao, e de proposito o MESMO: a cor da tinta e
+        # uma propriedade dos MOLDES, nao da aba. Um portao que valesse so num
+        # layout seria uma promessa a manter, e a aba Adena e justamente onde o
+        # ciano aparece mais (88 das 110 celulas de Total Price do diagnostico).
+        #
+        # AQUI ELE NAO SUBSTITUI A GUARDA DE CRUZAMENTO -- ele chega ANTES dela.
+        # A guarda continua inteira, e continua sendo o motivo de o registro
+        # estar limpo; o que muda e que a linha ciana passa a ser recusada pelo
+        # que ela E ("nao sei ler esta cor") e nao por uma consequencia
+        # aritmetica disso ("o total nao bate com o incremento").
+        if tinta_fora_da_curva_dos_moldes(
+            recorte_do_total, valor_minimo_do_numero
+        ):
+            return _recusar(
+                indice,
+                MOTIVO_DA_TINTA,
+                "a coluna Total Price esta desenhada numa cor que os moldes "
+                "nao descrevem",
+            )
         total = ler_celula_de_numero(
             recorte_do_total,
             moldes,
@@ -1878,6 +2081,18 @@ def ler_linha_de_adena(
         if total is None:
             return _recusar(
                 indice, MOTIVO_DA_GRAMATICA, "a coluna Total Price nao se leu inteira"
+            )
+        # E AQUI O PORTAO DERRUBA A LINHA, ao contrario do unitario da
+        # negociacao: sem incremento nao ha quantidade, e sem quantidade nao ha
+        # taxa. E a mesma regra que o incremento ILEGIVEL ja seguia.
+        if tinta_fora_da_curva_dos_moldes(
+            recorte_do_incremento, valor_minimo_do_numero
+        ):
+            return _recusar(
+                indice,
+                MOTIVO_DA_TINTA,
+                "a coluna 5 mln increment esta desenhada numa cor que os "
+                "moldes nao descrevem",
             )
         incremento = ler_celula_de_numero(
             recorte_do_incremento,

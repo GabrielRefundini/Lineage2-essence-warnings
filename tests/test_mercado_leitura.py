@@ -70,6 +70,7 @@ from l2scanner.mercado_leitura import (
     MOTIVO_DA_FAIXA_CINZENTA,
     MOTIVO_DA_GRAMATICA,
     MOTIVO_DA_OCLUSAO,
+    MOTIVO_DA_TINTA,
     MOTIVO_DO_CRUZAMENTO,
     Descarte,
     LinhaLida,
@@ -118,8 +119,19 @@ JANELA_F005_REPETIDA = FIXTURES / "janela_negociacao_f005_repetida.png"
 # digitos — 6 vale (1890, 2) e 8 vale (1800, 3) —, e essa igualdade e o que
 # prova que o piso novo NAO vazou para a coluna de moeda.
 LINHAS_QUE_ATRAVESSAM_F010_ANTES_DO_PISO_PROPRIO = {6: (1890, 2), 8: (1800, 3)}
+#
+# E ELAS ENCOLHERAM DE 6 PARA 5 NA METADE B, TAMBEM POR MEDICAO. A linha 4 e a
+# unica CIANA desta fixtura (saturacao mediana da tinta 117, contra 0 nas nove
+# outras), e o portao de cor de `ler_linha` passou a recusa-la: os 13 moldes
+# foram cortados sobre texto BRANCO e nao descrevem tinta de outra cor. Ela
+# lia `100,00` CERTO — e cai assim mesmo, porque a leitura certa dela e um
+# acidente do antisserrilhamento e nao uma garantia (`janela_tooltip_f012.png`
+# L3 e a MESMA cor e le `158,88` onde a tela diz `150,00`). Ver o cabecalho de
+# `tests/test_mercado_ciano.py`.
+#
+# As CINCO que sobram continuam com os MESMOS digitos, e essa igualdade e o que
+# prova que o portao de cor nao vazou para a tinta branca.
 LINHAS_QUE_ATRAVESSAM_F010 = {
-    4: (10000, 1),
     5: (300, 1),
     6: (1890, 2),
     7: (750, 1),
@@ -1435,21 +1447,28 @@ class TestARecusaEPorLinhaNuncaPorPagina:
         gramatica —, porque a quantidade delas e `1` e o tronco do `1` da coluna
         Quantity e desenhado a V = 174 (remedido no censo do 02-07), abaixo do
         piso compartilhado 180 de `mascara_de_texto`. Com o piso PROPRIO da
-        coluna, MEDIDO em 161, elas atravessam INTEIRAS e leem `1`. A afirmacao
-        que o teste protege nao mudou — a recusa e por LINHA e nunca por PAGINA
-        —, e agora ela e ainda mais forte: as descobertas nao aparecem entre as
-        descartadas de jeito nenhum, e TODA descartada caiu por oclusao.
+        coluna, MEDIDO em 161, elas atravessam INTEIRAS e leem `1`.
+
+        **A METADE B MUDOU A RESPOSTA DE NOVO, E ELA FICOU MAIS FORTE.** As duas
+        linhas descobertas deste frame sao CIANAS (saturacao mediana da tinta
+        114 e 116), e o portao de cor as recusa: molde cortado em BRANCO nao
+        certifica tinta de outra cor. Agora a MESMA pagina carrega DOIS motivos
+        diferentes — oito `oclusao` e dois `tinta` —, e e exatamente isso que a
+        afirmacao do teste sempre quis dizer: uma recusa por PAGINA daria as dez
+        linhas o MESMO motivo, e uma pagina com dois motivos so pode ter sido
+        julgada linha a linha.
         """
         leitor, _b, _c, _v2, _v3 = montar_leitor(
             cal, "Common Fafurion Doll", "Common Fafurion Doll"
         )
         leitor.observar(ler_fixtura(JANELA_TOOLTIP))
         leitura = leitor.ultima_leitura
-        lidas = {linha.indice: linha.quantidade for linha in leitura.linhas}
+        motivo_por_indice = dict(zip(leitura.descartadas, leitura.motivos))
         for indice in DESCOBERTAS_NO_TOOLTIP:
-            assert indice not in leitura.descartadas
-            assert lidas[indice] == 1
-        assert set(leitura.motivos) == {MOTIVO_DA_OCLUSAO}
+            assert motivo_por_indice[indice] == MOTIVO_DA_TINTA
+        for indice in COBERTAS_NO_TOOLTIP:
+            assert motivo_por_indice[indice] == MOTIVO_DA_OCLUSAO
+        assert set(leitura.motivos) == {MOTIVO_DA_OCLUSAO, MOTIVO_DA_TINTA}
 
     def test_a_pagina_com_tooltip_nao_para_no_primeiro_descarte(self, cal) -> None:
         leitor, _b, _c, _v2, _v3 = montar_leitor(
@@ -1489,30 +1508,46 @@ class TestARecusaEPorLinhaNuncaPorPagina:
 
         A recusa pelo piso com o valor de producao tem teste proprio, e ele fica
         em `tests/test_mercado_pagina.py`, onde o piso mora.
+
+        **A METADE B TROCOU A FIXTURA, E A FORMA POSITIVA E O MOTIVO.** As duas
+        unicas linhas que `janela_tooltip_f012.png` entregava sao CIANAS, e o
+        portao de cor as recusa — aquela fixtura passou a entregar ZERO linhas
+        aceitas, e com zero a unica afirmacao possivel voltaria a ser a NEGATIVA
+        que as duas ondas anteriores trabalharam para eliminar.
+
+        `janela_negociacao_f010.png` serve ao mesmo proposito e serve melhor:
+        ela entrega CINCO linhas aceitas e CINCO descartadas no mesmo frame, com
+        DOIS motivos distintos entre as descartadas (`numero` nas linhas 0-3 e
+        `tinta` na 4). A afirmacao continua sendo a mesma e continua positiva —
+        nenhuma descartada aparece na `PaginaAceita` —, e agora ela e feita
+        sobre uma pagina que tem os dois tipos de linha em quantidade.
         """
         import copy
 
         medidor, _b, _c, _v2, _v3 = montar_leitor(
-            cal, "Common Fafurion Doll", "Common Fafurion Doll"
+            cal, "Common Valakas Doll", "Common Valakas Doll"
         )
-        medidor.observar(ler_fixtura(JANELA_TOOLTIP))
-        descobertas = len(medidor.ultima_leitura.linhas)
-        assert descobertas < int(cal.mercado_minimo_de_linhas_comparadas), (
-            "esta fixtura deixou de ser o caso 'quase toda coberta'; sem isso o "
-            "teste nao esta mais afirmando o que diz afirmar"
+        medidor.observar(ler_fixtura(JANELA_F010))
+        aceitas = len(medidor.ultima_leitura.linhas)
+        assert aceitas < int(cal.mercado_minimo_de_linhas_comparadas), (
+            "esta fixtura deixou de ser o caso 'pagina parcialmente lida'; sem "
+            "isso o teste nao esta mais afirmando o que diz afirmar"
+        )
+        assert medidor.ultima_leitura.descartadas, (
+            "sem linha DESCARTADA nao ha o que este teste afirme"
         )
 
         com_piso_explicito = copy.deepcopy(cal)
-        com_piso_explicito.mercado_minimo_de_linhas_comparadas = descobertas
+        com_piso_explicito.mercado_minimo_de_linhas_comparadas = aceitas
 
         leitor, _b, _c, _v2, _v3 = montar_leitor(
-            com_piso_explicito, "Common Fafurion Doll", "Common Fafurion Doll"
+            com_piso_explicito, "Common Valakas Doll", "Common Valakas Doll"
         )
-        assert leitor.observar(ler_fixtura(JANELA_TOOLTIP)) is None
-        pagina = leitor.observar(ler_fixtura(JANELA_TOOLTIP))
+        assert leitor.observar(ler_fixtura(JANELA_F010)) is None
+        pagina = leitor.observar(ler_fixtura(JANELA_F010))
         assert isinstance(pagina, PaginaAceita)
         assert {linha.indice for linha in pagina.linhas} == set(
-            DESCOBERTAS_NO_TOOLTIP
+            LINHAS_QUE_ATRAVESSAM_F010
         )
         descartadas = set(leitor.ultima_leitura.descartadas)
         assert descartadas and not (
@@ -1556,11 +1591,19 @@ class TestALinhaVazia:
         leitura = leitor.ultima_leitura
         assert leitura.vazias == (1, 2, 3, 4, 5, 6, 7, 8, 9)
         # A linha 0 tem quantidade `1` e, ate o 02-07, caia FECHADA no piso
-        # compartilhado. Com o piso proprio da Quantity, MEDIDO em 161, ela
-        # ATRAVESSA — e o que o teste afirma continua sendo o mesmo: as nove
-        # vazias marcam o fim da pagina e nenhuma delas vira descarte.
-        assert leitura.descartadas == ()
-        assert [linha.indice for linha in leitura.linhas] == [0]
+        # compartilhado; com o piso proprio da Quantity (161) ela passou a
+        # ATRAVESSAR. Na metade B ela virou DESCARTE, porque ela e CIANA
+        # (saturacao mediana da tinta 117) e os moldes so descrevem tinta
+        # branca — lia `380,00`, e `380,00` e justamente o valor que o piso
+        # normalizado `k = 0,63` INVENTAVA como `360,00`.
+        #
+        # O QUE O TESTE AFIRMA NAO MUDOU, e e o unico ponto que importa aqui:
+        # as nove vazias marcam o FIM da pagina, e NENHUMA VAZIA virou descarte.
+        # O descarte da linha 0 e de outra natureza e vem de outra peneira.
+        assert leitura.descartadas == (0,)
+        assert leitura.motivos == (MOTIVO_DA_TINTA,)
+        assert set(leitura.descartadas) & set(leitura.vazias) == set()
+        assert leitura.linhas == ()
 
     def test_linha_vazia_NAO_conta_como_perda(self, cal) -> None:
         """Tres estados distintos: lida, descartada, vazia."""

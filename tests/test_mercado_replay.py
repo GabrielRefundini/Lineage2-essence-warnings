@@ -392,14 +392,30 @@ class TestAPaginaCOBERTA_PELA_TOOLTIP:
         )
         assert len(leitura.descartadas) > 0, "a tooltip nao cobriu nada"
 
-    def test_as_DESCOBERTAS_sao_lidas_e_as_cobertas_nao(
+    def test_as_COBERTAS_e_as_DESCOBERTAS_caem_por_motivos_DIFERENTES(
         self, cal, leituras
     ) -> None:
+        """A prova de que o julgamento e por LINHA, e nao por PAGINA.
+
+        Ate a metade B esta afirmacao era feita pela leitura: as duas linhas
+        descobertas atravessavam e as oito cobertas caiam. As duas descobertas
+        deste frame sao CIANAS (saturacao mediana da tinta 114 e 116) e o
+        portao de cor passou a recusa-las, entao nenhuma linha atravessa mais.
+
+        A afirmacao ficou MAIS FORTE, e nao mais fraca. Uma recusa por PAGINA
+        daria as dez linhas o MESMO motivo; esta pagina carrega DOIS — oito
+        `oclusao` e dois `tinta` —, e cada linha so pode ter recebido o seu
+        olhando os proprios pixels.
+        """
         leitor, _aceitas = replay_de_uma_janela(cal, leituras, [PAGINA_TOOLTIP])
         leitura = leitor.ultima_leitura
-        lidas = {linha.indice for linha in leitura.linhas}
-        assert lidas, "nenhuma linha descoberta atravessou"
-        assert not (lidas & set(leitura.descartadas))
+        motivos = dict(zip(leitura.descartadas, leitura.motivos))
+        assert len(motivos) == int(cal.mercado_grade["linhas_por_pagina"])
+        assert set(motivos.values()) == {"oclusao", "tinta"}
+        cobertas = {i for i, m in motivos.items() if m == "oclusao"}
+        descobertas = {i for i, m in motivos.items() if m == "tinta"}
+        assert cobertas == {0, 1, 2, 3, 4, 5, 6, 7}
+        assert descobertas == {8, 9}
 
     def test_a_pagina_QUASE_TODA_COBERTA_nao_e_aceita_pelo_piso(
         self, cal, leituras

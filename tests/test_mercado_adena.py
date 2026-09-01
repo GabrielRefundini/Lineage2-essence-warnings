@@ -73,6 +73,7 @@ from l2scanner.mercado_catalogo import (
 from l2scanner.mercado_leitura import (
     ADENA_POR_INCREMENTO,
     MOTIVO_DA_GRAMATICA,
+    MOTIVO_DA_TINTA,
     MOTIVO_DA_OCLUSAO,
     MOTIVO_DO_CRUZAMENTO,
     Descarte,
@@ -437,15 +438,99 @@ class TestOCruzamentoEGUARDANaAdena:
     taxa plausivel no CSV: sem ela a linha 5 desta fixtura entra como `135,88`.
     """
 
-    def test_a_linha_do_13588_vira_Descarte_de_motivo_cruzamento(
+    # O PAR RECOMPOSTO que alcanca a guarda com tinta BRANCA.
+    #
+    # Ele existe porque a metade B poe o portao de COR antes da aritmetica, e a
+    # linha 5 — a unica desta fixtura cuja aritmetica nao fecha — e CIANA: ela
+    # agora cai por `tinta`, ANTES de a guarda opinar. Sem este par a fiacao da
+    # guarda ficaria sem teste ponta a ponta, e guarda sem teste apodrece.
+    #
+    # Os DOIS recortes sao pixels REAIS desta mesma fixtura, e os dois sao
+    # ACROMATICOS. So o PAREAMENTO e deliberado: o `Total Price` da linha 8
+    # (`70,00`) contra o `5 mln increment` da linha 1 (`64,99`). Nenhuma tela
+    # jamais mostrou essa combinacao — e nao precisa ter mostrado, porque a
+    # afirmacao aqui e sobre a FIACAO ("a guarda esta ligada e derruba"), e nao
+    # sobre uma pagina que existiu.
+    LINHA_DO_TOTAL_BRANCO = 8
+    LINHA_DO_INCREMENTO_BRANCO = 1
+
+    def _par_branco_que_nao_fecha(self, cal, janela_adena):
+        de_total = fatiar_a_linha_da_adena(
+            cal, janela_adena, self.LINHA_DO_TOTAL_BRANCO
+        )
+        de_incremento = fatiar_a_linha_da_adena(
+            cal, janela_adena, self.LINHA_DO_INCREMENTO_BRANCO
+        )
+        return de_total, de_incremento
+
+    def test_a_linha_do_13588_agora_cai_ANTES_da_guarda_por_ser_CIANA(
         self, cal, moldes, janela_adena
     ) -> None:
+        """A guarda nao foi afrouxada — ela deixou de ser a PRIMEIRA a pegar.
+
+        Ate a metade B esta linha caia por `cruzamento`: a leitura devolvia
+        `135,88` contra incremento `67,50`, o residuo dava 88 e a aritmetica
+        recusava. Ela continua caindo, e continua fora do CSV. O que mudou e
+        que agora ela cai por `tinta`, uma peneira ANTES — a tinta dela tem
+        saturacao mediana 114 e os 13 moldes foram cortados sobre tinta de
+        saturacao 0, entao o leitor sabe que nao sabe ler, e diz isso em vez de
+        deixar a aritmetica descobrir depois.
+
+        O motivo registrado passou a nomear a CAUSA ("nao sei ler esta cor") em
+        vez da consequencia ("os numeros nao fecham"), e e a causa que diz ao
+        usuario o que fazer: cortar moldes cianos.
+        """
         recortes = fatiar_a_linha_da_adena(cal, janela_adena, LINHA_DO_DEFEITO)
         recusada = chamar_ler_linha_da_adena(
             cal, moldes, recortes, LINHA_DO_DEFEITO
         )
         assert isinstance(recusada, Descarte)
+        assert recusada.motivo == MOTIVO_DA_TINTA
+
+    def test_a_guarda_CONTINUA_LIGADA_e_derruba_o_par_branco_que_nao_fecha(
+        self, cal, moldes, janela_adena
+    ) -> None:
+        """A fiacao da guarda, alcancada com tinta que o leitor SABE ler.
+
+        `70,00` contra incremento `64,99`: `round(7000 / 6499)` da 1, o residuo
+        e |7000 - 6499| = 501 centesimos, e o limite derivado para n = 1 e 0,5.
+        A guarda recusa — e o motivo e `cruzamento`, provando que ela nao foi
+        desligada nem substituida pelo portao de cor.
+        """
+        de_total, de_incremento = self._par_branco_que_nao_fecha(
+            cal, janela_adena
+        )
+        recusada = chamar_ler_linha_da_adena(
+            cal,
+            moldes,
+            de_total,
+            self.LINHA_DO_TOTAL_BRANCO,
+            recorte_do_incremento=de_incremento["incremento"],
+        )
+        assert isinstance(recusada, Descarte)
         assert recusada.motivo == MOTIVO_DO_CRUZAMENTO
+
+    def test_e_o_par_branco_atravessa_o_portao_de_COR_sem_ser_tocado(
+        self, cal, moldes, janela_adena
+    ) -> None:
+        """O controle do teste acima: sem ele, `cruzamento` poderia ser sorte.
+
+        Se o portao de cor tivesse opiniao sobre estes dois recortes, a linha
+        teria caido por `tinta` e o teste acima estaria medindo outra coisa.
+        """
+        de_total, de_incremento = self._par_branco_que_nao_fecha(
+            cal, janela_adena
+        )
+        for recorte in (de_total["total"], de_incremento["incremento"]):
+            assert (
+                mercado_leitura.saturacao_da_tinta(
+                    recorte, VALOR_MINIMO_DO_TEXTO
+                )
+                == 0.0
+            )
+            assert not mercado_leitura.tinta_fora_da_curva_dos_moldes(
+                recorte, VALOR_MINIMO_DO_TEXTO
+            )
 
     def test_ela_NAO_e_recusada_por_oclusao_nem_por_gramatica(
         self, cal, moldes, janela_adena
@@ -471,13 +556,36 @@ class TestOCruzamentoEGUARDANaAdena:
     def test_o_detalhe_da_recusa_cita_total_incremento_n_e_residuo(
         self, cal, moldes, janela_adena, caplog
     ) -> None:
-        """Um numero que caiu precisa dizer POR QUE caiu, e com que numeros."""
+        """Um numero que caiu precisa dizer POR QUE caiu, e com que numeros.
+
+        Corre sobre o PAR RECOMPOSTO desde a metade B, pela mesma razao do
+        teste da fiacao: a linha ciana nao chega mais a guarda.
+        """
+        de_total, de_incremento = self._par_branco_que_nao_fecha(
+            cal, janela_adena
+        )
+        with caplog.at_level(logging.WARNING, logger="l2scanner.mercado_leitura"):
+            chamar_ler_linha_da_adena(
+                cal,
+                moldes,
+                de_total,
+                self.LINHA_DO_TOTAL_BRANCO,
+                recorte_do_incremento=de_incremento["incremento"],
+            )
+        texto = "\n".join(r.getMessage() for r in caplog.records)
+        for pedaco in ("7000", "6499", "n=1", "501"):
+            assert pedaco in texto, (pedaco, texto)
+
+    def test_e_a_recusa_por_TINTA_tambem_diz_qual_coluna_caiu(
+        self, cal, moldes, janela_adena, caplog
+    ) -> None:
+        """A peneira nova segue a mesma regra das antigas: ela se explica."""
         recortes = fatiar_a_linha_da_adena(cal, janela_adena, LINHA_DO_DEFEITO)
         with caplog.at_level(logging.WARNING, logger="l2scanner.mercado_leitura"):
             chamar_ler_linha_da_adena(cal, moldes, recortes, LINHA_DO_DEFEITO)
         texto = "\n".join(r.getMessage() for r in caplog.records)
-        for pedaco in ("13588", "6750", "n=2", "88"):
-            assert pedaco in texto, (pedaco, texto)
+        assert "Total Price" in texto
+        assert "cor" in texto
 
 
 class TestAsPeneirasNaMESMAORDEMDeLerLinha:

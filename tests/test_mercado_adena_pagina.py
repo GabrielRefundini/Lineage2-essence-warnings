@@ -631,12 +631,23 @@ class TestAPaginaDaAdenaPontaAPonta:
         assert aceita is not None
         assert len(aceita.linhas) == 9
 
-    def test_a_linha_5_cai_por_CRUZAMENTO(self):
-        """O `13588` que a tela mostra como `135,00`. Sem a guarda ele entraria
-        no CSV como taxa `135,88` — plausivel, e errado."""
+    def test_a_linha_5_NAO_VIRA_DADO_e_cai_por_TINTA(self):
+        """O `13588` que a tela mostra como `135,00`. Ele fica fora do CSV.
+
+        Ate a metade B quem o derrubava era a GUARDA DE CRUZAMENTO, e o motivo
+        registrado era `cruzamento`. A guarda continua inteira e continua
+        ligada — `tests/test_mercado_adena.py` a alcanca ponta a ponta com um
+        par de recortes BRANCOS cuja aritmetica nao fecha —, mas ela deixou de
+        ser a PRIMEIRA a pegar esta linha: a tinta dela e CIANA (saturacao
+        mediana 114) e os 13 moldes foram cortados sobre tinta de saturacao 0.
+
+        O que o teste protege nao mudou em nada — a linha corrompida nao vira
+        taxa —, e o motivo agora nomeia a CAUSA em vez da consequencia.
+        """
         _leitor, aceita, _b, _c = _pagina_da_adena(_calibracao_da_fixtura())
         assert aceita.descartadas == (5,)
-        assert aceita.motivos == ("cruzamento",)
+        assert aceita.motivos == ("tinta",)
+        assert 5 not in {linha.indice for linha in aceita.linhas}
 
     def test_toda_chave_da_serie_e_a_SENTINELA(self):
         _leitor, aceita, _b, _c = _pagina_da_adena(_calibracao_da_fixtura())

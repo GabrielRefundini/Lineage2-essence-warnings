@@ -35,6 +35,7 @@ e exatamente o que D-11 exige.
 
 from __future__ import annotations
 
+import collections
 import copy
 import inspect
 from pathlib import Path
@@ -499,9 +500,21 @@ class TestOPisoDeBrilhoDaQuantidadeChegaAProducao:
     def test_o_rendimento_da_coluna_Quantity_cobra_o_ramo_CERTO(
         self, cal
     ) -> None:
+        # A FIXTURA MUDOU NA METADE B, E A RAZAO E ISOLAR O EXPERIMENTO.
+        #
+        # Ate aqui a medida corria sobre `janela_tooltip_f012.png`, cujas DUAS
+        # unicas linhas legiveis sao CIANAS. Com o portao de cor elas caem por
+        # `tinta` nos DOIS pisos, o rendimento vira 0 contra 0, e o teste
+        # deixaria de medir o piso de brilho para medir a cor da tinta.
+        #
+        # `janela_negociacao_f005.png` nao tem UMA celula cromatica (medido:
+        # saturacao mediana da tinta 0 nas dez linhas, nas tres colunas de
+        # numero), entao o portao de cor nao opina sobre ela e o unico
+        # tratamento que resta e o piso. Ela tambem e um caso mais rico: 4
+        # linhas no piso compartilhado contra 10 no piso proprio.
         gravado = int(cal.mercado_limiar_de_brilho_da_quantidade)
-        antes = _quantidades_lidas(cal, JANELA_TOOLTIP, VALOR_MINIMO_DO_TEXTO)
-        depois = _quantidades_lidas(cal, JANELA_TOOLTIP, gravado)
+        antes = _quantidades_lidas(cal, JANELA_F005, VALOR_MINIMO_DO_TEXTO)
+        depois = _quantidades_lidas(cal, JANELA_F005, gravado)
         if gravado == VALOR_MINIMO_DO_TEXTO:
             # Ramo REPROVADO: o piso medido E o piso compartilhado, e a
             # desigualdade seria falsa POR CONSTRUCAO. A coluna le exatamente o
@@ -510,7 +523,12 @@ class TestOPisoDeBrilhoDaQuantidadeChegaAProducao:
             assert len(depois) == len(antes)
         else:
             assert len(depois) > len(antes)
-            assert all(q == 1 for q in depois)
+            # E as linhas GANHAS sao exatamente as de quantidade `1` — que e a
+            # afirmacao que o piso proprio da coluna sempre quis fazer, agora
+            # dita sobre uma pagina que tem quantidades variadas (1, 2, 3 e 6)
+            # em vez de uma que so tinha `1`.
+            ganhas = collections.Counter(depois) - collections.Counter(antes)
+            assert set(ganhas) == {1}, ganhas
 
     def test_as_colunas_de_MOEDA_leem_EXATAMENTE_os_mesmos_digitos(
         self, cal
