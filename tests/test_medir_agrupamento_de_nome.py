@@ -92,7 +92,11 @@ recorte_de_runs = ferramenta.recorte_de_runs
 series_duplicadas_projetadas = ferramenta.series_duplicadas_projetadas
 vocabulario_de_consenso = ferramenta.vocabulario_de_consenso
 
-from l2scanner.mercado_catalogo import EntradaDoCatalogo  # noqa: E402
+from l2scanner.mercado_catalogo import (  # noqa: E402
+    EntradaDoCatalogo,
+    assinatura_por_ocr,
+    similaridade,
+)
 
 # Os numeros MEDIDOS pela varredura de 2026-08-30. Eles vivem aqui como
 # constantes de teste, e nao lidos do `calibration.json`: o arquivo e estado de
@@ -316,31 +320,67 @@ class TestACorteEOPiso:
 
 
 class TestAsFusoesQueOCorteProduz:
-    def test_o_corte_funde_EXATAMENTE_um_par_do_vocabulario_confirmado(
+    def test_o_corte_NAO_funde_MAIS_NENHUM_par_do_vocabulario_confirmado(
         self, leituras
     ):
-        """`B-grade Gemstone` x `C-grade Gemstone`, 0,9375. UM caractere.
+        """A janela quebrada deste corte FECHOU em 2026-09-01. De 1 para 0.
 
-        A trava de digitos nao alcanca este par: a diferenca e uma LETRA de
-        grade, e as duas assinaturas sao vazias. E a janela quebrada conhecida
-        deste corte, e ela fica presa por teste em vez de esquecida.
+        UM NUMERO QUE CAIU PRECISA DIZER QUE CAIU, e este subiu de qualidade: ate
+        aqui este teste se chamava `..._funde_EXATAMENTE_um_par_...` e cobrava
+        `len(fusoes) == 1`, sendo esse UM o par
+
+            `B-grade Gemstone` x `C-grade Gemstone`, 0,9375
+
+        que na loja de NPC do usuario vale **200.000 contra 20.000 adena**. O
+        comentario de entao dizia, corretamente, que "a trava de digitos nao
+        alcanca este par: a diferenca e uma LETRA de grade, e as duas
+        assinaturas sao vazias".
+
+        A trava passou a alcancar. `assinatura_por_ocr` captura a letra de grade
+        junto com os digitos (D-03 estendido, nunca um limiar novo), as duas
+        assinaturas viraram `B` e `C`, e `fusoes_no_corte` — que filtra por
+        assinatura ANTES de pontuar — para de ver o par.
+
+        O QUE ESTE TESTE VALE AGORA E MAIS DO QUE ANTES: ele varre o vocabulario
+        de consenso INTEIRO das gravacoes reais e afirma que o corte nao funde
+        NADA. Antes ele tolerava uma fusao conhecida; agora ele nao tolera
+        nenhuma, e qualquer fusao NOVA que uma mexida futura introduza aparece
+        aqui com nome e numero em vez de passar por baixo do `== 1`.
         """
         consenso = vocabulario_de_consenso(leituras)
         fusoes = fusoes_no_corte(consenso, CORTE_MEDIDO)
-        assert len(fusoes) == 1
-        score, a, b = fusoes[0]
-        assert {a, b} == {"B-grade Gemstone", "C-grade Gemstone"}
-        assert score == pytest.approx(0.9375)
+        assert fusoes == [], f"o corte voltou a fundir: {fusoes}"
 
-    def test_um_corte_mais_alto_nao_resolve_sem_perder_o_que_precisa_agrupar(
-        self, leituras
-    ):
-        """Acima de 0,9375 a fusao some — e leva junto pares que devem agrupar."""
+    def test_o_par_do_Gemstone_e_separado_pela_TRAVA_e_nao_pelo_corte(self):
+        """A refutacao da recalibracao, presa junto com o conserto que valeu.
+
+        A similaridade dos dois nomes NAO se mexeu — continua 0,9375, acima do
+        corte 0,8947. Se um dia alguem "resolver" este par subindo o corte, este
+        teste continua verde e o de baixo fica vermelho, que e a ordem certa: o
+        conserto foi por MECANISMO, e o corte nunca foi o culpado.
+        """
+        assert similaridade("B-grade Gemstone", "C-grade Gemstone") == pytest.approx(
+            0.9375
+        )
+        assert similaridade("B-grade Gemstone", "C-grade Gemstone") > CORTE_MEDIDO
+        assert assinatura_por_ocr("B-grade Gemstone") == "B"
+        assert assinatura_por_ocr("C-grade Gemstone") == "C"
+
+    def test_subir_o_corte_teria_custado_o_que_a_trava_nao_custa(self, leituras):
+        """A alternativa REJEITADA, preservada com o preco dela.
+
+        Subir o corte para 0,94 tambem faria a fusao sumir — e levaria junto
+        pares que PRECISAM agrupar. A trava fecha a mesma porta sem cobrar esse
+        pedagio, e e por isso que ela venceu. Sem este teste a alternativa mais
+        obvia e mais cara voltaria na proxima leitura do arquivo.
+        """
         consenso = vocabulario_de_consenso(leituras)
         agrupam, _, _ = pares_que_precisam_agrupar(leituras, True, consenso)
-        assert fusoes_no_corte(consenso, 0.94) == []
         perdidos = [par for par in agrupam if par.score < 0.94]
         assert perdidos, "subir o corte tem um custo, e ele precisa ser visivel"
+        assert [par for par in agrupam if par.score < CORTE_MEDIDO] == [], (
+            "a trava nao pode ter custado nenhum par que precisa agrupar"
+        )
 
 
 class TestOCensoDoConflito:

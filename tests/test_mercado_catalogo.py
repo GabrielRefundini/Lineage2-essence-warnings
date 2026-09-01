@@ -86,6 +86,26 @@ STKINGS = "+4 Hunter's St«kings"
 TUNIC = "Hunter's Tunic"
 TUNIC_TORTO = "Hunteds Tunic"
 
+# O par que as DUAS travas de hoje deixam passar, e que vale DEZ VEZES na loja
+# de NPC do usuario: 200.000 contra 20.000 adena. A trava de DIGITOS nao ve
+# letra (assinatura `''` nos dois) e a trava por PALAVRA nao veta (1 caractere
+# torto em 7, resto 0,8571 contra o piso 0,4500). Sobra a similaridade do nome
+# inteiro, 0,9375 >= corte 0,8947, e os dois FUNDEM numa serie so.
+GEMSTONE_B = "B-grade Gemstone"
+GEMSTONE_C = "C-grade Gemstone"
+
+# Os OUTROS pares com letra de grade cujo veredito NAO pode se mexer. O
+# `Armor`/`Weapon` continua separado pela trava por PALAVRA, e nao pela letra —
+# a letra e a MESMA nos dois.
+DRAGON_3 = "+3 Dragon Belt"
+DRAGON_4 = "+4 Dragon Belt"
+ESPIRITO_FOGO = "Fire Spirit Evolution Stone"
+ESPIRITO_VENTO = "Wind Spirit Evolution Stone"
+ADEN_1 = "Aden's Soul Crystal Lv. 1 - Weapon"
+ADEN_3 = "Aden's Soul Crystal Lv. 3 - Weapon"
+STOCKINGS_5 = "+5 Hunter's Stockings"
+STKINGS_5 = "+5 Hunter's St«kings"
+
 # Os dois numeros que estao no `calibration.json` do usuario HOJE. Os testes que
 # reproduzem a sessao dele cobram contra ESTES, e nao contra numeros de
 # conveniencia: o defeito so existe nesta faixa de 0,011 de largura.
@@ -145,6 +165,189 @@ class TestATravaDeDigitos:
     def test_digito_nao_ascii_nao_conta_como_digito(self):
         """`²`.isdigit() e True em Python, e um `²` nao e um digito da tela."""
         assert assinatura_por_ocr("Bota²") == ""
+
+
+class TestALetraDeGrade:
+    """A letra de grade entra na assinatura, pelo MESMO mecanismo do D-03.
+
+    O DEFEITO, MEDIDO NO CATALOGO REAL DO USUARIO
+    ==============================================
+    `B-grade Gemstone` e `C-grade Gemstone` FUNDIAM numa serie so, e na loja de
+    NPC dele os dois valem **200.000 e 20.000 adena** — dez vezes de diferenca.
+    Fundidos, a mediana da serie mistura precos sem relacao nenhuma.
+
+    POR QUE AS DUAS TRAVAS DE HOJE NAO PEGAVAM ESTE PAR
+    ----------------------------------------------------
+    - TRAVA DE DIGITOS (D-03): ela captura so DIGITO. `B-grade` e `C-grade` nao
+      tem digito, entao os dois davam assinatura `''` e viravam candidatos um do
+      outro.
+    - TRAVA POR PALAVRA (D-09): o resto e o token `B-grade` contra `C-grade`, que
+      difere em 1 de 7 caracteres — 0,8571, MUITO acima do `PISO_DO_RESTO`
+      0,4500. Ela via ruido de OCR onde havia identidade.
+    - Sobrava a similaridade do nome inteiro: 0,9375 >= corte 0,8947, e funde.
+
+    O CONSERTO NAO E UM QUARTO MECANISMO, E O D-03 ESTENDIDO. A letra de grade
+    carrega identidade exatamente como o digito de encantamento, entao ela entra
+    na assinatura comparada por igualdade EXATA, ANTES de a similaridade opinar.
+    Nunca num limiar: `corte`, `piso` e `PISO_DO_RESTO` nao foram tocados.
+    """
+
+    def test_a_letra_de_grade_vira_assinatura(self):
+        assert assinatura_por_ocr(GEMSTONE_B) == "B"
+        assert assinatura_por_ocr(GEMSTONE_C) == "C"
+        assert assinatura_por_ocr(GEMSTONE_B) != assinatura_por_ocr(GEMSTONE_C)
+
+    def test_o_par_que_vale_dez_vezes_deixa_de_FUNDIR(self):
+        """O ALVO do conserto, com os numeros que o nomeiam.
+
+        As duas travas de hoje sao afirmadas AQUI DENTRO, e nao so no comentario:
+        se um dia a similaridade do nome cair abaixo do corte, ou o resto cair
+        abaixo do piso, este teste passaria por motivo ERRADO e ninguem veria.
+        """
+        assert similaridade(GEMSTONE_B, GEMSTONE_C) >= CORTE_DA_PRODUCAO
+        assert similaridade_do_resto(GEMSTONE_B, GEMSTONE_C) >= PISO_DO_RESTO
+
+        catalogo = [_entrada(GEMSTONE_B)]
+        r = agrupar(
+            GEMSTONE_C,
+            assinatura_por_ocr(GEMSTONE_C),
+            catalogo,
+            CORTE_DA_PRODUCAO,
+            PISO_DA_PRODUCAO,
+        )
+        assert r.nova is True, f"o Gemstone ainda funde: {r.motivo}"
+        assert r.chave != catalogo[0].chave
+        assert "cinzenta" not in r.motivo.lower()
+
+    def test_a_letra_entra_na_ORDEM_DE_APARICAO_junto_com_os_digitos(self):
+        """Uma assinatura so, na ordem em que a tela desenha. Igual aos digitos.
+
+        Separar letra de digito em dois campos daria a mesma resposta e custaria
+        um formato novo na chave, que ja esta gravada no `.mercado/` do usuario.
+        """
+        assert assinatura_por_ocr("+5 B-grade Sword Lv. 3") == "5B3"
+        assert assinatura_por_ocr("B-grade Sword Lv. 3") == "B3"
+
+    def test_a_CAIXA_da_letra_nao_cria_serie_nova(self):
+        """`b-grade` e `B-grade` sao a MESMA grade, e o L2 so escreve maiuscula.
+
+        Dobrar a caixa nao pode FUNDIR duas grades distintas — nao existe par de
+        grades que difira so na caixa. O precedente e o `_slug`, que ja dobra a
+        caixa do corpo da chave (`D-grade Crystal` e `D-grade crystal` ja
+        produzem UMA chave hoje).
+        """
+        assert assinatura_por_ocr("b-grade Gemstone") == "B"
+        assert assinatura_por_ocr("B-GRADE Gemstone") == "B"
+        assert assinatura_por_ocr("B-Grade Gemstone") == "B"
+
+    def test_so_a_letra_SOLTA_antes_do_sufixo_conta(self):
+        """`Non-grade` nao tem letra de grade: o `n` vem colado num `No`.
+
+        Sem esta borda, toda palavra terminada em letra seguida de `-grade`
+        entregaria a ULTIMA letra dela como se fosse grade.
+        """
+        assert assinatura_por_ocr("Non-grade Sword") == ""
+        assert assinatura_por_ocr("Upgrade Kit") == ""
+        assert assinatura_por_ocr("Sword-grade Thing") == ""
+
+    def test_letra_nao_ascii_nao_conta_como_letra_de_grade(self):
+        """O `С` cirilico e desenhado IGUAL ao `C` latino, e nao e ele.
+
+        A mesma razao de `DIGITOS` existir em vez de `str.isdigit()`: um ponto
+        Unicode parecido virando assinatura criaria uma serie que ninguem
+        reproduz olhando a tela. O desfecho de recusar e assinatura `''`, que e
+        o comportamento de HOJE — nunca uma assinatura inventada.
+        """
+        assert assinatura_por_ocr("С-grade Gemstone") == ""
+
+    def test_nome_sem_letra_de_grade_nenhuma_continua_com_a_assinatura_DE_HOJE(self):
+        """O controle negativo mais barato: quem nao tem grade nao muda."""
+        assert assinatura_por_ocr(AGATHION_6) == "6"
+        assert assinatura_por_ocr(AGATHION_0) == ""
+        assert assinatura_por_ocr(EVOLUTION) == ""
+        assert assinatura_por_ocr(STOCKINGS) == "4"
+
+    def test_o_sufixo_incompleto_cai_no_comportamento_DE_HOJE_e_nao_inventa(self):
+        """OCR que come o `-grade` devolve `''`, que e a assinatura de hoje.
+
+        Isto NAO e o conserto falhando em silencio: e ele degradando para o
+        estado anterior, que e o unico degrau seguro que existe. A evidencia de
+        que o sufixo sobrevive ao OCR de verdade esta no `.mercado/` do usuario,
+        onde `protecting-scroll-enchant-c-grade-armor#` acumulou 280
+        avistamentos numa chave so.
+        """
+        assert assinatura_por_ocr("C grade Gemstone") == ""
+        assert assinatura_por_ocr("C-grad Gemstone") == ""
+
+
+class TestOsOitoParesDoControleNegativo:
+    """Os SETE vereditos que nao podem se mexer, e o UM que tem de mudar.
+
+    Um conserto que acerta o Gemstone e move qualquer um dos outros sete esta
+    REPROVADO. A tabela vive aqui como teste, e nao como prosa num SUMMARY, para
+    que a proxima mudanca na assinatura tropece nela antes de chegar ao farm.
+
+    Medido nos dois lados do conserto, com o `corte` e o `piso` do
+    `calibration.json` do usuario:
+
+        no catalogo                  lido                     ANTES   DEPOIS
+        +4 Hunter's Stockings        +4 Hunter's St«kings      FUNDE   FUNDE
+        +5 Hunter's Stockings        +5 Hunter's St«kings      FUNDE   FUNDE
+        ...C-grade Armor             ...C-grade Weapon         nova    nova
+        +3 Dragon Belt               +4 Dragon Belt            nova    nova
+        Fire Spirit Evolution Stone  Wind Spirit ...           nova    nova
+        Aden's ... Lv. 1 - Weapon    Aden's ... Lv. 3 - Weapon nova    nova
+        Hunter's Tunic               Hunteds Tunic             cinza   cinza
+        B-grade Gemstone             C-grade Gemstone          FUNDE   nova
+    """
+
+    FUNDE = "FUNDE"
+    NOVA = "separa (serie nova)"
+    CINZENTA = "descarta (cinzenta)"
+
+    @staticmethod
+    def _desfecho(no_catalogo: str, lido: str) -> str:
+        r = agrupar(
+            lido,
+            assinatura_por_ocr(lido),
+            [_entrada(no_catalogo)],
+            CORTE_DA_PRODUCAO,
+            PISO_DA_PRODUCAO,
+        )
+        if r.chave is not None and not r.nova:
+            return TestOsOitoParesDoControleNegativo.FUNDE
+        if r.chave is None:
+            return TestOsOitoParesDoControleNegativo.CINZENTA
+        return TestOsOitoParesDoControleNegativo.NOVA
+
+    @pytest.mark.parametrize(
+        "no_catalogo, lido, esperado",
+        [
+            (STOCKINGS, STKINGS, FUNDE),
+            (STOCKINGS_5, STKINGS_5, FUNDE),
+            (SCROLL_ARMOR, SCROLL_WEAPON, NOVA),
+            (DRAGON_3, DRAGON_4, NOVA),
+            (ESPIRITO_FOGO, ESPIRITO_VENTO, NOVA),
+            (ADEN_1, ADEN_3, NOVA),
+            (TUNIC, TUNIC_TORTO, CINZENTA),
+        ],
+    )
+    def test_os_sete_vereditos_de_hoje_ficam_INALTERADOS(
+        self, no_catalogo, lido, esperado
+    ):
+        assert self._desfecho(no_catalogo, lido) == esperado
+
+    def test_o_oitavo_par_e_o_unico_que_MUDA(self):
+        assert self._desfecho(GEMSTONE_B, GEMSTONE_C) == self.NOVA
+
+    def test_o_Armor_e_o_Weapon_continuam_separados_pela_trava_por_PALAVRA(self):
+        """A letra e a MESMA nos dois, entao quem os separa nao pode ser ela.
+
+        Sem esta afirmacao o par passaria a depender de um mecanismo que nao e o
+        dele, e a proxima mexida na trava por palavra sairia impune.
+        """
+        assert assinatura_por_ocr(SCROLL_ARMOR) == assinatura_por_ocr(SCROLL_WEAPON)
+        assert similaridade_do_resto(SCROLL_ARMOR, SCROLL_WEAPON) < PISO_DO_RESTO
 
 
 class TestASimilaridade:
@@ -366,6 +569,18 @@ class TestATravaPorPalavra:
 
         Enquanto `...C-grade Armor` estivesse no catalogo, `...C-grade Weapon`
         NUNCA agrupava e NUNCA criava serie. Nao era transitorio.
+
+        A CHAVE ESPERADA MUDOU EM 2026-09-01, E O MOTIVO PRECISA ESTAR AQUI: ela
+        era `...c-grade-weapon#` e passou a ser `...c-grade-weapon#C`, porque a
+        letra de grade entrou na assinatura. O VEREDITO deste teste nao se mexeu
+        — quem separa este par continua sendo a trava por PALAVRA, e a prova
+        disso e que a letra e a MESMA nos dois lados (afirmado em
+        `TestOsOitoParesDoControleNegativo`). O que mudou foi so o nome da
+        serie nova.
+
+        A assinatura vem de `assinatura_por_ocr` e nao de um `""` escrito a mao:
+        cravar a assinatura na fixtura foi exatamente o que fez este teste
+        quebrar quando o mecanismo mudou, sem que o comportamento mudasse.
         """
         catalogo = [_entrada(SCROLL_ARMOR)]
         r = agrupar(
@@ -375,22 +590,36 @@ class TestATravaPorPalavra:
             CORTE_DA_PRODUCAO,
             PISO_DA_PRODUCAO,
         )
-        assert r.chave == chave_da_serie(SCROLL_WEAPON, "")
+        assert r.chave == chave_da_serie(
+            SCROLL_WEAPON, assinatura_por_ocr(SCROLL_WEAPON)
+        )
         assert r.nova is True
         assert "cinzenta" not in r.motivo.lower()
 
     def test_o_catalogo_INTEIRO_do_usuario_nao_engole_mais_a_leitura(self):
-        """Nao so contra `Armor`: contra as outras series de assinatura vazia.
+        """Nao so contra `Armor`: contra as outras series do catalogo real.
 
         `Scroll: Enchant D-grade Weapon` esta no catalogo real e COMPARTILHA a
         palavra `Weapon` com a leitura — ele e o candidato que sobraria se a
         trava olhasse so a ULTIMA palavra.
+
+        A assinatura da leitura passou a vir de `assinatura_por_ocr` em vez de um
+        `""` cravado. Com o `""` o teste continuava VERDE e tinha virado oco: a
+        leitura era comparada contra as entradas de assinatura vazia, e o
+        `Armor` — que e o candidato inteiro do caso — nem chegava a ser
+        considerado.
         """
         catalogo = [
             _entrada(nome)
             for nome in (SCROLL_ARMOR, SCROLL_D_WEAPON, TUNIC, "Hunter's Breastplate")
         ]
-        r = agrupar(SCROLL_WEAPON, "", catalogo, CORTE_DA_PRODUCAO, PISO_DA_PRODUCAO)
+        r = agrupar(
+            SCROLL_WEAPON,
+            assinatura_por_ocr(SCROLL_WEAPON),
+            catalogo,
+            CORTE_DA_PRODUCAO,
+            PISO_DA_PRODUCAO,
+        )
         assert r.nova is True
 
     def test_o_ruido_de_OCR_de_UMA_palavra_continua_agrupando(self):

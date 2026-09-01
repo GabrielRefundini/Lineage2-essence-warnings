@@ -43,8 +43,8 @@ O `WRatio` cai no ramo do `partial_ratio` quando as strings tem razao de tamanho
 produz `100 x 0,9 = 90,00` — acima do corte 88, fundindo exatamente as duas
 series que o corte existia para separar.
 
-A TRAVA DE DIGITOS, E POR QUE NENHUM CORTE A SUBSTITUI (D-03)
-==============================================================
+A TRAVA DE DIGITOS E DE GRADE, E POR QUE NENHUM CORTE A SUBSTITUI (D-03)
+=========================================================================
 As duas ultimas linhas da tabela sao o achado que decide o desenho: o MESMO
 0,9630 teria de decidir coisas OPOSTAS — separar `Lv. 1` de `Lv. 3` e agrupar
 `Lv. I` com `Lv. 1`. Nenhum corte escalar resolve isso, em nenhuma metrica de
@@ -53,6 +53,14 @@ distancia de edicao, e os tres casos aparecem juntos num frame real.
 Por isso a sequencia de digitos do nome tem de bater EXATAMENTE antes de a
 similaridade ser consultada. `+6 X` != `+4 X` e `Lv. 1` != `Lv. 3` por
 CONSTRUCAO, nao por limiar. A similaridade decide so o resto do nome.
+
+A LETRA DE GRADE ENTROU NA MESMA ASSINATURA EM 2026-09-01, pela mesma razao e
+sem mecanismo novo: `B-grade Gemstone` e `C-grade Gemstone` valem 200.000 e
+20.000 adena na loja de NPC do usuario e FUNDIAM (0,9375 >= corte 0,8947),
+porque a trava de digitos nao via letra e a trava por palavra lia `B-grade` x
+`C-grade` como um token com um caractere torto (0,8571, acima do piso 0,4500).
+A medicao inteira, o custo e a decisao sobre as chaves antigas estao em
+`assinatura_por_ocr`.
 
 O parente mais proximo no repositorio e `manutencao._normalizar_digitos`, e ele
 NAO serve aqui: aquele troca `O/l/I/S` por digito dentro de um token que JA tem
@@ -93,6 +101,16 @@ log = logging.getLogger(__name__)
 # OCR pode cuspir num recorte ruim, e um deles virando assinatura criaria uma
 # serie fantasma que ninguem consegue reproduzir olhando a tela.
 DIGITOS = "0123456789"
+
+# O sufixo que marca a LETRA DE GRADE, comparado em MINUSCULAS porque so a
+# LETRA carrega identidade — `C-grade`, `C-Grade` e `C-GRADE` sao a mesma coisa.
+#
+# ELE NAO MORA NO `calibration.json`, PELA MESMA RAZAO DO `PISO_DO_RESTO`:
+# `mercado_pagina` EXIGE as chaves de mercado presentes e PARA sem elas, entao
+# uma chave nova obrigatoria deixaria o scanner MORTO no proximo arranque ate o
+# usuario rodar a recalibracao. E este aqui nem e um numero medido: e como o
+# jogo escreve a palavra.
+SUFIXO_DA_GRADE = "-grade"
 
 # O separador entre o slug do nome e a assinatura, DENTRO da chave. Ele existe
 # para que a fusao de duas series seja impossivel na propria chave, e nao so no
@@ -165,15 +183,86 @@ class ResultadoDoAgrupamento:
     nova: bool
 
 
+def _e_letra_ascii(caractere: str) -> bool:
+    """Letra `A`-`Z` ou `a`-`z`, e mais nada. `str.isalpha()` NAO serve.
+
+    Mesma razao de `DIGITOS` existir em vez de `str.isdigit()`: `isalpha()` e
+    True para o `С` CIRILICO, que a tela desenha identico ao `C` latino. Um
+    ponto Unicode parecido virando assinatura criaria uma serie que ninguem
+    consegue reproduzir olhando o jogo.
+    """
+    return caractere.isascii() and caractere.isalpha()
+
+
 def assinatura_por_ocr(nome: str | None) -> str:
-    """Os digitos do nome LIDO, na ordem em que aparecem. A trava de D-03.
+    """Os digitos E as letras de grade do nome LIDO, na ordem. A trava de D-03.
 
     ORDEM DE APARICAO, e nao ordenacao: `Lv. 12` e `Lv. 21` sao series
     diferentes, e ordenar os digitos colapsaria as duas numa assinatura `12`
-    unica — a fusao que a trava existe para impedir.
+    unica — a fusao que a trava existe para impedir. A letra entra na mesma
+    sequencia, pela mesma razao: `+5 B-grade Sword Lv. 3` da `5B3`.
 
-    Nome sem digito devolve `""`, que e uma assinatura legitima: e a de todo
-    item sem encanto e sem nivel. Ela so bate com outra `""`.
+    Nome sem digito e sem grade devolve `""`, que e uma assinatura legitima: e a
+    de todo item sem encanto, sem nivel e sem grade. Ela so bate com outra `""`.
+
+    A LETRA DE GRADE ENTROU EM 2026-09-01, E ELA E O D-03 ESTENDIDO (nao um
+    quarto mecanismo)
+    ====================================================================
+    O DEFEITO, medido no catalogo real do usuario:
+
+        B-grade Gemstone  x  C-grade Gemstone   ->  FUNDIA
+
+    e na loja de NPC dele os dois valem **200.000 e 20.000 adena** — dez vezes
+    de diferenca, com a mediana da serie fundida misturando precos sem relacao.
+
+    POR QUE NENHUMA DAS DUAS TRAVAS DE ENTAO PEGAVA ESTE PAR:
+
+        trava de DIGITOS (D-03)   assinatura `''` nos dois: ela nao via letra
+        trava por PALAVRA (D-09)  `B-grade` x `C-grade` e 1 caractere torto em
+                                  7 -> resto 0,8571, MUITO acima do piso
+                                  0,4500. Ela via ruido onde havia identidade.
+        similaridade do nome      0,9375 >= corte 0,8947  ->  funde
+
+    A letra de grade carrega identidade EXATAMENTE como o digito de
+    encantamento. Logo ela entra na assinatura comparada por igualdade EXATA,
+    ANTES de a similaridade opinar — e nunca num limiar. `corte`, `piso` e
+    `PISO_DO_RESTO` continuam intocados: o conserto e por MECANISMO.
+
+    A LETRA TEM DE ESTAR SOLTA ANTES DO SUFIXO, e isso e a borda que importa:
+    `Non-grade` NAO tem letra de grade, porque o `n` vem colado num `No`. Sem
+    essa checagem, toda palavra terminada em letra seguida de `-grade`
+    entregaria a ultima letra dela como se fosse a grade.
+
+    A CAIXA E DOBRADA PARA MAIUSCULA, e a escolha e segura por CONSTRUCAO: nao
+    existe par de grades do jogo que difira so na caixa, entao dobrar nao pode
+    FUNDIR duas grades distintas. O precedente e o `_slug`, que ja dobra a caixa
+    do corpo da chave — `D-grade Crystal` e `D-grade crystal` ja produziam UMA
+    chave antes disto. Maiuscula, e nao minuscula, para a letra saltar aos olhos
+    dentro da chave: `b-grade-gemstone#B`.
+
+    NAO HA LISTA DE GRADES VALIDAS (`D`/`C`/`B`/`A`/`S`), DE PROPOSITO. Uma
+    lista viraria divida na proxima grade que o jogo adicionar, e o custo de
+    NAO ter e barato: um `O-grade` lido no lugar de `D-grade` cria SERIE NOVA,
+    que e o lado reversivel do D-06. Uma lista, ao recusar o desconhecido,
+    empurraria para `''` — que e o lado da FUSAO.
+
+    O CUSTO, MEDIDO E NAO ESTIMADO: se uma escala de OCR ler `C-grade` e a outra
+    comer o sufixo, as duas assinaturas discordam e a linha MORRE — o mesmo
+    conflito D-02/D-03 que o paragrafo abaixo ja registra para digitos. A
+    evidencia de que o sufixo sobrevive ao OCR na pratica esta no `.mercado/` do
+    usuario: `protecting-scroll-enchant-c-grade-armor#` acumulou 280
+    avistamentos numa chave so, e `scroll-enchant-d-grade-weapon#` outros 40.
+    Sufixo comido devolve `""`, que e o comportamento ANTERIOR a esta mudanca —
+    o conserto degrada para o estado de ontem, nunca para uma assinatura
+    inventada.
+
+    A CHAVE DA SERIE MUDA PARA ITEM COM GRADE, E A DECISAO ESTA REGISTRADA. As
+    duas series acima ganham chave NOVA (`...#C` e `...#D`) e as antigas, de
+    assinatura `''`, param de casar com elas em `agrupar` — sao filtradas antes,
+    na igualdade exata. As duas CONVIVEM: o dado velho fica inteiro no CSV do
+    usuario e o dado novo nasce correto. NADA reescreve o `.mercado/` dele; uma
+    migracao automatica teria de decidir por ele que duas chaves sao o mesmo
+    item, que e exatamente o julgamento que o D-06 mantem fora do programa.
 
     ATENCAO, E ESTA E A MEDICAO QUE A TASK 2 DO 02-03 POE NA MESA: aplicada a
     leitura de OCR, esta funcao devolve `""` para `Hardin's Soul Crystal Lv. I`
@@ -183,7 +272,21 @@ def assinatura_por_ocr(nome: str | None) -> str:
     """
     if not nome:
         return ""
-    return "".join(caractere for caractere in nome if caractere in DIGITOS)
+    marcas: list[str] = []
+    for posicao, caractere in enumerate(nome):
+        if caractere in DIGITOS:
+            marcas.append(caractere)
+            continue
+        if not _e_letra_ascii(caractere):
+            continue
+        if posicao and _e_letra_ascii(nome[posicao - 1]):
+            # `Non-grade`: o `n` esta colado num `No`, entao nao e grade.
+            continue
+        depois = nome[posicao + 1 : posicao + 1 + len(SUFIXO_DA_GRADE)]
+        if depois.lower() != SUFIXO_DA_GRADE:
+            continue
+        marcas.append(caractere.upper())
+    return "".join(marcas)
 
 
 def similaridade(a: str | None, b: str | None) -> float:
@@ -410,9 +513,11 @@ def agrupar(
 
     A ORDEM DAS TRES DECISOES E O DESENHO INTEIRO:
 
-    1. A TRAVA DE DIGITOS filtra os candidatos por igualdade EXATA da
+    1. A TRAVA DE DIGITOS E DE GRADE filtra os candidatos por igualdade EXATA da
        assinatura. `+6 X` nunca chega perto de `+4 X`, por mais alta que seja a
-       similaridade (medida: 0,9677).
+       similaridade (medida: 0,9677), e `B-grade Gemstone` nunca chega perto de
+       `C-grade Gemstone` (medida: 0,9375) — os dois valem dez vezes um do
+       outro na loja de NPC.
     2. A TRAVA POR PALAVRA (D-09) veta os candidatos cujo RESTO — o que sobra
        depois de remover as palavras identicas — nao chega a `piso_do_resto`.
        `...C-grade Weapon` nunca chega perto de `...C-grade Armor`, porque o
@@ -422,7 +527,12 @@ def agrupar(
 
     AS DUAS TRAVAS SAO A MESMA IDEIA EM DOIS NIVEIS: o que bate por igualdade
     EXATA sai da conta ANTES, e a similaridade decide so o que sobrou. No D-03
-    o que sai e a sequencia de DIGITOS; no D-09 sao as PALAVRAS INTEIRAS.
+    o que sai e a sequencia de DIGITOS E LETRAS DE GRADE; no D-09 sao as
+    PALAVRAS INTEIRAS.
+
+    O `...C-grade Weapon` x `...C-grade Armor` continua sendo separado pela
+    trava por PALAVRA, e nao pela letra: a grade e a MESMA nos dois. Os dois
+    mecanismos nao se substituem, e cada par cai no seu.
 
     A TRAVA POR PALAVRA SO REMOVE CANDIDATO, NUNCA ACRESCENTA
     ----------------------------------------------------------
