@@ -115,3 +115,69 @@ especificou o criterio como comando.
 
 **Quem deve pegar:** um `/gsd-quick`. Cinco linhas em `tests/test_mercado_receitas.py`, no
 molde do que ja foi rodado.
+
+---
+
+## [260901-t4h] A moldura do destaque tem 153 colunas e rola para fora do console
+
+**Achado durante:** o quick `260901-t4h` (a trava do destaque), 2026-09-01.
+
+**Medido, e nao estimado.** Com o nome real da sessao de campo
+(`Protecting Scroll: Enchant C-grade Armor`), `destaque_ao_vivo` devolve um bloco
+de tres linhas de **153 colunas cada**:
+
+```
+0    ''
+153  '****************************************...'
+153  '  Protecting Scroll: Enchant C-grade Arm...'
+153  '****************************************...'
+```
+
+A causa e `console.moldurar`, que CRESCE para caber o texto
+(`largura = max(LARGURA, len(miolo) + len(carimbo))`, com `LARGURA = 58`). O
+destaque carrega nome + unitario + mediana + `n` numa linha so, entao a moldura
+acompanha e estoura a janela.
+
+**O precedente do conserto ja existe nesta fase:** o `04-04` resolveu o MESMO
+problema no aviso da secao de margem com `textwrap.wrap` em
+`LARGURA_DO_AVISO = 76` (`l2scanner/mercado_console.py:515` e `:699`), stdlib,
+sem dependencia nova, e com a razao escrita no lugar: *"QUEBRADA, e nao numa
+linha so de 180 caracteres. Uma advertencia que rola para fora da janela do
+console e uma advertencia que ninguem le."* A mesma frase se aplica aqui.
+
+**Por que NAO foi consertado junto — decisao minha, do agente executor, e nao do
+usuario.** O usuario pediu para alinhar *"se couber sem inchar"*, e nao coube.
+Os dois caminhos possiveis sao ambos maiores que este quick:
+
+1. **Fazer `console.moldurar` quebrar linha.** Ela e COMPARTILHADA: a docstring
+   dela diz que *"o WhatsApp usa a MESMA moldura"*, e `console.destacar` a usa
+   para os eventos de morte da party. Mudar a geometria dela mexeria no caminho
+   quente do alerta de WhatsApp — o produto inteiro — a partir de um quick sobre
+   spam de log do mercado. Isso e mudanca estrutural, e nao conserto de exibicao.
+2. **Montar um bloco de varias linhas dentro de `destaque_ao_vivo`.** Isso
+   contradiz uma decisao ESCRITA na propria docstring da funcao:
+   *"`console.moldurar` E NAO UMA REGUA DE CARACTERES MONTADA A MAO: a geometria
+   da moldura ja e uma so no projeto, e um bloco desalinhado ao lado dos outros
+   pareceria outro programa."* Improvisar uma quinta geometria de moldura aqui
+   seria desfazer em silencio uma decisao que o fonte defende por extenso.
+
+**O que MUDOU, e por que o adiamento e barato agora:** antes deste quick o bloco
+de 153 colunas saia a 1 Hz por oferta — pelo censo, ~10.800 linhas por hora, que
+e o que destruia a forense do `scanner.log`. Com a trava ele sai UMA vez por
+oferta distinta, ou seja, algumas dezenas de vezes numa sessao longa. O dano
+saiu de **forense** (o log fica inutil) para **cosmetico** (uma moldura larga
+rola para o lado). O problema urgente foi o que este quick consertou; o que
+sobrou e o desconforto visual.
+
+**Quem deve pegar:** um `/gsd-quick` proprio, com `l2scanner/console.py` no
+`files_modified` e `tests/test_console.py` + `tests/test_notificador.py` na
+verificacao — porque o que se decide la e a geometria do bloco que vai para o
+WhatsApp tambem. O conserto plausivel e dar a `moldurar` um parametro de largura
+maxima com o padrao de HOJE (crescer), para que nenhum chamador existente mude
+de comportamento, e so o destaque pedir a quebra em `LARGURA_DO_AVISO`.
+
+**O que NAO fazer:** encurtar o texto do destaque para caber em 58 colunas. A
+mediana de referencia e o `n` estao ali por exigencia do ANAL-02, e a docstring
+de `destaque_ao_vivo` explica que sem eles *"esta barata"* vira *"uma opiniao com
+cara de medicao, e o usuario nao teria como discordar"*. Caber na moldura nao
+vale perder a evidencia.
