@@ -996,14 +996,19 @@ class TestQuemConheceOAcervoEOQueOLacoFazComEle:
             "acervo.py",
             "aprendiz.py",
             "batismo.py",
+            "esquecimento.py",
             "__main__.py",
         }, (
             "o acervo e LIDO no arranque (`__main__.py`), ESCRITO por "
-            "inferencia (`aprendiz.py`, Fase 2) e NOMEADO pelo batismo "
-            "(`batismo.py`, Fase 3), e mais nada. `sessao.py` e `visao.py` "
+            "inferencia (`aprendiz.py`, Fase 2), NOMEADO pelo batismo "
+            "(`batismo.py`, Fase 3) e TIRADO DE CIRCULACAO pelo esquecimento "
+            "(`esquecimento.py`), e mais nada. `sessao.py` e `visao.py` "
             "continuam de FORA de proposito: a sessao fala com o aprendiz e "
             "com o batismo, e nunca com o acervo, e a visao e uma funcao pura "
-            "que nao fala com nenhum dos tres. Achado: " + str(conhecem)
+            "que nao fala com nenhum dos tres. E `comandos.py` tambem continua "
+            "de fora: ele fala com o `esquecimento`, e nao com o acervo, pelo "
+            "mesmo desenho que ele ja tinha com o `batismo`. Achado: "
+            + str(conhecem)
         )
 
     def test_o_laco_real_ESCREVE_no_acervo_e_escreve_uma_vez_so(

@@ -1314,6 +1314,18 @@ class TestSemRelogioProprio:
         "acervo.py",
         "aprendiz.py",
         "batismo.py",
+        # `esquecimento.py` entra pela mesma antecipacao dos tres acima: ele
+        # nao tem uma linha de logica de tempo hoje, e adotar agora custa uma
+        # linha.
+        #
+        # A RAZAO PROPRIA DELE E A MAIS FORTE DA LISTA. Um `datetime.now()` ali
+        # dentro nao seria lido como mudanca de politica: seria lido como
+        # conveniencia ("esquece sozinho o que tem mais de N dias"), e o
+        # desfecho e PODA AUTOMATICA sobre a pasta que o projeto inteiro
+        # decidiu nao podar, decidida por um relogio em vez de pelo dono. O
+        # comando existe justamente para que o dono escolha, uma a uma ou pelo
+        # lote de mira travada, o que sai de circulacao.
+        "esquecimento.py",
     )
 
     @staticmethod
@@ -1584,6 +1596,22 @@ class TestDestinoDosComandosAntigos:
         # em `tmp_path` — aqui ele nao caberia sem arrastar meia fase para
         # dentro de uma tabela de destinos.
         (".batizar <apelido> <nick>", "/batizar 0123ab Mostarda", False),
+        # E o esquecimento, que entrou pela MESMA pinca de todos os anteriores:
+        # o tripwire abaixo deriva a cobertura de `set(Comando)`, `ESQUECER`
+        # nasce fora de `COMANDOS_DE_MEMBRO`, e por isso cai em `antigos` e
+        # cobra linha aqui.
+        #
+        # O QUE ESTA LINHA COBRE E O RAMO SEM ACERVO, pela mesma razao escrita
+        # no `/batizar` logo acima: `despachos_de` nao constroi acervo nenhum,
+        # entao o que passa por aqui e a recusa "nao consigo mexer nas
+        # identidades agora". Ela e resposta pessoal a quem digitou, e por isso
+        # `eco_no_grupo=False`.
+        #
+        # E O CAMINHO FELIZ TAMBEM E `False`, ao contrario do batismo: nao ha
+        # eco no grupo em NENHUM ramo deste comando. O batismo ecoa porque a
+        # PERGUNTA foi publica; esquecer nao responde pergunta nenhuma. Provado
+        # em `tests/test_esquecimento.py`, com acervo de verdade em `tmp_path`.
+        (".esquecer <apelido>", "/esquecer 0123ab", False),
     ]
 
     def _loot(self, tmp_path):

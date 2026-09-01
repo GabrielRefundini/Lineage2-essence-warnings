@@ -35,6 +35,7 @@ from .calibracao import (  # noqa: E402
     CalibracaoInvalida,
     descrever_geometria_da_tela,
 )
+from .esquecimento import responder_esquecimento  # noqa: E402
 from .agenda import (  # noqa: E402
     Aviso,
     JanelaDeSilencio,
@@ -1053,6 +1054,7 @@ def atender_comandos(
     bosses=(),
     acervo=None,
     assinaturas_vivas=None,
+    forma_esperada=None,
 ) -> None:
     """Le, obedece e confirma. Nunca levanta.
 
@@ -1072,6 +1074,23 @@ def atender_comandos(
     nao existe lista viva nem rastreador porque nao existe tela. O disco e
     escrito do mesmo jeito, e o nome vale a partir do proximo arranque do
     scanner (T-03-07).
+
+    `forma_esperada` E A REGIAO DE NOME DE AGORA, e ela existe so para o LOTE
+    do `/esquecer`. Ela tambem e `None` no laco da agenda, e essa ausencia e da
+    mesma familia da de cima mas de outro tamanho: o `--so-agenda` e o modo de
+    quem esta com o jogo FECHADO e nao le calibracao nenhuma de proposito (ver
+    a docstring de `laco_da_agenda`). Sem geometria o lote e RECUSADO com uma
+    frase que diz onde ele funciona, em vez de adivinhar — adivinhar aqui e o
+    comando escolhendo sozinho o que esta morto, e a escolha errada tira de
+    circulacao gente viva.
+
+    LER A CALIBRACAO DENTRO DO LACO DA AGENDA SO PARA FECHAR ESSA LACUNA SERIA
+    PIOR, e a tentacao e obvia: `calibration.json` e um arquivo, e o
+    `--so-agenda` roda no mesmo PC. Mas aquele modo sobe HOJE sem calibracao
+    nenhuma, e passar a le-la daria a ele um modo de falha novo (arquivo
+    ausente ou torto) em troca de um comando que quem esta com o jogo fechado
+    nao tem como conferir. A recusa custa uma mensagem; o outro caminho custa o
+    arranque.
 
     `bosses` E A LISTA DO `config.toml`, e ela chega dos DOIS lacos. O default
     vazio existe so para os testes antigos que nao passam nada continuarem
@@ -1309,6 +1328,41 @@ def atender_comandos(
             # `RespostaDoBatismo.grupo`, e nao desta flag: a pergunta foi
             # publica, entao a confirmacao fecha o circuito onde ele foi
             # aberto, com um texto curto e diferente.
+            avisar_o_grupo = False
+        elif pedido.comando is Comando.ESQUECER:
+            if acervo is None:
+                resposta = "Nao consigo mexer nas identidades agora."
+            else:
+                esquecimento = responder_esquecimento(
+                    acervo,
+                    pedido.argumento,
+                    # A LISTA VIVA, e aqui ela e o analogo do que o batismo
+                    # ja faz (D-08), na direcao contraria: sem ela o disco
+                    # esquece e a TELA continua reconhecendo ate o proximo
+                    # arranque, e o usuario manda o comando de novo achando
+                    # que falhou. `None` no laco da agenda, onde nao ha tela.
+                    assinaturas_vivas=assinaturas_vivas,
+                    # A GEOMETRIA DE AGORA, e ela existe so para o LOTE.
+                    # `None` no laco da agenda, e la o lote e recusado em vez
+                    # de adivinhar o que esta morto. Ver a docstring desta
+                    # funcao.
+                    forma_esperada=forma_esperada,
+                )
+                resposta = RespostaDePresenca(
+                    privado=esquecimento.privado, grupo=esquecimento.grupo
+                )
+            # A ATRIBUICAO E OBRIGATORIA, pela mesma razao escrita no ramo do
+            # batismo logo acima: no caminho feliz este ramo devolve
+            # `RespostaDePresenca` e o `isinstance` do bloco de despacho
+            # curto-circuita antes de a flag ser lida, mas no ramo sem acervo
+            # ele devolve `str` e a flag e lida de verdade.
+            #
+            # `False` E O VALOR FINAL DOS DOIS RAMOS, e nao so do de recusa. Ao
+            # contrario do batismo, aqui NENHUM desfecho ecoa no grupo:
+            # `RespostaDoEsquecimento.grupo` e sempre `None`. O batismo ecoa
+            # porque a PERGUNTA foi publica e ficaria pendurada no grupo;
+            # esquecer nao responde pergunta nenhuma, e o grupo nao tem o que
+            # fazer com a informacao de que uma assinatura saiu de circulacao.
             avisar_o_grupo = False
         elif pedido.comando is Comando.JOIN:
             # `pedido.nick` pode ser None — e o DONO que nao se declarou
@@ -2529,6 +2583,16 @@ def laco_principal(
                 # (D-08).
                 acervo=acervo,
                 assinaturas_vivas=cal.assinaturas,
+                # A GEOMETRIA DE AGORA, para o lote do `/esquecer`.
+                #
+                # SAI DE `regiao_do_nome` E NAO DO `layout` DIRETO, e a fonte e
+                # a MESMA que `carregar_identidades` usou para montar o aviso
+                # de arranque ("7 assinatura(s) foram gravadas com a regiao de
+                # nome 20x100 e a atual e 20x110"). Ler de outro lugar faria o
+                # aviso e o lote discordarem sobre quem esta morto, e o usuario
+                # acreditaria no aviso: ele mandaria esquecer sete e receberia
+                # seis, sem nenhuma explicacao possivel.
+                forma_esperada=(regiao_do_nome.altura, regiao_do_nome.largura),
             )
 
             resultado = sessao.tick(frame, momento)

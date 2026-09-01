@@ -252,6 +252,30 @@ class TestInterpretar:
             # como apelido desconhecido, porque "3" e so um prefixo hex que nao
             # casa chave nenhuma.
             Comando.BATIZAR,
+            # E TIRAR DE CIRCULACAO uma assinatura que nunca deveria ter
+            # entrado. Crescimento DE PROPOSITO, e a frase que o comentario
+            # acima escreve ("num acervo sem comando de esquecer") deixa de ser
+            # verdade aqui: era ela, medida em campo, que fazia a pasta do
+            # usuario acumular "Show Options", texto de UI e 7 assinaturas
+            # gravadas sob uma regiao de nome que nao existe mais.
+            #
+            # E O MAIS DESTRUTIVO DA LISTA, e por isso a razao de ele ficar
+            # fora de `COMANDOS_DE_MEMBRO` e mais forte que a do `/batizar`, e
+            # nao apenas igual: um batismo errado corrompe um NOME e o proximo
+            # alerta mostra a mentira; um esquecimento errado tira do
+            # reconhecimento uma pessoa que o scanner enxerga hoje, e o sintoma
+            # e ela virar "Membro N" no meio de um farm, calada.
+            #
+            # O CONTRAPESO E PROPRIO DELE, e e o que torna o crescimento
+            # aceitavel: ele nao APAGA. `acervo.esquecer` renomeia os dois
+            # arquivos da entrada, e a resposta diz para quais nomes. A
+            # operacao inteira e desfeita com dois `rename` e um reinicio.
+            #
+            # E o LOTE, que e a unica sintaxe do projeto que atinge N entradas
+            # com uma frase, tem a mira presa num FATO e nao numa vontade: so
+            # alcanca o que foi gravado sob outra regiao de nome, ou seja o que
+            # ja nao pode casar com nada.
+            Comando.ESQUECER,
         }
 
     def test_as_formas_do_desligamento_do_boss(self):

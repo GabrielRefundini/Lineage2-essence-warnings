@@ -64,6 +64,29 @@ PREFIXO_ASSINATURA = "assinatura_"
 SUFIXO_ASSINATURA = ".json"
 PREFIXO_NOME = "nome_"
 
+# Os dois prefixos do ESQUECIMENTO, e eles sao a forma inteira do recurso.
+#
+# ESQUECER E RENOMEAR, NUNCA APAGAR. A leitura desta pasta so aceita
+# `assinatura_<64 hex>.json` (`_chave_do_nome`) e le o nome exatamente de
+# `nome_<chave>` (`_nome_de`), entao trocar o prefixo JA TIRA a entrada de
+# circulacao, sem uma linha de logica nova em nenhum dos dois leitores. A
+# entrada some do reconhecimento e continua no disco.
+#
+# POR QUE NAO `unlink`. Um `unlink` numa pasta gitignored, sem backup e sem
+# versionamento, comandado por uma mensagem de WhatsApp, seria a unica
+# operacao verdadeiramente irreversivel deste projeto. E ele nasceu inteiro da
+# premissa de preferir o desfecho recuperavel: o `gravar` desfaz o proprio
+# arquivo pela metade, o `nomear` escreve por temporario mais `os.replace`, e
+# `_ler` prefere descartar uma entrada a devolver um nome errado. Apagar aqui
+# contradiria os tres na mesma pasta.
+#
+# E O PRECO E CONHECIDO E ACEITO: a pasta cresce. Uma assinatura ocupa 562
+# bytes (medido em 2026-08-31), e o acervo ja tinha sido declarado sem poda
+# pela mesma conta. Esquecer nao piora nada que o desenho ja nao tivesse
+# aceitado.
+PREFIXO_ESQUECIDA = "esquecida_"
+PREFIXO_NOME_ESQUECIDO = "esquecido_nome_"
+
 # O irmao que diz "ja perguntei quem e esta pessoa" (D-04, Fase 3).
 #
 # ELE MORA NESTA PASTA, e as tres razoes ja foram pagas:
@@ -135,6 +158,32 @@ def chave_da_assinatura(assinatura: Assinatura) -> str:
     return hashlib.sha256(material.encode("ascii")).hexdigest()
 
 
+def fora_de_forma(
+    assinatura: Assinatura, forma_esperada: tuple[int, int] | None
+) -> bool:
+    """Esta assinatura foi gravada sob OUTRA regiao de nome? Funcao PURA.
+
+    O CRITERIO MORA NUM LUGAR SO, e agora ele tem tres leitores: a contagem do
+    arranque (`Identidades.fora_de_forma`), o aviso que o usuario le
+    (`Identidades.aviso_de_forma`) e a mira do lote do `/esquecer`. Tres copias
+    de um `tuple(a.mascara.shape) != forma` divergiriam no primeiro ajuste, e a
+    divergencia apareceria no pior lugar possivel: o aviso diria que sete
+    entradas estao mortas e o lote esqueceria seis, ou oito.
+
+    A FORMA SAO AS DUAS DIMENSOES, e nao so a largura: `nome_altura` tambem e
+    calibravel, e olhar so um dos lados deixaria a mesma falha silenciosa
+    entrar pelo outro.
+
+    `forma_esperada is None` quer dizer "ninguem disse qual e a forma de
+    agora", e nesse caso NADA e acusado. E o que mantem valendo, sem um caso
+    especial, a chamada de dois argumentos de `carregar_identidades` e o laco
+    `--so-agenda`, que nao tem calibracao para consultar.
+    """
+    if forma_esperada is None:
+        return False
+    return tuple(assinatura.mascara.shape) != tuple(forma_esperada)
+
+
 @dataclass(frozen=True)
 class Identidades:
     """Quem o scanner conhece neste arranque: as calibradas mais o acervo.
@@ -161,12 +210,10 @@ class Identidades:
         e calibravel, e olhar so um dos lados deixaria a mesma falha silenciosa
         entrar pelo outro.
         """
-        if self.forma_esperada is None:
-            return 0
         return sum(
             1
             for a in self.assinaturas
-            if tuple(a.mascara.shape) != self.forma_esperada
+            if fora_de_forma(a, self.forma_esperada)
         )
 
     @property
@@ -214,11 +261,7 @@ class Identidades:
         """
         if self.forma_esperada is None:
             return None
-        fora = [
-            a
-            for a in self.assinaturas
-            if tuple(a.mascara.shape) != self.forma_esperada
-        ]
+        fora = [a for a in self.assinaturas if fora_de_forma(a, self.forma_esperada)]
         if not fora:
             return None
 
@@ -517,7 +560,109 @@ class AcervoDeIdentidades:
 
         return "nomeado"
 
+    def esquecer(self, chave: str) -> str:
+        """Tira uma entrada de circulacao SEM apagar nada.
+
+        Quadri-estado: esquecida | ausente | simulado | invalido | falhou.
+
+        RENOMEIA OS DOIS ARQUIVOS, e a ORDEM E DE CORRETUDE:
+
+        1. `nome_<chave>`      -> `esquecido_nome_<chave>`
+        2. `assinatura_<chave>.json` -> `esquecida_<chave>.json`
+
+        O nome PRIMEIRO. Se o passo 1 falha, nada foi tocado e o desfecho e
+        `falhou` — o usuario tenta de novo e o mundo esta como estava. Se o
+        passo 2 falha depois do 1 ter dado certo, a entrada continua sendo
+        lida, porem ANONIMA: `_ler` chama `_nome_de`, que agora nao acha o
+        irmao e devolve `""`. Uma assinatura anonima e reconhecida e nunca vira
+        sujeito de alerta (APRE-03), entao a degradacao aponta para o SILENCIO.
+        Na ordem inversa, uma falha no meio deixaria um `nome_<chave>` orfao
+        que colaria o nome antigo na proxima vez que a mesma mascara fosse
+        aprendida — a chave e o hash do CONTEUDO, entao um recorte identico
+        volta com a mesma chave. Nome errado, sem ninguem ter batizado nada.
+
+        `os.replace` E NAO `rename`: ele e atomico e SOBRESCREVE, tambem no
+        Windows. Sobrescrever e o certo aqui — o alvo so pode existir se esta
+        MESMA chave ja tiver sido esquecida antes, e a chave E o hash do
+        conteudo, entao o arquivo de destino tem byte a byte o mesmo material.
+        Com `rename` o segundo esquecimento levantaria `FileExistsError` no
+        Windows e viraria um `falhou` sobre uma operacao que deu certo.
+
+        `AUSENTE` NAO E `FALHOU`, e os dois precisam ser distinguiveis por quem
+        redige a resposta: "essa ja nao estava aqui" e uma frase tranquila e
+        final; "nao consegui mexer no disco" pede que o usuario tente de novo.
+        Colapsar os dois faria uma falha de disco parecer sucesso, que e
+        exatamente a assimetria que o `gravar` logo acima se recusou a aceitar.
+
+        `SIMULADO` EXISTE PELO INCIDENTE DE 2026-08-26 19:30. Em `--dry-run` o
+        `montar_despachante` devolve um `Despachante` de CONSOLE, real e vivo:
+        a simulacao OUVE comandos de verdade, e o marcador `comando_<id>` da
+        `.agenda/` e COMPARTILHADO. Sem este portao, um `/esquecer` digitado
+        enquanto uma simulacao roda ao lado do scanner de verdade tiraria de
+        circulacao a entrada do scanner de verdade. E o mesmo argumento do
+        `marcar_pergunta`, agora com uma operacao destrutiva no lugar de um
+        marcador.
+
+        O MARCADOR `perguntado_<chave>` FICA, e a ausencia de codigo aqui e
+        deliberada. D-04 diz "uma pergunta por assinatura, para sempre". Uma
+        entrada esquecida e, na maioria esmagadora dos casos, lixo: "Show
+        Options", texto de UI, um recorte contaminado com "Kills: 4 Deaths" por
+        cima do nome (todos medidos na pasta do usuario em 2026-08-31). Se a
+        mesma mascara reaparecer, ela produz a MESMA chave, e apagar o marcador
+        aqui faria o scanner voltar a perguntar quem e a janela do navegador.
+        Perguntar de novo sobre o que o usuario acabou de mandar esquecer e o
+        contrario do que ele pediu.
+
+        O QUE ISSO DEIXA EM ABERTO, escrito para ninguem "consertar" o que esta
+        certo: se a MESMA mascara for aprendida outra vez, `gravar` cria de
+        novo `assinatura_<chave>.json` (o `O_EXCL` passa, porque o arquivo agora
+        se chama `esquecida_...`) e a entrada volta ao acervo, anonima e sem
+        pergunta. Uma lista de banimento resolveria e custaria um SEGUNDO estado
+        duravel sobre a mesma pasta, capaz de discordar dela — o que este modulo
+        recusa desde a primeira linha. E a causa que enchia a pasta de lixo era
+        o aprendizado durante a REAQUISICAO, fechado no mesmo dia deste comando.
+        """
+        if not CHAVE_VALIDA.fullmatch(chave):
+            return "invalido"
+
+        if self._simulando:
+            return "simulado"
+
+        assinatura = self._pasta / f"{PREFIXO_ASSINATURA}{chave}{SUFIXO_ASSINATURA}"
+        if not assinatura.exists():
+            return "ausente"
+
+        nome = self._pasta / f"{PREFIXO_NOME}{chave}"
+        if nome.exists():
+            try:
+                os.replace(nome, self._pasta / f"{PREFIXO_NOME_ESQUECIDO}{chave}")
+            except OSError:
+                return "falhou"
+
+        try:
+            os.replace(
+                assinatura,
+                self._pasta / f"{PREFIXO_ESQUECIDA}{chave}{SUFIXO_ASSINATURA}",
+            )
+        except OSError:
+            return "falhou"
+
+        return "esquecida"
+
     # -- leitura ------------------------------------------------------------
+
+    def entradas(self) -> list[tuple[str, Assinatura]]:
+        """Os pares (chave, assinatura), lidos do disco UMA vez.
+
+        `chaves()`, `assinaturas()` e `nomeados()` derivam todos daqui e cada
+        um releria a pasta inteira. Quem precisa da chave E da mascara na mesma
+        decisao — o lote do `/esquecer`, que escolhe pela forma e age pela
+        chave — nao pode ler duas vezes: entre as duas leituras a OUTRA
+        instancia do usuario roda sobre a MESMA pasta, e a resposta descreveria
+        um estado que nunca existiu. E o mesmo argumento que faz
+        `responder_batismo` ler `nomeados()` uma vez so.
+        """
+        return self._entradas()
 
     def chaves(self) -> list[str]:
         """As chaves presentes na pasta, ordenadas.
