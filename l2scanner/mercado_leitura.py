@@ -1104,6 +1104,89 @@ def cruzamento_confere(
     return residuo <= float(tolerancia) * int(quantidade)
 
 
+class TravaDaObservacao:
+    """Que divergencia ja foi observada nesta sessao. Cada uma sai UMA vez.
+
+    O DEFEITO QUE ELA CONSERTA FOI VISTO EM PRODUCAO (sessao de 2026-09-01
+    09:38): a pagina do mercado e relida a cada tick, entao a MESMA divergencia
+    da MESMA oferta era registrada a 1 Hz. Na sessao real eram DUAS linhas por
+    tick — ~7.200 por hora — e o `scanner.log` rotativo perde exatamente a
+    forense que ele existe para guardar.
+
+    ELA E IRMA DE `TravaDoDestaque`, E DE PROPOSITO. Mesma doutrina: um anuncio
+    por OFERTA distinta, da SESSAO inteira, e `anunciar` devolve o TEXTO em vez
+    de um booleano — para nao existir caminho que anuncie sem passar por aqui.
+    O destaque foi o primeiro anuncio repetitivo a ganhar trava; esta mensagem
+    passou despercebida so por ser outra mensagem.
+
+    A IDENTIDADE E `(total, unitario, quantidade)`, E A DIFERENCA PARA
+    `chave_da_observacao` NAO E ESCOLHA — E CONSTRUCAO. Aquela chave e
+    `serie + total + quantidade`, e a serie NAO EXISTE neste ponto: o nome e
+    lido no passo 5 do pipeline de `ler_linha`, DEPOIS da guarda de cruzamento,
+    porque uma linha que a guarda derruba nao deve pagar ~7 ms de OCR. Trocar a
+    ordem para alcancar a chave custaria OCR em toda linha recusada, que e o
+    oposto do que a ordem foi medida para fazer.
+
+    E OS TRES NUMEROS SAO A IDENTIDADE CERTA PARA ESTA MENSAGEM, e nao um
+    substituto pobre: a observacao e sobre a ARITMETICA — `total` contra
+    `unitario x quantidade` —, e sao exatamente esses tres que a definem. Duas
+    ofertas com a mesma aritmetica tem a mesma divergencia a dizer.
+
+    O INDICE DA GRADE FICA DE FORA. A oferta sobe e desce de linha quando o
+    usuario rola o quadro; se o indice travasse, uma rolagem de uma linha
+    reanunciaria a pagina inteira — o defeito de volta, disfarcado de
+    observacao nova.
+
+    ELA E DO LEITOR, e nao de escopo de modulo: `LeitorDePagina` ja hospeda
+    `_layout_ja_recusado`, `_congelamento_ja_avisado` e `_falta_ja_avisada`
+    pela mesma razao, e uma trava de modulo faria a segunda sessao sair muda
+    sobre divergencias que o usuario nunca viu.
+
+    O CONJUNTO NAO E PODADO. Ele guarda uma tupla de tres inteiros por
+    divergencia DISTINTA — e divergencia acima do limite derivado e rara, nao
+    a regra —, entao o custo e desprezivel perto do risco de uma poda
+    reanunciar o que ja saiu.
+    """
+
+    def __init__(self) -> None:
+        # PUBLICO, no padrao dos contadores de `LeitorDePagina` e do
+        # `ja_anunciadas` de `TravaDoDestaque`: e o que deixa o teste afirmar a
+        # identidade escolhida sem espiar o objeto por dentro.
+        self.ja_observadas: set[tuple[int, int | None, int]] = set()
+
+    def anunciar(
+        self,
+        indice: int,
+        total: int,
+        unitario: int | None,
+        quantidade: int,
+        residuo: int,
+    ) -> str | None:
+        """O texto da observacao na PRIMEIRA vez desta divergencia; `None` depois.
+
+        `None` E NAO STRING VAZIA: uma string vazia atravessaria um `if texto:`
+        distraido e registraria uma linha em branco por tick.
+
+        QUEM DECIDE SE HA O QUE DIZER E `_observar_o_cruzamento`, e nao esta
+        classe. Ela so registra o que ja foi dito: o portao do limite derivado
+        e da guarda desligada continua la, um passo acima.
+
+        O INDICE ENTRA NO TEXTO E NAO NA CHAVE — e onde o usuario olha na
+        grade, e na primeira ocorrencia ele esta certo.
+        """
+        chave = (int(total), unitario, int(quantidade))
+        if chave in self.ja_observadas:
+            return None
+        self.ja_observadas.add(chave)
+        return (
+            f"linha {indice} OBSERVACAO do cruzamento: total={total} "
+            f"unitario={unitario} quantidade={quantidade} residuo={residuo} "
+            f"acima do limite derivado "
+            f"{limite_derivado_do_cruzamento(quantidade):.1f}. A guarda esta "
+            f"DESLIGADA (medicao do 02-02 REPROVADA) — nada foi descartado."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Os cinco motivos de recusa desta fase (D-17)
 # ---------------------------------------------------------------------------
@@ -1419,6 +1502,7 @@ def ler_linha(
     sonda: dict | None,
     limiar_de_dispersao: float,
     tolerancia_do_cruzamento: float | None,
+    trava_da_observacao: TravaDaObservacao,
     catalogo: dict[str, EntradaDoCatalogo],
     corte_de_similaridade: float,
     piso_de_similaridade: float,
@@ -1458,6 +1542,13 @@ def ler_linha(
     partir dela devolveria `0,83 x 48 = 39,84` onde a tela diz `40,00`.
 
     O unitario ILEGIVEL nao derruba a linha — ele so cala a guarda.
+
+    A `trava_da_observacao` CHEGA DE FORA porque ela e da SESSAO e esta funcao e
+    do TICK. Ela e quem faz a observacao do passo 4 sair uma vez por divergencia
+    em vez de uma vez por tick; sem ela a mesma linha era registrada a 1 Hz
+    enquanto a oferta estivesse na tela. Vem sem valor de fabrica, como a
+    tolerancia e os dois pisos: um default aqui esconderia quem a forneceu, e um
+    `None` silencioso devolveria o defeito inteiro sem nada denunciar.
 
     SAO DOIS PISOS DE BRILHO E NAO UM, E A RAZAO E MEDIDA. As colunas de MOEDA
     (`Total` e `Unit price`) recebem `valor_minimo_do_numero`, o piso
@@ -1548,7 +1639,13 @@ def ler_linha(
                 f"(limite {float(tolerancia_do_cruzamento) * quantidade})",
             )
         _observar_o_cruzamento(
-            indice, total, unitario, quantidade, residuo, tolerancia_do_cruzamento
+            indice,
+            total,
+            unitario,
+            quantidade,
+            residuo,
+            tolerancia_do_cruzamento,
+            trava_da_observacao,
         )
 
         return _ler_o_nome(
@@ -1575,6 +1672,7 @@ def _observar_o_cruzamento(
     quantidade: int,
     residuo: int | None,
     tolerancia: float | None,
+    trava: TravaDaObservacao,
 ) -> None:
     """A rota da guarda REPROVADA: registrar em vez de descartar.
 
@@ -1585,22 +1683,25 @@ def _observar_o_cruzamento(
 
     Cala inteiramente com a guarda LIGADA: ali quem fala e o descarte, e dois
     registros para o mesmo evento fariam a contagem do console mentir.
+
+    E FALA UMA VEZ POR DIVERGENCIA, E NAO UMA VEZ POR TICK. A pagina e relida a
+    cada segundo, entao sem a `trava` a MESMA observacao saia a 1 Hz enquanto a
+    oferta estivesse na tela — medido em producao, ~7.200 linhas por hora. A
+    PRIMEIRA continua saindo sempre: o residuo e OBSERVACAO e existe para o
+    usuario ver que aquela leitura pode estar torta; suprimi-la apagaria
+    informacao, e nao ruido.
+
+    A `trava` CHEGA POR PARAMETRO e sem valor de fabrica, pelo charter deste
+    modulo. Ela e do `LeitorDePagina`, que atravessa a sessao; construida aqui
+    dentro nasceria vazia a cada linha e nao travaria nada.
     """
     if tolerancia is not None or residuo is None:
         return
     if residuo <= limite_derivado_do_cruzamento(quantidade):
         return
-    log.info(
-        "linha %d OBSERVACAO do cruzamento: total=%d unitario=%s quantidade=%d "
-        "residuo=%d acima do limite derivado %.1f. A guarda esta DESLIGADA "
-        "(medicao do 02-02 REPROVADA) — nada foi descartado.",
-        indice,
-        total,
-        unitario,
-        quantidade,
-        residuo,
-        limite_derivado_do_cruzamento(quantidade),
-    )
+    texto = trava.anunciar(indice, total, unitario, quantidade, residuo)
+    if texto is not None:
+        log.info("%s", texto)
 
 
 def _ler_o_nome(

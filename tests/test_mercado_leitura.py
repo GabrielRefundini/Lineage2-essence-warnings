@@ -1064,13 +1064,24 @@ def chamar_ler_linha(
     catalogo=None,
     *,
     tolerancia=None,
+    trava=None,
 ):
     """`ler_linha` direto, com as duas leitoras CONTADORAS.
 
     `tolerancia` chega EXPLICITA em toda chamada porque em `ler_linha` ela nao
     tem valor de fabrica: a guarda de cruzamento so descarta com um numero que
     alguem mediu, e um default aqui esconderia justamente quem o forneceu.
+
+    `trava` OMITIDA VIRA UMA TRAVA NOVA, e nunca `None`. `ler_linha` tambem a
+    exige sem valor de fabrica, pelo charter deste modulo; uma trava nova por
+    chamada e o equivalente de "um tick isolado", que e o que a maioria destes
+    testes quer. Quem precisa de DOIS ticks passa a MESMA trava nos dois, e e
+    exatamente essa diferenca que prova a supressao da repeticao.
     """
+    from l2scanner.mercado_leitura import TravaDaObservacao
+
+    if trava is None:
+        trava = TravaDaObservacao()
     contagem = {"2x": 0, "3x": 0}
 
     def barata(_pixels):
@@ -1090,6 +1101,7 @@ def chamar_ler_linha(
         recortes["unitario"],
         moldes=moldes,
         tolerancia_do_cruzamento=tolerancia,
+        trava_da_observacao=trava,
         piso=float(cal.mercado_limiar_de_leitura_de_glifo),
         margem=float(cal.mercado_margem_de_leitura_de_glifo),
         # OS DOIS PISOS DE BRILHO, cada um da sua fonte: as colunas de MOEDA no
@@ -1971,6 +1983,234 @@ class TestARotaAPROVADA:
         texto = caplog.text
         for numero in ("1880", "600", "3"):
             assert numero in texto
+
+
+def observacoes_emitidas(caplog) -> list[str]:
+    """So as linhas de OBSERVACAO do cruzamento, e nao qualquer prosa.
+
+    Um `in` solto ("cruzamento" em qualquer lugar) casaria tambem no DESCARTE
+    da rota aprovada, e o teste ficaria verde contando a mensagem errada.
+    """
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if "OBSERVACAO do cruzamento" in r.getMessage()
+    ]
+
+
+class TestATravaDaObservacaoDoCruzamento:
+    """O segundo defeito de producao de 2026-09-01, escrito como teste.
+
+    A pagina e relida a cada tick, entao a MESMA divergencia da MESMA oferta
+    saia a 1 Hz — duas linhas por tick na sessao real, ~7.200 por hora, e o
+    `scanner.log` rotativo perde a forense que ele existe para guardar. E o
+    mesmo defeito que `TravaDoDestaque` consertou no destaque; passou
+    despercebido porque e outra mensagem.
+    """
+
+    def test_a_PRIMEIRA_observacao_de_uma_oferta_SEMPRE_sai(
+        self, cal, moldes, janela_f010, caplog
+    ) -> None:
+        """O teste de CONTROLE dos outros, e o que nao pode mudar.
+
+        A guarda de cruzamento esta DESLIGADA por medicao e o residuo e
+        OBSERVACAO: ele existe para o usuario ver que aquela leitura pode estar
+        torta. Uma trava que engolisse a primeira apagaria informacao, e nao
+        ruido — ficaria verde em "nao repete" tendo destruido a unica pista
+        independente de leitura errada que esta fase tem.
+        """
+        from l2scanner.mercado_leitura import TravaDaObservacao
+
+        recortes = linha_com_o_total_adulterado(cal, janela_f010, 8)
+        with caplog.at_level("INFO", logger="l2scanner.mercado_leitura"):
+            chamar_ler_linha(
+                cal,
+                moldes,
+                recortes,
+                8,
+                tolerancia=None,
+                trava=TravaDaObservacao(),
+            )
+        emitidas = observacoes_emitidas(caplog)
+        assert len(emitidas) == 1
+        for numero in ("1880", "600", "80"):
+            assert numero in emitidas[0]
+
+    def test_a_mesma_observacao_em_dois_ticks_seguidos_sai_UMA_vez(
+        self, cal, moldes, janela_f010, caplog
+    ) -> None:
+        """O defeito de producao, no minimo que o reproduz.
+
+        DOIS ticks bastam; a sessao real fez isto por milhares deles. A trava e
+        a MESMA nos dois, porque na producao ela e do LEITOR e o leitor
+        atravessa a sessao inteira.
+        """
+        from l2scanner.mercado_leitura import TravaDaObservacao
+
+        trava = TravaDaObservacao()
+        recortes = linha_com_o_total_adulterado(cal, janela_f010, 8)
+        with caplog.at_level("INFO", logger="l2scanner.mercado_leitura"):
+            for _tick in range(2):
+                chamar_ler_linha(
+                    cal, moldes, recortes, 8, tolerancia=None, trava=trava
+                )
+        assert len(observacoes_emitidas(caplog)) == 1
+
+    def test_a_oferta_continua_travada_muitos_ticks_depois(
+        self, cal, moldes, janela_f010, caplog
+    ) -> None:
+        """A trava e da SESSAO, e nao uma janela de tempo.
+
+        Enquanto a oferta estiver no quadro ela sera relida a cada tick, e uma
+        trava que expirasse so trocaria milhares de linhas repetidas por
+        dezenas de linhas repetidas — continuaria sendo repeticao do mesmo
+        fato.
+        """
+        from l2scanner.mercado_leitura import TravaDaObservacao
+
+        trava = TravaDaObservacao()
+        recortes = linha_com_o_total_adulterado(cal, janela_f010, 8)
+        with caplog.at_level("INFO", logger="l2scanner.mercado_leitura"):
+            for _tick in range(60):
+                chamar_ler_linha(
+                    cal, moldes, recortes, 8, tolerancia=None, trava=trava
+                )
+        assert len(observacoes_emitidas(caplog)) == 1
+
+    def test_uma_oferta_DIFERENTE_sai_com_anuncio_PROPRIO(self) -> None:
+        """A trava e por OFERTA, e a identidade e a aritmetica conferida.
+
+        Duas divergencias diferentes sao duas noticias diferentes. Uma trava
+        grossa demais — por linha da grade, por exemplo — engoliria a segunda
+        so porque a primeira ja tinha aparecido.
+        """
+        from l2scanner.mercado_leitura import TravaDaObservacao
+
+        trava = TravaDaObservacao()
+        assert trava.anunciar(2, 1880, 600, 3, 80) is not None
+        assert trava.anunciar(2, 67400, 600, 3, 4) is not None
+
+    def test_a_MESMA_oferta_em_outra_LINHA_da_grade_continua_travada(
+        self,
+    ) -> None:
+        """O indice da grade NAO entra na identidade, e isso e decisao.
+
+        A oferta sobe e desce de linha quando o usuario rola o quadro. Se o
+        indice travasse, uma rolagem de uma linha reanunciaria tudo — o defeito
+        de volta, disfarcado de observacao nova.
+        """
+        from l2scanner.mercado_leitura import TravaDaObservacao
+
+        trava = TravaDaObservacao()
+        assert trava.anunciar(2, 1880, 600, 3, 80) is not None
+        assert trava.anunciar(5, 1880, 600, 3, 80) is None
+
+    def test_a_trava_devolve_TEXTO_e_nao_um_booleano(self) -> None:
+        """A disciplina de `TravaDoDestaque`, seguida e nao reinventada.
+
+        Devolver o texto e o que impede a trava de virar um portao que alguem
+        esquece de fechar: quem chama nao TEM como anunciar sem passar por
+        aqui, porque e daqui que sai a mensagem.
+
+        `None` E NAO STRING VAZIA: uma string vazia atravessaria um `if texto:`
+        distraido e imprimiria uma linha em branco por tick.
+        """
+        from l2scanner.mercado_leitura import TravaDaObservacao
+
+        trava = TravaDaObservacao()
+        primeiro = trava.anunciar(2, 1880, 600, 3, 80)
+        assert isinstance(primeiro, str)
+        assert "OBSERVACAO do cruzamento" in primeiro
+        assert trava.anunciar(2, 1880, 600, 3, 80) is None
+
+    def test_cada_SESSAO_comeca_com_a_trava_limpa(self) -> None:
+        """Duas travas nao compartilham memoria.
+
+        Uma trava de escopo de MODULO faria a segunda sessao sair muda sobre
+        divergencias que o usuario nunca viu.
+        """
+        from l2scanner.mercado_leitura import TravaDaObservacao
+
+        TravaDaObservacao().anunciar(2, 1880, 600, 3, 80)
+        assert TravaDaObservacao().anunciar(2, 1880, 600, 3, 80) is not None
+
+    def test_a_identidade_e_PUBLICA_e_e_a_da_ARITMETICA_conferida(
+        self,
+    ) -> None:
+        """`(total, unitario, quantidade)` — os tres numeros do cruzamento.
+
+        A serie NAO entra porque ela nao existe ainda: o nome e lido DEPOIS da
+        guarda, no passo 5 do pipeline documentado em `ler_linha`, e de
+        proposito (uma linha que a guarda derruba nunca deveria pagar OCR).
+        `chave_da_observacao` e inalcancavel aqui por construcao, e nao por
+        escolha.
+        """
+        from l2scanner.mercado_leitura import TravaDaObservacao
+
+        trava = TravaDaObservacao()
+        trava.anunciar(2, 1880, 600, 3, 80)
+        assert (1880, 600, 3) in trava.ja_observadas
+
+
+class TestOLeitorDePaginaCONSULTA_A_TRAVA:
+    """A prova de FIACAO, e nao so da peca.
+
+    Uma trava perfeita num modulo que o laco de linhas nao usa deixaria o
+    defeito de producao exatamente onde ele estava.
+    """
+
+    def test_o_leitor_PASSA_A_SUA_trava_a_cada_ler_linha(
+        self, cal, janela_f010, monkeypatch
+    ) -> None:
+        """O criterio afirma que a trava foi CHAMADA, e nao que ela existe.
+
+        E a mesma trava em todos os ticks: uma construida por tick nasceria
+        vazia toda vez e nao travaria nada — verde na unidade, inutil em
+        producao.
+        """
+        import l2scanner.mercado_pagina as mercado_pagina
+
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Earth Spirit Evolution Stone", "Earth Spirit Evolution Stone"
+        )
+        original = mercado_pagina.ler_linha
+        vistas: list = []
+
+        def espiao(*args, **kwargs):
+            vistas.append(kwargs.get("trava_da_observacao"))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(mercado_pagina, "ler_linha", espiao)
+        leitor.observar(janela_f010)
+        leitor.observar(janela_f010)
+
+        assert vistas, "`ler_linha` nao foi chamada: o teste nao cobre nada"
+        assert all(trava is leitor.trava_da_observacao for trava in vistas), (
+            "o leitor deixou de passar a SUA trava a `ler_linha` - sem ela a "
+            "mesma observacao reanuncia a cada tick"
+        )
+
+    def test_a_trava_e_construida_UMA_vez_por_LEITOR(self) -> None:
+        """Dentro do laco de linhas ela nasceria vazia a cada linha."""
+        import ast
+
+        import l2scanner.mercado_pagina as mercado_pagina
+
+        arvore = ast.parse(inspect.getsource(mercado_pagina))
+        lacos = [
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, (ast.While, ast.For))
+        ]
+        construcoes_dentro_do_laco = [
+            no
+            for laco in lacos
+            for no in ast.walk(laco)
+            if isinstance(no, ast.Call)
+            and isinstance(no.func, ast.Name)
+            and no.func.id == "TravaDaObservacao"
+        ]
+        assert construcoes_dentro_do_laco == []
 
 
 class TestAFronteiraDaFase3:
