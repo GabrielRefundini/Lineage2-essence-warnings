@@ -51,7 +51,7 @@ from .agenda import (
 # `AcervoDeIdentidades` e stdlib, e NUNCA `sessao` (D-09, com portao AST em
 # `tests/test_aprendiz.py`). Declarar a candidata aqui obrigaria o aprendiz a
 # importar a sessao, e o ciclo fecharia no primeiro uso.
-from .aprendiz import Candidata
+from .aprendiz import Candidata, resumo_das_recusas
 # `sessao` fala com o `batismo`, e NUNCA com o `acervo` — o mesmo desenho que
 # ela ja tem com o `aprendiz`. O portao de
 # `tests/test_acervo.py::test_so_dois_modulos_conhecem_o_acervo` pergunta quem
@@ -1050,26 +1050,14 @@ class Sessao:
             return
         self._ultimo_retrato_de_recusas = assinatura_do_retrato
 
-        if retrato.menor is None:
-            faixa = (
-                "sem distancia medida ainda (as leituras tinham formas "
-                "diferentes)"
-            )
-        else:
-            faixa = (
-                f"as leituras diferem de {retrato.menor} a {retrato.maior} "
-                f"celula(s), mediana {retrato.mediana:.1f}"
-            )
-
+        # A REDACAO MORA NO `aprendiz`, E NAO AQUI. Ela precisa do teto, do
+        # regime e da sugestao, que sao tres coisas derivadas da MEDIDA do
+        # reconhecedor; monta-la aqui obrigaria a sessao a conhecer o teto e a
+        # repetir a derivacao, e foi assim que a versao anterior conseguiu
+        # mandar o usuario num valor que o proprio arranque recusa.
         log.info(
-            "Nao aprendi assinatura nova por instabilidade: %d recusa(s) nesta "
-            "sessao, %s, e a tolerancia atual e %d. Para o scanner aceitar "
-            "essas leituras como a mesma pessoa, suba [identidade] "
-            "celulas_toleradas no config.toml para um valor dentro dessa "
-            "faixa. Este numero e medido na SUA tela, e nao um palpite.",
-            retrato.recusas,
-            faixa,
-            self.aprendiz.ajustes.celulas_toleradas,
+            "%s",
+            resumo_das_recusas(retrato, self.aprendiz.ajustes.celulas_toleradas),
         )
 
     def _contar_linhas_sem_nome(self, observacao: Observacao) -> None:
