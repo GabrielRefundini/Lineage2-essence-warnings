@@ -2,36 +2,48 @@
 phase: 03-persist-ncia-de-observa-es
 workstream: mercado
 verified: 2026-08-31T00:00:00Z
-status: human_needed
+status: passed
 score: 1/5 must-haves verificados por codigo (4/5 sao portao humano por natureza)
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Roteiro 1, passos 1-2 — produzir o `observacoes.csv` real do censo (`.venv/Scripts/python.exe tools/gerar_observacoes_do_censo.py --saida C:/temp/portao-fase3`) e abrir no editor"
     expected: "O usuario le e ENTENDE: uma linha por observacao, `primeira_vez` com o carimbo ancorado, `total_em_centesimos` e `quantidade` em colunas separadas, NENHUMA coluna de unitario, `6200` = `62,00`"
     why_human: "Criterio 1 do ROADMAP e sobre COMPREENSAO humana. A suite prova a forma do arquivo; so o olho dele prova que ele entende. Alem disso `recordings/` + `calibration.json` + motor de OCR so existem no checkout PRINCIPAL"
+
   - test: "Roteiro 1, passo 3 — importar esse mesmo arquivo no Google Sheets (Arquivo > Importar > Enviar; separador Personalizado, digitar `;`)"
     expected: "As colunas caem uma por coluna, nada colapsado numa so"
     why_human: "Criterio 2 diz literalmente 'Testado com importacao real, nao presumido'. O Google Sheets nao tem linha de comando"
+
   - test: "Roteiro 1, passo 4 — no Sheets, procurar uma linha cujo nome comece com `+` (o censo tem 15, ex.: `+6 Agathion Alpha Hunter Sealed`)"
     expected: "A celula mostra o NOME, nao um erro de formula. Se der erro, reportar qual"
     why_human: "Risco ALTO e NAO MEDIDO (T-03-18, disposicao `accept`). O nome NAO e saneado no arquivo, de proposito — o conserto, se preciso, e na planilha, nunca sujando o dado"
+
   - test: "Roteiro 1, passo 5 — conferir a coluna `residuo_do_cruzamento` no Sheets"
     expected: "Existem celulas VAZIAS e celulas com `0`, e elas nao viraram a mesma coisa"
     why_human: "A suite prova a distincao na ida e na volta em memoria e em disco; o que so a mao dele fecha e se o SHEETS preserva a distincao na importacao"
+
   - test: "Roteiro 1, passo 6 — rodar a MESMA ferramenta uma segunda vez, mesma saida e mesmo subconjunto; contar as linhas do arquivo antes e depois"
     expected: "Relatorio diz ZERO observacoes gravadas, todas duplicadas, imprime a frase de desfecho esperado, e SAI COM CODIGO 0. A contagem de linhas nao muda"
     why_human: "Criterio 3 e explicitamente 'o usuario pode contar antes e depois'. Sobre material REAL, nao sobre paginas de teste"
+
   - test: "Roteiro 2, passos 1-4 — quebrar a saida de proposito (arquivo ocupando o nome da pasta; `observacoes.csv` somente-leitura; cabecalho editado a mao) e olhar o CONSOLE, depois `logs/scanner.log`"
     expected: "Duas linhas ERROR: a primeira diz que o mercado desligou e por que; a segunda diz que morte/saida/ressurreicao seguem sendo detectadas e entregues. Sem traceback. As mesmas duas mensagens no log. No caso do cabecalho, o arquivo em disco NAO foi alterado"
     why_human: "A metade CONSOLE do criterio 5 so se prova olhando o console. A suite prova que os registros ERROR existem e que o texto e o da montagem; que eles CHEGAM aos olhos dele, nao. O passo somente-leitura depende das propriedades do Windows"
+
   - test: "Roteiro 2, passo 5 — rodar o scanner normalmente e confirmar que nada mudou"
     expected: "Ele sobe, detecta e entrega igual"
     why_human: "Nesta fase isso e esperado POR CONSTRUCAO (ausencia de acoplamento). O passo existe para pegar regressao acidental, nao para provar fiacao — a fiacao e Fase 4"
 deferred:
+
   - truth: "Criterio 5, metade 'os alertas de party continuam chegando' provada por FIACAO REAL (o mercado ligado dentro do scanner e falhando sem derrubar a party)"
     addressed_in: "Phase 4"
     evidence: "ROADMAP Fase 4, requisito DETC-02 e criterio 1: 'O usuario inicia --mercado como terceira invocacao ao lado das duas instancias de party, e o modo party segue intocado'. Nesta fase PERS-03 e verdadeiro por AUSENCIA DE ACOPLAMENTO, e a fase DECLARA isso em tres lugares (docstring de `montar_registro_de_mercado`, cabecalho do Roteiro 2, e o passo 5 dele)"
+audit_acknowledged:
+  milestone: v1-mercado
+  at: 2026-09-01
+  status: human_needed
 ---
 
 # Fase 3: Persistencia de observacoes — Relatorio de Verificacao
@@ -76,9 +88,11 @@ feature desliga alto e **nada** e lido dele. A justificativa esta medida e escri
   arquivo sem quebra final — mas **2 deles produzem seis campos todos parseaveis**, com `80`
   virando `8`. A contagem de campos aprovaria esses dois. Pior: a linha truncada viraria
   **chave de dedup**, bloqueando para sempre a gravacao da observacao correta.
+
 - Portanto "descartar so a linha truncada" **nao e alcancavel** com a informacao disponivel —
   o programa nao consegue distinguir "linha truncada" de "linha boa salva sem newline". A
   fase escolheu recusar o arquivo em vez de adivinhar, e **nao tocar nenhum byte**.
+
 - As duas saidas alternativas estao **refutadas por escrito no fonte** (truncar a cauda;
   completa-la com `\n`) — a doutrina da casa "um numero que caiu precisa dizer que caiu".
 
@@ -140,10 +154,12 @@ O ceticismo estava certo em perguntar. A resposta e boa **nos tres lugares**:
    *"ELA NASCE SEM CHAMADOR, E ISSO E DESENHO. `montar_gravador` tem um portao de
    curto-circuito na entrada (`if not args.record`) porque existe a flag `--record`; aqui nao
    ha flag, porque `--mercado` e DETC-02, Fase 4."*
+
 2. **No cabecalho do Roteiro 2** (03-03-SUMMARY): *"Declaracao honesta do que esta fase pode e
    nao pode provar aqui: nesta fase o mercado **nao tem chamador dentro do scanner** [...]
    Entao 'os alertas de party continuam' e verdadeiro por **ausencia de acoplamento**: o
    scanner nem sabe que o registro existe."*
+
 3. **No passo 5 do proprio roteiro**: *"Nesta fase isso e esperado **por construcao** — o passo
    existe para pegar uma regressao acidental, nao para provar a fiacao, que e da Fase 4."*
 
@@ -275,20 +291,27 @@ materializam em worktree), com `.venv/Scripts/python.exe`.
 1. **Produzir o arquivo** (~10 min, ou 1 min com `--gravacao 20260828-053105-mercado-aberto`):
    `.venv/Scripts/python.exe tools/gerar_observacoes_do_censo.py --saida C:/temp/portao-fase3`
    — anotar o numero de "observacoes GRAVADAS".
+
 2. **Abrir no Bloco de Notas** (criterio 1) — entende as colunas? `6200` = `62,00`? sem coluna
    de unitario?
+
 3. **Importar no Sheets** (criterio 2) — Arquivo > Importar > Enviar, separador **Personalizado**,
    digitar `;`. Nao existe opcao pronta de ponto-e-virgula na lista.
+
 4. **Procurar um nome comecando em `+`** (o unico risco ALTO e NAO MEDIDO) — a celula mostra o
    nome ou um erro de formula?
+
 5. **Olhar a coluna do residuo** — ha celulas VAZIAS e celulas com `0`, e elas continuam
    diferentes?
+
 6. **Rodar de novo, mesma saida** (criterio 3) — zero gravadas, codigo de saida **0**, mesma
    contagem de linhas antes e depois.
+
 7. **Quebrar a saida de proposito** (criterio 5) — arquivo ocupando o nome da pasta, depois
    `observacoes.csv` somente-leitura, depois cabecalho editado a mao. Duas linhas `ERROR` no
    console, sem traceback, e as mesmas duas em `logs/scanner.log`. **Desmarcar o somente-leitura
    no fim.**
+
 8. **Subir o scanner normal** — nada mudou (esperado por construcao).
 
 ## Resumo
@@ -306,3 +329,54 @@ com o criterio errado.
 ---
 *Verificado: 2026-08-31*
 *Verificador: Claude (gsd-verifier)*
+
+
+---
+
+## OS PORTOES HUMANOS FECHARAM — 2026-09-01
+
+Onze passos, todos exercitados. Os de terminal rodados por Claude na maquina do
+usuario; os tres do Google Sheets por ele, com captura de tela conferida.
+
+### Roteiro 1 — o arquivo, a importacao e a contagem
+
+| Passo | Resultado |
+|---|---|
+| 1. Produzir o arquivo | Censo replayado: **159 paginas aceitas, 166 observacoes, 39 series** |
+| 2. Abrir no editor | APROVADO pelo usuario — colunas legiveis, preco em centesimos, sem coluna de unitario |
+| 3. Importacao real no Sheets | APROVADO — separador Personalizado `;`, seis colunas uma por coluna |
+| 4. O sinal de mais (**risco ALTO, era NAO MEDIDO**) | **NAO se materializou.** `+3 Hunter's Breastplate` e `+5 Hunter's Gaiters` aparecem como TEXTO, nao como erro de formula. Conferido em captura de tela |
+| 5. A coluna do residuo | **INSATISFAZIVEL com este material — ver achado abaixo** |
+| 6. A contagem (dedup) | **APROVADO com prova mais forte que a pedida**: segunda rodada com zero observacoes novas, 1496 duplicadas descartadas, e o arquivo saiu com o **MESMO sha256** — byte a byte, nao so a mesma contagem |
+
+### Roteiro 2 — o desligamento alto
+
+| Passo | Resultado |
+|---|---|
+| 1. Pasta ocupada por arquivo | Duas linhas de erro na ordem certa, terceira da ferramenta, **zero traceback**, codigo 7 |
+| 2. Arquivo somente-leitura | `MERCADO DESLIGADO — Permission denied`, sem traceback, codigo 7 — **ver achado abaixo** |
+| 3. Cabecalho quebrado | Desligou alto e **nao alterou byte nenhum** (119 linhas antes e depois). A mensagem nomeia o esperado CONTRA o encontrado, diz que nada foi tocado e por que, e o que fazer para religar |
+| 4. O log | As duas mensagens presentes em `logs/scanner.log` |
+| 5. Scanner de pe | Party viva durante todo o exercicio, lendo os quatro membros |
+
+### DOIS ACHADOS NO PROPRIO ROTEIRO
+
+**1. O passo 2 do Roteiro 2 nao testava o que afirma.** Rodar a MESMA gravacao de
+novo grava zero linhas (tudo duplicata), entao o arquivo somente-leitura nunca e
+aberto para escrita e o passo fica verde sem exercitar nada. Refeito com uma
+gravacao DIFERENTE — ai sim ele tentou escrever e desligou corretamente. **Quem
+reescrever este roteiro precisa manter a gravacao diferente**, senao o passo volta
+a ser vacuo.
+
+**2. O passo 5 do Roteiro 1 e insatisfazivel com este material.** Ele pede para
+conferir que existem celulas VAZIAS e celulas com `0` na coluna do residuo, e que
+nao viraram a mesma coisa. Medido sobre as 166 observacoes do censo:
+
+    VAZIO (nao deu para medir) : 0
+    zero  (conferi e bateu)    : 127
+    outro (residuo != 0)       : 39
+
+**O censo nunca produz vazio.** A distincao EXISTE no codigo — `residuo_dos_campos`
+faz campo vazio -> `None` e `"0"` -> `0`, "NUNCA um pelo outro", com teste de ida e
+volta — mas nao ha como VE-LA nesta planilha. O passo cobra do usuario uma
+observacao que o material nao contem.
