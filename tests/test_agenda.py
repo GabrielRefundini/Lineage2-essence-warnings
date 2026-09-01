@@ -637,15 +637,34 @@ class TestAgendaRealDoUsuario:
         assert prime.horarios == ((20, 0),)
         assert prime.dias == frozenset({0, 1, 2, 3})
 
-    def test_as_duracoes_de_silencio_estao_no_esquema_para_a_fase_7(self, agenda):
-        """Lidas e ignoradas nesta fase.
+    def test_as_duracoes_de_silencio_do_repositorio_sao_LIDAS(self, agenda):
+        """O ESQUEMA, nunca o valor: a duracao do silencio e PREFERENCIA do usuario.
 
-        Moram no arquivo desde ja para o usuario nao ter que editar a mao um
-        config que ja editou quando a Fase 7 chegar.
+        Lidas e ignoradas nesta fase. Moram no arquivo desde ja para o usuario
+        nao ter que editar a mao um config que ja editou quando a Fase 7 chegar.
+
+        E POR ISSO ESTE TESTE NAO AFIRMA O NUMERO. A duracao MUDA porque ela e
+        escolha dele: em 2026-08-31 trocou o TvT de 15 para 9, e este teste — que
+        cravava `== 15` — ficou vermelho junto com outros seis, sem uma linha de
+        codigo de producao ter mudado. Cravar o numero aqui transforma um ajuste
+        de preferencia num deploy, que e o oposto exato do motivo de o valor
+        morar num arquivo de configuracao.
+
+        Mesmo defeito que `8b87eb3` consertou na janela de respawn do Tiat:
+
+            "ele provava a regra do servidor em vez de provar que ela e LIDA do
+            arquivo"
+
+        Os `horarios` do TvT continuam cravados nos testes acima, e isso e
+        DELIBERADO — o cabecalho do proprio `config.toml` diz por que: horario
+        errado de TvT deixa a party esperando um evento que nao vai acontecer.
+        A distincao e entre dado que o usuario ESCOLHE e dado que o jogo IMPOE.
         """
         por_nome = {e.nome: e for e in agenda}
-        assert por_nome["TvT"].silenciar_minutos == 15
-        assert por_nome["Prime"].silenciar_minutos == 120
+        for nome in ("TvT", "Prime", "Solo Boss"):
+            duracao = por_nome[nome].silenciar_minutos
+            assert isinstance(duracao, int), f"{nome}: silenciar_minutos sumiu do esquema"
+            assert duracao >= 0, f"{nome}: silenciar_minutos negativo"
 
     def test_so_o_solo_boss_tem_chamada_no_arquivo_do_repositorio(self, agenda):
         """D-02: o opt-in e por evento, e hoje so um evento pediu.
