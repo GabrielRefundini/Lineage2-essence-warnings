@@ -441,13 +441,45 @@ class Sessao:
         # que hoje dura a sessao inteira; ela nao a fecha.
         self._aprender(observacao, resultado)
 
+        # REGISTRO E MENSAGEM SE SEPARAM AQUI, e so a mensagem se agrupa.
+        #
+        # O laco de registro continua UM POR EVENTO: `resultado.eventos`, o
+        # `total_eventos` e o console (que le por `_ao_registrar`) nao podem
+        # perceber diferenca nenhuma. A consolidacao do wipe e de APRESENTACAO
+        # -- se ela chegasse a maquina de estado, o conserto de uma rajada de
+        # WhatsApp viraria um evento perdido, que e infinitamente pior.
         for evento in eventos:
             self.total_eventos += 1
             resultado.eventos.append(evento)
             self._ao_registrar(evento)
-            self._despachar(texto_do_evento(evento), resultado=resultado)
+
+        for texto in textos_do_tick(eventos, self._membros_vigiados(observacao)):
+            self._despachar(texto, resultado=resultado)
 
         return resultado
+
+    def _membros_vigiados(self, observacao: Observacao) -> int:
+        """Quantas pessoas o scanner estava enxergando NESTE tick.
+
+        E o denominador de "a party inteira caiu": sem ele nao da para
+        distinguir um wipe de tres mortes numa party de quatro, e a diferenca
+        e a unica coisa que autoriza a palavra wipe no texto.
+
+        Conta as linhas OCUPADAS da party window mais a sua propria barra
+        quando ela esta calibrada, porque e exatamente assim que o rastreador
+        monta o conjunto de presentes -- voce entra como mais um membro. Somar
+        de outro jeito faria o numerador e o denominador virem de contagens
+        diferentes, e o wipe sairia certo ou errado por sorte.
+        """
+        vigiados = observacao.membros_presentes
+        # `getattr` porque o teste que simula falha troca o rastreador por um
+        # objeto minimo, e um `AttributeError` aqui derrubaria o tick inteiro
+        # -- um scanner que morre calado e pior do que nenhum scanner.
+        if observacao.hp_proprio is not None and getattr(
+            self.rastreador, "nome_proprio", None
+        ):
+            vigiados += 1
+        return vigiados
 
     def _processar_bosses(
         self, frame: Frame, agora: datetime, resultado: ResultadoDoTick
@@ -1081,8 +1113,16 @@ class Sessao:
             )
 
 
-def texto_do_evento(evento: Evento) -> str:
-    """Import tardio para não criar ciclo com o notificador."""
-    from .notificador import formatar
+def textos_do_tick(
+    eventos: list[Evento], membros_vigiados: int | None = None
+) -> list[str]:
+    """As mensagens de UM tick. Import tardio para não criar ciclo.
 
-    return formatar(evento)
+    Substituiu o `texto_do_evento` de um evento só: a decisão de quantas
+    mensagens saem passou a depender da lista inteira do tick, e não de um
+    evento isolado. Quatro mortes no mesmo tick são quatro eventos e UMA
+    mensagem.
+    """
+    from .notificador import formatar_tick
+
+    return formatar_tick(list(eventos), membros_vigiados)

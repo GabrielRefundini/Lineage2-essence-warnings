@@ -189,6 +189,146 @@ def _duracao_legivel(segundos: float) -> str:
     return f"{horas}h{minutos:02d}"
 
 
+# Quais tipos de evento se juntam quando caem no MESMO tick.
+#
+# A regra de admissao e uma so: agrupar AFIRMA CAUSA COMUM, entao so entra
+# quem tem uma. Quatro barras zerando dentro do mesmo segundo tem uma causa
+# fisica unica (a AoE que pegou a party), e "4 membros com HP zerado ao mesmo
+# tempo" e uma frase verdadeira sobre ela. As voltas de HP do mesmo tick vem
+# da mesma ressurreicao em area, ou da mesma sequencia de rez que a party fez
+# reagindo aquele wipe -- e cada uma ainda carrega o proprio "apos 13s", que o
+# texto agrupado preserva membro a membro.
+#
+# SAIU e ENTROU ficam de fora DE PROPOSITO, e nao por falta de tempo: a tela
+# nao distingue "o lider desfez a party" de "tres pessoas sairam por conta
+# propria". As duas cenas produzem os mesmos pixels, entao uma frase unica
+# afirmaria uma causa comum que o scanner nao viu -- o oposto do que o resto
+# deste arquivo faz. Alem disso ninguem precisa correr para socorrer quem
+# saiu; a rajada ali custa incomodo, e nao credibilidade.
+#
+# Os demais tipos (cegueira, jogo caiu, voce sem party) nao chegam a ser uma
+# escolha: sao no maximo um por tick, por construcao do rastreador.
+TIPOS_AGRUPAVEIS = (TipoDeEvento.MORREU, TipoDeEvento.RESSUSCITOU)
+
+
+def _lista_legivel(itens: list[str]) -> str:
+    """"A, B e C" -- o "e" por extenso, e nao um sufixo colado.
+
+    Uma regra de plural por concatenacao acerta o substantivo e erra o verbo,
+    e o erro so aparece no dia em que houver mais de um -- que e o dia do farm
+    real. Ja aconteceu neste projeto (5f1aa97, "estas" no lugar de "estao").
+    """
+    if len(itens) == 1:
+        return itens[0]
+    return f"{', '.join(itens[:-1])} e {itens[-1]}"
+
+
+def formatar_grupo(
+    eventos: list[Evento], membros_vigiados: int | None = None
+) -> str:
+    """Um texto so para os eventos de um mesmo tipo VINDOS DO MESMO TICK.
+
+    Sem isto, o wipe das 13:58 saiu como quatro notificacoes no mesmo segundo
+    para um evento so, e as duas voltas de HP das 13:59 como mais duas. O
+    grupo de WhatsApp e o ativo mais fragil do produto: um grupo que recebe
+    rajada aprende a ignorar o grupo, e ai o alerta seguinte -- o que importa
+    -- chega num canal que ninguem mais le.
+
+    A REDACAO CONTINUA HEDGED. "3 morreram" nao sobrevive a um falso positivo;
+    "3 membros com HP zerado ao mesmo tempo, possiveis mortes" sobrevive. O
+    scanner le pixels, nao le a verdade, e agrupar nao lhe da certeza nenhuma
+    que ele nao tinha evento a evento.
+
+    `membros_vigiados` e quantas pessoas o scanner estava enxergando NESTE
+    tick. So com esse numero da para afirmar "a party inteira": sem ele, ou
+    com mortes de menos, o texto lista os nomes e nao usa a palavra wipe.
+    """
+    if len(eventos) == 1:
+        # Nunca deveria chegar aqui, mas se chegar tem de sair identico ao
+        # texto de hoje: ha muitos testes -- e um usuario -- contando com ele.
+        return formatar(eventos[0])
+
+    hora = datetime.fromtimestamp(eventos[0].momento).strftime("%H:%M")
+    quantos = len(eventos)
+
+    if eventos[0].tipo is TipoDeEvento.MORREU:
+        # A PARTY INTEIRA GANHA FRASE PROPRIA, e sem lista de nomes.
+        #
+        # Quando todo mundo que estava sendo visto cai junto, os nomes nao
+        # acrescentam informacao -- o conjunto e "todos". "Wipe" e a palavra
+        # que a party ja usa para isso, cabe na previa da notificacao do
+        # celular e diz o que aconteceu antes de a pessoa abrir o app.
+        if membros_vigiados is not None and quantos == membros_vigiados:
+            return (
+                f"[{hora}] PARTY INTEIRA com HP zerado ao mesmo tempo "
+                f"({quantos} membros). Possivel wipe na PT."
+            )
+        nomes = [evento.membro or "?" for evento in eventos]
+        return (
+            f"[{hora}] {quantos} membros com HP zerado ao mesmo tempo: "
+            f"{_lista_legivel(nomes)}. Possiveis mortes na PT."
+        )
+
+    if eventos[0].tipo is TipoDeEvento.RESSUSCITOU:
+        # CADA UM MANTEM O PROPRIO TEMPO. "HP de volta apos 13s" e "apos 12s"
+        # nao sao a mesma informacao: quem ficou mais tempo morto e quem a
+        # party demorou mais para socorrer, e e isso que se olha depois. Um
+        # tempo unico para o grupo seria um numero inventado.
+        partes = []
+        for evento in eventos:
+            quem = evento.membro or "?"
+            if evento.segundos_no_estado:
+                tempo = _duracao_legivel(evento.segundos_no_estado)
+                partes.append(f"{quem} (apos {tempo})")
+            else:
+                partes.append(quem)
+        return f"[{hora}] {quantos} membros com HP de volta: {_lista_legivel(partes)}."
+
+    # Tipo fora do escopo caiu aqui por engano: melhor repetir as mensagens de
+    # hoje do que inventar uma frase que ninguem escreveu.
+    return "\n".join(formatar(evento) for evento in eventos)
+
+
+def formatar_tick(
+    eventos: list[Evento], membros_vigiados: int | None = None
+) -> list[str]:
+    """Os textos de UM tick, com os simultaneos ja consolidados.
+
+    AGRUPA SO DENTRO DO MESMO TICK, E NUNCA ESPERA -- e essa e a razao de o
+    conserto ser barato. A tentacao obvia era juntar mortes numa janela de
+    3 segundos, mas isso paga atraso justamente no alerta que mais precisa de
+    velocidade: o produto inteiro existe para a party socorrer alguem a tempo,
+    e a latencia alvo (captura de 1 Hz + debounce) ja consome o orcamento
+    inteiro. Dentro de um tick a consolidacao e de graca, porque a lista de
+    eventos ja existe e ja esta completa -- nao ha nada a esperar.
+
+    O AGRUPAMENTO E DE APRESENTACAO, SO. Quem chama continua registrando um
+    evento por evento; esta funcao decide apenas quantas MENSAGENS saem.
+
+    A ordem das mensagens segue a ordem dos eventos: o texto do grupo ocupa a
+    posicao do primeiro evento daquele tipo.
+    """
+    grupos: dict[TipoDeEvento, list[Evento]] = {}
+    for evento in eventos:
+        if evento.tipo in TIPOS_AGRUPAVEIS:
+            grupos.setdefault(evento.tipo, []).append(evento)
+
+    textos: list[str] = []
+    ja_saiu: set[TipoDeEvento] = set()
+    for evento in eventos:
+        grupo = grupos.get(evento.tipo)
+        if grupo is None or len(grupo) == 1:
+            # Caminho de UM evento: byte a byte o texto de sempre.
+            textos.append(formatar(evento))
+            continue
+        if evento.tipo in ja_saiu:
+            continue
+        ja_saiu.add(evento.tipo)
+        textos.append(formatar_grupo(grupo, membros_vigiados))
+
+    return textos
+
+
 class Notificador(Protocol):
     """Para onde os alertas vao. Trocar o adaptador e o modo simulacao."""
 
