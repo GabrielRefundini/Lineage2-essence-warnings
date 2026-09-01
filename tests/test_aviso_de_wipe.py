@@ -262,6 +262,16 @@ def frame_real():
     )
 
 
+class SemSilencio:
+    """Nunca cala nada: o agrupamento e que esta sob teste, nao o silencio."""
+
+    def ativo(self):
+        return False
+
+    def atualizar(self, agora):
+        return None
+
+
 def sessao_que_produz(calibracao, tmp_path, eventos, registrados):
     rastreador = Rastreador(nomes=list(calibracao.nomes))
     rastreador.observar = lambda obs, agora: list(eventos)
@@ -270,7 +280,7 @@ def sessao_que_produz(calibracao, tmp_path, eventos, registrados):
         rastreador=rastreador,
         eventos_agendados=[],
         registro=RegistroEmDisco(tmp_path),
-        silencio=None,
+        silencio=SemSilencio(),
         ao_registrar=registrados.append,
     )
 
