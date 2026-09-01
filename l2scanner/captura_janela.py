@@ -333,6 +333,33 @@ class JanelaSource:
         with self._trava:
             return None if self._ultimo is None else self._ultimo.copy()
 
+    def apontar_para(self, regiao: Regiao) -> None:
+        """Passa a recortar OUTRO retangulo da janela, sem reabrir a captura.
+
+        Existe para o reancoramento (ADVC-02): quando o usuario arrasta a party
+        window dentro do jogo, `l2scanner.reancoragem` acha o lugar novo e adota
+        a geometria EM MEMORIA. Sem este metodo a adocao seria meia adocao -- a
+        calibracao apontaria para o lugar novo e a fonte continuaria entregando
+        o recorte antigo, que e ler um lugar com a regua de outro, pior do que
+        nao reancorar.
+
+        SO VALE COM `relativa=True`. Nesse modo a regiao esta em coordenadas do
+        canto da janela, que e o referencial em que a busca trabalha. No modo de
+        desktop a conta passa pela origem da janela e uma regiao de janela seria
+        interpretada como coordenada de tela, silenciosamente errada -- entao
+        aqui ela e RECUSADA, com texto.
+
+        A captura da WGC nao e tocada: ela entrega a janela inteira e o recorte
+        acontece em `capturar()`. Trocar o retangulo e trocar uma fatia.
+        """
+        if not self._relativa:
+            raise ValueError(
+                "apontar_para so vale para uma fonte com regiao RELATIVA a "
+                "janela. Esta esta em coordenadas de desktop."
+            )
+        with self._trava:
+            self._regiao = regiao
+
     def completo_do_frame_atual(self) -> np.ndarray | None:
         """A janela QUE PRODUZIU o frame corrente — nao a mais recente.
 
