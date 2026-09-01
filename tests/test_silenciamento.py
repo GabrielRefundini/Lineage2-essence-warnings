@@ -111,12 +111,17 @@ class TestControleDoSilencio:
 
     @pytest.fixture
     def agenda(self):
-        from pathlib import Path
+        """Dados PROPRIOS, e nao o `config.toml` do usuario.
 
-        from l2scanner.config import ler_agenda
+        `silenciar_minutos` e PREFERENCIA dele e MUDA: em 2026-08-31 ele
+        trocou o TvT de 15 para 9 e estes testes ficaram vermelhos sem uma
+        linha de producao mudar. As regras de silencio afirmadas aqui
+        precisam de janelas que se sobrepoem de um jeito conhecido, entao a
+        agenda vem da fabrica. Mesmo desenho de `8b87eb3`.
+        """
+        from tests.test_agenda import agenda_de_silencio
 
-        raiz = Path(__file__).resolve().parent.parent
-        return ler_agenda(raiz / "config.toml")
+        return agenda_de_silencio()
 
     def _controle(self, agenda):
         from l2scanner.__main__ import ControleDoSilencio
@@ -462,12 +467,17 @@ class TestCancelarOSilencio:
 
     @pytest.fixture
     def agenda(self):
-        from pathlib import Path
+        """Dados PROPRIOS, e nao o `config.toml` do usuario.
 
-        from l2scanner.config import ler_agenda
+        `silenciar_minutos` e PREFERENCIA dele e MUDA: em 2026-08-31 ele
+        trocou o TvT de 15 para 9 e estes testes ficaram vermelhos sem uma
+        linha de producao mudar. As regras de silencio afirmadas aqui
+        precisam de janelas que se sobrepoem de um jeito conhecido, entao a
+        agenda vem da fabrica. Mesmo desenho de `8b87eb3`.
+        """
+        from tests.test_agenda import agenda_de_silencio
 
-        raiz = Path(__file__).resolve().parent.parent
-        return ler_agenda(raiz / "config.toml")
+        return agenda_de_silencio()
 
     def _em(self, hora, minuto, dia=None):
         from tests.test_agenda import SEGUNDA
@@ -528,12 +538,17 @@ class TestOQueDaParaCancelar:
 
     @pytest.fixture
     def agenda(self):
-        from pathlib import Path
+        """Dados PROPRIOS, e nao o `config.toml` do usuario.
 
-        from l2scanner.config import ler_agenda
+        `silenciar_minutos` e PREFERENCIA dele e MUDA: em 2026-08-31 ele
+        trocou o TvT de 15 para 9 e estes testes ficaram vermelhos sem uma
+        linha de producao mudar. As regras de silencio afirmadas aqui
+        precisam de janelas que se sobrepoem de um jeito conhecido, entao a
+        agenda vem da fabrica. Mesmo desenho de `8b87eb3`.
+        """
+        from tests.test_agenda import agenda_de_silencio
 
-        raiz = Path(__file__).resolve().parent.parent
-        return ler_agenda(raiz / "config.toml")
+        return agenda_de_silencio()
 
     def _em(self, hora, minuto):
         from tests.test_agenda import SEGUNDA
