@@ -41,6 +41,7 @@ que a medicao de `calibrar_mercado.py:1364-1375` mostrou NAO casar 1,000.
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import sys
 from pathlib import Path
 
@@ -48,7 +49,9 @@ import cv2
 import numpy as np
 import pytest
 
+from l2scanner.calibracao import Calibracao
 from l2scanner.mercado_leitura import segmentar_glifos
+from l2scanner.mercado_pagina import LeitorDePagina
 from l2scanner.identidade import VALOR_MINIMO_DO_TEXTO, mascara_de_texto
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -380,6 +383,175 @@ class TestOVereditoDaGuarda:
         assert veredito["aprovada"] is False
         assert veredito["tolerancia_gravada"] is None
         assert veredito["linha_do_veredito"].startswith("GUARDA REPROVADA")
+
+
+CALIBRACAO_DE_FIXTURE = FIXTURES / "calibracao_de_fixture.json"
+GRAVACAO_SINTETICA = "20260828-000000-sintetica"
+
+# As DUAS fixturas reais que a varredura vai ver, e o veredito que o portao de
+# PRODUCAO tem de dar em cada uma. Elas nao sao arrays de brinquedo: sao as
+# mesmas janelas que `tests/test_mercado_adena.py` e `tests/test_mercado_pagina.py`
+# usam, com cabecalho de verdade na banda que `_casamento_do_layout` olha.
+FRAMES_DA_GRAVACAO_SINTETICA = (
+    ("frame_000001.png", "janela_negociacao_f005.png", "negociacao"),
+    ("frame_000002.png", "janela_adena_f014.png", "adena"),
+)
+
+
+def montar_a_gravacao_sintetica(tmp_path: Path) -> Path:
+    """Uma gravacao de duas fixturas REAIS, dentro de `tmp_path` e so ali.
+
+    `recordings/` e material de campo insubstituivel e SOMENTE LEITURA - a
+    pasta `pre-voo` sozinha tem 1.502 PNGs. Estes testes nunca a tocam: eles
+    copiam duas fixturas versionadas para um diretorio temporario e apontam
+    `GRAVACOES_DO_CENSO` para la.
+    """
+    pasta = tmp_path / GRAVACAO_SINTETICA
+    pasta.mkdir(parents=True)
+    for destino, origem, _veredito in FRAMES_DA_GRAVACAO_SINTETICA:
+        shutil.copyfile(FIXTURES / origem, pasta / destino)
+    return tmp_path
+
+
+class TestOPortaoDeLayoutDaPRODUCAO_E_CHAMADO:
+    """Provado por CONTAGEM DE CHAMADAS, e nunca por "o simbolo existe".
+
+    A PROPRIEDADE QUE ESTA CLASSE MEDE nao e que a ferramenta saiba distinguir
+    negociacao de adena - e que ela use O PORTAO DE PRODUCAO para isso. As duas
+    coisas parecem iguais no resultado e sao opostas na manutencao: uma copia do
+    casamento de cabecalho dentro da ferramenta continuaria devolvendo
+    `negociacao`/`adena` no dia em que `LeitorDePagina` mudasse de limiar, de
+    regra de empate ou de conjunto de candidatos - e o veredito da guarda sairia
+    com o nome certo e o significado errado.
+
+    E O DEFEITO JA ACONTECEU NESTE PROJETO: o DEBT-07 fechou exatamente a
+    variante em que um teste media a propria copia em vez do original. Por isso o
+    contador embrulha `LeitorDePagina._casamento_do_layout` na CLASSE DE
+    PRODUCAO, delegando ao metodo original - se a ferramenta parar de chamar o
+    portao, o contador vai a zero e estes testes caem.
+
+    O CONTROLE NEGATIVO SEPARA DUAS AFIRMACOES DIFERENTES. "O portao foi
+    chamado" e "a resposta do portao decide alguma coisa" nao sao a mesma coisa:
+    a ferramenta poderia chama-lo e jogar a resposta fora. Com o portao forcado a
+    responder `adena` para TODO frame, a populacao do CRUZAMENTO vai a ZERO
+    enquanto `resultado.amostras` (a populacao de GLIFO) fica intacta - o que
+    prova de uma vez que a resposta e consumida E que as duas populacoes sao
+    filtradas de proposito por criterios diferentes.
+    """
+
+    def _varrer_contando(self, tmp_path, monkeypatch, portao_falso=None):
+        """Varre a gravacao sintetica contando as chamadas ao portao REAL."""
+        gravacoes = montar_a_gravacao_sintetica(tmp_path)
+        monkeypatch.setattr(
+            ferramenta, "GRAVACOES_DO_CENSO", [GRAVACAO_SINTETICA]
+        )
+        cal = Calibracao.carregar(CALIBRACAO_DE_FIXTURE)
+
+        original = LeitorDePagina._casamento_do_layout
+        respostas: list = []
+
+        def contando(leitor, janela, origem):
+            resposta = (
+                portao_falso
+                if portao_falso is not None
+                else original(leitor, janela, origem)
+            )
+            respostas.append(resposta)
+            return resposta
+
+        monkeypatch.setattr(
+            LeitorDePagina, "_casamento_do_layout", contando, raising=True
+        )
+        resultado = ferramenta.varrer(gravacoes, cal)
+        return resultado, respostas
+
+    def test_as_duas_fixturas_ABREM_o_painel(self, tmp_path, monkeypatch) -> None:
+        """A guarda contra medir vacuo, e ela vem ANTES de tudo.
+
+        Um teste que medisse ZERO frames abertos passaria por acidente em todas
+        as afirmacoes de contagem abaixo (0 == 0). Se esta afirmacao cair, o
+        numero medido tem de ser RELATADO e a causa investigada - jamais o teste
+        afrouxado para caber no que saiu.
+        """
+        resultado, _ = self._varrer_contando(tmp_path, monkeypatch)
+        abertos = resultado.abertos_por_gravacao[GRAVACAO_SINTETICA]
+        assert abertos == len(FRAMES_DA_GRAVACAO_SINTETICA), (
+            "as duas fixturas tem de abrir o painel sob este rastreio; "
+            f"abriram {abertos}"
+        )
+
+    def test_o_portao_e_chamado_UMA_VEZ_POR_FRAME_ABERTO(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A afirmacao central da tarefa, e ela e sobre CHAMADA e nao existencia."""
+        resultado, respostas = self._varrer_contando(tmp_path, monkeypatch)
+        abertos = resultado.abertos_por_gravacao[GRAVACAO_SINTETICA]
+        assert abertos > 0
+        assert len(respostas) == abertos
+
+    def test_os_vereditos_sao_negociacao_e_adena_nas_duas_fixturas(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """O portao de producao responde certo sobre pixel de verdade."""
+        resultado, _ = self._varrer_contando(tmp_path, monkeypatch)
+        for arquivo, _origem, esperado in FRAMES_DA_GRAVACAO_SINTETICA:
+            assert (
+                resultado.layout_por_frame[(GRAVACAO_SINTETICA, arquivo)]
+                == esperado
+            ), arquivo
+        assert resultado.abertos_por_layout == {"negociacao": 1, "adena": 1}
+
+    def test_com_o_portao_REAL_sobra_populacao_de_cruzamento(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """E preciso sobrar linha, senao o controle negativo mede 0 contra 0."""
+        resultado, _ = self._varrer_contando(tmp_path, monkeypatch)
+        linhas = ferramenta.linhas_do_cruzamento(resultado)
+        completas = [linha for linha in linhas if linha.completa]
+        assert len(completas) > 0
+        assert {linha.arquivo for linha in linhas} == {"frame_000001.png"}
+        assert len(resultado.amostras) > 0
+
+    def test_CONTROLE_NEGATIVO_o_portao_forcado_a_adena_ZERA_o_cruzamento(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A resposta do portao e CONSUMIDA, e as duas populacoes sao distintas.
+
+        Com o portao respondendo `adena` para todo frame, a populacao do
+        CRUZAMENTO vai a zero. A de GLIFO (`resultado.amostras`) NAO muda - ela e
+        identica a do caso real, porque a producao le as duas colunas de moeda da
+        aba Adena com os MESMOS retangulos de negociacao (medido no 05-01).
+        """
+        real, _ = self._varrer_contando(tmp_path / "real", monkeypatch)
+        falso, respostas = self._varrer_contando(
+            tmp_path / "falso", monkeypatch, portao_falso="adena"
+        )
+
+        assert set(respostas) == {"adena"}
+        assert ferramenta.linhas_do_cruzamento(falso) == []
+        assert ferramenta.quebra_do_cruzamento_por_layout(falso) == {
+            "adena": ferramenta.quebra_do_cruzamento_por_layout(real)[
+                "negociacao"
+            ]
+        }
+
+        assert len(falso.amostras) == len(real.amostras)
+        assert len(falso.amostras) > 0
+
+    def test_o_fonte_CHAMA_o_portao_e_nao_reimplementa_o_casamento(self) -> None:
+        """DEBT-07, por inspecao: a ferramenta nao pode ter a propria copia.
+
+        `casamento_do_cabecalho` e `_banda_do_cabecalho` sao as duas pecas que
+        uma reimplementacao precisaria. Se uma delas aparecer aqui, alguem
+        copiou o portao - e a copia mede outra coisa que a producao decide.
+        """
+        fonte = (RAIZ / "tools" / "medir_leitura_de_glifo.py").read_text(
+            encoding="utf-8"
+        )
+        assert "from l2scanner.mercado_pagina import LeitorDePagina" in fonte
+        assert "_casamento_do_layout(" in fonte
+        assert "casamento_do_cabecalho" not in fonte
+        assert "def _banda_do_cabecalho" not in fonte
 
 
 class TestOTetoAbsolutoDaTolerancia:
