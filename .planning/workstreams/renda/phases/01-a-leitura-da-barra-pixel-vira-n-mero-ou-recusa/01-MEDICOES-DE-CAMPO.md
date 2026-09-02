@@ -348,3 +348,38 @@ quatro. E a contagem bate com a verdade de campo, dígito por dígito:
 A altura da faixa continua saindo **17** porque os ícones estão dentro do recorte — e isso está
 correto e previsto: a regra 1 descarta as pontas por largura e **só então** a faixa é
 recomputada, que é o que o `01-05` já especifica.
+
+---
+
+# M-P — As larguras deste documento estão numa convenção, e o código está noutra
+
+Achado pelo executor do `01-01` ao aplicar o M-O, e é a mesma armadilha do "17" do M-I: o número
+está certo, a convenção não está declarada, e a diferença de um pixel vira guarda errada.
+
+Todas as larguras acima foram medidas com `fim - inicio + 1` (**inclusiva**). O
+`larguras_de_molde` deste projeto — que é a convenção que a peneira do `01-05` vai usar — mede
+`fim - inicio` (**exclusiva**). Sobre exatamente os mesmos pixels:
+
+| elemento | neste documento (inclusiva) | em `larguras_de_molde` (exclusiva) |
+|---|---|---|
+| dígito | 5, 6, 7 | **4, 5, 6** |
+| vírgula | 2 | **1** |
+| ícone de ponta | 15, 16 | **14, 15** |
+
+**Quem escrever a guarda de largura do `01-05` tem que declarar em qual convenção está.** Uma
+peneira escrita com os números desta página, rodando na convenção do código, recusa o dígito
+mais largo e aceita ícone estreito — e o modo de falha é silencioso nos dois sentidos.
+
+Registrado pelo executor em `calibracao.py`, no cabeçalho do resgate de fixturas, e num teste
+que falha se as larguras colapsarem num valor só.
+
+## M-Q — E o retângulo `1500,1360 200x32` era pior do que o M-N disse
+
+O M-N afirmou que ele falha nas fixtures de 09h30. Reconferido pelo executor com
+`segmentar_glifos_no_brilho` nas **quatro** fixtures, nos pisos 180/185/190: ele devolve corrida
+larga no meio em **todas as quatro**, as de 00h45 inclusive. O M-N subestimou o defeito porque
+usou uma regra de forma própria em vez da segmentação de produção.
+
+O `1540,1358 160x34` foi aplicado, as fixtures de 09h30 foram versionadas em
+`tests/fixtures/renda/` (sem elas a correção seria prosa irreproduzível a partir do clone), e há
+teste prendendo que o retângulo não é nenhum dos dois refutados.
