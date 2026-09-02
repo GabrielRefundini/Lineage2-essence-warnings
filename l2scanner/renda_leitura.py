@@ -325,8 +325,45 @@ def _cruzar_as_escalas(
       CAMPO. Por isso a adena saiu do OCR, e nao por isso a regra saiu do
       projeto.
 
-    Quem for afrouxa-la ou aperta-la de novo tem de responder ao M-G e ao M-H,
-    e nao apenas ao M-D.
+    E AQUI ESTA A CORRECAO QUE O `01-03` MEDIU, PORQUE O PARAGRAFO ACIMA
+    ATRIBUIA O MODO DE FALHA SO A UM CAMPO E SO A UMA CAUSA. Ele dizia que a
+    regra "continua CORRETA E OBRIGATORIA para o EXP", e que o que quebrou na
+    adena foi ter um sosia ADJACENTE. As duas metades estao certas de menos:
+    **o EXP tem o mesmo modo de falha, e o sosia nao precisa estar ao lado —
+    basta o CORTE fabricar um.**
+
+    A medicao, sobre `tests/fixtures/renda/montagem_da_janela.png`, retangulo
+    do EXP `0,1368 520x24`, piso 160, verdade de campo `8,0012%` (`80012`),
+    deslocando a borda ESQUERDA do recorte para dentro:
+
+        ate +82   `80012`  certo,  1-2 escalas
+        +83       recusa por discordancia entre escalas
+        +84       `30012`  ERRADO, 1 escala
+        +85       `10012`  ERRADO, 1 escala
+        +86       `10012`  ERRADO, **2 escalas -- AS DUAS CONCORDAM**
+        +87 e alem  recusa por gramatica
+
+    Ha uma janela de TRES PIXELS em que a leitura fabrica um EXP
+    gramaticalmente perfeito e errado, e no `+86` o cruzamento NAO PEGA:
+    cortar o primeiro digito transformou `8` em `3` e depois em `1`, e as duas
+    escalas leram o mesmo caractere mutilado. O cruzamento e a ultima guarda
+    depois da gramatica, e ali ele concorda no erro.
+
+    O QUE ISSO MUDA, E O QUE ISSO NAO MUDA. Nao muda a regra: exigir
+    concordancia tambem nao pegaria o `+86`, e recusaria o nivel da Faerlina
+    para sempre. Muda ONDE a guarda mora — ela e do RECORTE e nao da leitura.
+    O retangulo vem do calibrador, o calibrador desenha a imagem de
+    conferencia, e o olho do usuario e quem ve que o `8` esta cortado. A
+    janela e estreita (3 px de 520), mas ela cai exatamente onde uma janela
+    levemente movida cairia.
+
+    O LIMITE DESTA MEDICAO VAI JUNTO, para ninguem generalizar dela o que ela
+    nao mediu: um campo (o EXP), uma fixtura, um piso, e deslocamento so da
+    borda ESQUERDA. Nao mede a borda direita, nem o deslocamento vertical, nem
+    os outros dois campos.
+
+    Quem for afrouxa-la ou aperta-la de novo tem de responder ao M-G, ao M-H e
+    a esta tabela, e nao apenas ao M-D.
 
     OS QUATRO DESFECHOS:
 
