@@ -3,7 +3,7 @@ slug: total-da-adena-em-ciano-nao-se-le
 workstream: mercado
 created: 2026-09-01
 updated: 2026-09-01
-status: fixing
+status: resolved
 severity: alta
 hypothesis: >
   CONFIRMADA E CORRIGIDA NO ENUNCIADO. Os 13 moldes foram cortados sobre texto
@@ -544,3 +544,33 @@ MISTA (7 recortes reais, 4 derivados) e ainda assim deu **0 leituras erradas em
 5.232 celulas**, com 182 recusas. Se em campo sobrarem recusas cianas demais, a
 resposta e recortar aqueles glifos noutro frame — a fusao por rotulo preserva
 os que ja estao bons.
+
+
+## RESOLVIDO — verificado em campo 2026-09-01 21:41
+
+O usuario recalibrou o conjunto CROMATICO (`calibrar-mercado.bat --so-digitos
+--tinta cromatica`), cortando das linhas de fundo CLARO (66).
+
+    ANTES                          DEPOIS
+    paginas lidas          0       35
+    paginas perdidas      22        6
+    observacoes de taxa    0       11
+
+`calibration.json`: **13 moldes acromaticos E 13 cromaticos** convivendo, sonda
+vertical, 3 ancoras e a calibracao de party intactas. O portao nao reclama.
+
+**A guarda de cruzamento seguiu trabalhando depois do conserto:**
+`total=19000 incremento=9000 residuo=1000` foi RECUSADO — leitura errada nao
+virou taxa.
+
+**E o ramo que era so inferencia aritmetica fechou com dado real:** dois residuos
+`1` legitimos entraram (`133,33` e `119,55` sobre 10 milhoes), que e o caso do
+arredondamento do proprio jogo. Antes disso ele nao tinha pixel no repositorio.
+
+Console, com a unidade que o usuario pensa:
+
+    menor pedido visivel: 115,00 por 10.000.000 de adena = 11,50 XM por milhao
+    de adena (derivado) | n=11 | agora mesmo
+
+**Custou tres recusas da guarda de paridade** antes de o usuario acertar a faixa —
+ver DEBT-06.
