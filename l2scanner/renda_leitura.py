@@ -421,3 +421,266 @@ def exp_da_barra(
         for texto in (ler_texto(tinta), ler_texto_ampliado(tinta))
     ]
     return _cruzar_as_escalas(CAMPO_DO_EXP, leituras)
+
+
+# ---------------------------------------------------------------------------
+# A PENEIRA DE FORMA -- UMA SO nesta fase, e ela mora AQUI, no modulo puro
+# ---------------------------------------------------------------------------
+#
+# POR QUE ELA NAO MORA NO CORTADOR. O cortador de moldes precisa dela para
+# fatiar, e o leitor da adena precisa dela para ler. Se o corte dos moldes e a
+# leitura peneirassem corridas por regras DIFERENTES, os moldes seriam cortados
+# de um conjunto de corridas e lidos de outro -- e o desalinhamento nao
+# apareceria como erro, apareceria como PONTUACAO BAIXA, que e a forma de
+# defeito que alguem "conserta" baixando o piso de leitura. Trocar um defeito
+# visivel por um invisivel e o unico jeito de piorar este projeto.
+#
+# E a seta desta casa aponta FERRAMENTA -> PURO. Se ela morasse na ferramenta,
+# `renda_leitura` teria de importar um calibrador -- e com ele `argparse`, a
+# consciencia de DPI no import e as chamadas de janela do OpenCV -- so para ler
+# um numero dentro do tick de captura.
+#
+# A CONVENCAO DE LARGURA E EXCLUSIVA (`fim - inicio`), E ELA ESTA DECLARADA
+# =========================================================================
+# E a convencao de `segmentar_glifos_no_brilho` e de `larguras_de_molde`, e
+# portanto a unica em que `limite_de_glifo_unico` significa alguma coisa. O
+# `01-MEDICOES-DE-CAMPO.md` relata os MESMOS runs numa convencao INCLUSIVA
+# (`fim - inicio + 1`), e as duas diferem por UM pixel (M-P):
+#
+#     elemento          aqui (exclusiva)      no documento (inclusiva)
+#     digito                4, 5, 6                  5, 6, 7
+#     virgula                  1                        2
+#     icone de ponta        14, 15                   15, 16
+#
+# Uma peneira escrita com os numeros do documento, rodando nesta convencao,
+# RECUSA o digito mais largo e ACEITA um icone estreito -- e o modo de falha e
+# silencioso nos dois sentidos. Foi exatamente um numero sem convencao
+# declarada (o "17" do M-I) que ja produziu uma refutacao nesta fase.
+
+
+#: Quantos glifos da largura MAXIMA cabem num run antes de ele deixar de poder
+#: ser um simbolo so.
+#:
+#: MEDIDO (M-O e M-P, nesta convencao exclusiva): o simbolo mais largo que a
+#: barra desenha numa posicao -- o icone de moeda das pontas -- mede 14 ou 15
+#: colunas contra um limite de glifo unico de 6. Isso e DOIS glifos de largura
+#: maxima, e nao mais. Um run que caberia TRES ou mais nao e simbolo nenhum: e
+#: o campo colado pela mascara, e o caso esta medido -- o EXP da Yazalaque, em
+#: piso alto e recorte largo, cola tudo num run unico de 141 colunas porque a
+#: barra verde de progresso entra na mascara (M-L).
+#:
+#: ELE E UMA CONTAGEM DE GLIFOS, E NAO UMA GEOMETRIA. Ele nao muda se a fonte
+#: mudar de tamanho, porque e medido em unidades do `limite` que chega por
+#: parametro -- e o `limite` continua saindo dos moldes que um humano cortou.
+#: Nenhum pixel desta fonte entra aqui como constante.
+SIMBOLOS_POR_RUN_ANORMAL = 3
+
+#: O recorte precisa de um icone em cada ponta MAIS ao menos um glifo no meio.
+CORRIDAS_MINIMAS_DE_UM_NUMERO = 3
+
+MOTIVO_DA_FORMA = "forma-do-recorte"
+MOTIVO_DO_RUN_ANORMAL = "run-anormalmente-largo"
+
+
+@dataclass(frozen=True)
+class GlifosDoNumero:
+    """As corridas do NUMERO, sem os icones, e a faixa recomputada sobre elas.
+
+    `faixa` NAO e a que `segmentar_glifos_no_brilho` devolveu: e a que sobra
+    depois de os icones sairem. A diferenca e o achado M-K inteiro -- ver
+    `_glifos_do_numero`.
+    """
+
+    faixa: tuple[int, int]
+    runs: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
+class RecusaDeForma:
+    """Um recorte que NAO contem exatamente um numero, e por que.
+
+    ELA NAO CARREGA `campo`, DE PROPOSITO, e isso e o contrario de esquecimento:
+    a peneira nao sabe se esta olhando a adena, a L-Coin, o bonus ou o EXP --
+    ela olha corridas. Quem sabe o campo e quem chamou, e e ele que embrulha
+    esta recusa numa `RecusaDaRenda` com o nome certo. Uma peneira que exigisse
+    o nome do campo so poderia ser usada por quem tem campo, e o cortador de
+    moldes varre os QUATRO.
+    """
+
+    motivo: str
+    detalhe: str
+
+
+def _glifos_do_numero(
+    mascara: np.ndarray,
+    faixa: tuple[int, int] | None,
+    runs: list[tuple[int, int]],
+    *,
+    limite: int | None,
+) -> GlifosDoNumero | RecusaDeForma:
+    """As corridas do numero entre os dois icones, ou RECUSA NOMEADA.
+
+    AS TRES REGRAS DE FORMA, NESTA ORDEM, COM O NUMERO MEDIDO AO LADO DE CADA:
+
+    1. **Um run largo em cada PONTA e icone, e sai.** Medido (M-J/M-O, na
+       convencao exclusiva): `[14, 4, 4, 1, 4, 4, 4, 1, 4, 4, 6, 15]` -- icone,
+       digitos de 4 a 6, virgulas de 1, icone. O limite vem de
+       `limite_de_glifo_unico(moldes)`, DERIVADO dos moldes e nunca gravado: a
+       docstring daquela funcao escreve por que gravar a copia criaria DUAS
+       VERDADES sobre uma so geometria, e por que a copia envelheceria contra
+       os moldes que ela descreve.
+    2. **Um run largo no MEIO nao e descartado: ele derruba o recorte**, com o
+       motivo nomeado. Descartar ali apagaria um digito e devolveria um numero
+       mais curto e PLAUSIVEL -- e numero plausivel e errado e exatamente o que
+       esta fase existe para nao produzir. O caso e medido: o recorte
+       `1500,1360 200x32` pega a cauda da L-Coin, o icone da moeda de ouro e so
+       entao a adena, produzindo um run largo no meio nas QUATRO fixturas
+       (M-N, reconferido em M-Q).
+    3. **Exatamente um run largo em cada ponta, ou recusa de forma.** Zero ou
+       dois significam que o recorte deixou de conter exatamente um numero.
+
+    E A QUARTA REGRA, QUE E A RAZAO DE ESTA FUNCAO DEVOLVER A FAIXA E NAO SO OS
+    RUNS. `segmentar_glifos_no_brilho` devolve UMA faixa de linhas para o
+    retangulo inteiro -- e decisao de projeto dela, documentada, porque e a
+    posicao vertical relativa que distingue a virgula (baixa) do digito (altura
+    cheia). Foi essa decisao, com um icone DENTRO do recorte, que produziu a
+    altura 17 do M-I sobre uma fonte de altura 10. Entao a faixa e RECOMPUTADA
+    sobre as colunas SOBREVIVENTES ao descarte, e e essa que sai.
+
+    A medicao, porque quem ler vai achar que e zelo: sobre a L-Coin sem icone a
+    faixa e `(17, 26)`, altura 10, nas duas instancias; sobre o mesmo campo com
+    o icone dentro, a faixa unica da 17; e em `1560:1690` basta um run de
+    largura 9 no fim para esticar de 10 para 17 (M-K). Medir a altura ANTES do
+    descarte e reproduzir por dentro o defeito que esta funcao existe para nao
+    repetir -- e a consequencia tem nome: uma guarda de altura calibrada contra
+    17 recusaria TODO molde legitimo desta barra, e o modo de falha seria um
+    cortador que roda, sai com codigo 0 e nunca corta nada.
+
+    A GUARDA DO RUN ANORMALMENTE LARGO, E ELA E MEDIDA E NAO IMAGINADA. Um run
+    que caberia `SIMBOLOS_POR_RUN_ANORMAL` glifos de largura maxima e recusado
+    com a largura NOMEADA, e nunca fatiado. A aritmetica e o argumento inteiro:
+    os 141 px que o M-L mediu no EXP da Yazalaque -- onde a barra verde de
+    progresso entra na mascara e cola o campo -- fatiados em glifos desta fonte
+    dariam VINTE E OITO digitos que nunca estiveram na tela. `folga_de_cola`
+    nasce `null` no `01-01` justamente para que `particionar_run` nao seja
+    chamado aqui; esta guarda e o cinto sobre o suspensorio.
+
+    A guarda so olha o MIOLO quando ha miolo: com tres runs ou mais, as duas
+    pontas ficam de fora dela, porque um icone de ponta e largo POR DESENHO e
+    uma anomalia apertada demais o transformaria em recusa -- o cortador nunca
+    cortaria nada, o mesmo modo de falha da guarda contra 17. Com menos de tres
+    runs nao ha ponta a preservar, e e ai que o run colado aparece.
+
+    `limite` e SOMENTE-NOMEADO E SEM DEFAULT. Um default seria geometria desta
+    fonte entrando por omissao, e a geometria desta fonte sai de moldes que um
+    humano confirmou. `limite=None` -- o que `limite_de_glifo_unico` devolve
+    sobre um conjunto vazio -- RECUSA com o motivo nomeado, em vez de adivinhar.
+
+    A funcao e PURA: sem disco, sem OCR, sem relogio, sem janela.
+    """
+    if limite is None or int(limite) <= 0:
+        return RecusaDeForma(
+            MOTIVO_DA_FORMA,
+            "o limite de glifo unico nao foi derivado dos moldes "
+            f"(recebido: {limite!r}). Sem moldes nao ha como saber qual "
+            "corrida e icone e qual e digito, e adivinhar aqui seria inventar "
+            "a geometria que o conjunto de moldes existe para carregar",
+        )
+    limite = int(limite)
+
+    if mascara is None or getattr(mascara, "size", 0) == 0:
+        return RecusaDeForma(
+            MOTIVO_DA_FORMA,
+            "a mascara chegou vazia; nao ha coluna para peneirar",
+        )
+
+    corridas = [(int(inicio), int(fim)) for inicio, fim in (runs or [])]
+    larguras = [fim - inicio for inicio, fim in corridas]
+    if not corridas:
+        return RecusaDeForma(
+            MOTIVO_DA_FORMA,
+            "o recorte nao tem corrida nenhuma acima do piso de brilho: ou o "
+            "piso apagou o campo, ou o retangulo esta apontando para outro "
+            "lugar da tela",
+        )
+
+    # A ANOMALIA VEM ANTES DA FORMA, e a ordem importa: um campo colado num run
+    # so tambem falharia a regra 3, mas com uma mensagem que mandaria o usuario
+    # mexer no retangulo HORIZONTAL, e o conserto medido e VERTICAL.
+    anormal = SIMBOLOS_POR_RUN_ANORMAL * limite
+    if len(corridas) >= CORRIDAS_MINIMAS_DE_UM_NUMERO:
+        suspeitas = range(1, len(corridas) - 1)
+    else:
+        suspeitas = range(len(corridas))
+    for i in suspeitas:
+        if larguras[i] >= anormal:
+            return RecusaDeForma(
+                MOTIVO_DO_RUN_ANORMAL,
+                f"a corrida {i} mede {larguras[i]} colunas, e um simbolo desta "
+                f"barra cabe em menos de {anormal} ({SIMBOLOS_POR_RUN_ANORMAL}x "
+                f"o limite de glifo unico {limite}). A causa medida e a BARRA "
+                "VERDE de progresso entrando na mascara e colando o campo "
+                "inteiro (M-L). Ela NAO e fatiada: caberiam ate "
+                f"{larguras[i] // limite} glifos, e nenhum deles esteve na "
+                "tela. O conserto e apertar o recorte VERTICAL ate sobrar so a "
+                "linha do texto, ou subir o piso de brilho",
+            )
+
+    if len(corridas) < CORRIDAS_MINIMAS_DE_UM_NUMERO:
+        return RecusaDeForma(
+            MOTIVO_DA_FORMA,
+            f"o recorte tem {len(corridas)} corrida(s) ({larguras}), e um "
+            "numero desta barra precisa de um icone em cada PONTA mais ao "
+            "menos um glifo no meio",
+        )
+
+    ultima = len(corridas) - 1
+    largas = [i for i, w in enumerate(larguras) if w > limite]
+    pontas_largas = [i for i in largas if i in (0, ultima)]
+    if len(pontas_largas) != 2:
+        return RecusaDeForma(
+            MOTIVO_DA_FORMA,
+            f"o recorte tem {len(pontas_largas)} corrida(s) larga(s) nas "
+            f"PONTAS e precisa de exatamente uma em cada ({larguras}, limite "
+            f"{limite}). Zero ou duas significam que o recorte deixou de "
+            "conter exatamente um numero: ele comeca ou termina no meio de "
+            "outra coisa",
+        )
+
+    do_meio = [i for i in largas if i not in (0, ultima)]
+    if do_meio:
+        vizinhas_da_ponta = [i for i in do_meio if i in (1, ultima - 1)]
+        onde = (
+            "coladas numa PONTA -- o recorte pegou o campo vizinho junto"
+            if vizinhas_da_ponta
+            else "no MEIO do numero"
+        )
+        return RecusaDeForma(
+            MOTIVO_DA_FORMA,
+            f"ha corrida(s) larga(s) {onde}: indices {do_meio}, larguras "
+            f"{[larguras[i] for i in do_meio]} contra o limite {limite} "
+            f"({larguras}). Elas NAO sao descartadas: descartar uma corrida "
+            "larga que nao esta numa ponta apagaria um digito e devolveria um "
+            "numero mais curto e plausivel",
+        )
+
+    miolo = corridas[1:ultima]
+
+    # A FAIXA, RECOMPUTADA SOBRE AS COLUNAS SOBREVIVENTES. Este e o M-K virado
+    # codigo: a faixa que ENTROU pode carregar a altura do icone, e a que SAI
+    # carrega a da fonte.
+    colunas = np.zeros(int(np.asarray(mascara).shape[1]), dtype=bool)
+    for inicio, fim in miolo:
+        colunas[inicio:fim] = True
+    linhas = np.flatnonzero(np.asarray(mascara)[:, colunas].any(axis=1))
+    if linhas.size == 0:
+        return RecusaDeForma(
+            MOTIVO_DA_FORMA,
+            "as corridas do meio nao tem pixel nenhum depois do descarte dos "
+            f"icones (faixa bruta {faixa}); o recorte so continha os icones",
+        )
+
+    return GlifosDoNumero(
+        faixa=(int(linhas[0]), int(linhas[-1]) + 1),
+        runs=tuple(miolo),
+    )
