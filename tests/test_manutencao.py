@@ -146,6 +146,81 @@ CAMPO_31_08 = [
 
 HOJE = datetime(2026, 8, 25, 14, 0, 0)
 
+# O EPISODIO DE CAMPO DE 2026-09-02 — O SPAM, MEDIDO NO PRINT DO GRUPO.
+#
+# Entre 11:58 e 12:52 o grupo recebeu ~19 vezes a MESMA mensagem de anuncio
+# ("MANUTENCAO DO SERVIDOR em X (as HH:MM). Nao entre em instance."), para UMA
+# unica manutencao, mais 3 mensagens do segundo tipo (12:11, 12:41 e 12:52).
+#
+# Estes sao os 17 horarios-alvo que as mensagens de anuncio carregaram, na
+# ordem em que chegaram. Eles se espalham de 12:11 a 13:05 — 54 minutos de
+# desacordo sobre QUANDO o servidor cai, para uma manutencao so:
+HORARIOS_ALVO_DO_CAMPO = (
+    (12, 59),
+    (12, 56),
+    (12, 59),
+    (13, 5),
+    (12, 18),
+    (12, 11),
+    (12, 26),
+    (12, 29),
+    (12, 30),
+    (12, 34),
+    (12, 35),
+    (12, 37),
+    (12, 38),
+    (12, 40),
+    (13, 5),
+    (12, 43),
+    (12, 56),
+)
+
+# A janela do episodio: 11:58 (a primeira mensagem) ate 12:52 (a ultima).
+INICIO_DO_CAMPO = datetime(2026, 9, 2, 11, 58, 0)
+DURACAO_DO_CAMPO = timedelta(minutes=54)
+
+# Cada alvo e lido DUAS cadencias seguidas, 5 s uma da outra. NAO e conveniencia
+# de teste: em campo a leitura seguinte repetia o MESMO erro sistematico de OCR,
+# entao as duas caiam dentro dos 60 s de `TOLERANCIA_DO_CONSENSO` UMA DA OUTRA —
+# e e exatamente essa concordancia que abre a porta da REMARCACAO em
+# `_registrar`. O consenso TEMPORAL e cego a erro de METODO por construcao, e
+# isso ja esta escrito por extenso na docstring de `VigiaDeManutencao`.
+SEGUNDOS_DE_LEITURA_POR_ALVO = 10
+
+# 150 s entre alvos, e o numero nao e livre: a partir de 156 s a leitura do
+# sexto alvo (12:11) cairia DEPOIS de 12:11 e pediria uma duracao negativa, que
+# o banner do jogo nunca mostra. 17 alvos x 150 s = 42:30 de leituras dentro dos
+# 54 minutos do episodio; os 11:30 finais o vigia atravessa CEGO, como em campo.
+SEGUNDOS_ENTRE_ALVOS_DO_CAMPO = 150
+
+
+def banner_dizendo(duracao: timedelta) -> str:
+    """O banner do jogo anunciando `duracao`, na forma que o OCR entrega limpa."""
+    minutos, segundos = divmod(int(duracao.total_seconds()), 60)
+    return f"Server Maintence {minutos} minutes {segundos} seconds"
+
+
+def texto_do_campo(agora: datetime) -> str | None:
+    """O que o OCR devolve em `agora` durante o replay de 02/09, ou None.
+
+    A duracao e sempre `alvo - agora` NO INSTANTE DA LEITURA: e assim que as
+    duas leituras de um mesmo alvo implicam o MESMO momento e batem entre si.
+
+    Fora das janelas de leitura nao ha leitura nenhuma — e e ai que a ANCORA tem
+    de segurar sozinha, que e a razao de ela existir (D-10).
+    """
+    decorrido = int((agora - INICIO_DO_CAMPO).total_seconds())
+    if decorrido < 0:
+        return None
+    indice, dentro_da_janela = divmod(decorrido, SEGUNDOS_ENTRE_ALVOS_DO_CAMPO)
+    if indice >= len(HORARIOS_ALVO_DO_CAMPO):
+        return None
+    if dentro_da_janela >= SEGUNDOS_DE_LEITURA_POR_ALVO:
+        return None
+    hora, minuto = HORARIOS_ALVO_DO_CAMPO[indice]
+    alvo = INICIO_DO_CAMPO.replace(hour=hora, minute=minuto, second=0)
+    return banner_dizendo(alvo - agora)
+
 
 def pixels():
     """Um recorte qualquer. O conteudo nao importa: o `ler_texto` e injetado."""
@@ -305,8 +380,8 @@ class TestChaveDoMarcador:
         b = chave_do_marcador(HOJE, TipoDeAvisoDeManutencao.ANUNCIADA)
         assert a == b
 
-        faltam5 = chave_do_marcador(HOJE, TipoDeAvisoDeManutencao.FALTAM5)
-        assert faltam5 != a
+        do_segundo_aviso = chave_do_marcador(HOJE, TipoDeAvisoDeManutencao.ANTES)
+        assert do_segundo_aviso != a
 
 
 # Sentinela do ESPELHO. Nao pode ser None nem "": os dois sao textos legitimos
@@ -486,8 +561,21 @@ class TestConsenso:
         esperado = HOJE + timedelta(seconds=10) + timedelta(minutes=40, seconds=15)
         assert abs((vigia.momento - esperado).total_seconds()) <= 1
 
-    def test_uma_manutencao_remarcada_re_ancora_com_duas_leituras(self):
-        """A ancora anterior nao pode prender o vigia num horario que sumiu."""
+    def test_uma_manutencao_remarcada_re_ancora_sem_reanunciar(self):
+        """DUAS coisas ao mesmo tempo, e ate 2026-09-02 elas eram uma linha so.
+
+        A ANCORA TROCA, e tem de trocar: a ancora anterior nao pode prender o
+        vigia num horario que sumiu. Essa era a intencao original do
+        `_emitidos.clear()` deste ramo e ela continua inteira — as assercoes
+        sobre a ancora abaixo sao as mesmas de sempre.
+
+        O ANUNCIO NAO VOLTA. Ate 02/09 este teste afirmava que a remarcacao
+        re-emitia ANUNCIADA, e era ele que CODIFICAVA o defeito: naquele dia,
+        entre 11:58 e 12:52, o grupo recebeu ~19 vezes a mesma mensagem para
+        UMA manutencao so, porque cada deslize do OCR passava por aqui e fazia
+        o anuncio parecer novo. Mover a ancora e re-armar o anuncio viraram
+        duas coisas separadas, e o episodio agora so termina em `_expirar`.
+        """
         vigia, leitor = novo_vigia("Server Maintence 40 minutes")
         obter = PixelsFalsos()
         vigia.avaliar(obter, HOJE)
@@ -501,7 +589,7 @@ class TestConsenso:
         assert vigia.momento != antigo
         esperado = HOJE + timedelta(seconds=15) + timedelta(minutes=90)
         assert abs((vigia.momento - esperado).total_seconds()) <= 1
-        assert [a.tipo for a in saiu] == [TipoDeAvisoDeManutencao.ANUNCIADA]
+        assert saiu == [], "a ancora se move; o grupo NAO recebe o anuncio de novo"
 
 
 class TestCruzamentoDeEscalas:
@@ -752,7 +840,7 @@ class TestConsensoComAbstencao:
 
         assert [a.tipo for a in saiu] == [
             TipoDeAvisoDeManutencao.ANUNCIADA,
-            TipoDeAvisoDeManutencao.FALTAM5,
+            TipoDeAvisoDeManutencao.ANTES,
         ]
 
     def test_a_escala_de_deteccao_sozinha_nunca_ancora(self):
@@ -909,31 +997,49 @@ class TestAncoraSobreviveACegueira:
         saiu += vigia.avaliar(obter, HOJE + timedelta(seconds=5))
         return saiu
 
-    def test_o_aviso_de_5_minutos_sai_com_o_ocr_devolvendo_none_depois(self):
+    def test_o_segundo_aviso_sai_com_o_ocr_devolvendo_none_depois(self):
         """GOAL-02 sobrevive ao banner sumir, ao jogo coberto e ao alt-tab.
 
         Sem a ancora, o segundo aviso dependeria de uma leitura bem sucedida no
         instante exato — e manutencao e justamente quando o cliente comeca a
         engasgar e a leitura falha. E o unico teste deste arquivo que prova o
         motivo de a ancora existir.
+
+        A DURACAO SUBIU DE 8 PARA 15 MINUTOS quando `ANTECEDENCIA` virou dez
+        (2026-09-02), e a conta e esta: com 8 minutos lidos o restante ja nasce
+        ABAIXO do limiar novo, os dois avisos sairiam no MESMO tick da
+        ancoragem, e este teste — que existe para provar que o segundo aviso sai
+        com o OCR CEGO — deixaria de provar isso. Com 15 minutos a ancora cai em
+        HOJE+15:05, o restante toca 10 minutos no tick 305, e a corrida de 400 s
+        a partir do tick 6 atravessa esse instante com o leitor devolvendo None.
         """
         vigia, leitor = novo_vigia()
         obter = PixelsFalsos()
-        self._ancorar(vigia, leitor, obter, "Server Maintence 8 minutes")
+        na_ancoragem = self._ancorar(
+            vigia, leitor, obter, "Server Maintence 15 minutes"
+        )
         assert vigia.momento is not None
+        assert [a.tipo for a in na_ancoragem] == [
+            TipoDeAvisoDeManutencao.ANUNCIADA
+        ], "com 15 minutos, na ancoragem sai SO o anuncio"
 
         leitor.texto = None  # o banner sumiu; o OCR nao le mais nada
         antes = leitor.chamadas
         momento = vigia.momento
 
-        saiu = rodar(vigia, obter, HOJE + timedelta(seconds=6), segundos=4 * 60)
+        saiu = rodar(vigia, obter, HOJE + timedelta(seconds=6), segundos=400)
 
-        assert [a.tipo for a in saiu] == [TipoDeAvisoDeManutencao.FALTAM5]
+        assert [a.tipo for a in saiu] == [TipoDeAvisoDeManutencao.ANTES]
         assert momento.strftime("%H:%M") in saiu[0].texto
         assert leitor.chamadas > antes, "o OCR rodou, so nao leu nada util"
 
     def test_os_dois_avisos_saem_quando_o_scanner_sobe_com_pouco_tempo(self):
-        """E o FALTAM5 diz 3 minutos, nao 5 — o aviso nunca mente sobre o tempo."""
+        """E o segundo aviso diz 3 minutos, nao 10 — nunca mente sobre o tempo.
+
+        3 minutos continua ABAIXO do limiar nos dois mundos (5 e 10), entao a
+        aritmetica deste teste sobreviveu intacta a mudanca de 2026-09-02: so o
+        numero CITADO mudou, porque o que ele nega e o numero do limiar.
+        """
         vigia, leitor = novo_vigia()
         obter = PixelsFalsos()
 
@@ -941,22 +1047,265 @@ class TestAncoraSobreviveACegueira:
 
         assert [a.tipo for a in saiu] == [
             TipoDeAvisoDeManutencao.ANUNCIADA,
-            TipoDeAvisoDeManutencao.FALTAM5,
+            TipoDeAvisoDeManutencao.ANTES,
         ]
         assert "3 minutos" in saiu[1].texto
         assert "5 minutos" not in saiu[1].texto
 
     def test_cada_tipo_sai_uma_vez_so(self):
+        """A DURACAO SUBIU DE 6 PARA 15 MINUTOS, e a conta e a mesma de cima.
+
+        Com 6 minutos e o limiar novo de dez, os DOIS avisos sairiam no MESMO
+        tick da ancoragem e a contagem de um-de-cada deixaria de medir alguma
+        coisa: ela so tem forca enquanto os dois tipos saem em ticks DISTINTOS.
+        Com 15 minutos a ancora cai em HOJE+15:05, o anuncio sai no tick 5, o
+        segundo aviso no tick 305, e a corrida de 400 s a partir do tick 6
+        cobre os dois com folga.
+        """
         vigia, leitor = novo_vigia()
         obter = PixelsFalsos()
-        saiu = self._ancorar(vigia, leitor, obter, "Server Maintence 6 minutes")
+        saiu = self._ancorar(vigia, leitor, obter, "Server Maintence 15 minutes")
         leitor.texto = None
 
-        saiu += rodar(vigia, obter, HOJE + timedelta(seconds=6), segundos=200)
+        saiu += rodar(vigia, obter, HOJE + timedelta(seconds=6), segundos=400)
 
         tipos = [a.tipo for a in saiu]
         assert tipos.count(TipoDeAvisoDeManutencao.ANUNCIADA) == 1
-        assert tipos.count(TipoDeAvisoDeManutencao.FALTAM5) == 1
+        assert tipos.count(TipoDeAvisoDeManutencao.ANTES) == 1
+
+
+class TestOLimiarDoSegundoAviso:
+    """ANTECEDENCIA = 10 minutos, pedido pelo usuario em 2026-09-02.
+
+    Pedido literal: "avise apenas quando aparece o anuncio e quando faltar 10m".
+    O limiar antigo eram 5 minutos, e 5 minutos numa manutencao anunciada com 40
+    e tempo de mais nada — nem de sair da instance, nem de recolher o chao.
+    """
+
+    def _ancorar(self, vigia, leitor, obter, texto):
+        leitor.texto = texto
+        saiu = vigia.avaliar(obter, HOJE)
+        saiu += vigia.avaliar(obter, HOJE + timedelta(seconds=5))
+        return saiu
+
+    def test_o_segundo_aviso_sai_quando_o_restante_cai_a_dez_minutos(self):
+        """AS DUAS BORDAS DO LIMIAR, e a conta esta escrita.
+
+        A ancora nasce na SEGUNDA leitura, em HOJE+5 s, com 15 minutos lidos:
+        ela cai em HOJE+15:05. O restante toca 10 minutos exatos em HOJE+5:05,
+        ou seja no tick 305. A corrida de 299 s a partir do tick 6 cobre os
+        ticks 6 a 304 — todo o intervalo em que o restante ainda e MAIOR que 10
+        minutos — e nao pode produzir nada.
+        """
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+
+        na_ancoragem = self._ancorar(
+            vigia, leitor, obter, "Server Maintence 15 minutes"
+        )
+        assert [a.tipo for a in na_ancoragem] == [TipoDeAvisoDeManutencao.ANUNCIADA]
+
+        leitor.texto = None
+        momento = vigia.momento
+
+        assert rodar(vigia, obter, HOJE + timedelta(seconds=6), segundos=299) == []
+
+        saiu = vigia.avaliar(obter, HOJE + timedelta(seconds=305))
+
+        assert [a.tipo for a in saiu] == [TipoDeAvisoDeManutencao.ANTES]
+        assert "10 minutos" in saiu[0].texto
+        assert momento.strftime("%H:%M") in saiu[0].texto
+
+    def test_com_menos_de_dez_minutos_os_dois_saem_juntos_dizendo_o_tempo_real(self):
+        """O aviso NUNCA mente sobre o tempo — nem depois de o limiar mudar.
+
+        Quando o scanner sobe no meio de uma contagem de 4 minutos os dois
+        avisos saem juntos e atrasados, e o segundo tem de dizer QUATRO. Cravar
+        o numero do limiar ali faria o grupo se programar para seis minutos que
+        nao existem.
+        """
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+
+        saiu = self._ancorar(vigia, leitor, obter, "Server Maintence 4 minutes")
+
+        assert [a.tipo for a in saiu] == [
+            TipoDeAvisoDeManutencao.ANUNCIADA,
+            TipoDeAvisoDeManutencao.ANTES,
+        ]
+        assert "4 minutos" in saiu[1].texto
+        assert "10 minutos" not in saiu[1].texto
+
+    def test_um_deslize_dentro_da_tolerancia_nao_re_emite_nada(self):
+        """O lado (a) da regra de re-armar, e o caso COMUM em campo.
+
+        A ancora cai em HOJE+4:05. A leitura seguinte diz 3 min 30 s e implica
+        HOJE+3:40 — 25 segundos de deslize, dentro dos 60 s de
+        `TOLERANCIA_DO_CONSENSO`. Este ramo nao encosta em `_emitidos`, hoje e
+        depois, e e por isso que o OCR pode escorregar a cada cadencia sem que
+        o grupo receba nada de novo.
+        """
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+        saiu = self._ancorar(vigia, leitor, obter, "Server Maintence 4 minutes")
+        assert len(saiu) == 2
+
+        leitor.texto = "Server Maintence 3 minutes 30 seconds"
+        depois = vigia.avaliar(obter, HOJE + timedelta(seconds=10))
+
+        assert depois == []
+
+    def test_so_uma_remarcacao_acima_do_limiar_re_arma_o_segundo_aviso(self):
+        """O lado (b): manutencao genuinamente ADIADA merece o aviso de novo.
+
+        Duas leituras concordantes trazem o alvo para 25 minutos —
+        `duracao > ANTECEDENCIA` —, entao o segundo aviso volta a ficar ARMADO.
+        Armado nao e emitido: nada sai no tick da remarcacao. A ancora nova cai
+        em HOJE+15 s + 25 min = HOJE+25:15, o restante toca 10 minutos no tick
+        915, e a corrida de 899 s a partir do tick 16 cobre os ticks 16 a 914
+        sem produzir nada.
+
+        O ANUNCIADA nao volta em nenhum dos dois momentos: so `_expirar`
+        encerra o episodio.
+        """
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+        saiu = self._ancorar(vigia, leitor, obter, "Server Maintence 4 minutes")
+        assert len(saiu) == 2
+
+        leitor.texto = "Server Maintence 25 minutes"
+        vigia.avaliar(obter, HOJE + timedelta(seconds=10))
+        na_remarcacao = vigia.avaliar(obter, HOJE + timedelta(seconds=15))
+
+        assert na_remarcacao == [], "re-armar nao e re-emitir"
+
+        leitor.texto = None
+        assert rodar(vigia, obter, HOJE + timedelta(seconds=16), segundos=899) == []
+
+        voltou = vigia.avaliar(obter, HOJE + timedelta(seconds=915))
+
+        assert [a.tipo for a in voltou] == [TipoDeAvisoDeManutencao.ANTES]
+        assert "10 minutos" in voltou[0].texto
+
+
+class TestOValorDuravelDoSegundoAviso:
+    def test_o_membro_renomeado_carrega_o_valor_antigo(self):
+        """O NOME perdeu o numero; o VALOR nao pode perder. E deliberado.
+
+        O membro se chama `ANTES` — o mesmo vocabulario que
+        `agenda.TipoDeAviso.ANTES` ja usa para o aviso de antecedencia — porque
+        um nome com numero dentro envelhece junto com o limiar, e o limiar
+        acabou de mudar de 5 para 10.
+
+        O `.value` continua sendo `faltam5` porque ele NAO e descricao, e
+        identidade duravel: entra em `chave_do_marcador`, vira nome de arquivo
+        em `.agenda/`, e e o que faz um scanner reiniciado no meio de uma
+        manutencao em curso saber que o aviso ja saiu. Trocar o valor custaria
+        uma mensagem duplicada no grupo para cada manutencao ja em andamento;
+        mante-lo custa um nome de arquivo que so faz sentido com esta docstring
+        ao lado. A lei ja estava escrita em `agenda.py`, no membro
+        `TipoDeAviso.CHAMADA`, e no proprio enum deste modulo.
+        """
+        assert TipoDeAvisoDeManutencao.ANTES.value == "faltam5"
+        assert chave_do_marcador(
+            HOJE, TipoDeAvisoDeManutencao.ANTES
+        ).endswith("_faltam5")
+
+
+class TestOSpamDeCampoDe0209:
+    """O DEFEITO MEDIDO EM CAMPO, replayado tick a tick.
+
+    Em 2026-09-02, entre 11:58 e 12:52, o grupo de WhatsApp do usuario recebeu
+    ~19 vezes a MESMA mensagem de anuncio para UMA unica manutencao, com o
+    horario-alvo pulando entre 17 leituras espalhadas por 54 minutos — de 12:11
+    a 13:05 (`HORARIOS_ALVO_DO_CAMPO`).
+
+    A MECANICA que este replay reproduz, e que nenhuma das guardas anteriores
+    alcancava: uma leitura fora da tolerancia vira `_candidata`; a leitura
+    seguinte chega 5 s depois (`SEGUNDOS_ENTRE_LEITURAS`) repetindo o MESMO erro
+    sistematico de OCR e portanto cai dentro dos 60 s de
+    `TOLERANCIA_DO_CONSENSO` em relacao a candidata; a ancora TROCA — e ate este
+    conserto a troca zerava `_emitidos` inteiro, fazendo o anuncio parecer novo.
+
+    A DEDUP EM DISCO NAO SEGUROU, E NAO PODIA: `chave_do_marcador` deriva do
+    MOMENTO DA ANCORA arredondado ao minuto, entao cada deslize de minuto
+    produzia uma chave inedita e o `marcar` criava um arquivo novo em vez de
+    barrar. A guarda de uma-vez-por-episodio tem de viver no vigia.
+    """
+
+    def _replay(self):
+        """Os 54 minutos do episodio, um tick por segundo, com o relogio injetado.
+
+        Um tick por segundo e nao um por cadencia porque o que se prova aqui
+        inclui os ticks SEM leitura: e neles que a ancora segura sozinha.
+        """
+        vigia, leitor = novo_vigia()
+        obter = PixelsFalsos()
+        saiu = []
+        primeira_ancora = None
+        for segundo in range(int(DURACAO_DO_CAMPO.total_seconds())):
+            agora = INICIO_DO_CAMPO + timedelta(seconds=segundo)
+            leitor.texto = texto_do_campo(agora)
+            saiu += vigia.avaliar(obter, agora)
+            if primeira_ancora is None and vigia.momento is not None:
+                primeira_ancora = vigia.momento
+        return vigia, saiu, primeira_ancora
+
+    def test_a_sequencia_deslizante_do_campo_produz_UM_anuncio_so(self):
+        """~19 mensagens em campo; UMA depois do conserto.
+
+        Medido contra a producao MUTILADA (com o `_emitidos.clear()` deste ramo
+        restaurado) esta mesma sequencia produz 14 anuncios — a forma do defeito
+        que o usuario viu, com os 5 que faltam para os ~19 do print explicados
+        pelos deslizes que caem DENTRO da tolerancia e que nem chegam a este
+        ramo.
+        """
+        vigia, saiu, primeira_ancora = self._replay()
+
+        tipos = [a.tipo for a in saiu]
+        assert tipos.count(TipoDeAvisoDeManutencao.ANUNCIADA) == 1
+
+    def test_o_segundo_aviso_do_campo_tem_o_residuo_MEDIDO_e_aceito(self):
+        """SEIS. O numero e feio, esta medido, e fica escrito em vez de escondido.
+
+        O anuncio virou UMA vez por episodio, mas o SEGUNDO aviso ainda pode
+        repetir, e a regra que o re-arma e a razao: uma remarcacao confirmada
+        que traz o alvo de volta para ACIMA de 10 minutos volta a arma-lo, e
+        nesta sequencia o OCR faz isso seis vezes. O aviso sai as 12:08:05,
+        12:20, 12:25, 12:27, 12:35:35 e 12:46 — e as tres do meio saem dizendo
+        "10 minutos" para tres horarios-alvo DIFERENTES (12:30, 12:35, 12:37).
+
+        E CUSTO ACEITO, e o preco da alternativa e o que decide: nao re-armar
+        nunca significaria que uma manutencao genuinamente ADIADA — de 4 para
+        25 minutos, digamos — nunca mais avisaria o grupo quando o horario novo
+        chegasse perto. Perder o aviso de antecedencia de uma manutencao real
+        custa a instance e o loot do chao; recebe-lo seis vezes custa incomodo.
+
+        A COMPARACAO HONESTA com o campo: la o segundo tipo saiu 3 vezes
+        (12:11, 12:41, 12:52), com o limiar de 5 minutos. Com o limiar de 10 a
+        janela e o DOBRO, entao mais deslizes da ancora caem dentro dela — 6 e
+        o preco do que o usuario pediu, e nao uma regressao do conserto. O
+        episodio inteiro saiu de ~22 mensagens (~19 anuncios + 3) para 7.
+        """
+        _vigia, saiu, _primeira = self._replay()
+
+        tipos = [a.tipo for a in saiu]
+        assert tipos.count(TipoDeAvisoDeManutencao.ANTES) == 6
+
+    def test_a_ancora_continua_deslizando_ao_longo_do_episodio(self):
+        """SEM ISTO O TESTE ACIMA PASSARIA DE GRACA.
+
+        Um vigia que simplesmente parasse de reancorar tambem produziria um
+        anuncio so — e estaria quebrado do outro lado, preso num horario que a
+        remarcacao apagou. A ancora nasce em 12:59 (o primeiro alvo do print) e
+        termina em 12:56 (o ultimo), tendo passado por 13:05 e por 12:11 no
+        meio.
+        """
+        vigia, _saiu, primeira_ancora = self._replay()
+
+        assert primeira_ancora == datetime(2026, 9, 2, 12, 59)
+        assert vigia.momento == datetime(2026, 9, 2, 12, 56)
+        assert vigia.momento != primeira_ancora
 
 
 class TestExpiracao:

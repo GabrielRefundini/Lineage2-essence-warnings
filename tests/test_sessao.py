@@ -36,6 +36,20 @@ from l2scanner.sessao import Sessao
 SEGUNDA = datetime(2026, 8, 24)
 FIXTURES = Path(__file__).parent / "fixtures" / "party_estavel_com_vazamento"
 
+# A SEQUENCIA DESLIZANTE DE 2026-09-02 E IMPORTADA, E NAO COPIADA.
+#
+# Os 17 horarios-alvo, a janela de 54 minutos e o espacamento de 150 s sao
+# numeros MEDIDOS no print do grupo, e a tabela que os justifica mora no
+# comentario deles em `tests/test_manutencao.py`. Duplica-los aqui os
+# transformaria, na primeira leitura de outra pessoa, de numero medido em
+# constante inventada. O que se prova LA e o vigia; o que se prova AQUI e a
+# costura inteira — vigia -> marcador em disco -> resultado -> despacho.
+from test_manutencao import (  # noqa: E402 - helper irmao, ver o bloco acima
+    DURACAO_DO_CAMPO,
+    INICIO_DO_CAMPO,
+    texto_do_campo,
+)
+
 
 class SilencioFalso:
     """Controla quando a janela abre e fecha, sem depender do relogio."""
@@ -959,6 +973,28 @@ class LeitorDoBanner:
         return self._ultimo
 
 
+class LeitorDeslizanteDoCampo:
+    """O OCR de 2026-09-02: responde a partir do RELOGIO, e nunca fica cego.
+
+    NAO REUSA `LeitorDoBanner` de proposito — aquele fica cego apos duas
+    leituras, e o episodio de campo e o oposto disso: o banner ficou na tela o
+    tempo todo e o motor respondeu sempre, so que dizendo um horario diferente
+    a cada punhado de leituras.
+
+    `conferir` ESPELHA sem consumir nada, pela mesma razao ja escrita em
+    `LeitorDoBanner`: as duas escalas leem os MESMOS pixels do MESMO frame.
+    """
+
+    def __init__(self) -> None:
+        self.agora = INICIO_DO_CAMPO
+
+    def __call__(self, _pixels):
+        return texto_do_campo(self.agora)
+
+    def conferir(self, _pixels):
+        return texto_do_campo(self.agora)
+
+
 def _vigia_das_duas_escalas(leitor: LeitorDoBanner):
     """Liga as DUAS escalas no mesmo duble (D-d).
 
@@ -1064,33 +1100,96 @@ class TestManutencaoNoTick:
 
         assert len(despachos) == 1
 
-    def test_o_faltam5_tambem_atravessa_a_costura(
+    def test_a_ancora_deslizando_do_campo_produz_UM_anuncio_na_costura(
+        self, calibracao, frame_real, tmp_path
+    ):
+        """O episodio de 2026-09-02 pelo fio inteiro: ~19 mensagens viraram UMA.
+
+        E o mesmo replay que `test_manutencao.py` roda sobre o vigia sozinho,
+        mas entrando por `Sessao.tick` — porque o defeito de campo chegou ao
+        usuario pelo DESPACHO, e nao pelo retorno de `avaliar`.
+
+        POR QUE O `.agenda/` NAO SEGUROU, e o numero que prova: rodando esta
+        MESMA corrida contra a producao mutilada (o `_emitidos.clear()` do ramo
+        de remarcacao restaurado), o `tmp_path` termina com ONZE arquivos
+        `*_anunciada` — onze NOMES diferentes, porque `chave_do_marcador` deriva
+        do MOMENTO DA ANCORA arredondado ao minuto e cada deslize de minuto
+        produz uma chave inedita. O marcador CRIOU onze vezes em vez de barrar.
+        (Ele barrou 3 das 14 emissoes do vigia, e so aquelas em que dois
+        deslizes seguidos calharam de arredondar para o mesmo minuto.)
+
+        O marcador protege contra as DUAS INSTANCIAS do usuario, nunca contra a
+        ancora escorregando. A prova de que sai UM anuncio so vem, inteira, da
+        guarda no vigia — e o marcador que sobra tem o nome da PRIMEIRA ancora,
+        12:59, mostrando que o episodio foi fechado na primeira mensagem e nao
+        na ultima.
+
+        Ticks de 5 em 5 s: e a propria `SEGUNDOS_ENTRE_LEITURAS`, entao o motor
+        e consultado em todos eles e a corrida de 54 minutos cabe em 648 ticks.
+        """
+        from l2scanner.manutencao import TipoDeAvisoDeManutencao
+
+        leitor = LeitorDeslizanteDoCampo()
+        s = nova_sessao(
+            calibracao, tmp_path, manutencao=_vigia_das_duas_escalas(leitor)
+        )
+        frame = self._frame_com_banner(frame_real)
+
+        tipos, despachos = [], []
+        for segundo in range(0, int(DURACAO_DO_CAMPO.total_seconds()), 5):
+            leitor.agora = INICIO_DO_CAMPO + timedelta(seconds=segundo)
+            r = s.tick(frame, momento=leitor.agora.timestamp())
+            tipos += r.avisos_de_manutencao
+            despachos += [d for d in r.despachos if "manuten" in d[0].lower()]
+
+        assert tipos.count(TipoDeAvisoDeManutencao.ANUNCIADA) == 1
+
+        anuncios = [d for d in despachos if "Nao entre em instance" in d[0]]
+        assert len(anuncios) == 1
+        assert anuncios[0][1] is Categoria.SEMPRE
+        assert "***" in anuncios[0][0], "o aviso sai moldurado (D-11)"
+
+        marcadores = [
+            caminho.name
+            for caminho in tmp_path.iterdir()
+            if caminho.name.endswith("_anunciada")
+        ]
+        assert marcadores == ["2026-09-02_manutencao-1259_anunciada"]
+
+    def test_o_segundo_aviso_tambem_atravessa_a_costura(
         self, calibracao, frame_real, tmp_path
     ):
         """Os DOIS avisos saem `SEMPRE` e moldurados — e o segundo sai cego.
 
         Depois das duas leituras o banner some (o leitor passa a devolver
-        None), e mesmo assim o aviso de 5 minutos sai: ele vem da ancora, nao
-        da tela (D-10).
+        None), e mesmo assim o aviso de antecedencia sai: ele vem da ancora, e
+        nao da tela (D-10).
+
+        A DURACAO SUBIU DE 6 PARA 15 MINUTOS quando `ANTECEDENCIA` virou dez
+        (2026-09-02): com 6 minutos o restante ja nasceria ABAIXO do limiar
+        novo, os dois avisos sairiam no MESMO tick da ancoragem e o "sai cego"
+        deixaria de ser exercitado. A ancora nasce na segunda leitura, em
+        12:00:06, e cai em 12:15:06; o restante toca 10 minutos em 12:05:06 —
+        o tick 306 —, e por isso o laco vai ate 311.
         """
         from l2scanner.manutencao import TipoDeAvisoDeManutencao
 
         vigia = _vigia_das_duas_escalas(
-            LeitorDoBanner("Server Maintence 6 minutes")
+            LeitorDoBanner("Server Maintence 15 minutes")
         )
         s = nova_sessao(calibracao, tmp_path, manutencao=vigia)
         frame = self._frame_com_banner(frame_real)
 
         base = em(12, 0)
         tipos, despachos = [], []
-        for segundos in [0, 6] + list(range(7, 131)):
+        for segundos in [0, 6] + list(range(7, 311)):
             r = s.tick(frame, momento=base + segundos)
             tipos += r.avisos_de_manutencao
             despachos += [d for d in r.despachos if "manuten" in d[0].lower()]
 
         assert tipos == [
             TipoDeAvisoDeManutencao.ANUNCIADA,
-            TipoDeAvisoDeManutencao.FALTAM5,
+            TipoDeAvisoDeManutencao.ANTES,
         ]
         assert len(despachos) == 2
         for texto, categoria, _ in despachos:
