@@ -80,7 +80,25 @@ TERMOS_DO_ACERVO = frozenset({"acervo", "identidades", "pasta_identidades"})
 
 # Quem grava uma `Calibracao` em disco. Os modulos de CALIBRACAO, e mais
 # ninguem: o laco do scanner LE o arquivo e nunca o reescreve.
-MODULOS_QUE_GRAVAM = frozenset({"calibrar.py", "calibrar_mercado.py"})
+#
+# `calibrar_renda.py` ENTROU AQUI EM 2026-09-02, e a inscricao e o portao
+# funcionando e nao o portao sendo afrouxado: ele existe justamente para que um
+# escritor novo do `calibration.json` passe por olhos humanos, porque foi um
+# escritor que apagou 13 moldes de glifo em 2026-08-30. O que se conferiu antes
+# de inscreve-lo:
+#
+#   - ele CARREGA o arquivo inteiro na primeira linha util e muta so a entrada
+#     do personagem dentro de `renda_por_personagem` (mais `cal.janela`, o
+#     emprestimo que o `calibrar_tiat` ja faz);
+#   - a mutacao e por COPIA COM SUBSTITUICAO da chave do personagem, e nunca por
+#     reconstrucao do dicionario;
+#   - `tests/test_calibrar_renda_nao_apaga_nada.py` prende as duas coisas, com
+#     controle positivo e com o caso do PERSONAGEM VIZINHO;
+#   - ele NAO importa o acervo, entao a interseccao que o caso abaixo exige
+#     continua vazia.
+MODULOS_QUE_GRAVAM = frozenset(
+    {"calibrar.py", "calibrar_mercado.py", "calibrar_renda.py"}
+)
 
 
 @pytest.fixture
