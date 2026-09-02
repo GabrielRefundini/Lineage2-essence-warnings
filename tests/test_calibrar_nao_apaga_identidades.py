@@ -80,7 +80,22 @@ TERMOS_DO_ACERVO = frozenset({"acervo", "identidades", "pasta_identidades"})
 
 # Quem grava uma `Calibracao` em disco. Os modulos de CALIBRACAO, e mais
 # ninguem: o laco do scanner LE o arquivo e nunca o reescreve.
-MODULOS_QUE_GRAVAM = frozenset({"calibrar.py", "calibrar_mercado.py"})
+#
+# `calibrar_renda_moldes.py` entrou em 2026-09-02 (plano 01-05 da renda), e o
+# portao FEZ o que existe para fazer: ele quebrou, e o escritor novo passou por
+# olhos humanos antes de ser admitido. O que foi conferido, e por que ele e
+# admissivel:
+#
+#   - ele carrega com `Calibracao.carregar` na primeira linha util, muta SO
+#     `renda_moldes_da_barra` e reemite tudo (`gravar_os_moldes`), que e o molde
+#     literal de `calibrar.py:1188` e `:1234-1236`;
+#   - ele nao nomeia a chave de digitos do mercado em lugar nenhum do fonte, e
+#     ha teste afirmando que aquela chave volta identica depois de uma rodada,
+#     com os 13 moldes contados ANTES da comparacao;
+#   - ele nao conhece o acervo, que e o que o caso abaixo confere de verdade.
+MODULOS_QUE_GRAVAM = frozenset(
+    {"calibrar.py", "calibrar_mercado.py", "calibrar_renda_moldes.py"}
+)
 
 
 @pytest.fixture
