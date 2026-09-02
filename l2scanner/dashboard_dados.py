@@ -37,14 +37,19 @@ from __future__ import annotations
 
 import io
 import logging
+import statistics
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 from . import mercado_registro
 from .mercado_analise import (
+    Evidencia,
     ModeloDeMercado,
+    mediana_dos_unitarios,
     menor_pedido_visivel,
     recencia_do_preco,
 )
@@ -69,10 +74,15 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "ArquivoRecortado",
+    "LARGURAS_DE_BALDE",
     "LeituraAoVivo",
     "NOTA_DE_LINHA_PARCIAL",
+    "PontoDaSerie",
+    "ancora_da_meia_noite",
+    "baldes",
     "observacoes_ao_vivo",
     "payload",
+    "pontos_por_instante",
 ]
 
 
@@ -300,6 +310,187 @@ def observacoes_ao_vivo(arquivo: Path) -> LeituraAoVivo:
         # inclusive um punhado de espacos. O rodape prefere dizer "ignorei uma
         # cauda" de graca a esconder uma de verdade.
         cauda_incompleta=bool(cauda),
+    )
+
+
+# ===========================================================================
+# A AGREGACAO: UM PONTO E UM INSTANTE, E O BALDE NUNCA INVENTA VALOR
+# ===========================================================================
+
+
+@dataclass(frozen=True)
+class PontoDaSerie:
+    """UM instante de leitura: o menor, a tipica, e a evidencia de cada um.
+
+    A `Evidencia` VIAJA DENTRO DO PONTO, e nao num campo paralelo — o molde e o
+    de `mercado_analise:226-254`, e a razao escrita la vale aqui inteira:
+    estatistica sem `n` e adivinhacao com cara de numero, e um `n` que quem
+    desenha pode esquecer de pedir e um `n` que uma hora nao vai ser exibido.
+
+    SAO DUAS EVIDENCIAS E NAO UMA porque os pisos sao diferentes e o motivo da
+    ausencia tambem: o menor pedido e um FATO OBSERVADO (piso 1 — aquele anuncio
+    existiu), e a mediana e uma INFERENCIA (piso 5 — com menos de cinco, duas
+    leituras aberrantes movem o miolo). Um campo so obrigaria quem desenha a
+    adivinhar de qual dos dois numeros aquele `n` estava falando.
+
+    `frozen` porque ninguem reescreve um ponto depois de calcula-lo: o arquivo e
+    a verdade e este objeto e uma conta sobre ele.
+    """
+
+    instante: datetime
+    menor: Fraction | None
+    menor_evidencia: Evidencia
+    tipica: Fraction | None
+    tipica_evidencia: Evidencia
+    n: int
+
+
+def pontos_por_instante(observacoes: Sequence) -> list[PontoDaSerie]:
+    """UM PONTO = UM INSTANTE DE LEITURA (`primeira_vez`). Literalmente.
+
+    A DECISAO, A RECOMENDACAO CONTRARIA, E QUEM DECIDIU
+    ===================================================
+    Esta funcao aplica `menor_pedido_visivel` e `mediana_dos_unitarios` — as
+    MESMAS contas do console — ao SUBCONJUNTO de um unico instante. Ela nao e a
+    conta que o console faz: o console chama as duas sobre `observacoes_de(chave)`,
+    que e a serie INTEIRA.
+
+    A pesquisa desta fase mediu o custo dessa diferenca sobre o dado real: **92
+    observacoes com apenas 13 valores distintos de `primeira_vez`**, e a maior
+    serie com **15 observacoes em 2 instantes**. Com `N_MINIMO_PARA_MEDIANA`
+    valendo 5, agrupar por instante deixa a linha da mediana **AUSENTE na maior
+    parte do grafico**. A docstring de `mercado_analise` ja avisava por extenso
+    que "nao existe serie temporal de preco neste CSV — existe uma sequencia de
+    anuncios diferentes, e o `n` conta anuncios, nao instantes", e e essa frase
+    que esta agregacao paga.
+
+    A PESQUISA, POR ISSO, RECOMENDOU A OUTRA LEITURA: o acumulado ATE o instante,
+    que bate literalmente com o console ("os numeros batem para o mesmo
+    instante", DASH-03) e quase sempre tem mediana.
+
+    **O USUARIO, CONFRONTADO COM ESSA MEDICAO EXATA EM 2026-09-01, MANTEVE A
+    LEITURA LITERAL (CTX-1) e recusou o acumulado.** A recusa esta registrada no
+    `01-CONTEXT.md` e no bloco `RESOLVIDO` da `Open Question 1` do
+    `01-RESEARCH.md`, que termina com "nao reintroduzir (b)".
+
+    CONSEQUENCIA, E ELA E O CAMINHO NORMAL DESTA TELA
+    =================================================
+    A linha da mediana falta na maior parte do grafico, e onde ela falta o que
+    aparece e a **frase de piso vinda do Python** — nunca um numero. Isso NAO e
+    um defeito do grafico nem um estado de erro: e a ausencia de evidencia sendo
+    dita com palavra em vez de preenchida com zero, que e a disciplina que este
+    projeto inteiro segue. Quem vier depois e achar que "esta faltando dado" tem
+    de ler este paragrafo antes de "consertar".
+
+    A ORDEM DE SAIDA E POR INSTANTE, e nao a do arquivo. O `ModeloDeMercado`
+    preserva de proposito a ordem do CSV — para nao esconder de quem depura o que
+    o arquivo diz — mas um eixo do tempo desordenado desenharia a serie indo e
+    voltando. Ordenar e responsabilidade desta camada.
+    """
+    por_instante: dict[datetime, list] = {}
+    for observacao in observacoes:
+        por_instante.setdefault(observacao.primeira_vez, []).append(observacao)
+
+    pontos: list[PontoDaSerie] = []
+    for instante in sorted(por_instante):
+        do_instante = por_instante[instante]
+        menor = menor_pedido_visivel(do_instante)
+        tipica = mediana_dos_unitarios(do_instante)
+        pontos.append(
+            PontoDaSerie(
+                instante=instante,
+                menor=menor.unitario,
+                menor_evidencia=menor.evidencia,
+                tipica=tipica.unitario,
+                tipica_evidencia=tipica.evidencia,
+                # O `n` do ponto e o das ofertas COMPARAVEIS, e por isso ele sai
+                # da evidencia em vez de `len(do_instante)`: uma linha de
+                # quantidade nao positiva nao entra em conta nenhuma, e conta-la
+                # como evidencia seria inflar a evidencia.
+                n=menor.evidencia.n,
+            )
+        )
+    return pontos
+
+
+# AS TRES LARGURAS DE BALDE, E POR QUE TRES.
+#
+# O usuario disse a pergunta dele em voz alta, e ela tem duas resolucoes:
+# "mostrar em horarios do dia" e "dar zoom-out em dias atras". Uma largura de
+# CINCO MINUTOS serve a primeira (dentro de uma sessao de farm, cada releitura do
+# painel e um ponto), uma de UM DIA serve a segunda, e UMA HORA e a intermediaria
+# sem a qual o salto entre as duas engole a forma da curva de um dia inteiro.
+#
+# ESCOLHA, NAO MEDICAO — no molde de `N_MINIMO_PARA_MEDIANA`. Ninguem mediu qual
+# resolucao o usuario mais usa, porque ainda nao ha uso: a serie da Adena tem
+# zero linhas em campo. Se na pratica uma delas nunca for tocada, ela sai daqui,
+# e e uma linha.
+LARGURAS_DE_BALDE = {
+    "cinco_minutos": timedelta(minutes=5),
+    "uma_hora": timedelta(hours=1),
+    "um_dia": timedelta(days=1),
+}
+
+
+def ancora_da_meia_noite(instante: datetime) -> datetime:
+    """A meia-noite LOCAL do dia deste instante. A origem dos baldes.
+
+    MEDIDO, E E POR ISSO QUE ESTA FUNCAO EXISTE: com a ancora posta num instante
+    arbitrario — a primeira observacao, por exemplo, as `2026-08-31 15:00` — os
+    baldes de `timedelta(days=1)` comecam as **15:00**. Duas leituras do mesmo
+    dia civil, uma as 09:00 e outra as 22:00, caem em baldes DIFERENTES, e "dias
+    atras" deixa de querer dizer o que um humano acha que quer dizer.
+
+    O erro nao aparece como excecao nem como numero absurdo: aparece como uma
+    curva que "parece deslocada", que e a familia de defeito mais cara de achar.
+    Ha teste com CONTROLE prendendo os dois lados — a ancora certa junta o dia, a
+    ancora de 15:00 o parte.
+
+    HORA LOCAL INGENUA, sem fuso, como todo carimbo deste projeto: o CSV grava
+    `agora.isoformat()` sem `tzinfo`, e introduzir fuso aqui criaria duas
+    convencoes de tempo na mesma tela.
+    """
+    return instante.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def baldes(
+    pontos: Sequence[tuple[datetime, Fraction]],
+    largura: timedelta,
+    ancora: datetime,
+) -> list[tuple[datetime, Fraction]]:
+    """Um valor por balde, e o valor do balde EXISTIU na tela (D-02).
+
+    Recebe pares `(instante, valor)` — e nao `PontoDaSerie` — porque um ponto tem
+    DOIS valores (o menor e a tipica) e cada um vira uma linha propria no
+    grafico. Passar o ponto inteiro obrigaria esta funcao a escolher qual das
+    duas linhas ela esta agregando, e essa escolha e de quem monta a serie.
+
+    O INDICE E INTEIRO EXATO: `(t - ancora) // largura` opera sobre os
+    microssegundos inteiros do `timedelta`. `total_seconds()` devolveria `float`
+    — medido, **69713.696** contra **69713** inteiro — e `float` e como um
+    centavo aparece do nada. Um indice de balde nao tem parte fracionaria nenhuma
+    a preservar, entao o `float` aqui so poderia piorar.
+
+    O VALOR DE CADA BALDE E `statistics.median_low`, E A ALTERNATIVA ESTA
+    REFUTADA COM O NUMERO: `statistics.median` sobre quatro `Fraction` devolveu
+    **13/42**, um valor que **nao esta na lista** — a media dos dois do meio,
+    meio centavo inventado, exatamente o que o D-02 recusou quando decidiu nao
+    guardar o unitario arredondado. `median_low` devolve sempre um ELEMENTO da
+    lista, e cada elemento ja e um unitario que esteve na tela; a composicao
+    portanto preserva a disciplina. Ha um `assert in` por balde prendendo isso, e
+    ele e a forma executavel do D-02: `median`, `mean` e `median_high` continuam
+    devolvendo um numero plausivel e do tamanho certo, e so o `assert in` os pega.
+
+    A ORDEM DE SAIDA E CRONOLOGICA porque `dict` preserva ordem de INSERCAO, e a
+    de insercao e a da lista de entrada — que nao e garantidamente ordenada.
+    """
+    por_balde: dict[int, list[Fraction]] = {}
+    for instante, valor in pontos:
+        por_balde.setdefault((instante - ancora) // largura, []).append(valor)
+
+    return sorted(
+        (ancora + indice * largura, statistics.median_low(valores))
+        for indice, valores in por_balde.items()
     )
 
 
