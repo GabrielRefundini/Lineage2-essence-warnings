@@ -41,6 +41,37 @@ DOCUMENTO_DA_REGRA = (
 # permissivas em geral": uma lista fechada e o que permite um teste dizer nao.
 LICENCAS_PERMISSIVAS = {"MIT", "Apache-2.0", "ISC"}
 
+# A BANLIST, ampla e nomeada de proposito.
+#
+# Sao as primitivas de rede e de execucao dinamica que o VEND-2 manda procurar,
+# mais as formas vizinhas que um minificador produz. A largura e deliberada:
+# quem procurar uma forma de "so buscar uma coisinha" vai encontrar uma destas,
+# e listar onze strings hoje custa menos que descobrir a decima segunda rodando
+# no navegador do usuario.
+#
+# Uma biblioteca de GRAFICO nao precisa de nenhuma delas. Ela recebe um array
+# de numeros e desenha; nada nesse trabalho pede rede, e nada pede montar
+# codigo a partir de string.
+#
+# LIMITE HONESTO, dito aqui e nao escondido: esta e uma varredura LITERAL. Ela
+# nao ve `window["fet"+"ch"]` nem um nome ofuscado. Isso nao e descuido — e a
+# razao de existirem TRES camadas: a leitura humana (VEND-2) pega a intencao de
+# hoje, este teste pega a proxima versao automaticamente, e a CSP (VEND-4) pega
+# a chamada em EXECUCAO, inclusive a ofuscada que as duas primeiras nao veem.
+PRIMITIVAS = (
+    "fetch(",
+    "XMLHttpRequest",
+    "navigator.sendBeacon",
+    "sendBeacon",
+    "eval(",
+    "new Function",
+    "Function(",
+    "import(",
+    "createElement('script'",
+    'createElement("script"',
+    "WebSocket",
+)
+
 # O ALCANCE da varredura, e o ponto em que este modulo pode se auto-anular.
 #
 # So arquivos de CODIGO e de ESTILO entram. O `README.md` fica de fora POR
@@ -67,6 +98,20 @@ def _arquivos_de_codigo_do_vendor() -> list[Path]:
 
 def _sha256(caminho: Path) -> str:
     return hashlib.sha256(caminho.read_bytes()).hexdigest()
+
+
+def _secao_de_revisao() -> str:
+    """So a secao de revisao do README, e nao o arquivo inteiro.
+
+    Recortar importa: o arquivo inteiro tambem cita as primitivas na secao de
+    manutencao, e um teste que aceitasse qualquer mencao em qualquer lugar
+    deixaria de exigir que a REVISAO existisse.
+    """
+    texto = README.read_text(encoding="utf-8")
+    inicio = texto.index("## Revisao do fonte")
+    resto = texto[inicio + 1 :]
+    fim = resto.find("\n## ")
+    return resto if fim == -1 else resto[:fim]
 
 
 # ---------------------------------------------------------------------------
@@ -162,3 +207,76 @@ def test_o_README_registra_a_proveniencia_BYTES_URL_e_DATA() -> None:
         "o download e reconferir o hash (VEND-1, campo de proveniencia)"
     )
     assert "2026-09-01" in texto, "o README nao registra a data do download"
+
+
+# ---------------------------------------------------------------------------
+# VEND-2 — a revisao do fonte foi FEITA, e esta escrita
+# ---------------------------------------------------------------------------
+
+
+def test_o_README_registra_a_revisao_de_TODAS_as_primitivas() -> None:
+    """A nota de revisao acompanha a banlist deste modulo, item a item.
+
+    Este e o teste que impede o modo de falha mais silencioso do VEND-2: alguem
+    acrescenta uma primitiva a `PRIMITIVAS` (porque descobriu uma forma nova de
+    puxar rede), a varredura passa a procura-la, e ninguem volta ao README para
+    dizer se ela foi encontrada. O documento ficaria descrevendo uma revisao
+    menor do que a que o codigo faz — e o VEND-2 pede a revisao ESCRITA, nao a
+    varredura automatica, que e o VEND-3.
+
+    A assercao e derivada de `PRIMITIVAS` de proposito: uma lista repetida a
+    mao aqui concordaria com o README para sempre, sem nunca cobrar nada.
+    """
+    secao = _secao_de_revisao()
+    faltando = [primitiva for primitiva in PRIMITIVAS if primitiva not in secao]
+    assert not faltando, (
+        f"A secao de revisao de {README.relative_to(RAIZ)} nao menciona: "
+        f"{faltando}.\n"
+        f"\n"
+        f"A varredura deste modulo procura essas primitivas, e o VEND-2 exige "
+        f"a contagem POR PRIMITIVA registrada por escrito. Quem acrescentou a "
+        f"lista precisa voltar ao README, rodar a varredura de novo e anotar o "
+        f"resultado — inclusive se for zero.\n"
+        f"\n"
+        f"Ver a secao `Registry Safety` de {DOCUMENTO_DA_REGRA}."
+    )
+
+
+def test_a_revisao_registra_o_VEREDITO_e_nao_so_a_tabela() -> None:
+    """Uma tabela de zeros sem veredito nao e uma revisao — e uma planilha.
+
+    O VEND-2 tem dois desfechos possiveis e o README tem de dizer qual
+    aconteceu: aprovado por zero ocorrencias, ou reprovado com `arquivo:linha`
+    e a decisao humana registrada.
+    """
+    secao = _secao_de_revisao()
+    assert "Veredito VEND-2" in secao, "a secao de revisao nao declara veredito"
+    assert "aprovado" in secao.lower()
+
+
+def test_a_revisao_registra_a_REFUTACAO_do_zoom_por_roda() -> None:
+    """A suposicao do UI-SPEC que caiu, com a MEDICAO e nao so a conclusao.
+
+    O UI-SPEC afirma que "toda biblioteca dessa classe faz [zoom e pan] com
+    config". Medido: falso para a escolhida. O que este teste cobra e a lista
+    dos eventos que a biblioteca DE FATO registra — porque "nao tem wheel" e
+    uma conclusao, e a lista e a evidencia. Sem a evidencia ao lado, a proxima
+    pessoa que atualizar a versao nao tem como saber se a frase ainda vale.
+
+    O contrafactual esta preso na segunda metade: o `.min.js` em disco nao pode
+    ter ganhado um listener de roda sem que este documento mudasse junto.
+    """
+    secao = _secao_de_revisao()
+    assert "wheel" in secao, "a refutacao do zoom por roda nao esta registrada"
+    for evento in ("mousedown", "mouseup", "dblclick", "resize"):
+        assert evento in secao, (
+            f"a secao nao lista o evento `{evento}`, que a biblioteca de fato "
+            f"registra — sem a lista, sobra a conclusao sem a medicao"
+        )
+
+    codigo = (VENDOR / "uPlot.iife.min.js").read_text(encoding="utf-8")
+    assert "wheel" not in codigo, (
+        "a biblioteca vendorizada PASSOU a registrar `wheel`. A secao de "
+        "revisao do README diz o contrario, e o plano 01-07 escreve o zoom por "
+        "roda a mao por causa dessa ausencia. Reconferir os dois."
+    )
