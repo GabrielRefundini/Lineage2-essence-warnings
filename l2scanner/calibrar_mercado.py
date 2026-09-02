@@ -1174,9 +1174,23 @@ def anel_do_zero_esta_partido(molde) -> bool:
 def conferir_a_paridade_do_ciano(fundidos: dict) -> None:
     """Recusa um conjunto CROMATICO cortado sobre a faixa zebrada errada.
 
-    LEVANTA, e levanta ANTES de qualquer escrita. Ver a nota acima: a diferenca
+    LEVANTA, e levanta ANTES DO SEGUNDO ARRASTO. Ver a nota acima: a diferenca
     entre as duas paridades e a diferenca entre consertar o defeito e gravar
     treze moldes que nao consertam nada.
+
+    DOIS PONTOS DE CHAMADA, e eles veem coisas diferentes:
+
+    - dentro do laco de `cortar_glifos`, sobre `cortados` — o corte desta
+      rodada. E este que faz a recusa custar UMA MENSAGEM. Sem ele a recusa
+      chegava depois dos treze arrastos, e em 2026-09-01 isso custou ao usuario
+      tres rodadas completas;
+    - dentro de `_gravar_os_glifos`, sobre `fundidos` — o corte desta rodada
+      MAIS o conjunto anterior. E a rede final, e ela pega o que a do laco nao
+      tem como ver: uma rodada sem `0` nenhum sobre um conjunto anterior cujo
+      `0` esta partido.
+
+    Ela e IDEMPOTENTE e barata (`anel_do_zero_esta_partido` e pura sobre um
+    molde), entao chamar duas vezes nao custa nada e nao muda veredito.
     """
     if not anel_do_zero_esta_partido(fundidos.get("0")):
         return
@@ -2194,6 +2208,7 @@ def cortar_glifos(
     ja_gravados: dict[str, np.ndarray],
     ler=None,
     grade=None,
+    cromatica: bool = False,
 ) -> dict[str, np.ndarray]:
     """O laco de marcacao dos glifos. Devolve SO o que foi cortado nesta rodada.
 
@@ -2227,6 +2242,26 @@ def cortar_glifos(
     no cabecalho amarra o `input` que existia no momento em que o modulo foi
     importado, e quem o substituisse depois -- um teste, ou uma ponte futura que
     leia de outro lugar -- seria ignorado calado.
+
+    `cromatica` LIGA A GUARDA DE PARIDADE DENTRO DO LACO, e ela esta aqui por
+    um custo MEDIDO, nao por simetria de assinatura. Ate 2026-09-01 a unica
+    `conferir_a_paridade_do_ciano` do repositorio rodava dentro de
+    `_gravar_os_glifos` -- DEPOIS dos treze arrastos e DEPOIS de a matriz de
+    confusao aprovar. Naquele dia isso custou ao usuario TRES rodadas inteiras:
+    ele cortou os treze glifos, a matriz aprovou, e so entao a paridade recusou.
+    Duas vezes seguidas. Duas frases do repositorio ja afirmavam que a recusa
+    custava "uma mensagem, e nao uma sessao de farm" -- e as duas eram falsas.
+    Agora sao verdadeiras, e e esta chamada que as torna verdadeiras.
+
+    O conserto e barato porque `anel_do_zero_esta_partido` e PURA sobre UM
+    molde: o primeiro numero que contiver um `0` ja carrega a assinatura
+    inteira. Nao ha nada a ganhar esperando os outros doze.
+
+    A GUARDA DA ESCRITA CONTINUA EXISTINDO, e ela nao e redundancia. Esta aqui
+    ve so `cortados` -- o corte DESTA rodada. A de la ve `fundidos`, que inclui
+    o conjunto ANTERIOR, e por isso pega o caso que esta e estruturalmente cega
+    para: uma rodada que corta so glifos sem `0` sobre um conjunto anterior cujo
+    `0` esta partido. Esta e conveniencia; aquela e a rede.
     """
     ler = ler or input
     cortados: dict[str, np.ndarray] = {}
@@ -2311,6 +2346,11 @@ def cortar_glifos(
             topo, base = faixa
             for caractere, (inicio, fim) in zip(rotulo, runs):
                 cortados[caractere] = mascara[topo:base, inicio:fim].copy()
+            # AQUI, E NAO NO FIM: o primeiro `0` cortado ja diz se a faixa
+            # zebrada e a errada. Levantar agora custa UM arrasto; levantar em
+            # `_gravar_os_glifos` custava os treze. Ver a docstring.
+            if cromatica:
+                conferir_a_paridade_do_ciano(cortados)
             print(f"  ok: {rotulo}")
             continue
 
@@ -2485,9 +2525,14 @@ def _gravar_os_glifos(
     )
     if cortados:
         if cromatica:
-            # LEVANTA ANTES DE ESCREVER: um conjunto ciano cortado na faixa
-            # zebrada errada tem de custar uma mensagem, e nao uma sessao de
-            # farm. Ver `conferir_a_paridade_do_ciano`.
+            # A REDE FINAL, E NAO MAIS A PRIMEIRA A FALAR. Quem faz a recusa
+            # custar UMA MENSAGEM e a chamada gemea dentro do laco de
+            # `cortar_glifos`, que ve o primeiro `0` assim que ele e cortado.
+            # Esta continua aqui porque ve outra coisa: `fundidos` inclui o
+            # conjunto ANTERIOR, entao ela pega a rodada que corta so glifos sem
+            # `0` sobre um conjunto cujo `0` ja esta partido — o caso para o qual
+            # a do laco e estruturalmente cega. Tirar uma nao "simplifica": deixa
+            # um caminho de escrita sem guarda nenhuma.
             conferir_a_paridade_do_ciano(fundidos)
         setattr(cal, chave, glifos_para_calibracao(fundidos))
     elif getattr(cal, chave):
@@ -2584,7 +2629,9 @@ def _calibrar_so_digitos(
         print("  e sao as unicas cuja forma serve as DUAS paridades da grade "
               "zebrada (medido).")
 
-    cortados = cortar_glifos(pixels, glifos_anteriores, grade=medida)
+    cortados = cortar_glifos(
+        pixels, glifos_anteriores, grade=medida, cromatica=cromatica
+    )
     fundidos = fundir_glifos(glifos_anteriores, cortados)
     resultado = _conferir_os_glifos(fundidos)
 

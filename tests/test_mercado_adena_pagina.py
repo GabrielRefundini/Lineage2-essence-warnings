@@ -348,16 +348,30 @@ def _moldes_dos_dois_layouts(cal) -> dict:
 
 
 def _vencedor_medido(cal, banda: str) -> str | None:
-    passam = {}
-    for nome, (molde, corte, limiar) in _moldes_dos_dois_layouts(cal).items():
-        score = casamento_do_cabecalho(_imagem(banda), molde, corte)
-        if score >= limiar:
-            passam[nome] = score
-    if not passam:
-        return None
-    topo = max(passam.values())
-    nomes = [n for n, s in passam.items() if s == topo]
-    return nomes[0] if len(nomes) == 1 else None
+    """O veredito da PRODUCAO sobre uma banda versionada.
+
+    ATE 2026-09-01 ESTE CORPO ERA UMA COPIA. Ele reimplementava, dentro do
+    teste, as quatro decisoes de `LeitorDePagina._casamento_do_layout` -- o
+    limiar por layout, o `max`, o empate e o `None`. `test_o_vencedor_por_banda`
+    media entao a COPIA, e nao a producao: com o limiar da producao DESLIGADO
+    (`if score < -1.0`), os quatro casos continuavam VERDES. Medido, e por isso
+    consertado (DEBT-07).
+
+    O QUE E SUBSTITUIDO, E POR QUE SO ISSO. A producao recebe uma JANELA e
+    recorta a banda dela por `_banda_do_cabecalho`; as fixturas
+    `cabecalho_*.png` ja SAO bandas recortadas. Entao trocamos a FONTE DA BANDA
+    -- e nada mais. Limiar, `max`, empate e `None` continuam sendo os da
+    producao, que e o ponto inteiro deste conserto.
+    """
+    leitor, _barata, _conferencia = _montar_leitor(cal)
+    # A troca so e honesta se os dois candidatos estiverem mesmo no portao.
+    assert set(leitor._layouts) == {"negociacao", "adena"}, sorted(leitor._layouts)
+
+    imagem = _imagem(banda)
+    # Atributo de INSTANCIA, e nao `monkeypatch`: ele sombra o metodo so neste
+    # leitor, e nenhum outro caso da suite ve a substituicao.
+    leitor._banda_do_cabecalho = lambda _janela, _origem, _modelo: imagem
+    return leitor._casamento_do_layout(imagem, (0, 0))
 
 
 class TestAMatrizDeCasamentoNosDoisSentidos:
