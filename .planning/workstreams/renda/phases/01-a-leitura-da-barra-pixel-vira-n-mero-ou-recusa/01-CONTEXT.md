@@ -164,6 +164,52 @@ como memória viva dentro do leitor.
 
 </specifics>
 
+<corrections>
+## Correções medidas pela pesquisa (2026-09-02) — leia ANTES das decisões acima
+
+O `01-RESEARCH.md` abriu o código e refutou cinco coisas que eu tinha escrito por suposição.
+As decisões acima ficam como estão **para o histórico**; o que vale é a correção.
+
+1. **O defeito de não-destruição que eu citei NÃO EXISTE MAIS.** `cal.mercado_grade = grade`
+   está em `calibrar_mercado.py:3182`, e `:3155` retorna antes dele para todo layout que não
+   seja negociação. Foi consertado no commit `f8dbfe2` e está preso por
+   `tests/test_calibrar_layout_nao_apaga_negociacao.py`. **O risco real é outro, e é pior:**
+   `Calibracao.salvar` (`calibracao.py:668`) é uma enumeração literal de 44 chaves e **não
+   preserva chave desconhecida**. Uma chave `renda_*` que exista no arquivo mas não esteja no
+   dataclass **e** no `salvar` some calada na próxima rodada de qualquer calibrador. Não há
+   teste hoje amarrando `fields(Calibracao)` ao dict de `salvar`. A Área 4 continua sendo a de
+   maior risco da fase — mas por um motivo diferente do que eu escrevi, e o teste que ela pede
+   é outro.
+
+2. **As escalas do OCR são 2x e 3x, não 1x e 2x.** `ocr.py:80-81`: `ler_texto` é 2x e
+   `ler_texto_ampliado` é 3x. Não existe entrada pública em 1x, e o módulo documenta com
+   medição que 1x **abstém**. O cruzamento da Área 2 continua certo; o par muda para 2x×3x.
+
+3. **Moldes de glifo para o nível são impraticáveis, não caros.** `conjunto_descreve_numeros`
+   exige o conjunto `0-9` inteiro, e a região do nível mostra dois caracteres que mudam uma vez
+   por sessão — nunca haverá de onde extrair os dez moldes. A **alternativa** que eu registrei
+   na Área 1 (OCR mascarado, `vmin=210 → '66'`) vira o **caminho principal**. Há precedente:
+   os moldes de nome de item foram abandonados em favor de OCR em 2026-08-29.
+
+4. **`centesimos_de_moeda` NÃO generaliza para o EXP.** Ele trava em `len(decimal) != 2` e
+   exige vírgula; devolve `None` tanto para `68,5632` quanto para `68.5632` (medido por
+   execução). O EXP precisa de irmã própria, copiando a forma. Já a adena reusa como está:
+   `numero_valido("10,673,628") is True` e `inteiro_de_quantidade(...) == 10673628`, medidos.
+
+5. **`tools/pick_region.py`, `tools/record.py` e o trackbar HSV não existem no repositório**, e
+   **`rich` não está instalado nem importado em lugar nenhum** (confirmado à parte:
+   `ModuleNotFoundError: No module named 'rich'`, zero imports em `l2scanner/`). O `CLAUDE.md` e
+   o `ROADMAP.md` citam os quatro como existentes. Quem planejar não pode contar com eles. O
+   `rich` é problema da Fase 3, e já está anotado lá.
+
+**Resolvido, e a favor do plano:** o frame de `JanelaSource` é **relativo à janela**
+(`captura_janela.py:396-402`), e as coordenadas do spike já estão nesse espaço — a janela
+carimbada é 1720x1392, `1230+470 = 1700` e `1368+26 ≈ 1392`, e o nível `246,736` cai ao lado do
+`hp_proprio` `298,711`, que é declaradamente janela-relativo. A história "os números do spike
+são o ponto de partida do calibrador" sobrevive intacta.
+
+</corrections>
+
 <deferred>
 ## Deferred Ideas
 
