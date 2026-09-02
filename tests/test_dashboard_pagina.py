@@ -208,6 +208,40 @@ class TestAEstruturaDaPagina:
         assert scripts, "o index deixou de carregar qualquer script"
         assert all("src" in atributos for atributos in scripts)
 
+    def test_a_BIBLIOTECA_do_grafico_carrega_ANTES_do_nosso_script(
+        self, arvore: _Arvore
+    ) -> None:
+        """A folha do vendor tinha guarda de ORDEM; o script do vendor nao tinha.
+
+        A ASSIMETRIA FOI MEDIDA na verificacao da fase, em 2026-09-02: nenhum
+        teste desta suite nomeava a tag do `uPlot.iife.min.js` nem o carregador
+        de reserva do `dashboard.js`. Apagar OS DOIS deixava a suite inteira
+        verde e o grafico nunca desenhava — o guarda-vacuo exato que o
+        `test_todo_script_carrega_por_ARQUIVO` acima descreve, repetido um nivel
+        adiante: `all(...)` continuaria verdadeiro sobre a lista que sobrasse.
+
+        A ORDEM E O QUE SE AFIRMA, e nao apenas a presenca. Dois `defer`
+        executam na ordem do documento, entao a tag do vendor tem de vir ANTES
+        da nossa: invertidas, `window.uPlot` seria `undefined` quando
+        `comecar()` roda, e a pagina cairia no carregador de reserva sem que
+        nada acusasse. E a mesma razao pela qual a FOLHA do vendor ja tinha
+        teste de ordem — esta e a metade que faltava.
+
+        O CARREGADOR DE RESERVA NAO E TESTADO AQUI de proposito: ele vive no
+        `dashboard.js` e e afirmado la. As duas rotas sao deliberadamente
+        compativeis (ele confere `window.uPlot` antes de agir), e por isso
+        nenhuma das duas pode ser a unica prova de que o grafico consegue
+        existir.
+        """
+        fontes = [atributos.get("src", "") for atributos in arvore.de("script")]
+        assert "vendor/uPlot.iife.min.js" in fontes, (
+            "o index parou de carregar a biblioteca do grafico"
+        )
+        assert "dashboard.js" in fontes
+        assert fontes.index("vendor/uPlot.iife.min.js") < fontes.index(
+            "dashboard.js"
+        ), "a biblioteca tem de vir antes do nosso script — dois defer rodam em ordem"
+
     def test_a_contagem_de_estilos_EMBUTIDOS_e_zero(self, arvore: _Arvore) -> None:
         """`style-src 'self'` proibe o `<style>` e o atributo `style=`.
 
