@@ -95,6 +95,7 @@ from .loot import (  # noqa: E402
 )
 from . import ocr  # noqa: E402
 from .frames import MssSource, Regiao, ReplaySource, SaudeDoFrame  # noqa: E402
+from .recaptura import FonteRecuperavel  # noqa: E402
 from .manutencao import (  # noqa: E402
     CONSELHO_QUANDO_NAO_ANUNCIA,
     SEGUNDOS_ENTRE_LEITURAS,
@@ -2190,6 +2191,79 @@ def _registrar_evento_no_console(evento) -> None:
     log.info("%s", destacar(formatar_console(evento), evento.tipo, hora))
 
 
+def montar_fonte(args, cal, extras: dict[str, Regiao] | None = None):
+    """Escolhe o backend de captura e devolve a fonte pronta para o laco.
+
+    O QUE MUDOU AQUI, e por que. Ate 2026-09-01 este bloco construia a fonte
+    UMA vez e ninguem nunca a reconstruia: quando a sessao de captura morria
+    com o jogo vivo, o laco seguia chamando `capturar()` num cadaver para
+    sempre (33 minutos medidos — ver o cabecalho de `recaptura.py`). Agora cada
+    caminho VIVO vira uma FABRICA sem argumentos, e a fabrica e o unico lugar
+    onde a lista de argumentos da fonte existe: arranque e religacao chamam a
+    MESMA funcao, entao os dois sites nao tem como divergir em silencio. Em
+    particular a chamada de `JanelaSource` continua sem mencionar
+    `minimum_update_interval`, byte-identica a de antes, e o padrao `None` segue
+    valendo (`tests/test_mercado_firewall_de_fase.py`).
+    """
+    extras = extras or {}
+
+    if args.replay:
+        fonte = ReplaySource(Path(args.replay))
+        log.info("Reproduzindo %s (%d frames)", args.replay, len(fonte))
+        # O REPLAY FICA FORA DO ENVELOPE DE PROPOSITO. Reconstruir uma
+        # `ReplaySource` reiniciaria a gravacao do primeiro frame, e um replay
+        # que recomeca sozinho reproduziria os mesmos eventos de novo — o
+        # harness de regressao deixaria de provar qualquer coisa. Alem disso o
+        # fim de uma gravacao ja tem tratamento proprio no laco
+        # (`StopIteration` -> "Fim da sessao gravada"), e frames repetidos numa
+        # gravacao sao DADO, nao falha de captura.
+        return fonte
+
+    if args.janela:
+        # Captura a janela do jogo direto, em vez do desktop composto: assim
+        # cobrir o jogo com o navegador nao cega mais o scanner.
+        # A regiao relativa a janela sobrevive a arrastar o jogo; a de
+        # desktop so vale enquanto ele nao se mexer.
+        regiao = cal.party_window_na_janela or cal.party_window
+        if cal.party_window_na_janela is None:
+            log.warning(
+                "Esta calibracao e antiga e nao guarda a posicao dentro da "
+                "janela. Vai funcionar, mas ARRASTAR o jogo quebra a leitura. "
+                "Rode calibrar.bat para corrigir."
+            )
+
+        def construir():
+            return JanelaSource(
+                args.janela,
+                regiao,
+                relativa=cal.party_window_na_janela is not None,
+                extras=extras or None,
+            )
+
+        fonte = FonteRecuperavel(construir)
+        log.info("Lendo a janela '%s' — funciona com o jogo coberto", args.janela)
+        log.info("Janela MINIMIZADA continua sem funcionar: o Windows para de "
+                 "produzir frames e nao ha API que contorne isso.")
+    else:
+        # No caminho do desktop a barra propria esta em coordenadas da
+        # JANELA, entao so da para captura-la pelo caminho --janela.
+        # Com extras tambem aqui: D-07 permite explicitamente o caminho `mss`
+        # COM a regiao do banner configurada a mao no calibration.json.
+        def construir():
+            return MssSource(cal.party_window, extras=extras or None)
+
+        fonte = FonteRecuperavel(construir)
+        if cal.hp_proprio:
+            log.warning(
+                "A barra do seu personagem so e lida com --janela. "
+                "Sem ela, a SUA morte nao sera detectada."
+            )
+        log.info("Lendo o desktop — o jogo precisa estar visivel. "
+                 "Use --janela para funcionar com ele coberto.")
+
+    return fonte
+
+
 def laco_principal(
     args: argparse.Namespace,
     cal: Calibracao,
@@ -2281,43 +2355,7 @@ def laco_principal(
             )
             vigia_mercado = None
 
-    if args.replay:
-        fonte = ReplaySource(Path(args.replay))
-        log.info("Reproduzindo %s (%d frames)", args.replay, len(fonte))
-    elif args.janela:
-        # Captura a janela do jogo direto, em vez do desktop composto: assim
-        # cobrir o jogo com o navegador nao cega mais o scanner.
-        # A regiao relativa a janela sobrevive a arrastar o jogo; a de
-        # desktop so vale enquanto ele nao se mexer.
-        regiao = cal.party_window_na_janela or cal.party_window
-        if cal.party_window_na_janela is None:
-            log.warning(
-                "Esta calibracao e antiga e nao guarda a posicao dentro da "
-                "janela. Vai funcionar, mas ARRASTAR o jogo quebra a leitura. "
-                "Rode calibrar.bat para corrigir."
-            )
-        fonte = JanelaSource(
-            args.janela,
-            regiao,
-            relativa=cal.party_window_na_janela is not None,
-            extras=extras or None,
-        )
-        log.info("Lendo a janela '%s' — funciona com o jogo coberto", args.janela)
-        log.info("Janela MINIMIZADA continua sem funcionar: o Windows para de "
-                 "produzir frames e nao ha API que contorne isso.")
-    else:
-        # No caminho do desktop a barra propria esta em coordenadas da
-        # JANELA, entao so da para captura-la pelo caminho --janela.
-        # Com extras tambem aqui: D-07 permite explicitamente o caminho `mss`
-        # COM a regiao do banner configurada a mao no calibration.json.
-        fonte = MssSource(cal.party_window, extras=extras or None)
-        if cal.hp_proprio:
-            log.warning(
-                "A barra do seu personagem so e lida com --janela. "
-                "Sem ela, a SUA morte nao sera detectada."
-            )
-        log.info("Lendo o desktop — o jogo precisa estar visivel. "
-                 "Use --janela para funcionar com ele coberto.")
+    fonte = montar_fonte(args, cal, extras)
 
     # A CONFERENCIA DA BARRA PROPRIA, UMA VEZ, AQUI.
     #
