@@ -15,8 +15,8 @@ ser três fases e ser oito.
 
 | Peça | Onde | O que ela já resolve para nós |
 |---|---|---|
-| OCR do Windows (WinRT) | `l2scanner/ocr.py` — `ler_texto`, `ler_texto_ampliado`, `disponivel`, `motivo_indisponivel` | O spike leu `Special 58,40 13,091 10,679,769` da direita da barra com `ler_texto` sobre o recorte **cru**, sem pré-processamento nenhum. A leitura da adena já quase funciona. |
-| Leitor de dígitos por molde de glifo | `l2scanner/mercado_leitura.py` — `segmentar_glifos`, `ler_glifos`, `moldes_da_tinta`, `mascara_de_numero`, `quantidade_de_adena`, `numero_valido` | Um leitor de números **feito para a fonte deste jogo**, com máscara por `valor_minimo`, pontuação de glifo e recusa nomeada. É o plano B do EXP% e do nível — e provavelmente o plano A do nível, que o OCR cru já devolveu vazio. |
+| OCR do Windows (WinRT) | `l2scanner/ocr.py` — `ler_texto`, `ler_texto_ampliado`, `disponivel`, `motivo_indisponivel` | O spike leu `Special 58,40 13,091 10,679,769` da direita da barra com `ler_texto` sobre o recorte **cru**. **A frase "a leitura da adena já quase funciona" está REFUTADA e fica escrita para que se veja que caiu** — duas vezes: com fundo claro o cru devolve `''` (LEIT-08), e sobre a máscara o OCR aceita número errado e concorda na L-Coin (LEIT-09). O OCR continua sendo o leitor do **EXP** e do **nível**, e não da adena. |
+| Leitor de dígitos por molde de glifo | `l2scanner/mercado_leitura.py` — `segmentar_glifos`, `ler_glifos`, `moldes_da_tinta`, `mascara_de_numero`, `quantidade_de_adena`, `numero_valido` | Um leitor de números **feito para a fonte deste jogo**, com máscara por `valor_minimo`, pontuação de glifo e recusa nomeada. **Medido: ele é o plano A da ADENA** (LEIT-09), e não do nível — a região do nível nunca mostra dez dígitos para cortar moldes. O que **não** vem de graça são os moldes: os do mercado têm 9 px e os da barra 17, e o calibrador corta os dele. |
 | Calibração e o `calibration.json` | `l2scanner/calibracao.py`, `calibrar.py`, `calibrar_mercado.py` | A convenção inteira: `Regiao`, `LimiaresDeCor`, campos opcionais por feature, carregamento validado, e dois `.bat` que já ensinam o usuário a calibrar. |
 | Captura e cegueira | `l2scanner/captura_janela.py`, `visao.py`, `frames.py` (`SaudeDoFrame`, `FRAMES_IDENTICOS_PARA_CONGELADO = 30`), `cliente.py` (`EstadoDoCliente.TELA_DE_LOGIN`, `esta_na_tela_de_login`) | Captura por janela (Windows Graphics Capture), detecção de frame escuro/congelado e reconhecimento da tela de login — endurecidos em **quatro rodadas de correção** no v1. CEGO-01 e CEGO-02 são reuso, não invenção. |
 | Registro append-only com contrato | `l2scanner/mercado_registro.py` — `COLUNAS`, `conferir_o_cabecalho`, `conferir_o_terminador`, `ContratoDoArquivoQuebrado` | O dialeto (`;`, `csv` da stdlib, cabeçalho-contrato, `"a"` em vez de reescrita atômica) e as **quatro divergências deliberadas** já argumentadas por escrito. |
@@ -70,7 +70,7 @@ por um calibrador da mesma família dos dois que já existem.
 (`ocr.py`, `mercado_leitura.py`, `calibracao.py`, `captura_janela.py`) já está no repositório e
 verificado em campo.
 
-**Requirements**: LEIT-01, LEIT-02, LEIT-03, LEIT-04, LEIT-05, LEIT-06, LEIT-07, LEIT-08
+**Requirements**: LEIT-01, LEIT-02, LEIT-03, LEIT-04, LEIT-05, LEIT-06, LEIT-07, LEIT-08, LEIT-09
 
 > **LEIT-07 e LEIT-08 foram acrescentados em 2026-09-02**, depois de os quatro planos desta fase
 > já estarem escritos, a partir de `phases/01-a-leitura-da-barra-pixel-vira-n-mero-ou-recusa/01-MEDICOES-DE-CAMPO.md`
@@ -80,6 +80,18 @@ verificado em campo.
 > número plausível em vez de um campo vazio), e **não existe piso de brilho único** (a banda útil
 > do nível e a da adena não têm interseção) — além de a adena **exigir** máscara, o que refuta a
 > premissa do LEIT-03 no caso geral.
+
+> **LEIT-09 foi acrescentado depois, no mesmo dia**, a partir do **"Adendo"** daquele mesmo
+> documento (achados M-G a M-J), feito depois de os planos já terem sido revistos uma vez. Ele
+> derruba a **segunda** metade da premissa do LEIT-03: não é só que o recorte cru não lê a adena —
+> é que **o OCR não serve para aquele campo**. Medido: a regra de aceitação por abstenção aceita
+> `106.020` no lugar de `1.696.020` e `91` no lugar de `13.160.684` (M-G), e quando as duas escalas
+> **concordam** elas concordam na **L-Coin** — 173 concordâncias da Faerlina, 173 erradas (M-H).
+> Concordância prova que as duas escalas leram a mesma coisa, e a mesma coisa pode ser o campo do
+> lado. **A adena passou a ser lida por glifo**; os moldes do mercado não transferem (17 px contra
+> 9 — M-I) e são cortados pelo calibrador; e enquanto faltar um dígito ao conjunto, a leitura
+> **recusa nomeando o que falta** em vez de adivinhar. O EXP e o nível ficam no OCR — a adena era o
+> único campo com um sósia gramatical adjacente.
 
 **O que o spike já entregou, e que esta fase NÃO precisa redescobrir** (`.planning/spikes/renda-barra-inferior.md`, medido na tela do usuário em 2026-09-01):
 
@@ -99,6 +111,15 @@ não constante do produto.** Mover a janela não pode custar um commit — é a 
 1. Com o jogo aberto, um comando de leitura única imprime os três campos batendo com o que está
    na tela: o nível `66`, o EXP `68,5632%` com as **quatro** casas e a adena `10.673.628`.
    Conferível olhando para o monitor e para o terminal ao mesmo tempo. — LEIT-01, LEIT-02, LEIT-03
+
+   > **Ressalva medida, 2026-09-02 (LEIT-09).** A adena passou a ser lida por glifo, e o conjunto
+   > de moldes da fonte da barra só fica completo quando um `5` e um `7` aparecerem no total de
+   > adena do usuário — as duas fixturas de campo dão `0 1 2 3 4 6 8 9`. Enquanto faltarem, a
+   > linha da adena sai como **recusa nomeando os dígitos que faltam**, e isso **conta como
+   > passar**: é exatamente o critério 3 funcionando. O critério 1 fecha em duas etapas — nível e
+   > EXP de imediato, adena quando o pixel existir —, e o que **não** fecha é a adena sair como
+   > número com o conjunto pela metade, porque meio conjunto lê errado com a confiança do
+   > conjunto inteiro.
 2. Um EXP que saia sem as quatro decimais — `68,56%`, `685632`, `68,5632` sem o sinal de
    porcentagem — é **recusado com o motivo escrito**, nunca arredondado nem completado. As
    decimais são o que torna a taxa mensurável em minutos em vez de horas; perdê-las em silêncio
@@ -149,13 +170,17 @@ não constante do produto.** Mover a janela não pode custar um commit — é a 
       calibração, recorte com guarda, máscara, duas escalas e recusa nomeada (onda 1)
 - [ ] `01-02-PLAN.md` — a bancada de medição, **encolhida em 2026-09-02**: cinco das seis
       perguntas foram respondidas em campo e ficam citadas; sobram o censo dos quatro desfechos
-      com denominador e a varredura de piso reproduzível por comando (onda 2)
+      com denominador — agora **estreitado ao EXP e ao nível**, com a adena contada como caminho
+      abandonado — e a varredura de piso reproduzível por comando, **de 5 em 5 e nunca de 10 em
+      10** (onda 2)
 - [ ] `01-03-PLAN.md` — o calibrador `calibrar-renda.bat` **por personagem**, a não-destruição
       provada (inclusive a do personagem vizinho), a largura da banda como aviso, o critério 4
-      como teste executável e a ida e volta da janela movida (onda 2)
-- [ ] `01-04-PLAN.md` — a adena (sob máscara obrigatória) e o nível no comando de leitura única,
-      os três campos impressos na grafia do jogo para um personagem nomeado, e as recusas que só
-      existem sobre um par: EXP para trás sem mudança de nível e adena saltando ordem de
+      como teste executável, a ida e volta da janela movida, **e o `calibrar-renda-moldes.bat` que
+      corta os moldes de 17 px da fonte da barra** — a máquina propõe, o humano confirma, e o
+      conjunto incompleto é gravado nomeando o que falta (onda 2)
+- [ ] `01-04-PLAN.md` — a adena **por glifo** e o nível por OCR mascarado no comando de leitura
+      única, os três campos impressos na grafia do jogo para um personagem nomeado, e as recusas
+      que só existem sobre um par: EXP para trás sem mudança de nível e adena saltando ordem de
       grandeza (onda 3)
 
 > **Ondas revistas em 2026-09-02.** Eram quatro; são três. O `01-03` dependia do `01-02` para
@@ -341,6 +366,9 @@ portas para o mesmo arquivo é como um arquivo passa a ter duas verdades.
 | LEIT-04 | Phase 1 |
 | LEIT-05 | Phase 1 |
 | LEIT-06 | Phase 1 |
+| LEIT-07 | Phase 1 |
+| LEIT-08 | Phase 1 |
+| LEIT-09 | Phase 1 |
 | REND-01 | Phase 2 |
 | REND-02 | Phase 2 |
 | REND-03 | Phase 2 |

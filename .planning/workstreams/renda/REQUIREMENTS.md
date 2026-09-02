@@ -31,6 +31,16 @@
       OCR já no projeto (`l2scanner.ocr`) devolve `Special 58,40 13,091 10,679,769` sobre o
       recorte cru da direita da barra, sem pré-processamento nenhum.
 
+      **Correção medida em 2026-09-02, duas vezes, e a segunda derruba o leitor inteiro.** A
+      primeira metade da frase acima — *"sobre o recorte cru"* — caiu com o LEIT-08: com o fundo
+      atrás da barra semitransparente em grama clara, o cru devolve `''` nas duas escalas. A
+      segunda metade — *"o Windows OCR devolve a adena"* — caiu com o **LEIT-09**: medido, o OCR
+      sobre este recorte aceita número **errado** e nenhuma regra de cruzamento entre escalas
+      conserta isso. **A adena é lida por glifo, não por OCR.** O requisito continua sendo o
+      mesmo — ler o total de adena —; o que mudou é o leitor, e o argumento inteiro está no
+      LEIT-09. A frase original fica escrita aqui porque um número que caiu precisa dizer que
+      caiu.
+
 - [ ] **LEIT-04**: **Leitura duvidosa vira recusa, não número.** Um EXP que ande para trás sem
       level up, uma adena que salte ordens de grandeza, um campo que volte vazio — nada disso
       entra no registro. O modo de falha que este requisito existe para impedir é o pior
@@ -60,6 +70,48 @@
       caso geral**. Pior: a banda útil da adena da Faerlina tem **largura 1** (só `vmin=150`).
       Isso não é margem, é sorte — e o calibrador tem que reportar a largura da banda e avisar
       quando ela for estreita, não só gravar o valor.
+
+- [ ] **LEIT-09**: **A adena é lida por GLIFO, os moldes dessa fonte são construídos pelo
+      calibrador, e um conjunto incompleto RECUSA em vez de adivinhar.** *(Acrescentado em
+      2026-09-02 a partir do "Adendo" de `01-MEDICOES-DE-CAMPO.md`, achados M-G a M-J.)* São três
+      cláusulas e cada uma tem número:
+
+      1. **O OCR não serve para este campo.** A regra "uma leitura válida + uma abstenção →
+         aceita" (LEIT-04 via M-D) aceita valor errado em dado real: no piso 150 a Yazalaque lê
+         `106.020` contra a verdade `1.696.020`, e no piso 160 a Faerlina lê `91` contra
+         `13.160.684`. Os dois passam em `numero_valido` — são gramaticalmente válidos,
+         plausíveis, e errados por seis ordens de grandeza (M-G). Apertar a regra para "as duas
+         escalas têm de concordar" também não salva: em busca exaustiva a Faerlina produziu
+         **173 concordâncias e as 173 estão erradas**, todas lendo `13091`, que é a **L-Coin**
+         (M-H). Concordância prova que as duas escalas leram a mesma coisa, e a mesma coisa pode
+         ser o campo do lado. A adena é o único campo desta fase com um **sósia gramatical
+         adjacente**, e é por isso que só ela sai do OCR — o EXP fica, porque lê numa banda larga
+         (130–170) e a gramática dele (`\d+[.,]\d{4}%`) não colide com vizinho nenhum.
+
+      2. **Os moldes do mercado não transferem, e a diferença é geométrica.** A fonte da barra tem
+         glifo de **17 px** de altura, invariável nas duas instâncias e em todo piso varrido; os
+         13 moldes de `mercado_templates_de_digito` têm **altura 9** (M-I). Casar um dígito de 17
+         px contra um molde de 9 põe a decisão nas mãos da área vazia do alinhamento, que é o
+         mesmo argumento com que o próprio repositório proíbe misturar dígitos com palavras na
+         mesma matriz. **Construir o conjunto da barra é trabalho novo, e é do calibrador** — no
+         caminho de `calibrar_mercado.propor_rotulo`: a máquina propõe, o humano confirma. O
+         caminho existe porque a segmentação por glifo funciona: em `vmin` 180–190, justamente
+         onde o OCR devolve vazio, `segmentar_glifos_no_brilho` devolve
+         `[15, 5, 2, 5, 5, 5, 2, 5, 5, 5, 16]` na Yazalaque e oito dígitos na Faerlina — ícone,
+         dígitos de largura 5, vírgulas de largura 2, ícone —, batendo com a verdade de campo nas
+         duas, e numa banda **larga** em vez da banda de largura 1 do OCR (M-J).
+
+      3. **Conjunto incompleto recusa, e diz o que falta.** As duas fixturas dão os dígitos
+         **0, 1, 2, 3, 4, 6, 8 e 9**; faltam **5 e 7**, que só aparecem com o tempo. O calibrador
+         tem de trabalhar com o conjunto pela metade e **nomear os que faltam** em vez de travar —
+         mas a leitura com conjunto incompleto é proibida, e a proibição é medida e não zelosa:
+         `conjunto_descreve_numeros` exige `0123456789,` inteiro porque um conjunto pela metade
+         **falha aberto** — um `8` sem molde de `8` casa com `0` a 0,7826 contra piso 0,4698, e a
+         margem não pega porque a folga sobre o segundo colocado é de 0,1628. Um conjunto pela
+         metade não é meia leitura: é a leitura errada com a mesma confiança da certa. Enquanto
+         faltar um dígito, a adena **recusa com motivo próprio, dizendo quais faltam** — e essa
+         recusa é distinguível de campo vazio e de gramatica inválida, porque o conserto é outro:
+         farmar até o dígito aparecer na tela e rodar o calibrador de novo.
 
 - [ ] **LEIT-06**: Existe um **calibrador** para essas regiões, na mesma família do
       `calibrar-mercado.bat` e do `calibrar.bat` que já existem. Sem ele, LEIT-05 é uma promessa
@@ -183,6 +235,7 @@
 | LEIT-06 | Phase 1 | Pendente |
 | LEIT-07 | Phase 1 | Pendente |
 | LEIT-08 | Phase 1 | Pendente |
+| LEIT-09 | Phase 1 | Pendente |
 | REND-01 | Phase 2 | Pendente |
 | REND-02 | Phase 2 | Pendente |
 | REND-03 | Phase 2 | Pendente |
@@ -198,22 +251,24 @@
 | CEGO-01 | Phase 3 | Pendente |
 | CEGO-02 | Phase 3 | Pendente |
 
-**Cobertura:** 20 requisitos v1 (17 originais + REG-04 + LEIT-07 + LEIT-08), 20 mapeados, 0 sem
-fase, 0 em duas fases.
+**Cobertura:** 21 requisitos v1 (17 originais + REG-04 + LEIT-07 + LEIT-08 + LEIT-09), 21
+mapeados, 0 sem fase, 0 em duas fases.
 
-**Dono de cada requisito da Fase 1, depois da revisão de 2026-09-02 contra
-`01-MEDICOES-DE-CAMPO.md`** — nenhum requisito fica sem plano:
+**Dono de cada requisito da Fase 1, depois da SEGUNDA revisão de 2026-09-02 contra
+`01-MEDICOES-DE-CAMPO.md` (inclusive o "Adendo", achados M-G a M-J)** — nenhum requisito fica sem
+plano:
 
 | Requisito | Plano(s) que o fecham |
 |---|---|
 | LEIT-01 — o nível | `01-04` (o leitor), com o retângulo e o piso vindos do `01-03` |
 | LEIT-02 — o EXP com quatro casas | `01-01` |
-| LEIT-03 — a adena | `01-04` (e a premissa "o cru já lê" está refutada por LEIT-08) |
+| LEIT-03 — a adena | `01-04` (o leitor **por glifo**; as duas premissas do texto original — "o cru já lê" e "o OCR devolve a adena" — estão refutadas por LEIT-08 e LEIT-09) |
 | LEIT-04 — leitura duvidosa vira recusa | `01-01` (gramática, cruzamento, recorte), `01-02` (a taxa de discordância com denominador), `01-04` (as três regras de par) |
 | LEIT-05 — tudo no `calibration.json` | `01-01` (o esquema), `01-03` (o escritor) |
 | LEIT-06 — o calibrador | `01-03` |
 | LEIT-07 — calibração por personagem | `01-01` (o esquema e a proibição de queda), `01-03` (o calibrador por personagem), `01-04` (a leitura por personagem) |
 | LEIT-08 — um piso por região, e a adena exige máscara | `01-01` (o esquema com três pisos), `01-03` (a banda por região e a largura como aviso), `01-04` (a máscara obrigatória na adena) |
+| LEIT-09 — a adena por glifo, os moldes da barra, e o conjunto incompleto que recusa | `01-01` (o esquema: `renda_moldes_da_barra` no topo e o piso de glifo na entrada do personagem), `01-03` (o calibrador que **corta** os moldes de 17 px e nomeia os que faltam, e a varredura da adena que passou a ser por glifo), `01-04` (o leitor por glifo, o descarte dos ícones por largura, e a recusa nomeada por conjunto incompleto) |
 
 ## Premissas assumidas (usuário dormindo)
 
