@@ -87,6 +87,7 @@ from l2scanner.mercado_leitura import (
     MOTIVO_DO_CRUZAMENTO,
     Descarte,
     LinhaLida,
+    TravaDaRecusa,
     ler_linha_de_adena,
     limite_derivado_do_cruzamento,
     quantidade_de_adena,
@@ -190,6 +191,7 @@ def chamar_ler_linha_da_adena(
     recorte_do_total=None,
     recorte_do_incremento=None,
     recorte_da_linha=None,
+    trava_da_recusa=None,
 ):
     """`ler_linha_de_adena` direto, com todo limiar vindo da calibracao.
 
@@ -200,7 +202,14 @@ def chamar_ler_linha_da_adena(
 
     NAO HA LEITORA DE TEXTO NESTA CHAMADA, e nao ha onde encaixar uma: e essa a
     afirmacao que `TestNadaAquiLeNome` transforma em teste de assinatura.
+
+    `trava_da_recusa` OMITIDA VIRA UMA TRAVA NOVA, e nunca `None` — a mesma
+    convencao de `chamar_ler_linha`, pelo mesmo motivo: uma trava nova por
+    chamada e o equivalente de "um tick isolado", que e o que a maioria destes
+    testes quer. Quem mede a supressao da repeticao passa a MESMA nos dois.
     """
+    if trava_da_recusa is None:
+        trava_da_recusa = TravaDaRecusa()
     return ler_linha_de_adena(
         indice,
         recortes["linha"] if recorte_da_linha is None else recorte_da_linha,
@@ -215,6 +224,7 @@ def chamar_ler_linha_da_adena(
         folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
         sonda=cal.mercado_sonda_do_fundo,
         limiar_de_dispersao=float(cal.mercado_limiar_de_dispersao_do_fundo),
+        trava_da_recusa=trava_da_recusa,
         catalogo={} if catalogo is None else catalogo,
     )
 
@@ -942,6 +952,12 @@ class TestNadaAquiLeNome:
             "folga_de_cola",
             "sonda",
             "limiar_de_dispersao",
+            # A TRAVA DA RECUSA ENTROU EM 2026-09-02, e este teste mudou porque
+            # o codigo mudou. Ela nao afrouxa a afirmacao desta classe: e uma
+            # trava de LOG e nao uma leitora, e continua nao havendo por onde
+            # um `ler_texto` entrar. Ela esta aqui porque foi a linha 5 DESTA
+            # aba que gritou a 1 Hz em producao.
+            "trava_da_recusa",
             "catalogo",
         ]
         assert list(inspect.signature(ler_linha_de_adena).parameters) == esperado
