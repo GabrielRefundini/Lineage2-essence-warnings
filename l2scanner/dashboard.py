@@ -64,11 +64,13 @@ __all__ = [
     "MENSAGEM_DE_PORTA_RESERVADA",
     "PASTA_DOS_ESTATICOS",
     "PORTA_PADRAO",
+    "TETO_DO_CORPO_DO_POST",
     "CacheDaLeitura",
     "Manipulador",
     "Servidor",
     "main",
     "montar_servidor",
+    "origem_permitida",
 ]
 
 # A CSP LITERAL DO VEND-4, e o motivo de cada diretiva:
@@ -183,6 +185,138 @@ MENSAGEM_DE_PORTA_RESERVADA = (
     "'netsh interface ipv4 show excludedportrange protocol=tcp'. Enquanto isso, "
     "a coleta do --mercado segue rodando: ela nunca dependeu do dashboard."
 )
+
+
+# ===========================================================================
+# O PORTAO DE ORIGEM — a defesa que a CSP NAO cobre
+# ===========================================================================
+
+# O NOME DO CAMPO NO CORPO DO POST. Constante e nao literal: o `dashboard.js` tem
+# a mesma string do outro lado.
+CAMPO_DO_POST = "cambio"
+
+# O TETO DO CORPO DO POST. O maior corpo LEGITIMO e o envelope JSON em volta de
+# um valor de no maximo `TETO_DE_DIGITOS_INTEIROS + 1 + TETO_DE_CASAS_DECIMAIS`
+# = 12 caracteres, o que da algo em torno de 30 bytes. Mil e vinte e quatro e
+# umas trinta vezes isso: folga demais para recusar qualquer pedido honesto, e
+# ainda assim um teto — o `Content-Length` e conferido ANTES da leitura, entao um
+# corpo de um megabyte nunca chega a existir na memoria deste processo.
+#
+# ESCOLHA, NAO MEDICAO. Ninguem mediu quanto corpo esta maquina aguenta; o ponto
+# nao e capacidade, e recusar de graca o que so pode ser ataque ou defeito.
+TETO_DO_CORPO_DO_POST = 1024
+
+# O CABECALHO MODERNO que os navegadores mandam dizendo se o pedido saiu do mesmo
+# sitio. Nomeado porque ele e lido em um lugar e afirmado no teste, e um erro de
+# digitacao aqui abriria o portao em silencio — `get` de um nome errado devolve
+# `None`, e `None` cai no ramo permissivo.
+CABECALHO_DO_DESTINO = "Sec-Fetch-Site"
+DESTINO_DA_MESMA_ORIGEM = "same-origin"
+
+
+def origem_permitida(cabecalhos, porta: int) -> bool:
+    """O UNICO ponto de decisao do portao. Funcao PURA, e por isso afirmavel.
+
+    O ACHADO QUE NENHUM DOCUMENTO ANTERIOR DESTA FASE LEVANTOU
+    ===========================================================
+    A politica de seguranca de conteudo (a CSP, VEND-4) protege a NOSSA pagina de
+    carregar coisa de fora. Ela **nao** impede uma pagina de fora de mandar um
+    POST para a NOSSA API. Qualquer aba aberta no navegador do usuario —
+    incluindo um anuncio dentro de um site qualquer — pode disparar um pedido
+    para `127.0.0.1`, e o navegador vai entregar.
+
+    Numa maquina onde o `.env` com o token do Chatwoot mora ao lado, uma API
+    local que ESCREVE arquivo sem conferir quem pediu e uma superficie de
+    verdade. A conferencia custa oito linhas e e afirmavel em teste — basta
+    mandar um `Origin` errado e exigir 403 —, e por isso ela existe.
+
+    OS DOIS SINAIS SAO CONFERIDOS, E NAO O PRIMEIRO QUE CASAR
+    =========================================================
+    `Sec-Fetch-Site` e o sinal moderno, e o navegador o preenche sozinho: o
+    codigo da pagina nao consegue forja-lo. Quando ele estiver presente e disser
+    qualquer coisa que nao seja mesma origem, a resposta e nao — mesmo que o
+    `Origin` esteja certo.
+
+    A AUSENCIA DELE, NO ENTANTO, NAO PODE VIRAR NENHUM DOS DOIS EXTREMOS. Exigir o
+    cabecalho recusaria todo cliente que nao o envia (um `curl` do proprio
+    usuario, um navegador antigo); ignora-lo quando ele diz "cross-site" jogaria
+    fora o unico sinal infalsificavel. Por isso: presente, ele manda; ausente, a
+    decisao cai para o `Origin`. As duas metades tem assercao propria no controle
+    negativo, porque as duas sao omissiveis sem a suite reclamar.
+
+    SO `127.0.0.1`, E NAO `localhost`
+    ==================================
+    O lancador abre o navegador em `http://127.0.0.1:<porta>/`, entao o caminho
+    honesto sempre casa. Aceitar tambem `localhost` acrescentaria um nome que
+    passa por resolucao de DNS — e um nome resolvivel e a porta de entrada
+    classica para um site externo apontar um dominio proprio para o endereco
+    local. O numero nao resolve nada; ele so e.
+
+    `cabecalhos` E O `email.message.Message` DE `self.headers`, e o `.get` dele e
+    insensivel a caixa — que e obrigatorio, porque `origin:` em minusculas e um
+    pedido igualmente valido.
+    """
+    destino = cabecalhos.get(CABECALHO_DO_DESTINO)
+    if destino is not None and destino != DESTINO_DA_MESMA_ORIGEM:
+        return False
+    return cabecalhos.get("Origin") == f"http://127.0.0.1:{porta}"
+
+
+# As frases das recusas. CADA CAUSA TEM A SUA, e isso nao e capricho: a frase de
+# cambio invalido diz "informe um numero maior que zero", e serve-la para quem
+# mandou um corpo ilegivel ou para quem tem um `cambio.json` corrompido
+# descreveria um problema que nao e o dele — foi exatamente esse o buraco que o
+# `01-03` apontou por nome ao separar `HistoricoDoCambioIlegivel` de
+# `CambioInvalido`. Todas na anatomia da casa e todas sem acento.
+MENSAGEM_DE_ORIGEM_RECUSADA = (
+    "Pedido recusado: ele nao veio da pagina do dashboard aberta nesta maquina. "
+    "NADA foi gravado e o cambio anterior continua valendo. O QUE FAZER: se voce "
+    "quis salvar um cambio, use a pagina do dashboard (a que o programa abriu em "
+    "127.0.0.1); se voce nao fez nada, foi outra aba do navegador tentando "
+    "escrever aqui, e ela foi barrada. A leitura do mercado segue normal."
+)
+
+MENSAGEM_DE_CORPO_GRANDE_DEMAIS = (
+    f"Pedido recusado: o corpo enviado passa do limite de "
+    f"{TETO_DO_CORPO_DO_POST} bytes e nem chegou a ser lido. NADA foi gravado. O "
+    f"QUE FAZER: o campo do cambio espera um numero curto, como 0,50 — se voce "
+    f"colou um texto grande la, apague e digite so o numero. A leitura do "
+    f"mercado segue normal."
+)
+
+MENSAGEM_DE_CORPO_ILEGIVEL = (
+    "Cambio nao salvo: o pedido chegou num formato que este programa nao "
+    "entende, e por isso nem foi interpretado como numero. NADA foi gravado e o "
+    "cambio anterior continua valendo. O QUE FAZER: salve pelo campo da pagina "
+    "do dashboard, que monta o pedido no formato certo. A leitura do mercado e o "
+    "resto da pagina seguem funcionando."
+)
+
+MENSAGEM_DE_GRAVACAO_FALHOU = (
+    "Cambio nao salvo: o programa nao conseguiu escrever o arquivo do cambio. O "
+    "cambio anterior continua valendo, e nenhum arquivo seu foi alterado ou "
+    "apagado. O QUE FAZER: confira se a pasta .mercado existe e nao esta somente "
+    "leitura, e tente de novo. A leitura do mercado segue funcionando."
+)
+
+# A CONFIRMACAO. O `## Copywriting Contract` trava `Cambio salvo - 1 XM = R$
+# 0,50, informado por voce em 01/09 14:32.`, e o texto sai DAQUI e nao do
+# navegador: reescrever a frase no JS seria o segundo formatador que o DASH-03
+# proibe. Sem acento, na mesma forma que o `01-03` ja deu a
+# `MENSAGEM_DE_CAMBIO_INVALIDO` — as duas aparecem no MESMO canto da tela, e duas
+# frases irmas com acentuacao diferente sao um defeito visivel.
+MOLDE_DE_CAMBIO_SALVO = "Cambio salvo - 1 XM = R$ {valor}, informado por voce em {quando}."
+
+
+def _cambio_em_texto(valor) -> str:
+    """O `Decimal` virando a forma que o brasileiro le. UM lugar so.
+
+    A VIRGULA E DECISAO DE APRESENTACAO, e ela mora aqui porque este e o unico
+    ponto em que o cambio vira texto para a tela. Fazer isso no navegador seria o
+    segundo formatador; fazer em dois lugares do Python seria a mesma coisa com
+    outro nome.
+    """
+    return str(valor).replace(".", ",")
 
 
 # ===========================================================================
@@ -411,6 +545,115 @@ class Manipulador(http.server.SimpleHTTPRequestHandler):
             )
             return
         super().do_GET()
+
+    def do_POST(self) -> None:
+        """A UNICA escrita em disco deste servidor, e a mais defendida.
+
+        A FALHA FECHADA MORA AQUI, NO SERVIDOR. A validacao que o `dashboard.js`
+        faz no campo e CONVENIENCIA: ela evita uma ida ao servidor para um texto
+        que ja da para recusar na hora, e nada mais. Um POST montado a mao, por
+        fora do formulario — que e como os testes das formas perigosas fazem —
+        tem de ser recusado exatamente igual, porque em campo ele vai chegar de
+        onde ninguem previu.
+
+        A ORDEM DOS PORTOES E O PRODUTO:
+
+        1. O CAMINHO. Qualquer outro POST e 404.
+        2. A ORIGEM. Recusada, responde 403 **sem ler o corpo** — pagar o custo
+           de carregar o ataque na memoria para so entao dizer nao seria pagar
+           duas vezes.
+        3. O TAMANHO. Conferido no `Content-Length`, tambem antes da leitura.
+        4. O FORMATO do corpo.
+        5. O VALOR, que e o portao de duas camadas do `dashboard_cambio` — ele
+           nao e repetido aqui, ele e CHAMADO.
+
+        CADA FALHA TEM UMA RESPOSTA PROPRIA, e nunca a frase da vizinha. Ver o
+        bloco de mensagens acima para a razao inteira.
+        """
+        if self.path.split("?", 1)[0] != CAMINHO_DO_CAMBIO:
+            self.send_error(404, "File not found")
+            return
+
+        if not origem_permitida(self.headers, self.server.server_address[1]):
+            log.warning(
+                "POST recusado por origem (%r) vindo de %s. Nada foi gravado.",
+                self.headers.get("Origin"),
+                self.address_string(),
+            )
+            self._recusar(403, MENSAGEM_DE_ORIGEM_RECUSADA)
+            return
+
+        try:
+            tamanho = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            tamanho = -1
+        if tamanho < 0 or tamanho > TETO_DO_CORPO_DO_POST:
+            self._recusar(413, MENSAGEM_DE_CORPO_GRANDE_DEMAIS)
+            return
+
+        bruto = self.rfile.read(tamanho)
+        try:
+            pedido = json.loads(bruto.decode("utf-8"))
+            texto = pedido[CAMPO_DO_POST]
+        except (ValueError, KeyError, TypeError, UnicodeDecodeError):
+            self._recusar(400, MENSAGEM_DE_CORPO_ILEGIVEL)
+            return
+
+        try:
+            cambio = dashboard_cambio.gravar_o_cambio(
+                self.pasta_do_mercado, texto, datetime.now()
+            )
+        except dashboard_cambio.CambioInvalido as erro:
+            self._recusar(400, str(erro))
+            return
+        except dashboard_cambio.HistoricoDoCambioIlegivel as erro:
+            # 409 e nao 400: o pedido esta certo, o estado do disco e que nao
+            # esta. Um 400 diria ao usuario que ele digitou errado.
+            self._recusar(409, str(erro))
+            return
+        except OSError as erro:
+            log.warning("Nao consegui gravar o cambio (%s).", erro)
+            self._recusar(500, MENSAGEM_DE_GRAVACAO_FALHOU)
+            return
+
+        # OS DOIS ARQUIVOS TEM TEMPOS DE VIDA DIFERENTES, e o cache do CSV nao
+        # sabe nada sobre o cambio. Sem esta linha, o R$ so apareceria na tela
+        # quando o `observacoes.csv` mudasse — o que pode demorar minutos —, e o
+        # usuario clicaria em salvar sem ver nada acontecer.
+        self.server.cache.invalidar()
+
+        self._responder_json(
+            {
+                # STRING, E NAO NUMERO, e a razao e a mesma que o
+                # `dashboard_cambio` escreve na fronteira do disco: JSON nao tem
+                # `Decimal`. Serializar como numero faria `0.50` voltar `float`
+                # do outro lado, reintroduzindo na fronteira HTTP o erro de
+                # representacao que o `Decimal` existe para tirar. Aqui a
+                # conversao esta declarada em voz alta, no ponto exato.
+                "reais_por_xm": str(cambio.reais_por_xm),
+                "informado_em": cambio.informado_em.isoformat(),
+                "mensagem": MOLDE_DE_CAMBIO_SALVO.format(
+                    valor=_cambio_em_texto(cambio.reais_por_xm),
+                    quando=cambio.informado_em.strftime("%d/%m %H:%M"),
+                ),
+            }
+        )
+
+    def _recusar(self, status: int, mensagem: str) -> None:
+        """A recusa em JSON, com a frase inteira no corpo.
+
+        `close_connection` LIGADO porque as recusas de origem e de tamanho
+        respondem SEM ter lido o corpo: os bytes do pedido continuam no soquete,
+        e reaproveitar a conexao faria o proximo pedido comecar no meio do corpo
+        do anterior. Fechar e a saida honesta.
+        """
+        corpo = json.dumps({"erro": mensagem}, ensure_ascii=False).encode("utf-8")
+        self.close_connection = True
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(corpo)))
+        self.end_headers()
+        self.wfile.write(corpo)
 
     def _responder_json(self, conteudo: dict) -> None:
         """`ensure_ascii=False`, e o motivo e o mesmo do UI-SPEC.
