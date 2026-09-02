@@ -1,0 +1,125 @@
+{
+  "versao": 2,
+  "party_window": {
+    "esquerda": 0,
+    "topo": 0,
+    "largura": 100,
+    "altura": 100
+  },
+  "ancora": {
+    "esquerda": 0,
+    "topo": 0,
+    "largura": 10,
+    "altura": 10
+  },
+  "layout": {
+    "icone_x": 12,
+    "icone_y": 34,
+    "icone_tamanho": 24,
+    "barra_x": 43,
+    "barra_largura": 120,
+    "barra_altura": 8,
+    "hp_y": 40,
+    "mp_y": 51,
+    "passo": 61,
+    "max_linhas": 8,
+    "nome_dx": 26,
+    "nome_dy": -24,
+    "nome_largura": 100,
+    "nome_altura": 20,
+    "icone_desvio_min": 25.0,
+    "icone_escuros_min": 0.15,
+    "ancora_desvio_min": 20.0,
+    "ancora_escuros_min": 0.02,
+    "borda_v_max": 40.0
+  },
+  "limiares_hp": {
+    "matiz_min": 168,
+    "matiz_max": 12,
+    "saturacao_min": 120,
+    "valor_min": 60
+  },
+  "limiares_mp": {
+    "matiz_min": 95,
+    "matiz_max": 130,
+    "saturacao_min": 120,
+    "valor_min": 60
+  },
+  "geometria_da_tela": "1720x1392+0+0",
+  "nomes": [],
+  "assinaturas": [],
+  "renda_por_personagem": {
+    "Faerlina": {
+      "barra_esquerda": {
+        "regiao": {
+          "esquerda": 0,
+          "topo": 1368,
+          "largura": 520,
+          "altura": 24
+        },
+        "piso_de_brilho": 160,
+        "largura_da_banda": 3
+      },
+      "barra_direita": {
+        "regiao": {
+          "esquerda": 1540,
+          "topo": 1358,
+          "largura": 160,
+          "altura": 34
+        },
+        "piso_de_brilho": 185,
+        "largura_da_banda": 3
+      },
+      "nivel": {
+        "regiao": {
+          "esquerda": 246,
+          "topo": 736,
+          "largura": 30,
+          "altura": 20
+        },
+        "piso_de_brilho": 200,
+        "largura_da_banda": 4
+      },
+      "geometria_da_janela": {
+        "largura": 1720,
+        "altura": 1392
+      }
+    },
+    "Yazalaque": {
+      "barra_esquerda": {
+        "regiao": {
+          "esquerda": 0,
+          "topo": 1368,
+          "largura": 520,
+          "altura": 24
+        },
+        "piso_de_brilho": 150,
+        "largura_da_banda": 5
+      },
+      "barra_direita": {
+        "regiao": {
+          "esquerda": 1540,
+          "topo": 1358,
+          "largura": 160,
+          "altura": 34
+        },
+        "piso_de_brilho": 185,
+        "largura_da_banda": 3
+      },
+      "nivel": {
+        "regiao": {
+          "esquerda": 236,
+          "topo": 750,
+          "largura": 30,
+          "altura": 20
+        },
+        "piso_de_brilho": 190,
+        "largura_da_banda": 5
+      },
+      "geometria_da_janela": {
+        "largura": 1720,
+        "altura": 1392
+      }
+    }
+  }
+}

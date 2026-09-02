@@ -585,6 +585,169 @@ class Calibracao:
     # duas copias do mesmo numero envelhecem separadas.
     mercado_layouts: dict | None = None
 
+    # --- Renda (a barra inferior: EXP, adena e o nivel na janela de status) ---
+    #
+    # OPCIONAL de proposito, e por isso a VERSAO_DO_ESQUEMA SEGUE EM 2, pela
+    # razao ja escrita para o `banner_manutencao` (`:234-248`) e repetida pelo
+    # mercado: subir a versao invalidaria o `calibration.json` que o usuario
+    # mediu a mao e o obrigaria a recalibrar tudo por causa de um campo que ele
+    # talvez nem use. Ausente carrega inteiro, com o campo em `None`, e a
+    # feature simplesmente fica OFF.
+    #
+    # REFERENCIAL: o canto da JANELA do jogo, nunca o desktop — como
+    # `hp_proprio` e `tiat_*`. O frame da `JanelaSource` e janela-relativo e
+    # mede 1720x1392 nas duas instancias medidas (M-A).
+    #
+    # A CHAVE DE PRIMEIRO NIVEL E O NOME DO PERSONAGEM, e isto e medicao e nao
+    # arrumacao (M-F, 2026-09-02, com as duas instancias vivas): a janela de
+    # status da Faerlina poe o nivel em `246,736 30x20` e a da Yazalaque em
+    # `236,750 30x20`. Sao 14 px de diferenca na vertical e 10 na horizontal,
+    # porque o usuario posicionou a UI de cada cliente a mao, e nao ha razao
+    # para elas coincidirem nem hoje nem depois de ele arrastar um painel.
+    #
+    # Um retangulo UNICO le o nivel certo de uma instancia e LIXO da outra — e
+    # o lixo aqui e o pior caso possivel: a regiao vizinha mostra `349` na
+    # Yazalaque e `112` na Faerlina, numeros plausiveis que passariam em
+    # qualquer validacao de numero sem reclamar. Nao e um campo vazio que
+    # alguem nota; e um numero.
+    #
+    # POR QUE UMA CHAVE E NAO SEIS ACHATADAS POR PERSONAGEM: seis por
+    # personagem seriam `6N` linhas na enumeracao literal do `salvar` e um
+    # commit por personagem novo, que e exatamente o que o LEIT-05 proibe. O
+    # pressuposto que caiu foi o de uma calibracao unica (CTX-6), e ele cai
+    # citado e nao apagado.
+    #
+    # A FORMA, por nome de personagem:
+    #
+    #     {"Faerlina": {
+    #         "barra_esquerda": {"regiao": {...}, "piso_de_brilho": 160,
+    #                            "largura_da_banda": 3},
+    #         "barra_direita":  {"regiao": {...}, "piso_de_brilho": 185,
+    #                            "largura_da_banda": 3},
+    #         "nivel":          {"regiao": {...}, "piso_de_brilho": 200,
+    #                            "largura_da_banda": 4},
+    #         "geometria_da_janela": {"largura": 1720, "altura": 1392}}}
+    #
+    # OS NOMES DAS DUAS SUB-CHAVES MENTEM, E A MENTIRA FICA ESCRITA EM VEZ DE
+    # CONSERTADA EM SILENCIO. `barra_esquerda` descreve o **EXP** e
+    # `barra_direita` descreve a **ADENA** — nao "as metades da barra". Os
+    # nomes vem da era em que os recortes eram duas metades de 520 px; hoje o
+    # da adena tem 200 px e um numero so. Renomear UMA sem a outra deixaria
+    # duas convencoes dentro da mesma chave, que e pior que um nome velho
+    # documentado: quem renomear renomeia AS DUAS, para `exp` e `adena`, num
+    # commit proprio.
+    #
+    # EXISTE UM PISO DE BRILHO POR REGIAO, E NUNCA UM PISO UNICO (M-E). Medido
+    # com `vmin` de 100 a 250 nas duas instancias, a banda em que a leitura sai
+    # CORRETA e 190-220 para o nivel e 150 para a adena por OCR: elas nao tem
+    # INTERSECAO NENHUMA. Um piso unico nao e ruim, e impossivel.
+    #
+    # E O PISO DA `barra_direita` E O DO CAMINHO DE GLIFO, NAO O DO OCR (M-J).
+    # Aquele campo trocou de leitor: o OCR ali aceitava numero errado (`106020`
+    # no lugar de `1.696.020`, `91` no lugar de `13.160.684` — M-G) e a
+    # segmentacao por glifo acerta numa banda LARGA, 180-190. O valor de
+    # exemplo mudou de `150` para o meio dessa banda. NAO HA UM SEGUNDO PISO
+    # ALI: um piso sem consumidor de producao e uma segunda verdade esperando
+    # que alguem a passe para a funcao errada, e passar o piso de uma regiao em
+    # outra faz o campo sumir em silencio.
+    #
+    # E O RETANGULO DA `barra_direita` JA CAIU DUAS VEZES. O `1200,1368 520x24`
+    # era o da era do OCR. O `1500,1360 200x32` que o substituiu foi medido em
+    # UMA fixtura e caiu na segunda rodada de campo (M-N/M-O): ele pega o icone
+    # da moeda de ouro DENTRO do recorte, e a peneira de forma da leitura por
+    # glifo — um run largo em cada ponta e nada largo no meio — recusa isso.
+    # Conferido nas QUATRO fixturas de campo e nos pisos 180/185/190, o antigo
+    # devolve um run de 17 no MEIO em todas elas. O que vale e `1540,1358
+    # 160x34`, e a contagem do meio bate com a verdade de campo caractere por
+    # caractere nas quatro. Ele nao e "o retangulo certo": e o retangulo que
+    # sobreviveu a quatro cenarios, e quem o trocar de novo troca contra quatro.
+    #
+    # O CARIMBO DE GEOMETRIA MORA DENTRO DA ENTRADA DO PERSONAGEM, e nao fora:
+    # as duas janelas medem 1720x1392 hoje, mas a coincidencia e do usuario e
+    # nao do jogo, e um carimbo unico voltaria a misturar as duas instancias
+    # pela porta dos fundos.
+    #
+    # Guardado como dict CRU, sem decodificar, no precedente de
+    # `mercado_molde_da_ancora` e `mercado_geometria_da_captura`: decodificar
+    # aqui obrigaria `calibracao.py` a importar numpy so para carregar um
+    # arquivo de configuracao. Quem decodifica e `renda_leitura`, que ja
+    # precisa do numpy.
+    renda_por_personagem: dict | None = None
+
+    # Os MOLDES DE GLIFO da fonte da barra inferior.
+    #
+    # ELA NAO MORA DENTRO DE `renda_por_personagem`, E A RAZAO E MEDIDA: a
+    # fonte e do CLIENTE e nao do personagem: a mesma tipografia sai nas DUAS
+    # instancias, em todo piso, e em todos os campos da barra — bonus, EXP,
+    # L-Coin e adena (M-K, M-L). Moldes por personagem obrigariam o usuario a
+    # colher a mesma tipografia duas vezes, por zero beneficio medido.
+    #
+    # MAS O DIGITO DESTA FONTE NAO TEM UMA LARGURA SO, E ISTO JA ERRO DUAS
+    # VEZES NESTA FASE. O M-I mediu "altura 17" sobre um recorte contaminado
+    # pelos icones das pontas; o M-K corrigiu para 10 e escreveu "largura 5"; e
+    # a segunda rodada de campo (M-O) derrubou o "5" tambem — na segunda
+    # fixtura o `4`, o `7` e o `9` saem mais largos, e uma peneira que exigisse
+    # UMA largura de digito recusaria `15,134,779` inteiro.
+    #
+    # Conferido nesta arvore com `segmentar_glifos_no_brilho`, cuja convencao
+    # de largura e `fim - inicio` — a MESMA de `larguras_de_molde`, e portanto a
+    # que a peneira vai usar: digito 4, 5 ou 6; virgula 1; icones de ponta 14 e
+    # 15. O `01-MEDICOES-DE-CAMPO.md` relata os mesmos runs numa convencao
+    # INCLUSIVA (5/6/7, 2, 15/16). As duas descrevem a mesma tela e diferem por
+    # um pixel; quem escrever uma guarda precisa dizer em qual convencao esta,
+    # porque foi exatamente um numero sem convencao — o "17" — que ja custou
+    # uma refutacao a esta fase.
+    #
+    # E ELA NAO SE FUNDE COM `mercado_templates_de_digito`, e a proibicao ja
+    # esta escrita neste repositorio com endereco: `calibrar_mercado.py`
+    # (commit `e09a860`) — "se a renda precisar de moldes, ela precisa de chave
+    # propria, nunca fundir com a do mercado", porque a chave do mercado e de
+    # topo e a NEGOCIACAO depende dela.
+    #
+    # E OS MOLDES DO MERCADO NAO SERVIRIAM DE QUALQUER FORMA: eles sao
+    # `altura: 9, largura: 4` e o glifo desta barra e mais alto (M-I no
+    # veredicto, M-K no numero). Escrever a distancia CERTA importa: uma guarda
+    # de altura escrita contra o 17 contaminado recusaria TODO molde legitimo
+    # desta barra, e o modo de falha seria um cortador que nunca corta nada.
+    #
+    # A FORMA, curta de proposito:
+    #
+    #     {"moldes": [ {"glifo": "0", "altura": 10, "largura": 5,
+    #                   "molde": {"altura": 10, "largura": 5, "bytes": "ff..."}}, ...],
+    #      "piso_de_leitura": 0.47,
+    #      "margem_de_leitura": 0.037,
+    #      "folga_de_cola": null}
+    #
+    # `moldes` no formato EXATO de `mercado_visao.glifos_para_calibracao` —
+    # reusar o formato e o que faz `glifos_de_calibracao` tratar a lista como
+    # entrada nao confiavel de graca: ele ja confere altura dominante, rotulo
+    # repetido e dimensao declarada. `piso_de_leitura` e `margem_de_leitura`
+    # sao os dois limiares que `ler_glifos` exige SEM default, e moram no topo
+    # pelo precedente literal de `mercado_limiar_de_leitura_de_glifo` e
+    # `mercado_margem_de_leitura_de_glifo`: eles descrevem o CONJUNTO de
+    # moldes, e nao o personagem. `folga_de_cola` nasce `null`, que e a guarda
+    # FECHADA, e a razao e medida: as larguras da barra sao `5` e `2` limpas,
+    # com coluna vazia entre elas (M-J) — nao ha glifo colado a partir. Uma
+    # folga inteira aqui autorizaria fatiar um icone de 15 px em tres digitos
+    # de 5, que e fabricacao de numero e nao leitura.
+    #
+    # NADA DERIVAVEL DOS MOLDES ENTRA AQUI: nem a altura de faixa, nem o limite
+    # de glifo unico, nem a lista de digitos que faltam. A regra ja esta
+    # escrita, com estas palavras, na docstring de
+    # `mercado_leitura.limite_de_glifo_unico`: "gravar uma copia criaria DUAS
+    # VERDADES sobre uma so geometria, e na recalibracao seguinte a copia
+    # envelheceria contra os moldes que ela descreve."
+    #
+    # E ELA TEM TRES POSICOES LEGITIMAS, NAO DUAS: ausente, completa e
+    # INCOMPLETA. Um conjunto com oito dos onze rotulos e um arquivo
+    # perfeitamente bem formado — e o estado do usuario entre uma rodada do
+    # cortador e a seguinte. A conferencia do arranque confere a FORMA e nunca
+    # a COMPLETUDE; quem confere completude e a leitura, por
+    # `mercado_leitura.conjunto_descreve_numeros`, e ela recusa com motivo
+    # proprio nomeando os que faltam. Derrubar o arranque por um conjunto pela
+    # metade trocaria uma recusa nomeada por uma ferramenta que nao abre.
+    renda_moldes_da_barra: dict | None = None
+
     versao: int = VERSAO_DO_ESQUEMA
 
     def regiao_do_nome(self, indice: int) -> Regiao:
@@ -741,6 +904,14 @@ class Calibracao:
                 self.mercado_folga_de_cola_do_glifo
             ),
             "mercado_layouts": self.mercado_layouts,
+            # As duas da renda, no MESMO trilho condicional das irmas: um campo
+            # nao preenchido vira `null` e o `.get` do `carregar` o devolve como
+            # None, sem migracao. Guardadas como dict CRU, sem reconstrucao
+            # campo a campo — e e isso que faz uma sub-chave que este codigo
+            # ainda nao conhece SOBREVIVER a ida e volta, em vez de sumir
+            # calada no dia em que o calibrador gravar uma a mais.
+            "renda_por_personagem": self.renda_por_personagem,
+            "renda_moldes_da_barra": self.renda_moldes_da_barra,
         }
         # ESCRITA ATOMICA, NO LUGAR ONDE TODOS OS ESCRITORES HERDAM.
         #
@@ -788,6 +959,7 @@ class Calibracao:
             )
 
         _conferir_as_chaves_de_mercado(dados)
+        _conferir_as_chaves_da_renda(dados)
 
         return cls(
             party_window=Regiao.de_dict(dados["party_window"]),
@@ -897,8 +1069,40 @@ class Calibracao:
             # existe hoje no mundo esta sem esta chave, entao uma indexacao
             # mataria o arranque de cada instalacao ate a proxima recalibracao.
             mercado_layouts=dados.get("mercado_layouts"),
+            # `.get` e nao indexacao, pela MESMA razao das irmas de mercado:
+            # TODO `calibration.json` que existe hoje no mundo esta sem estas
+            # duas chaves, entao uma indexacao mataria o arranque de cada
+            # instalacao ate a proxima recalibracao — e levaria junto os moldes
+            # de glifo e as ancoras que so a mao do usuario produz.
+            renda_por_personagem=dados.get("renda_por_personagem"),
+            renda_moldes_da_barra=dados.get("renda_moldes_da_barra"),
             versao=versao,
         )
+
+    def renda_do_personagem(self, nome: str | None) -> dict | None:
+        """A calibracao de renda DESTE personagem, ou nada. NUNCA a de outro.
+
+        A PROIBICAO DE QUEDA MORA EM UM LUGAR SO, e e por isso que isto e uma
+        funcao e nao um `.get` espalhado por tres leitores. Medido (M-F): a
+        janela de status da Faerlina poe o nivel em `246,736` e a da Yazalaque
+        em `236,750`. Ler a Faerlina com o retangulo da Yazalaque nao devolve
+        um campo vazio que alguem nota — devolve `349` ou `112`, que sao os
+        numeros desenhados ao lado do nivel e passam por qualquer validacao de
+        numero sem reclamar.
+
+        Sugerir o retangulo do vizinho como PONTO DE PARTIDA no calibrador e
+        legitimo, porque o usuario confirma com o olho. Cair nele em silencio
+        na hora de LER e produzir um numero plausivel e errado, que e o unico
+        defeito que esta fase trata como inaceitavel.
+
+        `None` quando a feature nao foi calibrada, quando o nome nao veio, e
+        quando o nome veio e nao esta no arquivo. Os tres sao "nao sei ler esta
+        tela", e quem chama transforma isso em recusa NOMEADA.
+        """
+        if not self.renda_por_personagem or not nome:
+            return None
+        entrada = self.renda_por_personagem.get(nome)
+        return entrada if isinstance(entrada, dict) else None
 
     def conferir_geometria_do_mercado(self, largura: int, altura: int) -> None:
         """Recusa a leitura de mercado se a JANELA mudou de tamanho.
@@ -1089,6 +1293,339 @@ def _conferir_as_chaves_de_mercado(dados: dict) -> None:
             )
 
     _conferir_as_chaves_da_leitura_de_pagina(dados)
+
+
+# O CONSERTO da renda, escrito uma vez e citado por toda recusa dela, no mesmo
+# trilho do `CONSERTO_DO_MERCADO` logo abaixo: repetir a mao em dez lugares
+# garantiria que no dia em que ele mudasse, nove ficariam mentindo.
+CONSERTO_DA_RENDA = 'Recalibre a renda: calibrar-renda.bat --janela "TITULO"'
+
+# As TRES regioes de uma entrada de personagem. Os dois primeiros nomes MENTEM
+# — `barra_esquerda` e o EXP e `barra_direita` e a ADENA —, e a mentira esta
+# documentada no bloco de comentario do campo `renda_por_personagem`.
+REGIOES_DA_RENDA = ("barra_esquerda", "barra_direita", "nivel")
+
+# A faixa fechada dos dois lados de todo piso de brilho da renda, em niveis de
+# V (0-255). E a MESMA de `_conferir_o_piso_de_brilho_da_quantidade`, e pelas
+# MESMAS duas razoes medidas la: piso `0` faz a mascara CHEIA — todo pixel vira
+# tinta, o texto se dissolve no fundo e o OCR le ruido com confianca —, e piso
+# `255` faz a mascara VAZIA, e o campo some sem uma linha de log.
+PISO_DE_BRILHO_MINIMO_DA_RENDA = 1
+PISO_DE_BRILHO_MAXIMO_DA_RENDA = 254
+
+
+def _inteiro_da_renda(valor, onde: str) -> int:
+    """Um inteiro de verdade. `bool` recusado por ser subclasse de `int`."""
+    if isinstance(valor, bool) or not isinstance(valor, int):
+        raise CalibracaoInvalida(
+            f"{onde} precisa ser um inteiro, veio "
+            f"{type(valor).__name__} ({valor!r}). {CONSERTO_DA_RENDA}"
+        )
+    return valor
+
+
+def _conferir_um_piso_de_brilho_da_renda(valor, onde: str) -> None:
+    """Um nivel de V em `[1, 254]`, inteiro, com `bool` recusado explicitamente.
+
+    `bool` E RECUSADO POR NOME porque e subclasse de `int`: `True` passaria por
+    `isinstance(valor, int)` e viraria piso 1 calado, que e o caso `0`
+    disfarcado — a mascara cheia, com todo pixel virando tinta.
+
+    OS DOIS EXTREMOS DESLIGAM A LEITURA CALADOS, e e por isso que a faixa e
+    fechada dos DOIS lados. No piso de baixo a mascara fica cheia e o texto se
+    dissolve no fundo; no piso de cima a mascara fica vazia e o campo some sem
+    uma linha de log. Os dois produzem "nao li" sem dizer por que, que e
+    exatamente o modo de falha que esta fase existe para nao ter.
+    """
+    piso = _inteiro_da_renda(valor, onde)
+    if not PISO_DE_BRILHO_MINIMO_DA_RENDA <= piso <= PISO_DE_BRILHO_MAXIMO_DA_RENDA:
+        raise CalibracaoInvalida(
+            f"{onde}={piso} esta fora de [{PISO_DE_BRILHO_MINIMO_DA_RENDA}, "
+            f"{PISO_DE_BRILHO_MAXIMO_DA_RENDA}]. Um piso de baixo faz a mascara "
+            f"CHEIA e o texto se dissolve no fundo; um piso de cima faz a "
+            f"mascara VAZIA e o campo some sem uma linha de log. Os dois "
+            f"desligariam a leitura CALADOS. {CONSERTO_DA_RENDA}"
+        )
+
+
+def _conferir_uma_regiao_da_renda(bruto, onde: str) -> None:
+    """`{"esquerda": int, "topo": int, "largura": >0, "altura": >0}`.
+
+    `esquerda` e `topo` podem ser NEGATIVOS e isso e legitimo — a regra e a de
+    `Regiao`, e recusar negativo aqui mataria um HUD posicionado a esquerda da
+    origem. `largura` e `altura` NAO podem: uma dimensao zero nao recorta nada,
+    e a leitura ficaria vazia sem uma linha de erro (precedente de
+    `_conferir_uma_coluna`).
+    """
+    if not isinstance(bruto, dict):
+        raise CalibracaoInvalida(
+            f"{onde} precisa ser um objeto com esquerda, topo, largura e "
+            f"altura, veio {type(bruto).__name__}. {CONSERTO_DA_RENDA}"
+        )
+    for campo in ("esquerda", "topo", "largura", "altura"):
+        if campo not in bruto:
+            raise CalibracaoInvalida(
+                f"{onde} esta sem `{campo}`. Um retangulo pela metade nao "
+                f"levanta erro: ele recorta o lugar errado e devolve um numero "
+                f"plausivel. {CONSERTO_DA_RENDA}"
+            )
+        _inteiro_da_renda(bruto[campo], f"{onde}.{campo}")
+    for campo in ("largura", "altura"):
+        if bruto[campo] <= 0:
+            raise CalibracaoInvalida(
+                f"{onde}.{campo}={bruto[campo]} nao e positivo. Um retangulo "
+                f"de dimensao zero nao recorta nada, e a leitura ficaria vazia "
+                f"sem uma linha de erro. {CONSERTO_DA_RENDA}"
+            )
+
+
+def _conferir_a_renda_por_personagem(por_personagem) -> None:
+    """A calibracao de renda de cada personagem, conferida no ARRANQUE.
+
+    A REGRA DE AUSENCIA TEM DOIS NIVEIS, E A DIFERENCA E O PONTO DESTA FUNCAO.
+    O campo inteiro ausente ou `None` PASSA: a feature fica desligada e ninguem
+    e obrigado a recalibrar. Uma ENTRADA DE PERSONAGEM presente porem
+    incompleta ou fora de faixa e RECUSADA ALTO, aqui, porque o arquivo e
+    editavel a mao e um retangulo malformado nao produz erro — produz um
+    recorte plausivel no lugar errado, que e o modo de falha inteiro do M-F.
+    Presente tem de estar certo; ausente e legitimo.
+
+    ELA CONFERE SO O QUE CONHECE. Uma sub-chave que este codigo ainda nao
+    conhece atravessa sem ser tocada, e sobrevive a ida e volta pelo `salvar`
+    porque o dict e reemitido cru — e essa e a diferenca entre um campo novo
+    do calibrador nascer PRESERVADO e nascer apagado.
+    """
+    if por_personagem is None:
+        return
+    if not isinstance(por_personagem, dict):
+        raise CalibracaoInvalida(
+            f"renda_por_personagem precisa ser um objeto com uma entrada por "
+            f"nome de personagem, veio {type(por_personagem).__name__}. "
+            f"{CONSERTO_DA_RENDA}"
+        )
+
+    for nome, entrada in por_personagem.items():
+        if not isinstance(nome, str) or not nome:
+            raise CalibracaoInvalida(
+                f"renda_por_personagem tem uma chave que nao e nome de "
+                f"personagem ({nome!r}). A chave E a identidade da instancia: "
+                f"sem ela a leitura nao sabe de quem e a tela. "
+                f"{CONSERTO_DA_RENDA}"
+            )
+        onde = f"renda_por_personagem[{nome!r}]"
+        if not isinstance(entrada, dict):
+            raise CalibracaoInvalida(
+                f"{onde} precisa ser um objeto com as tres regioes, veio "
+                f"{type(entrada).__name__}. {CONSERTO_DA_RENDA}"
+            )
+        for regiao in REGIOES_DA_RENDA:
+            if regiao not in entrada:
+                raise CalibracaoInvalida(
+                    f"{onde} esta sem `{regiao}`. Uma entrada pela metade e "
+                    f"pior que uma entrada ausente: a ausente desliga a "
+                    f"feature, a pela metade faz a leitura procurar um campo "
+                    f"que nao tem endereco. {CONSERTO_DA_RENDA}"
+                )
+            bloco = entrada[regiao]
+            if not isinstance(bloco, dict):
+                raise CalibracaoInvalida(
+                    f"{onde}.{regiao} precisa ser um objeto com `regiao` e "
+                    f"`piso_de_brilho`, veio {type(bloco).__name__}. "
+                    f"{CONSERTO_DA_RENDA}"
+                )
+            if "regiao" not in bloco:
+                raise CalibracaoInvalida(
+                    f"{onde}.{regiao} esta sem `regiao`. {CONSERTO_DA_RENDA}"
+                )
+            _conferir_uma_regiao_da_renda(bloco["regiao"], f"{onde}.{regiao}.regiao")
+            if "piso_de_brilho" not in bloco:
+                raise CalibracaoInvalida(
+                    f"{onde}.{regiao} esta sem `piso_de_brilho`. Cada regiao "
+                    f"tem o SEU piso e nunca existe um piso unico: medido, a "
+                    f"banda util do nivel (190-220) e a da adena (150) nao tem "
+                    f"intersecao nenhuma (M-E). {CONSERTO_DA_RENDA}"
+                )
+            _conferir_um_piso_de_brilho_da_renda(
+                bloco["piso_de_brilho"], f"{onde}.{regiao}.piso_de_brilho"
+            )
+            if "largura_da_banda" in bloco and bloco["largura_da_banda"] is not None:
+                largura = _inteiro_da_renda(
+                    bloco["largura_da_banda"], f"{onde}.{regiao}.largura_da_banda"
+                )
+                if largura < 1:
+                    raise CalibracaoInvalida(
+                        f"{onde}.{regiao}.largura_da_banda={largura} nao faz "
+                        f"sentido: a banda em que a leitura sai correta tem ao "
+                        f"menos o proprio piso dentro dela. {CONSERTO_DA_RENDA}"
+                    )
+
+        geometria = entrada.get("geometria_da_janela")
+        if geometria is not None:
+            if not isinstance(geometria, dict):
+                raise CalibracaoInvalida(
+                    f"{onde}.geometria_da_janela precisa ser um objeto com "
+                    f"largura e altura, veio {type(geometria).__name__}. "
+                    f"{CONSERTO_DA_RENDA}"
+                )
+            for campo in ("largura", "altura"):
+                if campo in geometria:
+                    valor = _inteiro_da_renda(
+                        geometria[campo], f"{onde}.geometria_da_janela.{campo}"
+                    )
+                    if valor <= 0:
+                        raise CalibracaoInvalida(
+                            f"{onde}.geometria_da_janela.{campo}={valor} nao e "
+                            f"positivo. {CONSERTO_DA_RENDA}"
+                        )
+
+
+def _conferir_os_moldes_da_barra(conjunto) -> None:
+    """Os moldes da fonte da barra: confere a FORMA, e NUNCA a completude.
+
+    A SEPARACAO E DELIBERADA E ELA E O CORACAO DESTA FUNCAO. Um conjunto com
+    oito dos onze rotulos e um arquivo perfeitamente bem formado — e o estado
+    em que o usuario fica entre uma rodada do cortador e a seguinte. Recusar
+    aqui trocaria uma recusa nomeada por uma ferramenta que nao abre: um
+    conjunto incompleto nao impede o scanner de subir e de ler o EXP e o nivel,
+    ele impede UM campo de ser lido. Quem confere completude e a LEITURA, por
+    `mercado_leitura.conjunto_descreve_numeros`, e ela recusa nomeando os que
+    faltam.
+
+    (A razao que este estado tinha ganhado — "esperar o farm produzir um `5` e
+    um `7`" — CAIU, e cai citada: o M-L mediu os dois na tela AGORA, no bonus
+    da Faerlina (`592%`) e no EXP da Yazalaque (`76.6646%`). O estado continua
+    legitimo; ele so deixou de ser o estado ESPERADO.)
+
+    O QUE E FORMA: rotulo de UM caractere, altura e largura positivas, altura
+    dominante coerente entre os moldes, rotulo nao repetido, e as duas soleiras
+    em `[0, 1]`. Sao as mesmas guardas que `mercado_visao.glifos_de_calibracao`
+    ja faz na volta — repetidas aqui porque e no arranque que a mensagem ainda
+    pode dizer "recalibre" com o usuario olhando para o console.
+    """
+    if conjunto is None:
+        return
+    if not isinstance(conjunto, dict):
+        raise CalibracaoInvalida(
+            f"renda_moldes_da_barra precisa ser um objeto com `moldes`, "
+            f"`piso_de_leitura` e `margem_de_leitura`, veio "
+            f"{type(conjunto).__name__}. {CONSERTO_DA_RENDA}"
+        )
+
+    moldes = conjunto.get("moldes")
+    if moldes is not None and not isinstance(moldes, list):
+        raise CalibracaoInvalida(
+            f"renda_moldes_da_barra.moldes precisa ser uma lista, veio "
+            f"{type(moldes).__name__}. {CONSERTO_DA_RENDA}"
+        )
+
+    alturas: list[int] = []
+    vistos: set[str] = set()
+    for indice, bruto in enumerate(moldes or []):
+        onde = f"renda_moldes_da_barra.moldes[{indice}]"
+        if not isinstance(bruto, dict):
+            raise CalibracaoInvalida(
+                f"{onde} precisa ser um objeto, veio {type(bruto).__name__}. "
+                f"{CONSERTO_DA_RENDA}"
+            )
+        rotulo = bruto.get("glifo")
+        if not isinstance(rotulo, str) or len(rotulo) != 1:
+            raise CalibracaoInvalida(
+                f"{onde} tem rotulo {rotulo!r}, que nao e UM caractere. O "
+                f"rotulo E a identidade do glifo: um rotulo de dois caracteres "
+                f"nunca vira digito nenhum, e o molde ficaria no arquivo sem "
+                f"nunca ser usado. {CONSERTO_DA_RENDA}"
+            )
+        if rotulo in vistos:
+            raise CalibracaoInvalida(
+                f"renda_moldes_da_barra tem o rotulo {rotulo!r} repetido. Um "
+                f"dos dois moldes seria descartado calado, e nao da para saber "
+                f"qual e o certo. {CONSERTO_DA_RENDA}"
+            )
+        vistos.add(rotulo)
+        altura = _inteiro_da_renda(bruto.get("altura"), f"{onde}.altura")
+        largura = _inteiro_da_renda(bruto.get("largura"), f"{onde}.largura")
+        if altura <= 0 or largura <= 0:
+            raise CalibracaoInvalida(
+                f"{onde} ({rotulo!r}) declara {largura}x{altura}, que nao e uma "
+                f"forma. {CONSERTO_DA_RENDA}"
+            )
+        if not isinstance(bruto.get("molde"), dict):
+            raise CalibracaoInvalida(
+                f"{onde} ({rotulo!r}): `molde` precisa ser um objeto com "
+                f"altura, largura e bytes. {CONSERTO_DA_RENDA}"
+            )
+        alturas.append(altura)
+
+    # A ALTURA DOMINANTE, e ela e a unica deteccao de transposicao com
+    # fundamento aqui: todo glifo de uma calibracao sai da MESMA faixa de
+    # linhas compartilhada — medido 10 px nas duas instancias e em todo piso
+    # (M-K) —, entao um molde de altura diferente foi cortado de outro lugar ou
+    # esta transposto. O argumento e literalmente o de
+    # `mercado_visao.glifos_de_calibracao`.
+    if alturas:
+        dominante = max(set(alturas), key=alturas.count)
+        fora = [a for a in alturas if a != dominante]
+        if fora:
+            raise CalibracaoInvalida(
+                f"renda_moldes_da_barra tem molde de altura {sorted(set(fora))} "
+                f"num conjunto de altura dominante {dominante}. Todo glifo sai "
+                f"da MESMA faixa de linhas compartilhada: uma altura diferente "
+                f"foi cortada de outro lugar, ou esta transposta. "
+                f"{CONSERTO_DA_RENDA}"
+            )
+
+    for chave in ("piso_de_leitura", "margem_de_leitura"):
+        valor = conjunto.get(chave)
+        if valor is None:
+            if moldes:
+                raise CalibracaoInvalida(
+                    f"renda_moldes_da_barra tem {len(moldes)} molde(s) e esta "
+                    f"sem `{chave}`. As duas soleiras sao exigidas SEM default "
+                    f"pela leitura de glifo: um default e um numero magico que "
+                    f"entra por omissao. {CONSERTO_DA_RENDA}"
+                )
+            continue
+        if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+            raise CalibracaoInvalida(
+                f"renda_moldes_da_barra.{chave} precisa ser um numero, veio "
+                f"{type(valor).__name__} ({valor!r}). {CONSERTO_DA_RENDA}"
+            )
+        if not 0.0 <= float(valor) <= 1.0:
+            raise CalibracaoInvalida(
+                f"renda_moldes_da_barra.{chave}={valor} esta fora de [0, 1]. "
+                f"Ela e uma pontuacao de casamento normalizada, e nada fora "
+                f"dessa faixa significa alguma coisa. {CONSERTO_DA_RENDA}"
+            )
+
+    folga = conjunto.get("folga_de_cola")
+    if folga is not None:
+        # `null` E A GUARDA FECHADA, e e assim que a chave nasce: as larguras
+        # da barra sao `5` e `2` limpas, com coluna vazia entre elas (M-J) —
+        # nao ha glifo colado a partir. Uma folga inteira aqui autorizaria
+        # fatiar um icone de 15 px em tres digitos de 5, que e fabricacao de
+        # numero e nao leitura.
+        valor = _inteiro_da_renda(folga, "renda_moldes_da_barra.folga_de_cola")
+        if valor < 0:
+            raise CalibracaoInvalida(
+                f"renda_moldes_da_barra.folga_de_cola={valor} e negativa. "
+                f"{CONSERTO_DA_RENDA}"
+            )
+
+
+def _conferir_as_chaves_da_renda(dados: dict) -> None:
+    """As duas chaves da renda sao ENTRADA NAO CONFIAVEL, como as do mercado.
+
+    Mora AQUI, ao lado do portao de versao, e nao no consumidor, pela razao que
+    `_conferir_as_chaves_de_mercado` ja escreveu: e no arranque que a mensagem
+    ainda pode dizer "recalibre" com o usuario olhando para o console. O
+    consumidor roda as duas da manha, no meio do farm.
+
+    As duas chaves ausentes ou `None` passam: e o estado legitimo de "nao
+    calibrei a renda", e uma instalacao sem ela precisa continuar subindo
+    igual — com a `VERSAO_DO_ESQUEMA` intacta em 2.
+    """
+    _conferir_a_renda_por_personagem(dados.get("renda_por_personagem"))
+    _conferir_os_moldes_da_barra(dados.get("renda_moldes_da_barra"))
 
 
 # O CONSERTO, escrito uma vez e citado por toda recusa da leitura de pagina.
