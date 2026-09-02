@@ -383,3 +383,66 @@ usou uma regra de forma própria em vez da segmentação de produção.
 O `1540,1358 160x34` foi aplicado, as fixtures de 09h30 foram versionadas em
 `tests/fixtures/renda/` (sem elas a correção seria prosa irreproduzível a partir do clone), e há
 teste prendendo que o retângulo não é nenhum dos dois refutados.
+
+---
+
+# O que a bancada do `01-02` mediu, e o que isso obriga fora da Fase 1
+
+Números com denominador, do `01-MEDICOES.md`. Unidade = gravação × frame × personagem × região ×
+piso; 4 frames × 31 pisos = **124 por campo**.
+
+## M-R — Concordância entre escalas NÃO é evidência de acerto, e agora tem contraexemplo sem sósia
+
+O M-H mostrou concordância errada na adena e eu atribuí ao **sósia gramatical adjacente** (a
+L-Coin). Medido pela bancada, a explicação era estreita demais:
+
+| campo | aceitas e **erradas** | quantas por concordância de 2 escalas |
+|---|---|---|
+| adena | **5 / 10 (50%)** | — |
+| nível | 4 / 18 (22,2%) | **3 das 4** |
+| EXP | 3 / 27 (11,1%) | — |
+
+**Três das quatro leituras erradas do nível foram aceitas por CONCORDÂNCIA das duas escalas** — e
+o nível não tem sósia gramatical ao lado. Duas escalas erram igual porque partem do mesmo pixel
+mascarado; elas não são independentes o bastante para que concordar prove alguma coisa.
+
+**A discordância, por outro lado, pegou o que a concordância deixou passar:** 2 casos em 124
+(1,6%) no nível, e os dois leram `65` contra `69`. O `65` é **exatamente** o valor que a
+concordância aceitou como certo oito horas antes, no mesmo personagem. A guarda que quase não
+dispara é a que pegou o erro que a outra deixou entrar.
+
+EXP e adena deram 0/124 de discordância. Sobre o EXP a bancada achou o motivo, e ele é
+desconfortável: **nas três leituras erradas de EXP a escala 3x leu os MESMOS dígitos errados e
+abstinha por gramática, não por discordância.** A abstenção estava escondendo concordância no
+erro.
+
+**Consequência:** o cruzamento fica — ele paga por si nos 1,6% —, mas ele **não** é a defesa
+principal. A defesa principal são as regras de par da Fase 2, e isso precisa estar escrito antes
+de alguém confiar demais no cruzamento.
+
+## M-S — As bandas de piso ANDAM com o cenário, e quase não se tocam
+
+| campo | Faerlina 00h45 | Faerlina 09h30 |
+|---|---|---|
+| EXP | `140..170` | `160..180` |
+| adena (por OCR) | banda estreita | **largura ZERO em todos os 31 pisos** |
+
+A banda do EXP mudou de lugar em 8,5 horas de farm, só porque o cenário atrás da barra
+semitransparente mudou. As duas se tocam em `160..170` — dez unidades de folga entre "funciona" e
+"não lê nada".
+
+A linha da adena confirma o LEIT-09 por outro caminho: no frame das 09h30 **não existe piso
+nenhum** em que o OCR leia a adena certa. Não é banda estreita, é banda vazia.
+
+**Consequência, e ela é de produto:** um piso único calibrado numa área de farm **não sobrevive à
+mudança de área**. O usuário calibra em War-Torn Plains e o número para de sair no próximo mapa,
+sem que nada tenha quebrado. Isso vira requisito, e não da Fase 1 — vira **LEIT-10**, e o dono
+natural é a Fase 3, onde o laço ao vivo existe e pode tentar mais de um piso antes de declarar
+cegueira.
+
+## M-T — A varredura por código discorda da tabela lida a olho em 11 de 12 linhas
+
+O M-E foi lido a olho, de 10 em 10. A bancada reproduziu de 5 em 5, por código: **11 DISCORDA,
+1 BATE**. A que bate é o que dá crédito às outras onze — o método não é cego, a tabela do M-E é
+que era grossa. Onde este documento e o `01-MEDICOES.md` discordarem sobre banda de piso, **vale
+o `01-MEDICOES.md`**.

@@ -137,6 +137,33 @@
       `calibrar-mercado.bat` e do `calibrar.bat` que já existem. Sem ele, LEIT-05 é uma promessa
       sem como cumprir.
 
+- [ ] **LEIT-10**: **Um piso de brilho só não sobrevive à mudança de área de farm.** *(M-S,
+      medido pela bancada do `01-02`.)* A banda útil do EXP da Faerlina andou de `140..170` para
+      `160..180` em 8,5 horas — só porque o cenário atrás da barra semitransparente mudou. As
+      duas se tocam em dez unidades. E no frame das 09h30 a adena tem banda de largura **ZERO**
+      por OCR em todos os 31 pisos varridos. O modo de falha é cruel com o usuário: ele calibra
+      numa área, muda de mapa, e o número para de sair sem que nada tenha quebrado — nem o
+      calibrador está errado, nem a leitura.
+
+      **O dono é a Fase 3**, onde existe laço ao vivo: antes de declarar cegueira, o leitor
+      tenta os pisos vizinhos da banda gravada e usa o que produzir leitura válida, registrando
+      qual usou. Na Fase 1 isso seria estado dentro de uma função que a fase inteira definiu como
+      pura. Fica escrito aqui para não virar surpresa lá.
+
+- [ ] **LEIT-11**: **Concordância entre as duas escalas NÃO prova acerto, e o cruzamento não é a
+      defesa principal.** *(M-R.)* Medido: **3 das 4** leituras erradas de nível foram aceitas
+      **por concordância** das duas escalas — e o nível não tem sósia gramatical ao lado, então a
+      explicação do M-H (a L-Coin) era estreita demais. As duas escalas partem do mesmo pixel
+      mascarado e não são independentes o bastante para que concordar prove alguma coisa. No EXP
+      é pior de outro jeito: nas três leituras erradas a escala 3x leu os **mesmos dígitos
+      errados** e abstinha por gramática — a abstenção estava escondendo concordância no erro.
+
+      O cruzamento **fica**: ele pegou 2 casos em 124 (1,6%) no nível, e os dois liam `65` contra
+      `69` — `65` é exatamente o valor que a concordância tinha aceitado oito horas antes no mesmo
+      personagem. Mas ele é rede secundária. **A defesa principal são as regras de par da Fase
+      2**, e este requisito existe para que ninguém confie demais no cruzamento antes delas
+      existirem.
+
 ## Fase 2 — a conta: de duas amostras para uma taxa
 
 > *No `ROADMAP.md` esta seção e a de baixo viraram uma fase só, a **Phase 2**. O motivo
