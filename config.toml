@@ -28,16 +28,22 @@ nome = "TvT"
 horarios = ["15:00", "17:00", "19:30", "21:50", "23:00"]
 dias = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 avisar_minutos_antes = 10
-silenciar_minutos = 15
+silenciar_minutos = 9
 
 [[evento]]
 nome = "Prime"
 horarios = ["20:00"]
 dias = ["seg", "ter", "qua", "qui"]
 avisar_minutos_antes = 10
-# Duas horas. De segunda a quinta esta janela engole o TvT das 21:50, cuja
-# propria janela vai ate 22:05 — o silencio termina as 22:05, nao as 22:00.
-silenciar_minutos = 120
+# 100 minutos: o Prime comeca 20:00 e ACABA 21:40, medido em campo pelo
+# usuario em 01/09/2026. Estava 120 (duas horas), e os 20 minutos a mais
+# calavam o scanner de 21:40 ate 22:00 — justamente a janela entre o fim do
+# Prime e o inicio do TvT das 21:50, que e quando a party esta se reagrupando
+# e os alertas de morte MAIS importam.
+#
+# Com 100 as duas janelas deixam de se sobrepor: Prime 20:00-21:40, TvT
+# 21:50-21:59. Entre 21:40 e 21:50 nao ha silencio nenhum, de proposito.
+silenciar_minutos = 100
 
 # Solo Boss nasce de duas em duas horas, sempre em horario par.
 #
