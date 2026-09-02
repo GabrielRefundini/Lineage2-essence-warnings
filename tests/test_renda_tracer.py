@@ -899,3 +899,95 @@ class TestQueOSalvarNaoPerdeOAninhado:
             Calibracao.carregar(gravar(tmp_path, sem_a_chave)).renda_por_personagem
             is None
         ), "feature nao calibrada e feature desligada, e nao arquivo invalido"
+
+
+class TestAAncoraDaGramatica:
+    """A ancora e a CONTAGEM de casas, e ela precisa ser inatacavel pelos lados.
+
+    A mesma barra carrega um segundo campo com sinal de porcentagem — o bonus,
+    `592%` numa instancia e `612%` na outra — e o OCR desta arvore cola numero
+    vizinho no comeco do texto o tempo todo (`76 EXP 80012% 592%` e uma leitura
+    real). Uma gramatica ancorada so no fim casa DENTRO de um numero maior e
+    devolve um numero que nunca esteve na tela.
+    """
+
+    def test_UM_DIGITO_COLADO_NA_FRENTE_NAO_VIRA_UM_NUMERO_MENOR(self):
+        """`1234.5678%` nao pode virar `234,5678%`.
+
+        O EXP e uma fracao de nivel e nunca passa de 100 pontos percentuais,
+        entao um numero de quatro digitos na parte inteira NAO e um EXP — e
+        recortar os tres ultimos para caber e fabricar leitura.
+        """
+        assert renda_leitura.decimos_de_milesimo("1234.5678%") is None, (
+            "a gramatica casou DENTRO de um numero maior e devolveu 2345678, "
+            "que nunca esteve na tela"
+        )
+
+    def test_DUAS_CANDIDATAS_NO_MESMO_TEXTO_SAO_RECUSA_E_NAO_A_PRIMEIRA(self):
+        """Duas leituras validas no mesmo texto e ambiguidade, e nao escolha.
+
+        Pegar a primeira e uma decisao tomada pela ordem em que o OCR devolveu
+        as palavras, que nao e informacao sobre a tela.
+        """
+        assert renda_leitura.decimos_de_milesimo("EXP 8.0012% e 9.0012%") is None
+
+    def test_A_MESMA_CANDIDATA_REPETIDA_NAO_E_AMBIGUIDADE(self):
+        """O controle: repeticao do MESMO valor continua sendo uma leitura so."""
+        assert renda_leitura.decimos_de_milesimo("8.0012% 8.0012%") == 80012
+
+    def test_O_BONUS_DA_MESMA_BARRA_NAO_E_LIDO_COMO_EXP(self):
+        """`592%` vem ANTES do EXP no texto real, e nao pode ancorar."""
+        assert renda_leitura.decimos_de_milesimo("592% EXP 8.0012% 76") == 80012
+
+    def test_ZERO_PORCENTO_COM_QUATRO_CASAS_E_UMA_LEITURA_VALIDA(self):
+        """O controle que impede a correcao de virar "recuse o que for falsy"."""
+        assert renda_leitura.decimos_de_milesimo("EXP 0.0000%") == 0
+
+
+@precisa_de_ocr
+class TestAsQuatroLeiturasReaisDoPlanejamento:
+    """Cada caso cita a gravacao de origem: a proveniencia sobrevive ao proximo."""
+
+    def test_M2_O_EXP_LEGIVEL_NO_RECORTE_CRU(self):
+        """`20260901-164159-aba-para-calibrar/frame_000000`, 2x, sem mascara."""
+        recorte = cv2.imread(
+            str(FIXTURAS / "aba_para_calibrar_f000__barra_esquerda.png")
+        )
+        assert renda_leitura.decimos_de_milesimo(ocr.ler_texto(recorte)) == 579749
+
+    def test_M4_O_EXP_QUE_O_RECORTE_CRU_PERDE(self):
+        """`20260901-172911-adena-diagnostico/frame_000005`: no cru ele SOME."""
+        recorte = cv2.imread(
+            str(FIXTURAS / "adena_diagnostico_f005__barra_esquerda.png")
+        )
+        assert renda_leitura.decimos_de_milesimo(ocr.ler_texto(recorte)) is None
+
+    def test_M5_E_A_MASCARA_O_RECUPERA(self):
+        """O mesmo frame do M4, com a mascara no piso certo."""
+        recorte = cv2.imread(
+            str(FIXTURAS / "adena_diagnostico_f005__barra_esquerda.png")
+        )
+        leitura = renda_leitura.exp_da_barra(recorte, piso_de_brilho=170)
+        assert isinstance(leitura, renda_leitura.ValorDaRenda), leitura
+        assert leitura.valor == 588189
+
+    def test_M6_OS_DOIS_CAMINHOS_DE_LEITURA_DIVERGEM_NUM_DIGITO(self):
+        """`20260828-063240-mercado-farm-com-party/frame_000000`.
+
+        O cru diz `57,6499%` e a mascara no piso alto diz `57,8499%`. Se um dia
+        os dois convergirem, este teste tem de falhar por motivo escrito e nao
+        passar em silencio: a divergencia e a evidencia de que o cruzamento tem
+        trabalho a fazer nesta arvore.
+        """
+        recorte = cv2.imread(
+            str(FIXTURAS / "mercado_farm_com_party_f000__barra_esquerda.png")
+        )
+        do_cru = renda_leitura.decimos_de_milesimo(ocr.ler_texto(recorte))
+        da_mascara = renda_leitura.exp_da_barra(recorte, piso_de_brilho=180)
+        assert do_cru == 576499
+        assert da_mascara.valor == 578499
+        assert do_cru != da_mascara.valor, (
+            "as duas leituras convergiram; reconfira se o caminho de leitura "
+            "mudou. Sem divergencia real, o cruzamento vira uma guarda que "
+            "ninguem provou que faz alguma coisa"
+        )
