@@ -383,12 +383,23 @@ def test_nenhum_molde_alem_dos_confirmados_e_gravado(tmp_path, monkeypatch):
 
 
 def _semear(caminho: pathlib.Path) -> dict:
-    """Um `calibration.json` valido, com a chave do mercado POVOADA."""
+    """Um `calibration.json` valido, com a chave do mercado POVOADA e a da barra AUSENTE.
+
+    A AUSENCIA E EXPLICITA E NAO HERDADA, e a mudanca tem data: ate a onda 3 a
+    fixtura de calibracao nascia sem `renda_moldes_da_barra`, e estes testes
+    dependiam disso sem dizer. O `01-04` FUNDIU os moldes naquela fixtura — e o
+    consumidor deles —, e a dependencia silenciosa virou falha.
+
+    O estado que o cortador precisa e "ainda nao cortei nada", porque e ele que
+    escreve a chave. Entao ele e MONTADO aqui, com um `pop`, em vez de tomado
+    de emprestado de um arquivo que pertence a outro plano.
+    """
     referencia = json.loads(
         pathlib.Path("tests/fixtures/renda/calibracao_de_fixture.json").read_text(
             encoding="utf-8"
         )
     )
+    referencia.pop("renda_moldes_da_barra", None)
     referencia["mercado_templates_de_digito"] = [
         {
             "glifo": rotulo,

@@ -196,12 +196,17 @@ class TestAIdaEVoltaDaCalibracaoDaRenda:
         )
 
     def test_SEM_A_CHAVE_renda_moldes_da_barra_O_CAMPO_SAI_None(self, tmp_path):
+        """A ausencia e MONTADA aqui, e ate a onda 3 ela era herdada.
+
+        A fixtura nascia sem os moldes porque eles so existem depois da rodada
+        do cortador (`01-05`), e este teste tomava aquela ausencia emprestada. O
+        `01-04` FUNDIU a chave naquele arquivo — ele e o consumidor dos moldes,
+        e sem o merge a adena recusaria em toda rodada com a mensagem certa para
+        o motivo errado. O estado ausente continua sendo um dos TRES legitimos;
+        o que mudou e que ele agora e construido em vez de emprestado.
+        """
         dados = carregar_dados_da_fixtura()
-        assert "renda_moldes_da_barra" not in dados, (
-            "a fixtura nasce SEM os moldes de proposito: eles so existem depois "
-            "da rodada humana do cortador, e quem funde a chave aqui e o plano "
-            "consumidor"
-        )
+        dados.pop("renda_moldes_da_barra", None)
         cal = Calibracao.carregar(gravar(tmp_path, dados))
         assert cal.renda_moldes_da_barra is None
         assert cal.versao == 2
@@ -390,7 +395,9 @@ class TestAsTresPosicoesDoConjuntoDeMoldes:
     """Ausente, completo e INCOMPLETO carregam; malformado e recusado alto."""
 
     def test_AUSENTE_CARREGA(self, tmp_path):
+        """O `pop` e do `01-04`: a fixtura passou a CARREGAR os moldes na onda 3."""
         dados = carregar_dados_da_fixtura()
+        dados.pop("renda_moldes_da_barra", None)
         cal = Calibracao.carregar(gravar(tmp_path, dados))
         assert cal.renda_moldes_da_barra is None
         assert cal.versao == 2
