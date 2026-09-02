@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 34
+open_count: 38
 waived_count: 1
 fixed_count: 10
-total_count: 45
-last_updated: 2026-09-02T02:57:54.224Z
+total_count: 49
+last_updated: 2026-09-02T03:44:52.498Z
 ---
 
 # Broken Windows Ledger
@@ -60,6 +60,10 @@ last_updated: 2026-09-02T02:57:54.224Z
 | 43 | 03 | unmet-truth | l2scanner/batismo.py |  | MEDIDO NO CANAL DE VERDADE em 01/09/2026 (envio real por NotificadorChatwoot.enviar com anexos= para o grupo do usuario): o provedor de WhatsApp entrega UM ANEXO POR MENSAGEM. Dois anexos foram postados numa mensagem so, o Chatwoot ACEITOU os dois (POST sem erro) e chegou UM. Nenhum teste offline pega isso, porque e comportamento do provedor do outro lado do socket. Consequencia de desenho, ja aplicada: a pergunta do batismo passou a citar UMA pessoa e levar UM anexo, com as outras esperando INTERVALO_ENTRE_PERGUNTAS=60s numa fila em memoria. NAO voltar a juntar N pessoas numa mensagem: o desfecho observado e uma mensagem que descreve N e mostra a imagem de UMA, com o dono lendo a legenda errada e batizando a pessoa errada em silencio. O que CONFIRMOU no mesmo envio, e continua valendo: o Chatwoot aceita o multipart montado a mao com a stdlib, o provedor entrega imagem em GRUPO, e a recompressao do WhatsApp NAO destroi a legibilidade com AMPLIACAO=6 e INTER_NEAREST. | open |  | 2026-09-01T21:33:44.014Z |  |
 | 44 | 03 | unmet-truth | l2scanner/retrato.py |  | MEDIDO NO CANAL DE VERDADE em 01/09/2026: o preview da bolha do WhatsApp CORTA AS LATERAIS de imagem larga. O PNG enviado estava correto no arquivo (836x138, apelido nitido a esquerda), mas ~6.06:1 fez o cliente cortar as bordas e o apelido, colado na esquerda, sumiu da tela do usuario. A protecao existia no arquivo e nao existia no olho dele, que e o pior tipo de protecao: aquela etiqueta e o cinto de seguranca contra a legenda se perder e o dono batizar a assinatura errada. Uma imagem de proporcao 1.60:1 montada no mesmo dia NAO sofreu o corte; o alvo adotado e 3:2 (PROPORCAO_DA_BOLHA=1.5), do lado seguro do unico ponto medido, com o apelido desenhado ACIMA do nome em vez de ao lado — a faixa lateral era a propria causa do 6:1, porque a largura da imagem era largura_do_nome + largura_do_texto. Quem for mexer em retrato.py: a proporcao nao e estetica, e o que mantem a legenda dentro do campo de visao, e mudar de novo exige repetir o ENVIO REAL, nao rodar a suite. | open |  | 2026-09-01T21:33:58.758Z |  |
 | 45 | 1 | unrun-verify | l2scanner/recursos/dashboard/dashboard.css |  | 01-06 Tarefa 3: a human-check do plano (abrir o dashboard e olhar se nenhum ornamento encosta no numero de 48px, se o texto sobre o relevo continua legivel e se o cartao de R$ realmente some) nao pode ser executada sem navegador — verificacao humana declarada, pendente | open |  | 2026-09-02T02:57:54.224Z |  |
+| 46 | 01 | deviation | l2scanner/recursos/dashboard/index.html |  | O index.html nunca carrega vendor/uPlot.iife.min.js; o dashboard.js passou a carregar a biblioteca em tempo de execucao porque o plano 01-07 tem o index.html fora do alcance. O conserto e uma linha de <script src> ao lado da que ja carrega o dashboard.js. | open |  | 2026-09-02T03:44:28.164Z |  |
+| 47 | 01 | deviation | l2scanner/recursos/dashboard/dashboard.js |  | Os vaos de unidade (xm-unidade e reais-unidade) da marcacao ficam VAZIOS: o payload dobra a unidade dentro de destaque.xm.texto, e parti-la no navegador seria o segundo formatador que o DASH-03 proibe. O conserto certo e o payload entregar numero e unidade separados. | open |  | 2026-09-02T03:44:36.968Z |  |
+| 48 | 01 | unrun-verify | l2scanner/recursos/dashboard/dashboard.js |  | O roteiro humano da Tarefa 3 do plano 01-07 (roda do mouse aproxima em torno do cursor, arrasto desloca, botao restaura o periodo, cambio salva sem recarregar, texto recusado preserva o cambio antigo, dado velho esfria) nao pode rodar nesta arvore: nao ha navegador. | open |  | 2026-09-02T03:44:41.028Z |  |
+| 49 | 01 | deviation | l2scanner/recursos/dashboard/dashboard.js |  | A dica sob o cursor traz instante e as duas strings de valor; o n de cada instante viaja junto do instante na resolucao crua e NAO existe nas resolucoes de balde (somar contagens de instantes distintos nao qualificaria o valor exibido). O UI-SPEC pede n na dica em toda resolucao. | open |  | 2026-09-02T03:44:52.498Z |  |
 
 ````json
 [
@@ -601,6 +605,54 @@ last_updated: 2026-09-02T02:57:54.224Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-02T02:57:54.224Z",
+    "resolved_at": null
+  },
+  {
+    "id": 46,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "l2scanner/recursos/dashboard/index.html",
+    "line": null,
+    "description": "O index.html nunca carrega vendor/uPlot.iife.min.js; o dashboard.js passou a carregar a biblioteca em tempo de execucao porque o plano 01-07 tem o index.html fora do alcance. O conserto e uma linha de <script src> ao lado da que ja carrega o dashboard.js.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-02T03:44:28.164Z",
+    "resolved_at": null
+  },
+  {
+    "id": 47,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "l2scanner/recursos/dashboard/dashboard.js",
+    "line": null,
+    "description": "Os vaos de unidade (xm-unidade e reais-unidade) da marcacao ficam VAZIOS: o payload dobra a unidade dentro de destaque.xm.texto, e parti-la no navegador seria o segundo formatador que o DASH-03 proibe. O conserto certo e o payload entregar numero e unidade separados.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-02T03:44:36.968Z",
+    "resolved_at": null
+  },
+  {
+    "id": 48,
+    "kind": "unrun-verify",
+    "phase": "01",
+    "file": "l2scanner/recursos/dashboard/dashboard.js",
+    "line": null,
+    "description": "O roteiro humano da Tarefa 3 do plano 01-07 (roda do mouse aproxima em torno do cursor, arrasto desloca, botao restaura o periodo, cambio salva sem recarregar, texto recusado preserva o cambio antigo, dado velho esfria) nao pode rodar nesta arvore: nao ha navegador.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-02T03:44:41.028Z",
+    "resolved_at": null
+  },
+  {
+    "id": 49,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "l2scanner/recursos/dashboard/dashboard.js",
+    "line": null,
+    "description": "A dica sob o cursor traz instante e as duas strings de valor; o n de cada instante viaja junto do instante na resolucao crua e NAO existe nas resolucoes de balde (somar contagens de instantes distintos nao qualificaria o valor exibido). O UI-SPEC pede n na dica em toda resolucao.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-02T03:44:52.498Z",
     "resolved_at": null
   }
 ]
