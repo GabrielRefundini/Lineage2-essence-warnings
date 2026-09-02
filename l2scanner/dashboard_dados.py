@@ -14,20 +14,42 @@ montagem do dicionario que vira JSON.
 ELE E PURO QUANTO DA: sem servidor, sem relogio proprio (o `agora` entra por
 parametro), sem escrita. A unica coisa que ele toca no disco e uma leitura em
 modo `"r"`, e ha teste de impressao digital prendendo isso.
+
+O INVARIANTE DE LEITURA, ESCRITO POR EXTENSO (DASH-01 / T-01-04)
+=================================================================
+**Nenhuma funcao deste modulo abre arquivo fora do modo de leitura, e nenhuma
+cria pasta.** `RegistroDeObservacoes.carregar` cria o `observacoes.csv` ausente
+com cabecalho porque ela e o arranque do ESCRITOR; aqui nao ha escritor nenhum.
+Criar o arquivo ou a pasta seria o programa ESCREVENDO num caminho de LEITURA —
+o mesmo argumento com que `conferir_o_terminador` recusa truncar a cauda no
+disco em vez de "consertar" o arquivo do usuario. Um arquivo que aparece sozinho
+porque alguem abriu o dashboard e um efeito colateral que ninguem pediu,
+inclusive num diretorio apontado por engano.
+
+DUAS PROVAS PRENDEM ISSO, e nao uma: a impressao digital de tres componentes em
+300 leituras (`tests/test_dashboard_leitura.py`) prova o que aconteceu; o
+tripwire por leitura de fonte sobre `observacoes_ao_vivo` e sobre
+`ArquivoRecortado.open` prova o que o codigo PODE fazer, e pega a regressao no
+commit em que ela e escrita.
 """
 
 from __future__ import annotations
 
 import io
 import logging
+import statistics
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 from . import mercado_registro
 from .mercado_analise import (
+    Evidencia,
     ModeloDeMercado,
+    mediana_dos_unitarios,
     menor_pedido_visivel,
     recencia_do_preco,
 )
@@ -46,16 +68,204 @@ from .mercado_catalogo import CHAVE_DA_SERIE_DA_ADENA
 #
 # Promove-lo a nome publico seria mexer em `mercado_console.py`, que a decisao
 # do usuario em 2026-09-01 (CTX-2) nao autoriza esta fase a tocar.
-from .mercado_console import _recencia_em_duas_formas, formatador_do_unitario
+from .mercado_console import (
+    UNIDADE_DA_TAXA,
+    _recencia_em_duas_formas,
+    formatador_do_unitario,
+    formatar_centesimos,
+    formatar_taxa_derivada,
+)
 
 log = logging.getLogger(__name__)
 
 __all__ = [
     "ArquivoRecortado",
+    "ESTADOS",
+    "FRASES_PROIBIDAS",
+    "LARGURAS_DE_BALDE",
+    "LIMIAR_DE_FRESCOR",
     "LeituraAoVivo",
+    "NOTA_DE_LINHA_PARCIAL",
+    "PontoDaSerie",
+    "ancora_da_meia_noite",
+    "baldes",
+    "frase_de_piso_da_tipica",
+    "frase_de_piso_do_menor",
     "observacoes_ao_vivo",
     "payload",
+    "pontos_por_instante",
+    "serie_para_o_grafico",
 ]
+
+
+# ===========================================================================
+# AS FRASES DA TELA — TODAS CONSTANTES NOMEADAS, TODAS DO PYTHON
+# ===========================================================================
+#
+# ELAS SAO COPIA LITERAL DO `## Copywriting Contract` DO `01-UI-SPEC.md`, e
+# moram aqui em vez de literais espalhados pelo corpo das funcoes pela mesma
+# razao que `UNIDADE_DA_JANELA` mora no topo de `mercado_analise`: uma frase
+# escrita duas vezes e uma frase que diverge no primeiro ajuste, e a divergencia
+# aparece na tela do usuario e nao no teste.
+#
+# ELAS LEVAM ACENTO, e as do `mercado_console` nao — isso e INTENCIONAL e esta
+# escrito no UI-SPEC. O console e ASCII por escolha dele (o `cmd` do Windows abre
+# em cp1252); esta pagina e HTML em UTF-8 e a moldura e nossa. O que NAO pode
+# acontecer e o navegador reacentuar a string que veio pronta do console: isso
+# seria o SEGUNDO formatador que o DASH-03 proibe.
+
+# A nota da cauda ignorada. Ela viaja no payload quando `cauda_incompleta` for
+# verdadeiro, e chega PRONTA ao JS.
+#
+# E ELA E REDE DE SEGURANCA, E NAO O CAMINHO NORMAL — a medicao esta na
+# docstring de `observacoes_ao_vivo`: ZERO leituras parciais em 22.970 tentativas
+# durante 200.000 appends concorrentes. Um aviso que aparecesse toda hora viraria
+# ruido, e ruido e indistinguivel de defeito.
+NOTA_DE_LINHA_PARCIAL = "Última linha ignorada: incompleta (o scanner estava escrevendo)."
+
+# O estado vazio. ELE E A PRIMEIRA TELA QUE O USUARIO VAI VER, e nao um caso de
+# borda: medido em 2026-09-01, o `.mercado/observacoes.csv` de campo tem 93
+# linhas e ZERO com a sentinela `adena#`. Gastar aqui o mesmo cuidado do estado
+# povoado e o que impede a tela de parecer quebrada no dia da estreia.
+TITULO_DO_ESTADO_VAZIO = "Nenhuma leitura da Adena ainda"
+CORPO_DO_ESTADO_VAZIO = (
+    "O painel de Adena nunca foi lido nesta máquina. Para começar: deixe o "
+    "vigiar-mercado.bat rodando e abra a aba Adena da World Exchange no "
+    "cliente. Cada página lida vira um ponto aqui sozinha, sem recarregar."
+)
+
+# A FRASE DE PROVA — a linha que separa "nao ha o que mostrar" de "o dashboard
+# nao conseguiu abrir o arquivo". Sem os dois numeros REAIS ao lado, um estado
+# vazio e indistinguivel de um defeito, e o usuario vai procurar bug onde nao ha.
+#
+# AS DUAS CONTAGENS SAO DA MESMA ESPECIE — registros — e e por isso que
+# `linhas_completas` nao conta o cabecalho: "93 linhas, 0 da serie" com o
+# cabecalho de um lado e observacoes do outro compararia coisas diferentes com a
+# mesma palavra. O `01-UI-SPEC.md` ilustra a frase com `93`, que e a contagem de
+# LINHAS do arquivo de campo; o payload informa as 92 de DADO.
+#
+# A PALAVRA `Adena` E COPY TRAVADO no `## Copywriting Contract`, e nao um `if` da
+# Adena: a genericidade do DASH-05 mora no contrato de `series`, e nao numa frase
+# que o usuario le sobre uma aba especifica. Uma segunda serie instanciada ganha
+# a linha dela.
+MOLDE_DA_PROVA_DA_LEITURA = "O arquivo foi lido: {linhas} linhas, {da_serie} da série Adena."
+
+# O R$ ausente, dito com PALAVRA. Um cambio chutado — 1,00 "porque e redondo" —
+# vira decisao de dinheiro real errada, e o numero errado nao se anuncia.
+FRASE_DE_REAIS_INDISPONIVEL = "R$ indisponível — nenhum câmbio informado."
+
+# Com UM valor informado nao existe serie de cambio, e a tela nao pode fingir que
+# existe. Aplicar o cambio de hoje a um ponto de tres dias atras SEM AVISAR seria
+# um numero certo com significado errado.
+AVISO_DO_CAMBIO_HISTORICO = (
+    "R$ calculado com o câmbio informado hoje, aplicado a toda a série."
+)
+
+# O dado velho. O `{recencia}` vem PRONTO de `_recencia_em_duas_formas` e entra
+# sem ser tocado: remontar "ha 3 h (31/08 10:00)" aqui seria o segundo formatador
+# de tempo, e as duas copias divergiriam no primeiro ajuste de limiar.
+#
+# A frase NEGA "agora" de proposito. A proibicao do UI-SPEC e sobre a AFIRMACAO
+# de agora colada num numero velho; recusa-la em voz alta e o oposto disso.
+MOLDE_DO_DADO_VELHO = (
+    "Sem leitura nova: {recencia}. O valor abaixo é dessa leitura, não de agora."
+)
+
+# Os dois erros. Cada um diz O QUE FAZER — a anatomia de mensagem da casa, a
+# mesma de `conferir_o_cabecalho`: o que aconteceu, o que NAO foi alterado, e o
+# passo que religa a feature.
+FRASE_DE_ARQUIVO_AUSENTE = (
+    "Arquivo de observações não encontrado (.mercado/observacoes.csv). O "
+    "--mercado ainda não gravou nada nesta máquina. Rode o vigiar-mercado.bat "
+    "uma vez."
+)
+FRASE_DE_CABECALHO_QUEBRADO = (
+    "O cabeçalho de .mercado/observacoes.csv não é o esperado. O dashboard não "
+    "vai adivinhar as colunas."
+)
+
+# OS ROTULOS DAS DUAS LINHAS. `menor pedido visível` e a palavra do requisito, e
+# a razao e honestidade: o scanner ve OFERTAS no quadro, nao transacoes
+# concluidas. Ninguem comprou por este valor — alguem PEDIU este valor.
+ROTULO_DO_MENOR = "menor pedido visível"
+ROTULO_DA_TIPICA = "mediana"
+
+# AS DUAS UNIDADES EXIBIDAS. Elas nao sao escolhidas por um `if` sobre a
+# sentinela — ver `_e_a_taxa`, que deriva a resposta do UNICO ponto de decisao
+# que ja existe (`formatador_do_unitario`).
+UNIDADE_EXIBIDA_DA_TAXA = "XM por milhão de adena"
+UNIDADE_EXIBIDA_DO_UNITARIO = "centésimos por unidade"
+
+# O valor em R$, com a marca OBRIGATORIA de informado por voce. O UI-SPEC proibe
+# por escrito "qualquer valor em R$ sem a marca de informado por você": o cambio
+# nao foi lido de lugar nenhum, foi digitado, e quem copiar a linha para o
+# WhatsApp precisa que essa procedencia viaje junto.
+MOLDE_DO_VALOR_EM_REAIS = (
+    "R$ {valor} por milhão de adena (derivado do câmbio informado por você em "
+    "{quando})"
+)
+
+# AS FRASES PROIBIDAS NA TELA, herdadas do `mercado_console` — onde ja ha teste
+# prendendo-as sobre o texto devolvido E sobre o fonte.
+#
+# As tres sao a mesma mentira: o scanner ve OFERTAS no quadro, e nao transacoes
+# concluidas. Ninguem comprou por este valor — alguem PEDIU este valor.
+#
+# EM MINUSCULA, e comparadas contra `texto.lower()`: a proibicao e sobre a
+# expressao, e nao sobre a caixa em que alguem a escreveu.
+#
+# O `0,00` NAO ESTA NESTA TUPLA, E A RAZAO FOI MEDIDA AQUI. A quarta proibicao do
+# UI-SPEC — "`0,00` como espaco reservado enquanto carrega" — parece pertencer a
+# esta lista e NAO pertence: comparada por substring, ela reprova
+# `"30,00 XM por milhao de adena (derivado)"`, que e um valor legitimo. Toda taxa
+# terminada em zero (`10,00`, `20,00`, `30,00`) cairia junto. A proibicao e sobre
+# o NUMERO INTEIRO ser zero, e por isso ela e verificada por TOKEN, com um molde
+# de numero, em `tests/test_dashboard_dados.py` (`MOLDE_DE_NUMERO`) — e com um
+# controle que exige a sonda acusar um `0,00` de verdade.
+FRASES_PROIBIDAS = (
+    "preço de venda",
+    "preco de venda",
+    "vendido por",
+    "valor de mercado",
+)
+
+# OS CINCO ESTADOS, NA ORDEM DE PRECEDENCIA DO `01-UI-SPEC.md`. A ORDEM E
+# FECHADA, e o primeiro que casar manda no destaque e no grafico.
+#
+# VARIOS PODEM SER VERDADE AO MESMO TEMPO — um arquivo com o cabecalho trocado
+# tambem nao tem serie da Adena, e tambem esta abaixo do piso — e e precisamente
+# por isso que a ordem precisa estar escrita num lugar so. Espalhada por quatro
+# `if` em telas diferentes, ela vira quatro respostas para o mesmo arquivo.
+#
+# A ORDEM E A DA GRAVIDADE DA IGNORANCIA: primeiro "o arquivo nao e mais este
+# arquivo" (nao da para afirmar NADA), depois "nao ha arquivo", depois "ha
+# arquivo e nao ha esta serie", depois "ha esta serie e nao ha evidencia
+# bastante", e so entao "ha o que mostrar".
+ESTADO_ERRO_DE_CONTRATO = "erro_de_contrato"
+ESTADO_ARQUIVO_AUSENTE = "arquivo_ausente"
+ESTADO_SEM_LEITURA = "sem_leitura"
+ESTADO_ABAIXO_DO_PISO = "abaixo_do_piso"
+ESTADO_SERIE_PRESENTE = "serie_presente"
+
+ESTADOS = (
+    ESTADO_ERRO_DE_CONTRATO,
+    ESTADO_ARQUIVO_AUSENTE,
+    ESTADO_SEM_LEITURA,
+    ESTADO_ABAIXO_DO_PISO,
+    ESTADO_SERIE_PRESENTE,
+)
+
+# ACIMA DELE A TELA PARA DE AFIRMAR "AGORA" SOBRE O NUMERO — e so isso. O valor
+# CONTINUA na tela; o que sai e a afirmacao de que ele vale neste instante.
+#
+# UMA HORA porque a coleta e de 1 Hz enquanto o `vigiar-mercado.bat` esta aberto:
+# uma serie cuja oferta mais nova tem mais de uma hora significa que ninguem
+# esteve na aba da Adena nesse tempo, e nao que o mercado ficou parado.
+#
+# ESCOLHA, NAO MEDICAO, no molde de `N_MINIMO_PARA_MEDIANA`. Ninguem mediu quanto
+# tempo uma taxa da Adena leva para envelhecer — nao ha serie em campo para
+# medir. Se na pratica a tela calar demais, este numero sobe, e e uma linha.
+LIMIAR_DE_FRESCOR = timedelta(hours=1)
 
 
 @dataclass(frozen=True)
@@ -147,6 +357,25 @@ class LeituraAoVivo:
     cauda_incompleta: bool = False
     arquivo_ausente: bool = False
 
+    # QUANTAS LINHAS DE DADO O TRECHO COMPLETO TINHA — sem o cabecalho, e
+    # contando tambem as que o parser descartou.
+    #
+    # ELA E A PROVA DE QUE A LEITURA ACONTECEU, e e isso que a torna necessaria:
+    # no estado vazio a tela precisa dizer "o arquivo foi lido: N linhas, 0 da
+    # serie Adena". Sem esse numero, "0 da serie Adena" e indistinguivel de "o
+    # dashboard nao conseguiu abrir o arquivo" — que e exatamente o erro que o
+    # estado vazio desenhado existe para nao cometer.
+    #
+    # ELA CONTA REGISTROS, E NAO LINHAS DO ARQUIVO. A frase que ela alimenta poe
+    # duas contagens lado a lado ("N linhas, M da serie"), e as duas tem de ser
+    # da mesma especie: incluir o cabecalho de um lado e contar observacoes do
+    # outro seria comparar coisas diferentes com a mesma palavra.
+    #
+    # E ELA CONTA A LINHA RUIM TAMBEM. A linha esta no arquivo; quem quiser saber
+    # quantas sobreviveram ao parser tem `len(observacoes)` ao lado, e o log
+    # NOMEIA cada uma que caiu.
+    linhas_completas: int = 0
+
 
 def observacoes_ao_vivo(arquivo: Path) -> LeituraAoVivo:
     """As observacoes do CSV ATE A ULTIMA LINHA COMPLETA, com o arquivo em uso.
@@ -225,6 +454,13 @@ def observacoes_ao_vivo(arquivo: Path) -> LeituraAoVivo:
         observacoes=mercado_registro.observacoes_do_arquivo(
             ArquivoRecortado(caminho_real=arquivo, texto=completo)
         ),
+        # As linhas de DADO do trecho completo: tudo menos o cabecalho, e sem
+        # contar as linhas em branco que o parser tambem pula. O `max` protege o
+        # unico caso em que o arquivo tem cabecalho e mais nada — subtrair daria
+        # `-1`, e uma contagem negativa na frase de prova seria pior que nenhuma.
+        linhas_completas=max(
+            0, len([linha for linha in completo.splitlines() if linha.strip()]) - 1
+        ),
         # `bool(cauda)` e nao `bool(cauda.strip())`: qualquer byte depois do
         # ultimo terminador e uma linha que o programa nao consegue afirmar,
         # inclusive um punhado de espacos. O rodape prefere dizer "ignorei uma
@@ -233,66 +469,595 @@ def observacoes_ao_vivo(arquivo: Path) -> LeituraAoVivo:
     )
 
 
-def payload(pasta_do_mercado: Path, agora: datetime) -> dict:
-    """O dicionario que vira o JSON de `GET /dados`. A forma minima do tracer.
+# ===========================================================================
+# A AGREGACAO: UM PONTO E UM INSTANTE, E O BALDE NUNCA INVENTA VALOR
+# ===========================================================================
+
+
+@dataclass(frozen=True)
+class PontoDaSerie:
+    """UM instante de leitura: o menor, a tipica, e a evidencia de cada um.
+
+    A `Evidencia` VIAJA DENTRO DO PONTO, e nao num campo paralelo — o molde e o
+    de `mercado_analise:226-254`, e a razao escrita la vale aqui inteira:
+    estatistica sem `n` e adivinhacao com cara de numero, e um `n` que quem
+    desenha pode esquecer de pedir e um `n` que uma hora nao vai ser exibido.
+
+    SAO DUAS EVIDENCIAS E NAO UMA porque os pisos sao diferentes e o motivo da
+    ausencia tambem: o menor pedido e um FATO OBSERVADO (piso 1 — aquele anuncio
+    existiu), e a mediana e uma INFERENCIA (piso 5 — com menos de cinco, duas
+    leituras aberrantes movem o miolo). Um campo so obrigaria quem desenha a
+    adivinhar de qual dos dois numeros aquele `n` estava falando.
+
+    `frozen` porque ninguem reescreve um ponto depois de calcula-lo: o arquivo e
+    a verdade e este objeto e uma conta sobre ele.
+    """
+
+    instante: datetime
+    menor: Fraction | None
+    menor_evidencia: Evidencia
+    tipica: Fraction | None
+    tipica_evidencia: Evidencia
+    n: int
+
+
+def pontos_por_instante(observacoes: Sequence) -> list[PontoDaSerie]:
+    """UM PONTO = UM INSTANTE DE LEITURA (`primeira_vez`). Literalmente.
+
+    A DECISAO, A RECOMENDACAO CONTRARIA, E QUEM DECIDIU
+    ===================================================
+    Esta funcao aplica `menor_pedido_visivel` e `mediana_dos_unitarios` — as
+    MESMAS contas do console — ao SUBCONJUNTO de um unico instante. Ela nao e a
+    conta que o console faz: o console chama as duas sobre `observacoes_de(chave)`,
+    que e a serie INTEIRA.
+
+    A pesquisa desta fase mediu o custo dessa diferenca sobre o dado real: **92
+    observacoes com apenas 13 valores distintos de `primeira_vez`**, e a maior
+    serie com **15 observacoes em 2 instantes**. Com `N_MINIMO_PARA_MEDIANA`
+    valendo 5, agrupar por instante deixa a linha da mediana **AUSENTE na maior
+    parte do grafico**. A docstring de `mercado_analise` ja avisava por extenso
+    que "nao existe serie temporal de preco neste CSV — existe uma sequencia de
+    anuncios diferentes, e o `n` conta anuncios, nao instantes", e e essa frase
+    que esta agregacao paga.
+
+    A PESQUISA, POR ISSO, RECOMENDOU A OUTRA LEITURA: o acumulado ATE o instante,
+    que bate literalmente com o console ("os numeros batem para o mesmo
+    instante", DASH-03) e quase sempre tem mediana.
+
+    **O USUARIO, CONFRONTADO COM ESSA MEDICAO EXATA EM 2026-09-01, MANTEVE A
+    LEITURA LITERAL (CTX-1) e recusou o acumulado.** A recusa esta registrada no
+    `01-CONTEXT.md` e no bloco `RESOLVIDO` da `Open Question 1` do
+    `01-RESEARCH.md`, que termina com "nao reintroduzir (b)".
+
+    CONSEQUENCIA, E ELA E O CAMINHO NORMAL DESTA TELA
+    =================================================
+    A linha da mediana falta na maior parte do grafico, e onde ela falta o que
+    aparece e a **frase de piso vinda do Python** — nunca um numero. Isso NAO e
+    um defeito do grafico nem um estado de erro: e a ausencia de evidencia sendo
+    dita com palavra em vez de preenchida com zero, que e a disciplina que este
+    projeto inteiro segue. Quem vier depois e achar que "esta faltando dado" tem
+    de ler este paragrafo antes de "consertar".
+
+    A ORDEM DE SAIDA E POR INSTANTE, e nao a do arquivo. O `ModeloDeMercado`
+    preserva de proposito a ordem do CSV — para nao esconder de quem depura o que
+    o arquivo diz — mas um eixo do tempo desordenado desenharia a serie indo e
+    voltando. Ordenar e responsabilidade desta camada.
+    """
+    por_instante: dict[datetime, list] = {}
+    for observacao in observacoes:
+        por_instante.setdefault(observacao.primeira_vez, []).append(observacao)
+
+    pontos: list[PontoDaSerie] = []
+    for instante in sorted(por_instante):
+        do_instante = por_instante[instante]
+        menor = menor_pedido_visivel(do_instante)
+        tipica = mediana_dos_unitarios(do_instante)
+        pontos.append(
+            PontoDaSerie(
+                instante=instante,
+                menor=menor.unitario,
+                menor_evidencia=menor.evidencia,
+                tipica=tipica.unitario,
+                tipica_evidencia=tipica.evidencia,
+                # O `n` do ponto e o das ofertas COMPARAVEIS, e por isso ele sai
+                # da evidencia em vez de `len(do_instante)`: uma linha de
+                # quantidade nao positiva nao entra em conta nenhuma, e conta-la
+                # como evidencia seria inflar a evidencia.
+                n=menor.evidencia.n,
+            )
+        )
+    return pontos
+
+
+# AS TRES LARGURAS DE BALDE, E POR QUE TRES.
+#
+# O usuario disse a pergunta dele em voz alta, e ela tem duas resolucoes:
+# "mostrar em horarios do dia" e "dar zoom-out em dias atras". Uma largura de
+# CINCO MINUTOS serve a primeira (dentro de uma sessao de farm, cada releitura do
+# painel e um ponto), uma de UM DIA serve a segunda, e UMA HORA e a intermediaria
+# sem a qual o salto entre as duas engole a forma da curva de um dia inteiro.
+#
+# ESCOLHA, NAO MEDICAO — no molde de `N_MINIMO_PARA_MEDIANA`. Ninguem mediu qual
+# resolucao o usuario mais usa, porque ainda nao ha uso: a serie da Adena tem
+# zero linhas em campo. Se na pratica uma delas nunca for tocada, ela sai daqui,
+# e e uma linha.
+LARGURAS_DE_BALDE = {
+    "cinco_minutos": timedelta(minutes=5),
+    "uma_hora": timedelta(hours=1),
+    "um_dia": timedelta(days=1),
+}
+
+
+def ancora_da_meia_noite(instante: datetime) -> datetime:
+    """A meia-noite LOCAL do dia deste instante. A origem dos baldes.
+
+    MEDIDO, E E POR ISSO QUE ESTA FUNCAO EXISTE: com a ancora posta num instante
+    arbitrario — a primeira observacao, por exemplo, as `2026-08-31 15:00` — os
+    baldes de `timedelta(days=1)` comecam as **15:00**. Duas leituras do mesmo
+    dia civil, uma as 09:00 e outra as 22:00, caem em baldes DIFERENTES, e "dias
+    atras" deixa de querer dizer o que um humano acha que quer dizer.
+
+    O erro nao aparece como excecao nem como numero absurdo: aparece como uma
+    curva que "parece deslocada", que e a familia de defeito mais cara de achar.
+    Ha teste com CONTROLE prendendo os dois lados — a ancora certa junta o dia, a
+    ancora de 15:00 o parte.
+
+    HORA LOCAL INGENUA, sem fuso, como todo carimbo deste projeto: o CSV grava
+    `agora.isoformat()` sem `tzinfo`, e introduzir fuso aqui criaria duas
+    convencoes de tempo na mesma tela.
+    """
+    return instante.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def baldes(
+    pontos: Sequence[tuple[datetime, Fraction]],
+    largura: timedelta,
+    ancora: datetime,
+) -> list[tuple[datetime, Fraction]]:
+    """Um valor por balde, e o valor do balde EXISTIU na tela (D-02).
+
+    Recebe pares `(instante, valor)` — e nao `PontoDaSerie` — porque um ponto tem
+    DOIS valores (o menor e a tipica) e cada um vira uma linha propria no
+    grafico. Passar o ponto inteiro obrigaria esta funcao a escolher qual das
+    duas linhas ela esta agregando, e essa escolha e de quem monta a serie.
+
+    O INDICE E INTEIRO EXATO: `(t - ancora) // largura` opera sobre os
+    microssegundos inteiros do `timedelta`. `total_seconds()` devolveria `float`
+    — medido, **69713.696** contra **69713** inteiro — e `float` e como um
+    centavo aparece do nada. Um indice de balde nao tem parte fracionaria nenhuma
+    a preservar, entao o `float` aqui so poderia piorar.
+
+    O VALOR DE CADA BALDE E `statistics.median_low`, E A ALTERNATIVA ESTA
+    REFUTADA COM O NUMERO: `statistics.median` sobre quatro `Fraction` devolveu
+    **13/42**, um valor que **nao esta na lista** — a media dos dois do meio,
+    meio centavo inventado, exatamente o que o D-02 recusou quando decidiu nao
+    guardar o unitario arredondado. `median_low` devolve sempre um ELEMENTO da
+    lista, e cada elemento ja e um unitario que esteve na tela; a composicao
+    portanto preserva a disciplina. Ha um `assert in` por balde prendendo isso, e
+    ele e a forma executavel do D-02: `median`, `mean` e `median_high` continuam
+    devolvendo um numero plausivel e do tamanho certo, e so o `assert in` os pega.
+
+    A ORDEM DE SAIDA E CRONOLOGICA porque `dict` preserva ordem de INSERCAO, e a
+    de insercao e a da lista de entrada — que nao e garantidamente ordenada.
+    """
+    por_balde: dict[int, list[Fraction]] = {}
+    for instante, valor in pontos:
+        por_balde.setdefault((instante - ancora) // largura, []).append(valor)
+
+    return sorted(
+        (ancora + indice * largura, statistics.median_low(valores))
+        for indice, valores in por_balde.items()
+    )
+
+
+# ===========================================================================
+# AS DUAS FRASES DE PISO — ESPELHO DAS DUAS LINHAS DO CONSOLE
+# ===========================================================================
+#
+# SAO DUAS, E NAO UMA COM UM SINALIZADOR, pela razao que `formatar_taxa_derivada`
+# ja escreveu neste projeto: "um default e uma chamada que alguem esquece de
+# passar; duas funcoes com nomes diferentes sao duas coisas que ninguem confunde
+# por omissao". O console tem duas redacoes — o menor sem `faltam`, a mediana com
+# — e espelhar UMA das duas em ambos os lugares faria a tela discordar do
+# terminal para um dos dois numeros.
+#
+# ELAS NAO SAO REUSO POR CHAMADA, E O `01-01-SUMMARY` PEDIU QUE ISSO FICASSE DITO:
+# `_linha_do_menor` e `_linha_da_mediana` entregam a frase ja dentro de uma linha
+# formatada para o terminal (recuo de quatro espacos, rotulo colado), e essa
+# metade nao serve ao HTML. O que da para prender e a IGUALDADE POR SUBSTRING, e
+# ha um teste por frase fazendo exatamente isso contra a linha do console — se
+# alguem mexer num dos dois lados, os dois testes caem juntos.
+
+
+def frase_de_piso_do_menor(evidencia: Evidencia) -> str:
+    """O que FALTA para haver menor pedido visivel. Nunca um numero.
+
+    Espelha `mercado_console._linha_do_menor:549-553` — SEM `faltam`, porque o
+    piso do menor e 1 e "faltam 1" nao acrescenta nada a "0 de 1".
+    """
+    return (
+        f"sem evidencia - {evidencia.n} de {evidencia.piso} ofertas distintas"
+    )
+
+
+def frase_de_piso_da_tipica(evidencia: Evidencia) -> str:
+    """O que FALTA para haver mediana. Nunca um numero.
+
+    Espelha `mercado_console._linha_da_mediana:588-593` — COM `faltam`, que e
+    campo derivado da `Evidencia` justamente para quem exibe nao ter de fazer a
+    conta de cabeca.
+    """
+    return (
+        f"sem evidencia - {evidencia.n} de {evidencia.piso} ofertas distintas, "
+        f"faltam {evidencia.faltam}"
+    )
+
+
+# ===========================================================================
+# A SERIE PARA O GRAFICO — GENERICA POR CONSTRUCAO (DASH-05)
+# ===========================================================================
+
+
+def _e_a_taxa(chave_da_serie: str) -> bool:
+    """Esta serie se fala em XM por milhao? A resposta vem do UNICO ponto.
+
+    ELA NAO REPETE O `if` DA SENTINELA. `formatador_do_unitario` ja e o unico
+    ponto de decisao entre a taxa da Adena e o unitario comum, e a docstring dele
+    explica o que quatro `if` espalhados fariam: no dia em que um divergisse, a
+    tela imprimiria `0,00 por unidade` para a Adena com toda a confianca do
+    mundo. Aqui a unidade EXIBIDA e a ESCALA do grafico sao derivadas da
+    identidade da funcao devolvida — se o criterio mudar la, muda aqui junto, sem
+    ninguem precisar lembrar.
+    """
+    return formatador_do_unitario(chave_da_serie) is formatar_taxa_derivada
+
+
+def _escala_do_grafico(chave_da_serie: str) -> int:
+    """O multiplicador que leva o unitario a unidade EXIBIDA daquela serie.
+
+    Sem ele, a taxa da Adena entraria no eixo como `0,00116` — inexibivel e
+    indistinguivel de zero num grafico, que e o mesmo defeito que
+    `formatar_taxa_derivada` existe para nao ter no texto.
+    """
+    return UNIDADE_DA_TAXA if _e_a_taxa(chave_da_serie) else 1
+
+
+def _pixel(chave_da_serie: str, valor: Fraction | None) -> float | None:
+    """A FRONTEIRA DO `float`, e ela existe UMA vez — aqui.
+
+    O `float` NO JSON E O PIXEL; A `string` NO JSON E A VERDADE. JSON nao tem
+    `Fraction`, e o canvas so aceita numero de JS: em algum ponto a fracao exata
+    tem de virar ponto flutuante. Este e o ponto, e ele carrega a string pronta ao
+    lado em todo lugar onde aparece — o texto do tooltip e o da legenda saem da
+    STRING, e nunca de um `toFixed()` no navegador (isso seria o segundo
+    formatador que o DASH-03 proibe).
+
+    O ERRO DESSA CONVERSAO ESTA MEDIDO, e por isso ela e aceitavel: sobre a taxa
+    da Adena em centesimos por milhao, o pior caso medido foi **1,9e-11** — em
+    `Fraction(1, 3) x 10⁶`, que da `333333.3333333333`. Os valores reais do CSV
+    (`11600/10.000.000` e `30000/15.000.000`) converteram com erro **ZERO**. Um
+    erro de 1,9e-11 centesimo nao move um pixel; um erro na string moveria a
+    decisao de compra.
+
+    AUSENCIA VIRA `None`, E NUNCA `0.0`. Zero e um lugar no eixo — uma taxa de
+    zero — e desenhar a ausencia la seria afirmar que a taxa despencou.
+    """
+    if valor is None:
+        return None
+    return float(valor * _escala_do_grafico(chave_da_serie))
+
+
+def serie_para_o_grafico(
+    chave_da_serie: str, observacoes: Sequence, agora: datetime
+) -> dict:
+    """UMA serie, no contrato de props do `01-UI-SPEC.md`. Sem nada de Adena.
+
+    A PALAVRA `adena` NAO APARECE NESTE CORPO, e isso e o DASH-05 sendo
+    estrutural em vez de uma intencao: a chave entra por parametro, o titulo sai
+    de `ModeloDeMercado.nome_exibido_de`, a unidade e a escala saem de
+    `formatador_do_unitario` (o unico ponto de decisao), e o formatador do numero
+    tambem. Instanciar uma segunda serie e chamar esta funcao de novo.
+
+    OS PONTOS SAO POR INSTANTE (CTX-1), E OS BALDES SAO A AGREGACAO DO ZOOM. As
+    tres larguras vem juntas no payload porque o zoom acontece no navegador —
+    filtrar e trocar de resolucao sem uma nova viagem ao servidor e o que o
+    CONTEXT chamou de "o arquivo inteiro e carregado", e com 93 linhas hoje isso
+    custa nada.
+
+    O QUE NAO ESTA AQUI: a cor. Ela e do CHAMADOR — a instancia da Adena usa
+    `--cor-ouro`, e a paleta e do tema e nao do componente. Um campo de cor neste
+    dicionario seria a segunda paleta que o `dashboard.js` ja tem teste para nao
+    ter.
+    """
+    pontos = pontos_por_instante(observacoes)
+    formatador = formatador_do_unitario(chave_da_serie)
+
+    def _texto(valor: Fraction | None, evidencia: Evidencia, do_menor: bool) -> str:
+        if valor is not None:
+            return formatador(valor)
+        return (
+            frase_de_piso_do_menor(evidencia)
+            if do_menor
+            else frase_de_piso_da_tipica(evidencia)
+        )
+
+    def _balde_exibido(pares) -> list[dict]:
+        return [
+            {
+                "instante": inicio.isoformat(),
+                "texto": formatador(valor),
+                "pixel": _pixel(chave_da_serie, valor),
+            }
+            for inicio, valor in pares
+        ]
+
+    # A ancora sai do PRIMEIRO ponto, e nao de `agora`: o eixo pertence ao dado,
+    # e nao ao instante em que alguem abriu a pagina. Com `agora` como ancora, a
+    # mesma serie cairia em baldes diferentes a cada recarregamento.
+    ancora = ancora_da_meia_noite(pontos[0].instante) if pontos else agora
+
+    return {
+        "chave": chave_da_serie,
+        "titulo": ModeloDeMercado.de_observacoes(observacoes).nome_exibido_de(
+            chave_da_serie
+        ),
+        "unidade": (
+            UNIDADE_EXIBIDA_DA_TAXA
+            if _e_a_taxa(chave_da_serie)
+            else UNIDADE_EXIBIDA_DO_UNITARIO
+        ),
+        "rotulo_principal": ROTULO_DO_MENOR,
+        "rotulo_tipico": ROTULO_DA_TIPICA,
+        "pontos": [
+            {
+                "instante": ponto.instante.isoformat(),
+                "menor_texto": _texto(ponto.menor, ponto.menor_evidencia, True),
+                "tipica_texto": _texto(ponto.tipica, ponto.tipica_evidencia, False),
+                "menor_pixel": _pixel(chave_da_serie, ponto.menor),
+                "tipica_pixel": _pixel(chave_da_serie, ponto.tipica),
+                "n": ponto.n,
+            }
+            for ponto in pontos
+        ],
+        "baldes": {
+            nome: {
+                "principal": _balde_exibido(
+                    baldes(
+                        [
+                            (ponto.instante, ponto.menor)
+                            for ponto in pontos
+                            if ponto.menor is not None
+                        ],
+                        largura,
+                        ancora,
+                    )
+                ),
+                "tipica": _balde_exibido(
+                    baldes(
+                        [
+                            (ponto.instante, ponto.tipica)
+                            for ponto in pontos
+                            if ponto.tipica is not None
+                        ],
+                        largura,
+                        ancora,
+                    )
+                ),
+            }
+            for nome, largura in LARGURAS_DE_BALDE.items()
+        },
+    }
+
+
+# ===========================================================================
+# O PAYLOAD — A PRECEDENCIA FECHADA
+# ===========================================================================
+
+
+def _fonte(arquivo: Path, leitura: LeituraAoVivo | None = None) -> dict:
+    """A procedencia do numero, que viaja no payload e nao no folclore."""
+    return {
+        "arquivo": str(arquivo),
+        "cauda_incompleta": leitura.cauda_incompleta if leitura else False,
+        "arquivo_ausente": leitura.arquivo_ausente if leitura else False,
+        "linhas_completas": leitura.linhas_completas if leitura else 0,
+        # Afirmado no payload porque e a promessa central do DASH-01, e o rodape
+        # a exibe. Ha impressao digital e tripwire prendendo que ela e verdade.
+        "somente_leitura": True,
+    }
+
+
+def _falha_fechada(estado: str, arquivo: Path, agora: datetime, avisos: list) -> dict:
+    """Sem destaque, sem grafico, so a mensagem. NUNCA adivinhar coluna.
+
+    Os dois primeiros estados da ordem sao os dois em que nao ha o que afirmar:
+    o arquivo deixou de ser este arquivo, ou nao existe. Devolver um destaque
+    "provisorio" aqui daria ao usuario um numero cuja procedencia o proprio
+    programa acabou de recusar.
+    """
+    return {
+        "estado": estado,
+        "gerado_em": agora.isoformat(),
+        "fonte": _fonte(arquivo),
+        "avisos": avisos,
+        "destaque": None,
+        "series": [],
+    }
+
+
+def _valor_em_reais(taxa: Fraction, cambio) -> str:
+    """A taxa em R$ por milhao de adena, com a marca de informado por voce.
+
+    A CONTA, ESCRITA POR EXTENSO, no molde de `formatar_taxa_derivada`:
+
+        taxa = Fraction(11600, 10_000_000) centesimos de XM POR ADENA
+          -> x 1.000.000 = 1.160 centesimos de XM por milhao
+          -> x R$ 0,50 por XM = 580 CENTAVOS de R$ por milhao
+          -> 580 centavos = R$ 5,80 por milhao
+
+    A MULTIPLICACAO POR `UNIDADE_DA_TAXA` E POR `reais_por_xm` NA MESMA LINHA NAO
+    E ECONOMIA DE CODIGO: centesimos-de-XM vezes reais-por-XM da centavos-de-R$
+    diretamente, porque as duas escalas de centesimo se cancelam. Dividir por 100
+    no meio e multiplicar por 100 no fim introduziria dois arredondamentos onde
+    zero bastam.
+
+    `Fraction(cambio.reais_por_xm)` E EXATO: `Fraction` aceita `Decimal` sem
+    passar por `float`. Converter para `float` aqui reintroduziria erro
+    exatamente onde o portao de duas camadas do `01-03` acabou de garantir um
+    decimal simples — e sobre dinheiro real.
+
+    O ARREDONDAMENTO ACONTECE SO NA ULTIMA LINHA, sobre a fracao exata.
+    """
+    centavos = round(taxa * UNIDADE_DA_TAXA * Fraction(cambio.reais_por_xm))
+    return MOLDE_DO_VALOR_EM_REAIS.format(
+        valor=formatar_centesimos(centavos),
+        quando=cambio.informado_em.strftime("%d/%m %H:%M"),
+    )
+
+
+def payload(pasta_do_mercado: Path, agora: datetime, cambio=None) -> dict:
+    """O dicionario que vira o JSON de `GET /dados`, com a ordem FECHADA.
+
+    A PRECEDENCIA E A DE `ESTADOS`, e o primeiro que casar manda. Varios podem
+    ser verdade ao mesmo tempo — um arquivo de cabecalho trocado tambem nao tem
+    serie da Adena — e ha teste de EMPATE prendendo qual dos dois vence.
 
     O `agora` ENTRA POR PARAMETRO, e nao sai de `datetime.now()` aqui: e o que
     torna a recencia afirmavel por teste sem congelar o relogio do processo. A
     casa ja faz isso em `mercado_console`, que recebe `agora` em toda funcao de
     desenho.
 
-    O TEXTO NUNCA E MONTADO AQUI. Ele sai de `formatador_do_unitario(chave)`,
-    que e o UNICO ponto de decisao entre a taxa da Adena e o unitario comum. Um
-    `f-string` local, ou um `round` a mao, imprimiria `0,00` para a Adena com
-    toda a confianca do mundo — o modo de falha mais convincente que o
+    O `cambio` TAMBEM ENTRA POR PARAMETRO, e nao por import de `dashboard_cambio`.
+    E o que mantem este modulo puro e testavel sem disco: a conta de R$ e uma
+    multiplicacao, e nao precisa que um JSON exista para ser exercitada. O
+    contrato e por FORMA — dois atributos, `reais_por_xm` e `informado_em` — e uma
+    dependencia nos dois sentidos entre dado e persistencia seria um ciclo que
+    nenhum dos dois lados pediu.
+
+    O DESTAQUE E A CONTA DO CONSOLE, E O GRAFICO E A CONTA POR INSTANTE, E ISSO E
+    DE PROPOSITO. O destaque chama `menor_pedido_visivel` sobre a serie INTEIRA,
+    que e literalmente o que `_linha_do_menor` faz — e o DASH-03 exige que os dois
+    numeros batam. O grafico agrupa por instante porque um ponto e um instante
+    (CTX-1). Sao perguntas diferentes: "quanto vale agora" e "como isso variou".
+
+    O TEXTO NUNCA E MONTADO AQUI. Ele sai de `formatador_do_unitario(chave)`, que
+    e o UNICO ponto de decisao entre a taxa da Adena e o unitario comum. Um
+    `f-string` local, ou um `round` a mao, imprimiria `0,00` para a Adena com toda
+    a confianca do mundo — o modo de falha mais convincente que o
     `mercado_console` tem, e ele esta documentado la.
 
-    SEM EVIDENCIA, A RESPOSTA E O QUE FALTA — NUNCA UM NUMERO. E o caso NORMAL
-    desta fase, e nao uma borda: o CSV de campo tem 92 linhas e zero da serie
-    `adena#`. Um `0,00` de espaco reservado seria indistinguivel de uma taxa
-    real de zero.
+    `series` E SEMPRE UMA LISTA, MESMO COM UM ELEMENTO SO, e essa e a forma do
+    DASH-05. Uma segunda serie e um ELEMENTO a mais — nao uma chave nova, nao um
+    campo `adena`, nao um `if`. E ela traz TODAS as series que o arquivo conhece,
+    e nao so a da Adena: quais delas a pagina instancia e decisao da pagina, e
+    filtrar aqui seria justamente o `if` da Adena que o requisito recusa.
     """
     arquivo = pasta_do_mercado / mercado_registro.ARQUIVO_DE_OBSERVACOES
-    leitura = observacoes_ao_vivo(arquivo)
+
+    # (1) ERRO DE CONTRATO — vence tudo. `observacoes_ao_vivo` continua
+    #     desligando alto; quem decide o que MOSTRAR nessa hora e esta camada.
+    try:
+        leitura = observacoes_ao_vivo(arquivo)
+    except mercado_registro.ContratoDoArquivoQuebrado as erro:
+        # A mensagem da excecao viaja junto da frase curta: a curta diz o que
+        # houve, e a longa e a que nomeia o arquivo REAL e diz como consertar.
+        return _falha_fechada(
+            ESTADO_ERRO_DE_CONTRATO,
+            arquivo,
+            agora,
+            [FRASE_DE_CABECALHO_QUEBRADO, str(erro)],
+        )
+
+    # (2) ARQUIVO AUSENTE.
+    if leitura.arquivo_ausente:
+        return _falha_fechada(
+            ESTADO_ARQUIVO_AUSENTE, arquivo, agora, [FRASE_DE_ARQUIVO_AUSENTE]
+        )
 
     modelo = ModeloDeMercado.de_observacoes(leitura.observacoes)
     da_adena = modelo.observacoes_de(CHAVE_DA_SERIE_DA_ADENA)
 
     menor = menor_pedido_visivel(da_adena)
+    tipica = mediana_dos_unitarios(da_adena)
     quando = recencia_do_preco(da_adena)
 
-    if menor.unitario is None:
-        # A frase de piso e a MESMA de `mercado_console._linha_do_menor`, com o
-        # mesmo `n de piso ofertas distintas`. Ela e curta o bastante para nao
-        # justificar mais um import privado, e ha teste prendendo que o texto
-        # nunca contem `0,00`.
-        texto = (
-            f"sem evidencia - {menor.evidencia.n} de "
-            f"{menor.evidencia.piso} ofertas distintas"
-        )
+    # (3) SEM LEITURA DA ADENA / (4) ABAIXO DO PISO / (5) SERIE PRESENTE.
+    if not menor.evidencia.suficiente:
+        estado = ESTADO_SEM_LEITURA
+    elif not tipica.evidencia.suficiente:
+        estado = ESTADO_ABAIXO_DO_PISO
     else:
-        texto = formatador_do_unitario(CHAVE_DA_SERIE_DA_ADENA)(menor.unitario)
+        estado = ESTADO_SERIE_PRESENTE
+
+    # O DADO VELHO E ORTOGONAL: ele NAO toma a precedencia. O numero continua na
+    # tela; o que sai e a afirmacao de "agora".
+    velho = quando is not None and (agora - quando) > LIMIAR_DE_FRESCOR
+    recencia = _recencia_em_duas_formas(quando, agora) if quando is not None else None
+
+    avisos: list[str] = []
+    if leitura.cauda_incompleta:
+        avisos.append(NOTA_DE_LINHA_PARCIAL)
+    if estado == ESTADO_SEM_LEITURA:
+        avisos.append(TITULO_DO_ESTADO_VAZIO)
+        avisos.append(CORPO_DO_ESTADO_VAZIO)
+        avisos.append(
+            MOLDE_DA_PROVA_DA_LEITURA.format(
+                linhas=leitura.linhas_completas, da_serie=menor.evidencia.n
+            )
+        )
+    if velho:
+        avisos.append(MOLDE_DO_DADO_VELHO.format(recencia=recencia))
+    if cambio is None:
+        avisos.append(FRASE_DE_REAIS_INDISPONIVEL)
+    else:
+        avisos.append(AVISO_DO_CAMBIO_HISTORICO)
+
+    # O SUB-OBJETO DE R$ SO EXISTE QUANDO HA CAMBIO INFORMADO. Ele nao fica
+    # cinza, nao fica zerado, nao vem com um valor de exemplo: ele SOME, e a
+    # frase de indisponivel toma o lugar dele nos avisos. Um cambio chutado vira
+    # decisao de dinheiro real errada, e por isso a ausencia se escreve com
+    # palavra e nunca com zero.
+    reais = None
+    if cambio is not None and menor.unitario is not None:
+        reais = {
+            "texto": _valor_em_reais(menor.unitario, cambio),
+            "n": menor.evidencia.n,
+            "recencia": recencia,
+            "velho": velho,
+            # DERIVADO, e dito no dado e no texto. Sem a marca, alguem copia a
+            # linha para o WhatsApp e o numero derivado vira "o que o scanner
+            # leu" — que e falso duas vezes: o scanner nao le R$, e nao leu este.
+            "derivado": True,
+            "informado_em": cambio.informado_em.isoformat(),
+        }
 
     return {
-        # O tracer conhece dois estados, e so. A tabela de PRECEDENCIA entre
-        # vazio, velho, cambio ausente e contrato quebrado e do plano 01-02 —
-        # antecipa-la aqui seria escrever a regra sem o teste que a cobra.
-        "estado": "sem_evidencia" if menor.unitario is None else "ok",
+        "estado": estado,
         "gerado_em": agora.isoformat(),
-        "fonte": {
-            "arquivo": str(arquivo),
-            "cauda_incompleta": leitura.cauda_incompleta,
-            "arquivo_ausente": leitura.arquivo_ausente,
-        },
+        "fonte": _fonte(arquivo, leitura),
+        "avisos": avisos,
         "destaque": {
             "xm": {
-                "texto": texto,
-                "n": menor.evidencia.n,
-                "recencia": (
-                    _recencia_em_duas_formas(quando, agora)
-                    if quando is not None
-                    else None
+                "texto": (
+                    formatador_do_unitario(CHAVE_DA_SERIE_DA_ADENA)(menor.unitario)
+                    if menor.unitario is not None
+                    else frase_de_piso_do_menor(menor.evidencia)
                 ),
-            }
+                # TODO NUMERO VIAJA COM `n` E RECENCIA AO LADO. Estatistica sem
+                # `n` e adivinhacao com cara de numero, e uma recencia que quem
+                # desenha precisa pedir a parte e uma recencia que uma hora nao
+                # vai ser exibida.
+                "n": menor.evidencia.n,
+                "recencia": recencia,
+                "velho": velho,
+                "derivado": True,
+            },
+            "reais": reais,
         },
+        "series": [
+            serie_para_o_grafico(chave, modelo.observacoes_de(chave), agora)
+            for chave in modelo.series()
+        ],
     }
+
+
