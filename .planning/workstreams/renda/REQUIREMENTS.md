@@ -49,6 +49,9 @@
 
 ## Fase 2 — a conta: de duas amostras para uma taxa
 
+> *No `ROADMAP.md` esta seção e a de baixo viraram uma fase só, a **Phase 2**. O motivo
+> está lá, em "Por que três fases".*
+
 - [ ] **REND-01**: **XP por minuto e por hora**, em pontos percentuais do nível atual.
 
 - [ ] **REND-02**: **Adena por minuto e por hora.**
@@ -73,6 +76,8 @@
 
 ## Fase 3 — o registro: o que o dashboard vai consumir
 
+> *O `ROADMAP.md` fundiu esta seção com a de cima: `REND-*` e `REG-*` são a **Phase 2**.*
+
 - [ ] **REG-01**: Cada amostra aceita vira **uma linha num arquivo append-only** em pasta
       própria (`.renda/`), com carimbo de tempo. Append-only pela mesma razão do `.loot/`:
       "quanto eu rendia mês passado" é pergunta sobre meses, não sobre a semana.
@@ -84,7 +89,29 @@
       `.mercado/observacoes.csv` — leitor somente-leitura, tolerante a linha parcial durante a
       escrita. Um segundo formato exigiria um segundo parser no outro workstream.
 
+      **Correção medida pelo roadmap (2026-09-02):** "sem um segundo parser" é bonito e é
+      falso. `dashboard_dados.observacoes_ao_vivo` delega para
+      `mercado_registro.observacoes_do_arquivo`, que é **amarrada a `COLUNAS =
+      (chave_da_serie, nome_exibido, primeira_vez, total_em_centesimos, quantidade,
+      residuo_do_cruzamento)`** — e uma amostra de renda não é uma oferta de mercado. O que se
+      reusa, e é o que importa, é o **dialeto** (`;`, `csv` da stdlib, cabeçalho como contrato
+      que desliga alto, append por linha com flush) e a **disciplina de falha**
+      (`ArquivoRecortado`, recorte na última linha completa durante a escrita, medida em
+      22.970 sondagens sobre 200.000 appends). O `dashboard` acrescenta uma lista de colunas,
+      não um parser. A refutação vai escrita no fonte.
+
+- [ ] **REG-04**: O registro diz **de qual personagem** é a renda. *(Acrescentado pelo roadmap
+      em 2026-09-02 — ver "Premissas assumidas", item 5.)* O usuário roda **duas instâncias**
+      lado a lado (Yazalaque e Faerlina) — é a razão de AGEN-07 existir no `PROJECT.md` — e EXP
+      e adena são **do personagem**. Um `.renda/` sem essa marca soma a adena de um com o EXP
+      do outro e produz uma taxa que não descreve ninguém. Cai exatamente no modo de falha que
+      LEIT-04 existe para impedir: renda misturada entre dois personagens não parece errada em
+      lugar nenhum — ela só parece baixa. É barato: `--janela` já é exigido pelo `--mercado`
+      pelo mesmo motivo, e `cliente.nome_do_personagem` já extrai o nome do título da janela.
+
 ## Fase 4 — a tela: o modo `--renda`
+
+> *No `ROADMAP.md` esta é a **Phase 3**.*
 
 - [ ] **CONS-01**: Um **painel ao vivo** no console mostra nível, EXP%, adena, as taxas por
       minuto e por hora, o tempo até o nível, e há quanto tempo a sessão corre. Mesmo
@@ -122,14 +149,37 @@
 
 ## Rastreabilidade
 
+> **As fases deste documento eram uma sugestão; o `ROADMAP.md` decidiu por três.** `REG-*` foi
+> fundido com `REND-*` porque REND-04 ("uma queda no contador é um gasto, **registrado como
+> tal**") é um requisito sobre o registro que estava morando na fase da conta, e porque REG-02
+> ("a primeira amostra depois de subir é âncora, não delta") é uma regra de taxa vestida de
+> persistência. O argumento inteiro está em `ROADMAP.md`, seção "Por que três fases".
+
 | Requisito | Fase | Status |
 |-----------|------|--------|
-| LEIT-01..06 | 1 | Pendente |
-| REND-01..06 | 2 | Pendente |
-| REG-01..03 | 3 | Pendente |
-| CONS-01..02, CEGO-01..02 | 4 | Pendente |
+| LEIT-01 | Phase 1 | Pendente |
+| LEIT-02 | Phase 1 | Pendente |
+| LEIT-03 | Phase 1 | Pendente |
+| LEIT-04 | Phase 1 | Pendente |
+| LEIT-05 | Phase 1 | Pendente |
+| LEIT-06 | Phase 1 | Pendente |
+| REND-01 | Phase 2 | Pendente |
+| REND-02 | Phase 2 | Pendente |
+| REND-03 | Phase 2 | Pendente |
+| REND-04 | Phase 2 | Pendente |
+| REND-05 | Phase 2 | Pendente |
+| REND-06 | Phase 2 | Pendente |
+| REG-01 | Phase 2 | Pendente |
+| REG-02 | Phase 2 | Pendente |
+| REG-03 | Phase 2 | Pendente |
+| REG-04 | Phase 2 | Pendente |
+| CONS-01 | Phase 3 | Pendente |
+| CONS-02 | Phase 3 | Pendente |
+| CEGO-01 | Phase 3 | Pendente |
+| CEGO-02 | Phase 3 | Pendente |
 
-**Cobertura:** 17 requisitos v1, 17 mapeados, 0 sem fase.
+**Cobertura:** 18 requisitos v1 (17 originais + REG-04), 18 mapeados, 0 sem fase, 0 em duas
+fases.
 
 ## Premissas assumidas (usuário dormindo)
 
@@ -144,6 +194,10 @@ escrito e no spike, e ficam aqui explícitos para revisão de manhã:
 3. **Console primeiro, WhatsApp nunca nesta v1.** Mesma decisão que o `mercado` v1 tomou.
 4. **Sem branch nova.** `git.branching_strategy` é `none` neste projeto e o agente do dashboard
    está em outro lugar; seguir a convenção do projeto é mais seguro que inventar uma.
+5. **REG-04 acrescentado sem perguntar** (roadmap, 2026-09-02). O registro passa a carregar o
+   personagem. Não é ampliação de escopo: é o que impede o arquivo de misturar as duas
+   instâncias que você roda ao mesmo tempo. Se você preferir **um arquivo por personagem** em
+   vez de uma coluna, é troca de formato dentro da Fase 2 e não muda o roadmap.
 
 ---
 *Requisitos definidos: 2026-09-02*
