@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 38
+open_count: 39
 waived_count: 1
 fixed_count: 10
-total_count: 49
-last_updated: 2026-09-02T03:44:52.498Z
+total_count: 50
+last_updated: 2026-09-02T16:53:27.025Z
 ---
 
 # Broken Windows Ledger
@@ -64,6 +64,7 @@ last_updated: 2026-09-02T03:44:52.498Z
 | 47 | 01 | deviation | l2scanner/recursos/dashboard/dashboard.js |  | Os vaos de unidade (xm-unidade e reais-unidade) da marcacao ficam VAZIOS: o payload dobra a unidade dentro de destaque.xm.texto, e parti-la no navegador seria o segundo formatador que o DASH-03 proibe. O conserto certo e o payload entregar numero e unidade separados. | open |  | 2026-09-02T03:44:36.968Z |  |
 | 48 | 01 | unrun-verify | l2scanner/recursos/dashboard/dashboard.js |  | O roteiro humano da Tarefa 3 do plano 01-07 (roda do mouse aproxima em torno do cursor, arrasto desloca, botao restaura o periodo, cambio salva sem recarregar, texto recusado preserva o cambio antigo, dado velho esfria) nao pode rodar nesta arvore: nao ha navegador. | open |  | 2026-09-02T03:44:41.028Z |  |
 | 49 | 01 | deviation | l2scanner/recursos/dashboard/dashboard.js |  | A dica sob o cursor traz instante e as duas strings de valor; o n de cada instante viaja junto do instante na resolucao crua e NAO existe nas resolucoes de balde (somar contagens de instantes distintos nao qualificaria o valor exibido). O UI-SPEC pede n na dica em toda resolucao. | open |  | 2026-09-02T03:44:52.498Z |  |
+| 50 | quick-260902-i4o | deviation | tests/test_manutencao.py |  | Residuo aceito e medido: o replay de campo produz 6 avisos do segundo tipo (era 3 em campo com o limiar de 5 minutos); a janela dobrou e mais deslizes da ancora caem dentro dela | open |  | 2026-09-02T16:53:27.025Z |  |
 
 ````json
 [
@@ -653,6 +654,18 @@ last_updated: 2026-09-02T03:44:52.498Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-02T03:44:52.498Z",
+    "resolved_at": null
+  },
+  {
+    "id": 50,
+    "kind": "deviation",
+    "phase": "quick-260902-i4o",
+    "file": "tests/test_manutencao.py",
+    "line": null,
+    "description": "Residuo aceito e medido: o replay de campo produz 6 avisos do segundo tipo (era 3 em campo com o limiar de 5 minutos); a janela dobrou e mais deslizes da ancora caem dentro dela",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-02T16:53:27.025Z",
     "resolved_at": null
   }
 ]
