@@ -104,7 +104,7 @@ Duas razões, e a segunda é a que decide.
 - **`n` e recência acompanham todo número**, como já é regra no console. Um valor de R$ com
   `n=1` de duas horas atrás e um com `n=30` de agora **não podem sair iguais na tela**.
 
-**Plans:** 8 plans, em 4 ondas de execucao
+**Plans:** 8 plans, em 5 ondas de execucao
 
 Plans:
 - [ ] 01-01-PLAN.md — O corte da RAIZ e o tracer de ponta a ponta: do byte do CSV ao numero na tela (onda 1)
@@ -114,7 +114,7 @@ Plans:
 - [ ] 01-05-PLAN.md — O servidor completo: bind exclusivo, listagem desligada, portao de origem no POST, cache e as provas sem navegador (onda 3)
 - [ ] 01-06-PLAN.md — A pagina: as tres regioes e o tema de Lineage 2, com contraste recalculado por teste (onda 3)
 - [ ] 01-07-PLAN.md — O dashboard.js: polling, estados, o componente de serie generico e o zoom escrito por nos (onda 4)
-- [ ] 01-08-PLAN.md — O lancador dashboard.bat e a prova sem navegador da generalidade da serie (onda 4)
+- [ ] 01-08-PLAN.md — O lancador dashboard.bat e a prova sem navegador da generalidade da serie (onda 5)
 
 **Nota do planejamento (2026-09-01):** a rota (a) recomendada pela pesquisa para a leitura ao
 vivo tocaria `mercado_registro.py`, o que CTX-2 nao autoriza — ela foi trocada por um adaptador

@@ -902,9 +902,16 @@ cada ponto carrega os dois, e o texto do *tooltip* e da legenda vem da string do
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-### 1. "Um ponto do grafico e um instante de leitura" nao e a mesma conta que o console faz
+> **AS TRES FORAM RESOLVIDAS EM 2026-09-01, DEPOIS DE ESTA PESQUISA SER ESCRITA.** Este bloco
+> ficou no lugar porque a medicao que sustenta cada pergunta continua valendo e continua util —
+> mas **as recomendacoes abaixo NAO sao mais o caminho a seguir**, e duas delas foram
+> explicitamente RECUSADAS. Cada pergunta traz agora o desfecho no proprio titulo e um bloco
+> `RESOLVIDO` no fim. Quem chegar aqui pelo `<read_first>` de um plano: leia a medicao, e ignore
+> a recomendacao. O que vale e o `01-CONTEXT.md` e os planos `01-01`/`01-02`.
+
+### 1. "Um ponto do grafico e um instante de leitura" nao e a mesma conta que o console faz — RESOLVIDO: CTX-1 (a recomendacao abaixo foi RECUSADA)
 
 **O que sabemos, medido.** O CONTEXT trava: *"Um ponto do grafico e um instante de leitura
 (`primeira_vez`), com o menor pedido visivel e a mediana daquele instante — exatamente a conta que o
@@ -940,7 +947,15 @@ dado que o CSV tem. E ele preserva o D-02: cada ponto e um `median_low` sobre un
 O custo e O(n²) ingenuo, mas com 13 instantes e irrelevante — e um acumulador incremental resolve.
 **Isto precisa de confirmacao do usuario**, porque contradiz a leitura literal do CONTEXT.
 
-### 2. O corte de `RAIZ` toca `mercado_catalogo.py`, e DASH-06 diz "byte-identico"
+> **RESOLVIDO: CTX-1 — a recomendacao (b) foi RECUSADA pelo usuario em 2026-09-01.** Ele foi
+> confrontado com esta medicao exata (92 observacoes, 13 instantes distintos, a maior serie com
+> 2 instantes, `N_MINIMO_PARA_MEDIANA = 5`) e **manteve a leitura literal (a)**: um ponto do
+> grafico e UM INSTANTE DE LEITURA. A consequencia foi aceita de olhos abertos e e o caso
+> NORMAL da tela — a linha da mediana fica ausente na maior parte do grafico, e onde ela falta
+> aparece a frase de piso vinda do Python, nunca um numero. Implementado em `01-02` Tarefa 2,
+> com esta refutacao escrita na docstring de `pontos_por_instante`. **Nao reintroduzir (b).**
+
+### 2. O corte de `RAIZ` toca `mercado_catalogo.py`, e DASH-06 diz "byte-identico" — RESOLVIDO: CTX-2 (saida A, o corte foi AUTORIZADO)
 
 **O que sabemos.** DASH-06 e o criterio 9 do ROADMAP exigem: *"o caminho do `--mercado` fica
 **byte-identico** — nenhuma linha do modo mercado muda por causa desta fase"*. O corte de `RAIZ`
@@ -956,6 +971,13 @@ caminho**?
 
 **Recomendacao:** apresentar ao usuario como decisao explicita, com as tres saidas medidas:
 
+> **RESOLVIDO: CTX-2 — o usuario escolheu a saida (A), fazer o corte, em 2026-09-01.** Nasce
+> `l2scanner/raiz.py` (folha) e `mercado_catalogo.py` passa a importar dali; DASH-06 foi
+> reescrito de "byte-identico" para "comportamento identico". **`mercado_catalogo.py` e o UNICO
+> arquivo do workstream `mercado` que esta fase pode tocar** — o que, no planejamento, tambem
+> eliminou a rota (a) da §2 (ela tocaria `mercado_registro.py`) e a rota (iii) da §1 (ela
+> tocaria `console.py`). Implementado em `01-01` Tarefas 2 e 3.
+
 | Saida | Custo | O que quebra |
 |---|---|---|
 | **(A) Fazer o corte** | 2 linhas + consertar o tripwire (Pitfall 1) | A letra do DASH-06. Ganha: 280→52 modulos, 44,3→17,3 MB, sem `cv2` no processo do dashboard |
@@ -967,7 +989,7 @@ camera DXGI, nenhum `mss.grab` acontece por import — medido, `mss` e `windows_
 aparecem em `sys.modules` em nenhuma das medicoes. A objecao a (B) e de doutrina e de peso, nao de
 seguranca.
 
-### 3. Onde fica o corte da agregacao: servidor ou navegador?
+### 3. Onde fica o corte da agregacao: servidor ou navegador? — RESOLVIDO pelo planejamento (a recomendacao abaixo foi ADOTADA)
 
 **O que sabemos.** O CONTEXT trava duas coisas que puxam para lados diferentes: *"o arquivo inteiro
 e carregado; filtrar o zoom no navegador e mais simples e mais correto que paginar no servidor"* e
@@ -983,6 +1005,14 @@ exemplo 5 min / 1 h / 1 dia), mais a serie crua. `median_low` de uma lista de `F
 Python; o JS escolhe qual conjunto desenhar conforme o alcance. Isso respeita "filtrar no navegador"
 (o filtro e a janela, e ela continua no JS) sem exportar a **conta** para o float. Com 13 instantes
 o JSON inteiro cabe em poucos KB.
+
+> **RESOLVIDO — recomendacao ADOTADA no planejamento de 2026-09-01.** O servidor manda os baldes
+> prontos por nivel de zoom mais a serie crua (`01-02` Tarefa 2, `LARGURAS_DE_BALDE`), e o
+> navegador so escolhe qual conjunto desenhar conforme o alcance visivel (`01-07` Tarefa 2). A
+> conta fica no Python, em `Fraction`; a janela continua sendo decisao do navegador.
+>
+> *(Nao confundir com CTX-3, que e outra decisao do mesmo dia: a biblioteca de grafico e uPlot,
+> com o zoom por roda escrito por nos pela API de hooks.)*
 
 ---
 
