@@ -803,6 +803,117 @@ class TestOsDoisLeitoresDeOCRCruzamAsEscalas:
     def test_DUAS_VALIDAS_E_DIFERENTES_RECUSAM_COM_AS_CRUAS_NO_DETALHE(self):
         lido = rl._cruzar_as_escalas(rl.CAMPO_DO_NIVEL, [("67", 67), ("57", 57)])
         assert lido.motivo == rl.MOTIVO_DA_DISCORDANCIA
+        assert ">>>67<<<" in lido.detalhe and ">>>57<<<" in lido.detalhe
+
+
+@precisa_de_ocr
+class TestOComandoImprimeOsTresCampos:
+    """O criterio 1 num olhar, e verificavel SEM o jogo aberto."""
+
+    @staticmethod
+    def _rodar(imagem, personagem="Faerlina"):
+        return renda_modo.main(
+            [
+                "--imagem",
+                str(imagem),
+                "--personagem",
+                personagem,
+                "--calibracao",
+                str(CALIBRACAO_DE_FIXTURE),
+            ]
+        )
+
+    def test_A_MONTAGEM_COMPLETA_IMPRIME_OS_TRES_E_SAI_EM_ZERO(self, capsys):
+        """O DESFECHO (a): "criterio 1 fechado", com a adena como NUMERO."""
+        codigo = self._rodar(MONTAGEM_COMPLETA)
+        saida = capsys.readouterr().out
+        assert codigo == renda_modo.SAIDA_OK, saida
+        assert "67" in saida
+        assert "8,0012%" in saida
+        assert "13.160.684" in saida, (
+            "a adena nao saiu na grafia de milhar do jogo. O criterio 1 e uma "
+            "comparacao entre o terminal e o monitor, e uma comparacao so "
+            f"funciona se as duas grafias forem a mesma:\n{saida}"
+        )
+
+    def test_AS_TRES_LINHAS_SAEM_NA_ORDEM_DA_TELA(self, capsys):
+        self._rodar(MONTAGEM_COMPLETA)
+        saida = capsys.readouterr().out
+        posicoes = [saida.find("67"), saida.find("8,0012%"), saida.find("13.160.684")]
+        assert all(p >= 0 for p in posicoes), saida
+        assert posicoes == sorted(posicoes), saida
+
+    def test_A_MONTAGEM_COM_O_NIVEL_PRETO_SAI_COM_O_CODIGO_DE_RECUSA(self, capsys):
+        codigo = self._rodar(MONTAGEM_COM_O_NIVEL_PRETO)
+        capturado = capsys.readouterr()
+        saida = capturado.out + capturado.err
+        assert codigo == renda_modo.SAIDA_RECUSA, saida
+        assert codigo not in (renda_modo.SAIDA_OK, renda_modo.SAIDA_OPERACIONAL)
+        assert rl.MOTIVO_DO_CAMPO_VAZIO in saida
+        assert "8,0012%" in saida, (
+            "o EXP sumiu porque o nivel recusou. O criterio 1 pede os TRES na "
+            f"tela, inclusive quando um recusou:\n{saida}"
+        )
+        assert "13.160.684" in saida
+
+    def test_UM_CAMPO_DE_UMA_ESCALA_SO_SAI_MARCADO_COM_LEGENDA(self, capsys):
+        """O nivel da Faerlina e o caso de campo: 3x le, 2x abstem (M-D)."""
+        self._rodar(MONTAGEM_COMPLETA)
+        saida = capsys.readouterr().out
+        linha_do_nivel = [
+            linha for linha in saida.splitlines() if "67" in linha and "*" in linha
+        ]
+        assert linha_do_nivel, (
+            "o nivel saiu sem marca. Naquele campo o cruzamento NAO esta "
+            "pegando substituicao de digito, e o unico verificador que resta e "
+            f"o olho de quem compara o terminal com o monitor:\n{saida}"
+        )
+        assert "escala" in saida.lower()
+
+    def test_UM_CAMINHO_DE_CALIBRACAO_INEXISTENTE_SAI_EM_UM_SEM_TRACEBACK(
+        self, capsys, tmp_path
+    ):
+        """Quebrou e recusou sao desfechos diferentes."""
+        codigo = renda_modo.main(
+            [
+                "--imagem",
+                str(MONTAGEM_COMPLETA),
+                "--personagem",
+                "Faerlina",
+                "--calibracao",
+                str(tmp_path / "nao-existe.json"),
+            ]
+        )
+        erro = capsys.readouterr().err
+        assert codigo == renda_modo.SAIDA_OPERACIONAL
+        assert "Traceback" not in erro
+
+    def test_O_CABECALHO_TRAZ_O_PERSONAGEM_E_A_FONTE_DE_PIXEL(self, capsys):
+        """Com duas instancias abertas, uma leitura anonima nao descreve ninguem."""
+        self._rodar(MONTAGEM_COMPLETA)
+        saida = capsys.readouterr().out
+        assert "Faerlina" in saida
+        assert MONTAGEM_COMPLETA.name in saida
+
+
+class TestQueOComandoNaoTemUmaSegundaEscala:
+    """A grafia e FORMATACAO, e nao uma segunda escala escrita a mao."""
+
+    def test_NENHUM_NUMERO_DA_ESCALA_DO_EXP_ENTROU_COMO_LITERAL(self):
+        fonte = Path(__file__).parent.parent / "l2scanner" / "renda_modo.py"
+        arvore = ast.parse(fonte.read_text(encoding="utf-8"))
+        proibidos = {685_632, 1368, 1230}
+        achados = [
+            (no.lineno, no.value)
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.Constant)
+            and not isinstance(no.value, bool)
+            and isinstance(no.value, int)
+            and no.value in proibidos
+        ]
+        assert not achados, achados
+
+
 class TestAsDuasMontagensNaoSaoRascunhoUmaDaOutra:
     """Cada uma prova um desfecho do comando, e as duas ficam versionadas."""
 
