@@ -1,0 +1,10 @@
+Protecting Scroll: Enchant C-grade Armor;8;2000;250
+Protecting Scroll: Enchant C-grade Weapon;4;1199;299
+Protecting Scroll: Enchant C-grade Weapon;6;1800;300
+Protecting Scroll: Enchant C-grade Armor;3;1000;333
+Protecting Scroll: Enchant C-grade Weapon;4;1360;340
+Protecting Scroll: Enchant C-grade Armor;3;1050;350
+Protecting Scroll: Enchant C-grade Weapon;6;2200;366
+Improved Scroll: Enchant C-grade Armor;8;3100;387
+Improved Scroll: Enchant C-grade Armor;9;3500;388
+Improved Scroll: Enchant C-grade Armor;5;1980;396
