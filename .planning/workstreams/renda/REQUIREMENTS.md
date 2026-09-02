@@ -89,11 +89,22 @@
          (130–170) e a gramática dele (`\d+[.,]\d{4}%`) não colide com vizinho nenhum.
 
       2. **Os moldes do mercado não transferem, e a diferença é geométrica.** A fonte da barra tem
-         glifo de **17 px** de altura, invariável nas duas instâncias e em todo piso varrido; os
-         13 moldes de `mercado_templates_de_digito` têm **altura 9** (M-I). Casar um dígito de 17
-         px contra um molde de 9 põe a decisão nas mãos da área vazia do alinhamento, que é o
+         glifo de **5 px de largura por 10 de altura**, e a vírgula tem 2 de largura — invariável
+         nas duas instâncias e em todo piso varrido (**M-K**); os 13 moldes de
+         `mercado_templates_de_digito` são **4x9** (M-I). **O "17 px" que esta cláusula afirmava
+         está REFUTADO, e fica escrito onde estava:** o M-I mediu a faixa sobre um recorte da adena
+         que continha os **ícones de moeda das duas pontas**, e `segmentar_glifos` devolve UMA
+         faixa para o retângulo inteiro — o ícone, mais alto que o dígito, empurrou o topo e a
+         base. A medição limpa, sobre a L-Coin **sem ícone**, deu **altura 10** nas duas
+         instâncias. O veredicto do M-I sobrevive inteiro — os moldes do mercado continuam sem
+         transferir —, mas a distância é de **um pixel em cada eixo**, e não de 9 contra 17. E a
+         correção é operacional e não editorial: **uma guarda de altura escrita contra 17 recusaria
+         todo molde legítimo desta barra**, e o modo de falha seria um cortador que nunca corta
+         nada. Casar um dígito de 5x10 contra um molde de 4x9 põe a decisão nas mãos da área vazia
+         do alinhamento, que é o
          mesmo argumento com que o próprio repositório proíbe misturar dígitos com palavras na
-         mesma matriz. **Construir o conjunto da barra é trabalho novo, e é do calibrador** — no
+         mesma matriz. **Construir o conjunto da barra é trabalho novo, e é do cortador de moldes
+         do `01-05`** — no
          caminho de `calibrar_mercado.propor_rotulo`: a máquina propõe, o humano confirma. O
          caminho existe porque a segmentação por glifo funciona: em `vmin` 180–190, justamente
          onde o OCR devolve vazio, `segmentar_glifos_no_brilho` devolve
@@ -101,8 +112,17 @@
          dígitos de largura 5, vírgulas de largura 2, ícone —, batendo com a verdade de campo nas
          duas, e numa banda **larga** em vez da banda de largura 1 do OCR (M-J).
 
-      3. **Conjunto incompleto recusa, e diz o que falta.** As duas fixturas dão os dígitos
-         **0, 1, 2, 3, 4, 6, 8 e 9**; faltam **5 e 7**, que só aparecem com o tempo. O calibrador
+      3. **Conjunto incompleto recusa, e diz o que falta.** A região da adena das duas fixturas dá
+         os dígitos **0, 1, 2, 3, 4, 6, 8 e 9**. **O "faltam 5 e 7, que só aparecem com o tempo"
+         está REFUTADO pelo M-L, e a refutação fica aqui:** os dois estão na tela **agora**, em
+         outros campos da **mesma barra** — o `5` no bônus da Faerlina (`592%`), o `7` no EXP da
+         Yazalaque (`76.6646%`) e na L-Coin dela (`9.790`) —, e a largura 5 foi confirmada por
+         segmentação no bônus, no EXP, na L-Coin e na adena das duas instâncias: **é uma fonte só
+         na barra inteira**. O conjunto 0–9 **fecha com as duas fixturas que já existem**, desde
+         que a colheita varra **qualquer campo da barra** e não apenas a região da adena. O
+         bloqueio era artefato de restringir a colheita a uma região, e o conserto que a recusa
+         anuncia deixou de ser *farmar até o dígito aparecer* e passou a ser *rodar o cortador
+         apontando outro campo*. O calibrador
          tem de trabalhar com o conjunto pela metade e **nomear os que faltam** em vez de travar —
          mas a leitura com conjunto incompleto é proibida, e a proibição é medida e não zelosa:
          `conjunto_descreve_numeros` exige `0123456789,` inteiro porque um conjunto pela metade
@@ -254,9 +274,9 @@
 **Cobertura:** 21 requisitos v1 (17 originais + REG-04 + LEIT-07 + LEIT-08 + LEIT-09), 21
 mapeados, 0 sem fase, 0 em duas fases.
 
-**Dono de cada requisito da Fase 1, depois da SEGUNDA revisão de 2026-09-02 contra
-`01-MEDICOES-DE-CAMPO.md` (inclusive o "Adendo", achados M-G a M-J)** — nenhum requisito fica sem
-plano:
+**Dono de cada requisito da Fase 1, depois da revisão de 2026-09-02 contra
+`01-MEDICOES-DE-CAMPO.md` — o "Adendo" (achados M-G a M-J) e a "Correção ao adendo" (M-K e M-L),
+que mandam sobre o Adendo onde os dois se cruzam** — nenhum requisito fica sem plano:
 
 | Requisito | Plano(s) que o fecham |
 |---|---|
@@ -268,7 +288,25 @@ plano:
 | LEIT-06 — o calibrador | `01-03` |
 | LEIT-07 — calibração por personagem | `01-01` (o esquema e a proibição de queda), `01-03` (o calibrador por personagem), `01-04` (a leitura por personagem) |
 | LEIT-08 — um piso por região, e a adena exige máscara | `01-01` (o esquema com três pisos), `01-03` (a banda por região e a largura como aviso), `01-04` (a máscara obrigatória na adena) |
-| LEIT-09 — a adena por glifo, os moldes da barra, e o conjunto incompleto que recusa | `01-01` (o esquema: `renda_moldes_da_barra` no topo e o piso de glifo na entrada do personagem), `01-03` (o calibrador que **corta** os moldes de 17 px e nomeia os que faltam, e a varredura da adena que passou a ser por glifo), `01-04` (o leitor por glifo, o descarte dos ícones por largura, e a recusa nomeada por conjunto incompleto) |
+| LEIT-09 — a adena por glifo, os moldes da barra, e o conjunto incompleto que recusa | `01-01` (o esquema: `renda_moldes_da_barra` no topo, e o piso **e o retângulo** de glifo na entrada do personagem), `01-03` (a varredura da adena, que passou a classificar pela **forma** das corridas), **`01-05`** (o cortador que **corta** os moldes de **5 px de largura por 10 de altura** e nomeia os que faltam, mais a peneira de forma no módulo puro), `01-04` (o leitor por glifo, o descarte dos ícones por largura, e a recusa nomeada por conjunto incompleto) |
+
+**Duas correções nesta linha do LEIT-09, e ficam escritas em vez de trocadas em silêncio:**
+
+1. **O dono do corte dos moldes é o `01-05`, e não o `01-03`.** Aquela era a Tarefa 4 do `01-03`;
+   o plano tinha quatro tarefas e 148k de estimativa, violando a regra de 2-3 tarefas por plano, e
+   o corte virou plano próprio na **mesma onda 2**, com a **mesma dependência** (`01-01`) e **zero
+   arquivo em comum**. O que sobrou no `01-03` é a consequência para a varredura — a `barra_direita`
+   classifica pela forma das corridas —, e não a tipografia.
+2. **Os moldes são de 5x10, e nunca de 17 px de altura.** O "17" veio do M-I, que mediu a faixa
+   sobre um recorte da adena **contendo os ícones de moeda das duas pontas** — e
+   `segmentar_glifos` devolve UMA faixa para o retângulo inteiro, então o ícone, mais alto,
+   empurrou o topo e a base. A medição limpa é o **M-K**: sobre a L-Coin sem ícone
+   (`1440,1355 90x40`), `faixa = (17, 26)`, **altura 10**, larguras `[5, 5, 2, 5, 5, 5]` → `13.091`,
+   e o mesmo nas duas instâncias. **O veredicto do M-I sobrevive** — os 13 moldes de
+   `mercado_templates_de_digito` são 4x9 e continuam sem transferir —, mas a distância é de **um
+   pixel em cada eixo**. Isto não é correção editorial: uma **guarda de altura escrita contra 17
+   recusaria todo molde legítimo desta barra**, e o modo de falha seria um cortador que nunca corta
+   nada. Quem escrever a guarda compara contra **10**.
 
 ## Premissas assumidas (usuário dormindo)
 
