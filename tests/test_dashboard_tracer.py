@@ -92,6 +92,18 @@ def _escrever(arquivo: Path, texto: str) -> None:
     arquivo.write_text(texto, encoding="utf-8", newline="")
 
 
+def _ler(arquivo: Path) -> str:
+    """O texto CRU, sem traducao de quebra de linha.
+
+    `Path.read_text(newline="")` so existe a partir do 3.13, e esta arvore roda
+    3.12 — dai o `open` explicito. Sem o `newline=""` o Python traduziria os
+    `\\r\\n` da fixture para `\\n` na leitura, e os testes de corte estariam
+    medindo o texto traduzido em vez do que esta no disco.
+    """
+    with arquivo.open("r", encoding="utf-8", newline="") as fonte:
+        return fonte.read()
+
+
 def _impressao_do_arquivo(caminho: Path) -> tuple[int, int, str]:
     """(tamanho, mtime_ns, sha256) — a impressao digital de UM arquivo.
 
@@ -217,7 +229,7 @@ class TestALeituraAoVivo:
         medida e escrita na docstring de `observacoes_ao_vivo`.
         """
         antes = dashboard_dados.observacoes_ao_vivo(arquivo)
-        bruto = arquivo.read_text(encoding="utf-8", newline="")
+        bruto = _ler(arquivo)
 
         fim_da_penultima = bruto.rfind(TERMINADOR, 0, len(bruto) - len(TERMINADOR))
         fim_da_penultima += len(TERMINADOR)
@@ -240,7 +252,7 @@ class TestALeituraAoVivo:
         verdade, porque a instrucao dela ("restaure a primeira linha") so serve
         se o usuario souber QUAL arquivo abrir.
         """
-        bruto = arquivo.read_text(encoding="utf-8", newline="")
+        bruto = _ler(arquivo)
         linhas = bruto.split(TERMINADOR)
         linhas[0] = SEPARADOR.join(("chave", "nome", "quando", "total", "qtd", "res"))
         _escrever(arquivo, TERMINADOR.join(linhas))

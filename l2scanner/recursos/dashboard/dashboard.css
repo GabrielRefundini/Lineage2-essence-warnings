@@ -1,0 +1,164 @@
+/*
+  O TEMA DO DASHBOARD — painel de Lineage 2, e não dashboard de analytics.
+
+  ESTE BLOCO DE TOKENS É A ÚNICA DECLARAÇÃO DE COR DO PROJETO. Fora dele não
+  existe literal hexadecimal — nem no resto deste arquivo, nem no
+  `dashboard.js`, nem na configuração do gráfico que vem nos planos seguintes.
+  Há teste prendendo o lado do JS (`test_o_js_nao_carrega_paleta_PROPRIA`), com
+  controle negativo sobre ESTE arquivo para provar que a busca funciona.
+
+  A regra não é estética. O `dashboard.js` é obrigado a pedir cor por
+  `getComputedStyle(...).getPropertyValue('--cor-x')`, e uma cor sem nome de
+  token é uma cor que o gráfico não consegue pedir. Foi por isso que a linha da
+  mediana ganhou `--cor-serie-tipica` em vez de continuar sendo um hexadecimal
+  solto: o que não tem nome não atravessa.
+
+  Os tokens nascem INTEIROS aqui, incluindo os que só os planos 01-05 a 01-07
+  vão usar, exatamente para que nenhum plano seguinte precise introduzir um
+  hexadecimal novo. O tema completo (tipografia do gráfico, estados, foco) é do
+  plano 01-05; o que está abaixo é o mínimo do tracer mais a paleta fechada.
+
+  CONTRASTE MEDIDO, e é isto que "o tema nunca custa legibilidade" significa em
+  número: texto sobre fundo 14,34:1 · texto sobre painel 13,16:1 · série típica
+  9,46:1 · ouro sobre painel 8,89:1 · frio 7,80:1 · texto fraco 6,12:1 · alerta
+  5,25:1. Nada na tela fica abaixo de 4,5:1. Trocar um valor obriga a
+  RECALCULAR a razão, não a estimá-la no olho.
+*/
+
+:root {
+  --cor-fundo:         #14110D;  /* 60% */
+  --cor-painel:        #1F1A14;  /* 30% */
+  --cor-relevo-topo:   #241E17;  /* topo do gradiente da placa */
+  --cor-relevo-base:   #171310;  /* base do gradiente da placa */
+  --cor-relevo-baixo:  #0B0906;  /* sombra do chanfro */
+  --cor-relevo-alto:   #3A3026;  /* borda do chanfro */
+  --cor-relevo-luz:    #5A4A35;  /* fio de luz superior do chanfro */
+  --cor-ouro:          #E0B450;  /* 10% — acento */
+  --cor-serie-tipica:  #C9BFA8;  /* a linha da mediana e o rótulo dela na legenda */
+  --cor-texto:         #E8E0D0;  /* pergaminho: corpo e o número em R$ */
+  --cor-texto-fraco:   #A79880;  /* n, recência, procedência do rodapé */
+  --cor-alerta:        #E06A5C;  /* ausência / erro */
+  --cor-frio:          #9FB0C4;  /* dado velho: recência estourada */
+  --cor-grade:         #2A231A;  /* linhas de grade do gráfico */
+
+  /* Escala de 4 pontos. Nenhum valor de espaçamento fora dela. */
+  --sp-xs:  4px;
+  --sp-sm:  8px;
+  --sp-md:  16px;
+  --sp-lg:  24px;
+  --sp-xl:  32px;
+  --sp-2xl: 48px;
+  --sp-3xl: 64px;
+
+  /*
+    Três famílias, todas do sistema — zero download, zero rede. O efeito de
+    placa entalhada do L2 não vem de uma fonte baixada: vem de serifa +
+    maiúsculas + `letter-spacing`, reprodutível em qualquer Windows 11.
+  */
+  --font-display: "Trajan Pro", "Cinzel", "Palatino Linotype", "Book Antiqua",
+                  Georgia, "Times New Roman", serif;
+  --font-ui:      "Segoe UI", system-ui, -apple-system, "Noto Sans", sans-serif;
+  --font-num:     Consolas, "Cascadia Mono", "SF Mono", "DejaVu Sans Mono", monospace;
+}
+
+body {
+  margin: 0;
+  padding: var(--sp-2xl) var(--sp-md);
+  background: var(--cor-fundo);
+  color: var(--cor-texto);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.pagina {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-xl);
+}
+
+/*
+  A RECEITA DO RELEVO — CSS puro, sem uma única imagem. Nenhuma textura, nenhum
+  print do jogo, nenhum asset que não exista no repositório.
+*/
+.painel {
+  background: linear-gradient(180deg,
+              var(--cor-relevo-topo) 0%,
+              var(--cor-painel) 42%,
+              var(--cor-relevo-base) 100%);
+  border: 1px solid var(--cor-relevo-alto);
+  border-radius: 2px;                        /* L2 é anguloso, não arredondado */
+  box-shadow:
+    inset 0 1px 0 var(--cor-relevo-luz),     /* fio de luz no topo */
+    inset 0 -1px 0 var(--cor-relevo-baixo),  /* sombra na base */
+    0 2px 8px rgba(0, 0, 0, .55);            /* a placa flutua sobre o fundo */
+  padding: var(--sp-md);
+}
+
+.painel__titulo {
+  margin: 0 0 var(--sp-md);
+  padding-bottom: var(--sp-sm);
+  border-bottom: 1px solid var(--cor-ouro);
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cor-ouro);
+  /* O filete dourado do título é entalhe, não texto: a opacidade baixa o tira
+     da disputa de contraste com o número que vem logo abaixo. */
+  border-bottom-color: color-mix(in srgb, var(--cor-ouro) 45%, transparent);
+}
+
+.painel__vazio {
+  margin: 0;
+  color: var(--cor-texto-fraco);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.destaque__cartoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-lg);
+}
+
+.cartao {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-xs);
+}
+
+/*
+  O papel Display: `--font-num` e NÃO `--font-display`. A fonte de fantasia é
+  para o título da placa; o valor que decide dinheiro é lido em monoespaçada
+  tabular. Se as duas disputarem, o ornamento sai.
+
+  `tabular-nums` porque o número se atualiza a cada 2 s: sem largura tabular ele
+  "dança" horizontalmente, e isso é ruído puro ao lado do jogo.
+
+  `clamp` para o número encolher em vez de quebrar linha ou vazar do painel.
+*/
+.cartao__valor {
+  margin: 0;
+  font-family: var(--font-num);
+  font-size: clamp(32px, 6vw, 48px);
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--cor-ouro);
+}
+
+.cartao__procedencia {
+  margin: 0;
+  display: flex;
+  gap: var(--sp-sm);
+  font-family: var(--font-num);
+  font-size: 14px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  color: var(--cor-texto-fraco);
+}

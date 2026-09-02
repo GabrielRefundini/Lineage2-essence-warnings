@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quanto vale 1 milhão de adena</title>
+  <!--
+    SEM <style> E SEM <script> INLINE, e não é preferência: a CSP servida em
+    toda resposta traz `style-src 'self'` e `script-src 'self'`, que proíbem as
+    duas formas embutidas. O navegador bloquearia calado — por isso há teste em
+    Python (`test_o_index_so_carrega_script_e_estilo_por_ARQUIVO`) afirmando que
+    todo script tem `src` e que a contagem de estilos embutidos é zero.
+  -->
+  <link rel="stylesheet" href="dashboard.css">
+  <script src="dashboard.js" defer></script>
+</head>
+<body>
+  <main class="pagina">
+
+    <section id="destaque" class="painel">
+      <h1 class="painel__titulo">Quanto vale 1 milhão de adena</h1>
+      <div class="destaque__cartoes">
+        <article class="cartao" id="cartao-xm">
+          <p class="cartao__valor" id="xm-texto">Carregando a leitura…</p>
+          <p class="cartao__procedencia">
+            <span id="xm-n"></span>
+            <span id="xm-recencia"></span>
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section id="serie" class="painel">
+      <h2 class="painel__titulo">Histórico da taxa</h2>
+      <p class="painel__vazio">
+        O gráfico da taxa ao longo do tempo entra aqui — duas linhas, o menor
+        pedido visível e a mediana, com zoom de horas a dias.
+      </p>
+    </section>
+
+    <section id="procedencia" class="painel">
+      <h2 class="painel__titulo">Procedência</h2>
+      <p class="painel__vazio">
+        Aqui ficam o câmbio informado por você, o arquivo de onde os números
+        saíram e a confirmação de que ele é aberto somente para leitura.
+      </p>
+    </section>
+
+  </main>
+</body>
+</html>
