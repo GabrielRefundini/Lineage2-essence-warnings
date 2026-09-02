@@ -65,18 +65,22 @@ from l2scanner.aprendiz import (
     REGIME_DE_CINTILACAO,
     REGIME_DE_TURBULENCIA,
     TETO_DE_CELULAS_TOLERADAS,
+    TETO_DE_OCUPACAO_DO_NOME,
     AjustesDoAprendiz,
     Aprendiz,
     Candidata,
     ToleranciaAlemDoTeto,
     distancia_de_hamming,
+    resumo_da_contaminacao,
     resumo_das_recusas,
     retrato_das_distancias,
+    teto_de_pixels_de_texto,
 )
 from l2scanner.config import ler_ajustes_do_aprendiz
 from l2scanner.calibracao import Calibracao
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.identidade import (
+    FATOR_MAXIMO_DE_CONTAMINACAO,
     LIMIAR_DE_CASAMENTO,
     LIMIAR_DO_ORNAMENTO,
     MARGEM_MINIMA_SOBRE_O_SEGUNDO,
@@ -3628,3 +3632,387 @@ class TestOCincoLeiturasEstaPreso:
 
         assert len(assinaturas_gravadas(pasta)) == 1
         assert len(resultado.aprendizados) == 1
+
+
+# ---------------------------------------------------------------------------
+# O TETO DE CONTAMINACAO: O PISO SOZINHO NAO BASTA
+# ---------------------------------------------------------------------------
+
+
+# O ACERVO REAL DO USUARIO, MEDIDO EM 01/09/2026. Estes numeros sao a base
+# inteira do teto, e por isso viajam como tuplas de inteiros em vez de ficarem
+# so numa docstring: uma tabela citada nao cai quando o codigo muda.
+#
+# 28 entradas em `.identidades/`, todas no mesmo recorte de 20x110 = 2200
+# celulas, mais as 4 assinaturas calibradas a mao pelo usuario no mesmo
+# recorte. Renderizadas em ASCII uma a uma, elas nao sao 28 pessoas: sao 5
+# pessoas repetidas mais 3 recortes de lixo.
+CELULAS_DO_RECORTE_REAL = 2200
+
+# Nome legivel, com no maximo o serrilhado da borda das letras e a coroa do
+# lider. Quatro delas sao as CALIBRADAS (PIRULITO 110, Mostarda 114,
+# TITANDER 130, Welazkez 159), que sao a unica verdade de campo conferida a mao.
+PIXELS_DE_NOME_LIMPO = (
+    107, 108, 110, 114, 120, 124, 125, 130, 136, 148, 159, 159, 171, 171, 175,
+)
+
+# Cenario dentro do recorte. A party estava em Silent Valley, sobre pedra clara,
+# e a pedra passa do `VALOR_MINIMO_DO_TEXTO` e entra na mascara.
+PIXELS_COM_CENARIO_DENTRO = (
+    178, 200, 209, 245, 274, 290, 291, 296, 320, 336, 397, 399, 515, 843,
+)
+
+# As tres que o teto NAO pega, ditas em voz alta. Sao nome dominante mais um
+# risco fino de cenario, e elas caem dentro da folga que o teto deixa para um
+# nick mais longo do que os medidos. Pegar as tres exigiria um teto DENTRO
+# dessa folga, e ai um nick de 14 ou 15 caracteres com coroa passaria a ser
+# recusado: uma pessoa que nunca ganha assinatura custa mais do que tres
+# perguntas a mais.
+PIXELS_QUE_O_TETO_DEIXA_PASSAR = (178, 200, 209)
+
+
+def mascara_com_pixels(
+    pixels: int, celulas: int = CELULAS_DO_RECORTE_REAL
+) -> np.ndarray:
+    """Uma mascara do tamanho do recorte real com N celulas acesas."""
+    altura = 20
+    m = np.zeros((altura, celulas // altura), dtype=np.uint8)
+    m.reshape(-1)[:pixels] = 1
+    assert int(m.sum()) == pixels and m.size == celulas
+    return m
+
+
+def teto_do_recorte_real() -> int:
+    return teto_de_pixels_de_texto(mascara_com_pixels(12))
+
+
+class TestOTetoDeContaminacaoNoAprendizado:
+    """O portao que faltava: `observar` conferia um PISO e nenhum TETO.
+
+    MEDIDO EM 01/09/2026 CONTRA O ACERVO REAL. As 28 entradas de
+    `.identidades/` nao sao 28 pessoas: sao PIRULITO 8 vezes, TITANDER 8,
+    Welazkez 5, Mostarda 3, WesleySniper 2 e 2 recortes de lixo pontual. Cada
+    uma delas queimou um marcador `perguntado_` e disparou uma pergunta no
+    WhatsApp com uma imagem de pedra.
+
+    O projeto JA TINHA a constante do teto (`FATOR_MAXIMO_DE_CONTAMINACAO`) e
+    ela era usada SO no casamento, nunca no aprendizado. Pior: o casamento zera
+    a pontuacao de um recorte contaminado, o aprendiz le esse zero como "nao
+    conheco ninguem parecido" e GRAVA. A regra que existia para proteger o
+    reconhecimento estava alimentando o acervo.
+    """
+
+    def test_um_recorte_cheio_de_cenario_nunca_vira_entrada(self, tmp_path):
+        """O caso de 843 pixels, que e a pior entrada do acervo real."""
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        gorda = mascara_com_pixels(843)
+
+        for _ in range(100):
+            saida = aprendiz.observar(
+                (Candidata(indice=0, mascara=gorda, confianca=0.0),)
+            )
+            assert saida.aprendizados == []
+
+        assert assinaturas_gravadas(pasta) == [], (
+            "cem leituras ESTAVEIS de um recorte contaminado continuam sendo "
+            "cem leituras de pedra: estabilidade nao e limpeza"
+        )
+
+    def test_o_nome_limpo_continua_sendo_aprendido(self, tmp_path):
+        """A outra metade. Um teto que recusa todo mundo mata a feature."""
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        limpa = mascara_com_pixels(max(PIXELS_DE_NOME_LIMPO))
+
+        for _ in range(5):
+            aprendiz.observar((Candidata(indice=0, mascara=limpa, confianca=0.0),))
+
+        assert len(assinaturas_gravadas(pasta)) == 1, (
+            "o maior nome LIMPO medido no acervo real (175 px, o Welazkez com "
+            "coroa) tem de continuar passando"
+        )
+
+    def test_toda_assinatura_limpa_medida_cabe_embaixo_do_teto(self):
+        """As 15 mascaras limpas, uma a uma, contra o teto."""
+        teto = teto_do_recorte_real()
+        for pixels in PIXELS_DE_NOME_LIMPO:
+            assert pixels <= teto, (
+                f"{pixels} px e um nome LIMPO medido no acervo real e o teto "
+                f"({teto}) o recusaria. Um teto que come nome de verdade troca "
+                "uma fila de perguntas de lixo por gente que nunca e aprendida"
+            )
+
+    def test_o_teto_pega_as_contaminadas_que_o_usuario_apontou(self):
+        """As 11 que sobram depois das tres declaradas em voz alta."""
+        teto = teto_do_recorte_real()
+        pegas = [
+            p
+            for p in PIXELS_COM_CENARIO_DENTRO
+            if p not in PIXELS_QUE_O_TETO_DEIXA_PASSAR
+        ]
+        for pixels in pegas:
+            assert pixels > teto, (
+                f"{pixels} px e cenario gravado como pessoa, e o teto ({teto}) "
+                "tem de recusar"
+            )
+        assert len(pegas) == 11, "a conta das que o teto pega esta escrita"
+
+    def test_as_tres_que_passam_estao_declaradas_e_nao_sao_mais(self):
+        """Um teto honesto diz o que ele NAO pega.
+
+        Sem este caso, alguem "melhora" o teto para pegar as tres, o teto entra
+        na folga que protege um nick longo, e a regressao aparece semanas depois
+        como uma pessoa que nunca ganha assinatura.
+        """
+        teto = teto_do_recorte_real()
+        passam = [p for p in PIXELS_COM_CENARIO_DENTRO if p <= teto]
+        assert tuple(passam) == PIXELS_QUE_O_TETO_DEIXA_PASSAR
+
+    def test_um_nick_longo_nao_e_recusado_por_ser_maior_que_um_curto(self):
+        """A armadilha do teto absoluto, dita com os dois nomes reais.
+
+        `WesleySniper` mede 159 px e `Mostarda` mede 114 px no mesmo recorte.
+        Um teto derivado do nick curto recusaria o longo, e o WesleySniper
+        nunca mais seria aprendido.
+        """
+        teto = teto_do_recorte_real()
+        assert 159 <= teto and 114 <= teto
+        assert teto > 159 * 1.2, (
+            "o teto precisa de folga acima do maior nick MEDIDO, porque o nick "
+            "maior que existe ainda nao foi medido"
+        )
+
+    def test_o_teto_e_uma_FRACAO_do_recorte_e_nao_um_numero_de_pixels(self):
+        """A razao e a mesma dos limiares de HSV do `calibration.json`.
+
+        A largura do recorte do nome sai da calibracao, e ela muda com a
+        resolucao, com a escala do Windows e com o tamanho da party window. Um
+        teto em pixels absolutos so valeria na maquina de quem mediu.
+        """
+        pequeno = teto_de_pixels_de_texto(np.zeros((20, 100), dtype=np.uint8))
+        grande = teto_de_pixels_de_texto(np.zeros((40, 220), dtype=np.uint8))
+        assert grande > pequeno * 3, (
+            "o teto tem de acompanhar o recorte: quatro vezes a area, quatro "
+            "vezes o teto"
+        )
+        assert pequeno == int(2000 * TETO_DE_OCUPACAO_DO_NOME)
+
+    def test_o_teto_encontra_o_fator_que_o_reconhecimento_ja_usava(self):
+        """A corroboracao que faz do numero um achado e nao uma escolha.
+
+        `FATOR_MAXIMO_DE_CONTAMINACAO` (2.0) vezes a MENOR assinatura calibrada
+        do usuario (PIRULITO, 110 px num recorte de 2200 celulas) da 220 px, que
+        e exatamente o teto. As duas derivacoes, uma pela faixa das limpas e
+        outra pela constante que o casamento ja usava, caem no mesmo lugar.
+        """
+        assert teto_do_recorte_real() == int(110 * FATOR_MAXIMO_DE_CONTAMINACAO)
+
+
+class TestARecusaPorContaminacaoTrazONumero:
+    """Sem o numero, o teto troca uma fila de lixo por silencio inexplicavel.
+
+    E o mesmo argumento ja escrito para `RecusaPorInstabilidade`: um portao que
+    recusa calado tem como unico modo de falha a feature nao acontecer, sem
+    nada no log dizendo por que.
+    """
+
+    def test_a_recusa_diz_quantos_pixels_e_qual_o_teto(self, tmp_path):
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        gorda = mascara_com_pixels(843)
+
+        saida = aprendiz.observar(
+            (Candidata(indice=LINHA_ALVO, mascara=gorda, confianca=0.0),)
+        )
+
+        assert len(saida.recusas_por_contaminacao) == 1
+        recusa = saida.recusas_por_contaminacao[0]
+        assert recusa.indice == LINHA_ALVO
+        assert recusa.pixels == 843
+        assert recusa.teto == teto_de_pixels_de_texto(gorda)
+        assert recusa.celulas == CELULAS_DO_RECORTE_REAL
+
+    def test_o_recorte_contaminado_nao_conta_como_leitura_estavel(self, tmp_path):
+        """Ele nao vira vigia, e tambem nao SUSTENTA um vigia que ja existia.
+
+        Um frame contaminado nao e evidencia de nada. Deixa-lo contar faria a
+        sequencia de cinco leituras somar frames em que nao dava para ver.
+        """
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=3)
+        limpa = mascara_com_pixels(120)
+        gorda = mascara_com_pixels(843)
+
+        aprendiz.observar((Candidata(indice=0, mascara=limpa, confianca=0.0),))
+        aprendiz.observar((Candidata(indice=0, mascara=gorda, confianca=0.0),))
+        aprendiz.observar((Candidata(indice=0, mascara=limpa, confianca=0.0),))
+        aprendiz.observar((Candidata(indice=0, mascara=limpa, confianca=0.0),))
+
+        assert assinaturas_gravadas(pasta) == [], (
+            "a leitura contaminada no meio REINICIA a sequencia, do mesmo jeito "
+            "que a instabilidade reinicia (D-08)"
+        )
+
+    def test_o_retrato_acumula_a_faixa_dos_pixels(self, tmp_path):
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=99)
+
+        for pixels in (843, 336, 515):
+            aprendiz.observar(
+                (
+                    Candidata(
+                        indice=0, mascara=mascara_com_pixels(pixels), confianca=0.0
+                    ),
+                )
+            )
+
+        retrato = aprendiz.retrato_da_contaminacao()
+        assert retrato.recusas == 3
+        assert retrato.menor == 336
+        assert retrato.maior == 843
+        assert retrato.teto == 220
+        assert retrato.celulas == CELULAS_DO_RECORTE_REAL
+
+    def test_sem_contaminacao_o_retrato_fica_vazio(self, tmp_path):
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=99)
+        aprendiz.observar(
+            (Candidata(indice=0, mascara=mascara_com_pixels(120), confianca=0.0),)
+        )
+
+        retrato = aprendiz.retrato_da_contaminacao()
+        assert retrato.recusas == 0
+        assert retrato.menor is None and retrato.maior is None
+
+
+class TestOTextoDaRecusaPorContaminacao:
+    """A linha que o usuario le no `scanner.log`, no molde da instabilidade."""
+
+    def _retrato(self, tmp_path):
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=99)
+        for pixels in (290, 843):
+            aprendiz.observar(
+                (
+                    Candidata(
+                        indice=0, mascara=mascara_com_pixels(pixels), confianca=0.0
+                    ),
+                )
+            )
+        return aprendiz.retrato_da_contaminacao()
+
+    def test_o_texto_traz_os_pixels_o_teto_e_o_desfecho(self, tmp_path):
+        texto = resumo_da_contaminacao(self._retrato(tmp_path))
+
+        assert "290" in texto and "843" in texto, "a faixa MEDIDA"
+        assert "220" in texto, "o teto, ao lado dela"
+        assert "2200" in texto, "de quantas celulas o teto e fracao"
+        assert "aprend" in texto.lower(), "e que por isso nao aprendeu"
+
+    def test_o_texto_nao_manda_mexer_em_configuracao_nenhuma(self, tmp_path):
+        """A hipotese errada que ja circulou tres vezes neste projeto.
+
+        Subir o `VALOR_MINIMO_DO_TEXTO` para expulsar a pedra comeria texto de
+        verdade e pioraria o reconhecimento de TODO MUNDO, inclusive de quem ja
+        tem assinatura calibrada com o limiar atual.
+        """
+        texto = resumo_da_contaminacao(self._retrato(tmp_path))
+        assert "celulas_toleradas" not in texto, (
+            "contaminacao nao e instabilidade: nenhuma tolerancia conserta"
+        )
+        assert "config.toml" not in texto, "nao ha o que configurar aqui"
+
+    def test_o_texto_cabe_no_console_cp1252(self, tmp_path):
+        texto = resumo_da_contaminacao(self._retrato(tmp_path))
+        assert "—" not in texto, "travessao quebra o console cp1252"
+        assert texto.isascii(), "portugues SEM acento em texto de usuario"
+
+    def test_o_numero_chega_ao_scanner_log(self, tmp_path, calibracao, caplog):
+        """Um campo estruturado que so o teste ve nao ajuda ninguem."""
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        sessao = montar_sessao(calibracao, tmp_path, aprendiz=aprendiz)
+
+        gorda = mascara_com_pixels(843)
+        obs = _observacao_fabricada(
+            [
+                LeituraDeLinha(
+                    indice=0, estado=EstadoDaLinha.COM_MEMBRO, hp=1.0, mp=1.0
+                )
+            ],
+            {0: gorda},
+        )
+        sessao.rastreador.observar(obs, 0.0)
+        assert sessao.rastreador.portao is PortaoGlobal.RASTREANDO
+
+        resultado = ResultadoDoTick()
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            sessao._aprender(obs, resultado)
+
+        texto = "\n".join(r.getMessage() for r in caplog.records)
+        assert "843" in texto and "220" in texto
+        assert "—" not in texto, "travessao quebra o console cp1252"
+        assert len(resultado.recusas_por_contaminacao) == 1
+
+    def test_trezentas_recusas_nao_viram_trezentas_linhas(
+        self, tmp_path, calibracao, caplog
+    ):
+        """A mesma cadencia por MUDANCA de `_registrar_recusas`.
+
+        A party fica minutos sobre a mesma pedra: sem a cadencia, o
+        `scanner.log` levaria uma linha por segundo, que e a outra forma de nao
+        ser lido.
+        """
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        sessao = montar_sessao(calibracao, tmp_path, aprendiz=aprendiz)
+
+        obs = _observacao_fabricada(
+            [
+                LeituraDeLinha(
+                    indice=0, estado=EstadoDaLinha.COM_MEMBRO, hp=1.0, mp=1.0
+                )
+            ],
+            {0: mascara_com_pixels(843)},
+        )
+        sessao.rastreador.observar(obs, 0.0)
+
+        with caplog.at_level(logging.INFO, logger="l2scanner"):
+            for _ in range(300):
+                sessao._aprender(obs, ResultadoDoTick())
+
+        resumos = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno >= logging.INFO and "contamina" in r.getMessage().lower()
+        ]
+        assert 0 < len(resumos) <= 3, (
+            f"o resumo tem de calar quando a faixa para de mudar. Saiu "
+            f"{len(resumos)} vez(es)"
+        )
+
+
+class TestAMedicaoDasVinteEOitoEstaNoModulo:
+    """A tabela das 28 e a base do teto, e ela tem de morar no codigo.
+
+    Uma medicao que so existe numa conversa volta a ser refeita, ou pior, e
+    contradita por uma medicao nova feita num cenario diferente, que e
+    exatamente o que aconteceu com a cintilacao.
+    """
+
+    def test_o_modulo_conta_as_28_e_as_pessoas_repetidas(self):
+        fonte = _docstring_do_aprendiz()
+
+        assert "28" in fonte, "quantas entradas o acervo real tinha"
+        for nome in ("PIRULITO", "TITANDER", "Welazkez", "Mostarda"):
+            assert nome in fonte, f"{nome} e uma das pessoas repetidas"
+        assert "843" in fonte, "a pior entrada medida"
+        assert "Silent Valley" in fonte, "onde a party estava"
+
+    def test_o_modulo_diz_que_a_medicao_da_grama_NAO_generaliza(self):
+        """A correcao de 02/09/2026, e ela e a razao desta classe existir.
+
+        A medicao da cintilacao de 01/09/2026 foi tirada com a party parada em
+        GRAMA UNIFORME. Ela absolveu o `VALOR_MINIMO_DO_TEXTO` num cenario
+        benigno, e a segunda rodada em PEDRA CLARA mostrou o mesmo limiar
+        deixando centenas de celulas de cenario entrarem. Sem esta condicao
+        escrita, a proxima leitura da docstring conclui que o limiar esta certo
+        em toda parte.
+        """
+        fonte = _docstring_do_aprendiz().lower()
+
+        assert "grama" in fonte, "o cenario em que a medicao foi feita"
+        assert "pedra" in fonte, "o cenario em que ela nao vale"
+        assert "nao generaliza" in fonte, "dito com todas as letras"
