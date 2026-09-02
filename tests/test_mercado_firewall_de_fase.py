@@ -44,16 +44,31 @@ duas palavras que nao tem homonimo. Estritamente mais forte que uma varredura de
 texto - ela nao se engana com prosa nem com um import escrito de outro jeito.
 
 **(2) "importar o modulo de mercado nao traz `l2scanner.rastreador` para
-`sys.modules`."** ISSO E FALSO HOJE, e nao por culpa desta fase. A cadeia e
-`mercado_pagina` -> `mercado_catalogo` -> `config` (so para pegar `RAIZ`) ->
-`notificador` -> `rastreador` -> `visao`, e ela existe desde a Fase 2. Cortar
-seria mexer em `config.py` e `notificador.py`, que estao fora do escopo deste
-plano, e em `rastreador.py`, que e intocavel por decisao do 04-CONTEXT.
+`sys.modules`."** ERA FALSO ATE A FASE 1 DO `dashboard`, e nao por culpa da
+Fase 4. A cadeia era `mercado_pagina` -> `mercado_catalogo` -> `config` (so para
+pegar `RAIZ`) -> `notificador` -> `rastreador` -> `visao`, e ela existia desde a
+Fase 2. Cortar teria exigido mexer em `config.py`, fora do escopo daquele plano.
 
-O teste correspondente foi INVERTIDO: ele prende a cadeia PREEXISTENTE, para
-que a explicacao nao vire folclore e para que quem a cortar um dia seja obrigado
-a atualizar a historia. O que importa - "o mercado nao USA a party" - continua
-prendido pelos outros tres.
+O teste correspondente foi entao INVERTIDO, para prender a cadeia PREEXISTENTE e
+obrigar quem a cortasse um dia a atualizar a historia.
+
+E ELA FOI CORTADA, em 2026-09-01, pela Fase 1 do workstream `dashboard`, com
+autorizacao explicita do usuario: nasceu `l2scanner/raiz.py` (modulo FOLHA) e
+`mercado_catalogo.py` passou a importar `RAIZ` dali, com `config.py`
+re-exportando para que nenhum consumidor existente mudasse. **A exigencia
+original (2) e VERDADE hoje**, e o teste voltou a cobra-la — ver
+`test_o_catalogo_NAO_alcanca_MAIS_o_config_nem_o_rastreador`, que agora prende a
+AUSENCIA e tem controle negativo ao lado.
+
+Duas ressalvas que precisam viajar junto, para a frase nao virar folclore na
+direcao oposta: o corte vale para o CATALOGO, e `import l2scanner.config`
+continua trazendo `rastreador` e `cv2` (e o controle negativo afirma isso); e o
+PROCESSO do dashboard continua carregando OpenCV por uma segunda aresta,
+`mercado_console` -> `console` -> `rastreador`, que aquela fase nao estava
+autorizada a tocar.
+
+O que importa - "o mercado nao USA a party" - continua prendido pelos outros
+tres testes, e nunca dependeu deste.
 """
 
 from __future__ import annotations
@@ -312,31 +327,86 @@ class TestOMercadoNaoConheceORastreador:
             origem = getattr(valor, "__module__", None)
             assert origem not in proibidos, (nome, origem)
 
-    def test_o_rastreador_chega_por_uma_CADEIA_PREEXISTENTE_do_config(
-        self,
-    ) -> None:
-        """O achado desta fase, escrito para nao virar folclore.
+    def test_o_catalogo_NAO_alcanca_MAIS_o_config_nem_o_rastreador(self) -> None:
+        """A cadeia EXISTIU, foi CORTADA, e agora este teste prende a AUSENCIA.
 
-        `import l2scanner.mercado_modo` TRAZ `l2scanner.rastreador` para
-        `sys.modules`, e isso NAO e acoplamento do mercado: a cadeia e
-        `mercado_catalogo` -> `config` (por `RAIZ`) -> `notificador` ->
-        `rastreador` -> `visao`, e ela existe desde a Fase 2, antes de este modo
-        nascer. Nenhuma linha desta fase a criou e nenhuma linha desta fase pode
-        desfaze-la: `rastreador.py` e intocavel por decisao do 04-CONTEXT, e
-        `config.py` e `notificador.py` estao fora do escopo deste plano.
+        A HISTORIA, EM TRES TEMPOS
+        ===========================
+        A cadeia `mercado_catalogo` -> `config` (por `RAIZ`) -> `notificador` ->
+        `rastreador` -> `visao` -> `cv2` existiu desde a Fase 2, antes de o modo
+        mercado nascer. Ela nao era acoplamento do mercado, e nenhuma linha da
+        Fase 4 podia desfaze-la — `rastreador.py` e intocavel pelo 04-CONTEXT, e
+        `config.py` estava fora do escopo daquele plano.
 
-        Este teste PRENDE a explicacao. Se a cadeia for cortada um dia, ele cai e
-        obriga quem cortou a atualizar a historia em vez de deixar um comentario
-        mentindo. E enquanto ele estiver verde, ninguem pode usar "o mercado
-        importa o rastreador" como licenca para acopla-los de verdade - os dois
-        testes acima continuam provando que nao ha uso.
+        Ela foi CORTADA na Fase 1 do workstream `dashboard` (2026-09-01), com
+        autorizacao explicita do usuario (CTX-2): nasceu `l2scanner/raiz.py`,
+        modulo FOLHA, e `mercado_catalogo.py:95` passou a importar `RAIZ` dali.
+        `config.py` continua RE-EXPORTANDO `RAIZ`, entao nenhum consumidor
+        existente mudou.
+
+        POR QUE A VERSAO ANTERIOR DESTE TESTE NAO SERVIA
+        ================================================
+        Ele se chamava `test_o_rastreador_chega_por_uma_CADEIA_PREEXISTENTE_do_config`
+        e prometia, na propria docstring, "se a cadeia for cortada um dia, ele
+        cai". ELE NAO CAIRIA. A segunda assercao do subprocesso era
+
+            import l2scanner.config          # linha 2
+            ...
+            import l2scanner.mercado_catalogo
+            assert 'l2scanner.config' in sys.modules
+
+        e ela e TAUTOLOGICA: `l2scanner.config` estava em `sys.modules` porque o
+        proprio subprocesso o importara na linha 2, e nao porque o catalogo o
+        tivesse arrastado. A aresta que a assercao dizia prender nunca esteve
+        presa. MEDIDO na pesquisa desta fase: o codigo exato do teste antigo
+        passa nas DUAS arvores — com a aresta e sem ela. Um guarda cuja saida
+        nao muda com o fato que ele julga e o padrao de defeito que este arquivo
+        ja nomeia em `:449-470`.
+
+        O CONSERTO E A ORDEM DO IMPORT: `l2scanner.mercado_catalogo` entra
+        PRIMEIRO, num interpretador limpo, e as assercoes falam do que ELE
+        trouxe. E o controle negativo ao lado (`test_a_guarda_REPROVA_...`) prova
+        que o subprocesso enxerga a presenca quando ela existe.
+        """
+        codigo = (
+            "import sys\n"
+            "import l2scanner.mercado_catalogo\n"
+            # `sorted(sys.modules)` na mensagem: quando isto cair, a falha tem
+            # de ser diagnosticavel sem rodar de novo com print a mao.
+            "assert 'l2scanner.config' not in sys.modules, sorted(sys.modules)\n"
+            "assert 'l2scanner.rastreador' not in sys.modules\n"
+            "assert 'cv2' not in sys.modules\n"
+        )
+        resultado = subprocess.run(
+            [sys.executable, "-c", codigo],
+            cwd=str(RAIZ),
+            capture_output=True,
+            text=True,
+        )
+        assert resultado.returncode == 0, resultado.stderr
+
+    def test_a_guarda_REPROVA_quando_a_cadeia_do_config_e_percorrida(self) -> None:
+        """O CONTROLE NEGATIVO, e e ele que torna o teste acima um guarda.
+
+        Sem esta metade, um erro de digitacao no nome do modulo do subprocesso
+        (`l2scanner.mercado_catalogoo`) faria o processo morrer por
+        `ModuleNotFoundError`... ou, pior, um nome de modulo que nao existisse em
+        `sys.modules` deixaria as TRES assercoes de ausencia verdes para sempre,
+        sobre uma arvore em que a cadeia estivesse inteira. Seria a nona
+        instancia do padrao de defeito ja nomeado em `:449-470`.
+
+        Esta afirmacao e a contrapositiva: importar `l2scanner.config`
+        DIRETAMENTE continua trazendo `rastreador` e `cv2`. A cadeia
+        `config -> notificador -> rastreador -> visao -> cv2` NAO foi desfeita —
+        ela so deixou de ser percorrida pelo catalogo. E e por isso que o
+        processo do dashboard, que precisa dos formatadores de
+        `mercado_console`, CONTINUA carregando OpenCV por uma segunda aresta.
         """
         codigo = (
             "import sys\n"
             "import l2scanner.config\n"
-            "assert 'l2scanner.rastreador' in sys.modules\n"
-            "import l2scanner.mercado_catalogo\n"
-            "assert 'l2scanner.config' in sys.modules\n"
+            "assert 'l2scanner.rastreador' in sys.modules, sorted(sys.modules)\n"
+            "assert 'cv2' in sys.modules\n"
         )
         resultado = subprocess.run(
             [sys.executable, "-c", codigo],
