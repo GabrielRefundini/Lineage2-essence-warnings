@@ -26,8 +26,8 @@ fonte, e nao tenta unifica-las.
 
 from __future__ import annotations
 
+import re
 from html.parser import HTMLParser
-from pathlib import Path
 
 import pytest
 
@@ -353,3 +353,363 @@ class TestAsFrasesSaoAsDoContrato:
         assert set(dashboard_dados.FRASES_PROIBIDAS) <= set(
             FRASES_PROIBIDAS_ESCRITAS_A_MAO
         )
+
+
+# ---------------------------------------------------------------------------
+# O TEMA
+# ---------------------------------------------------------------------------
+#
+# TUDO AQUI JULGA SO O `dashboard.css`. O `vendor/uPlot.min.css` tem
+# hexadecimais, `system-ui` e peso 600 proprios, e cobrar dele a nossa escala
+# seria cobrar de quem nao assinou o contrato. O que a tela FINAL mostra e
+# corrigido pelo bloco nomeado de sobreposicoes no fim do nosso arquivo — e e
+# por isso que aquele bloco existe.
+
+# O bloco de tokens em raiz. Uma expressao e nao um `split`, porque o que se
+# quer e o TRECHO entre as chaves, e o arquivo tem outras chaves depois.
+_INICIO_DA_RAIZ = ":root {"
+
+
+def _bloco_de_tokens(css: str) -> str:
+    """O texto entre as chaves do `:root`, e nada mais.
+
+    O bloco nao tem chaves aninhadas, entao o primeiro `}` fecha. Se um dia
+    tiver, esta funcao passa a devolver menos do que devia — e o teste de
+    controle negativo abaixo (que exige achar hexadecimais AQUI DENTRO) e o que
+    faria essa quebra aparecer, em vez de virar uma aprovacao silenciosa.
+    """
+    inicio = css.index(_INICIO_DA_RAIZ) + len(_INICIO_DA_RAIZ)
+    return css[inicio : css.index("}", inicio)]
+
+
+def _fora_do_bloco_de_tokens(css: str) -> str:
+    inicio = css.index(_INICIO_DA_RAIZ)
+    fim = css.index("}", inicio + len(_INICIO_DA_RAIZ)) + 1
+    return css[:inicio] + css[fim:]
+
+
+# A MESMA EXPRESSAO QUE `test_dashboard_tracer.py` ja usa sobre o JS. Manter as
+# duas iguais e deliberado: uma paleta clandestina tem a mesma forma nos dois
+# arquivos, e duas expressoes diferentes divergiriam na primeira correcao.
+CACA_HEXADECIMAL = re.compile(r"#[0-9a-fA-F]{3,8}\b")
+
+# A escala de 4 pontos, em numero. Um conjunto e nao uma lista: a pergunta e de
+# pertencimento.
+ESCALA_DE_ESPACAMENTO = {4, 8, 16, 24, 32, 48, 64}
+
+# AS PROPRIEDADES QUE SAO ESPACO. Fora desta lista, um `px` e outra coisa —
+# tipografia, traco, raio ou sombra — e nao responde a escala de espacamento.
+PROPRIEDADES_DE_ESPACO = frozenset(
+    {
+        "margin",
+        "margin-top",
+        "margin-right",
+        "margin-bottom",
+        "margin-left",
+        "padding",
+        "padding-top",
+        "padding-right",
+        "padding-bottom",
+        "padding-left",
+        "gap",
+        "row-gap",
+        "column-gap",
+        "inset",
+    }
+)
+
+# AS TRES EXCECOES DECLARADAS NO `01-UI-SPEC.md`, nomeadas uma a uma. Elas NAO
+# sao espacamento — sao TRACO — e por isso nenhuma delas aparece na lista acima:
+#
+#   1. Larguras de borda (1px e 2px), usadas pelo relevo das placas. Vivem em
+#      `border`, `border-top` e `border-bottom`.
+#   2. Espessura de linha do grafico (2px no menor pedido, 1.5px na mediana).
+#      Sao parametros de configuracao da biblioteca, e nem sequer entram no CSS.
+#   3. O anel de foco: 2px de traco com 2px de deslocamento, em `outline` e
+#      `outline-offset`.
+#
+# Estao escritas aqui para que a tolerancia seja EXPLICITA e conferivel, em vez
+# de virar um "o teste nao pega isso" que ninguem sabe se foi decidido ou
+# esquecido.
+EXCECOES_DE_TRACO = (
+    "border / border-top / border-bottom — largura de borda, 1px e 2px",
+    "espessura de linha do grafico — 2px e 1.5px, config da biblioteca",
+    "outline / outline-offset — anel de foco, 2px e 2px",
+)
+
+_DECLARACAO = re.compile(r"(?m)^\s*([a-z-]+)\s*:\s*([^;{}]+);")
+_PIXEL = re.compile(r"(\d+(?:\.\d+)?)px")
+
+
+def _espacamentos_fora_da_escala(css: str) -> list[tuple[str, str]]:
+    """(propriedade, valor) de todo espacamento em px que nao esta na escala."""
+    fora: list[tuple[str, str]] = []
+    for propriedade, valor in _DECLARACAO.findall(css):
+        if propriedade not in PROPRIEDADES_DE_ESPACO:
+            continue
+        for medida in _PIXEL.findall(valor):
+            if float(medida) not in ESCALA_DE_ESPACAMENTO:
+                fora.append((propriedade, valor.strip()))
+    return fora
+
+
+class TestOTemaObedeceOContrato:
+    def test_nenhum_hexadecimal_vive_FORA_do_bloco_de_tokens(self, css: str) -> None:
+        """A paleta mora num lugar so, e a razao nao e estetica.
+
+        O `dashboard.js` pede cor por `getPropertyValue`, e uma cor sem nome de
+        token e uma cor que o grafico NAO CONSEGUE PEDIR. Um hexadecimal solto
+        aqui seria a segunda paleta do projeto, e ela divergiria da primeira no
+        dia em que o tema mudasse.
+        """
+        assert CACA_HEXADECIMAL.findall(_fora_do_bloco_de_tokens(css)) == []
+
+    def test_o_bloco_de_tokens_TEM_hexadecimais(self, css: str) -> None:
+        """O CONTROLE NEGATIVO, e e ele que torna a assercao acima uma prova.
+
+        A mesma expressao, no mesmo arquivo, ACHA hexadecimais dentro do bloco.
+        Sem esta linha, um erro de digitacao na expressao — ou um `:root` que
+        deixasse de ser encontrado — deixaria o guarda verde para sempre sobre
+        um CSS cheio de cor solta.
+        """
+        assert CACA_HEXADECIMAL.findall(_bloco_de_tokens(css))
+
+    def test_a_marcacao_nao_declara_UMA_cor(self, html: str) -> None:
+        """Cor no HTML seria a terceira paleta, escondida na marcacao."""
+        assert CACA_HEXADECIMAL.findall(html) == []
+
+    def test_todo_espacamento_em_px_pertence_a_ESCALA_de_quatro_pontos(
+        self, css: str
+    ) -> None:
+        assert _espacamentos_fora_da_escala(css) == []
+
+    def test_o_leitor_de_espacamento_ACUSA_um_valor_fora_da_escala(self) -> None:
+        """O CONTROLE POSITIVO do leitor acima.
+
+        Um teste que so afirma "nao achei nada" e indistinguivel de um leitor
+        quebrado que nunca acha nada. Este exercita o leitor contra um CSS
+        sintetico com um `13px` de propositio, e exige que ele ACUSE.
+        """
+        assert _espacamentos_fora_da_escala(".x {\n  padding: 13px;\n}") == [
+            ("padding", "13px")
+        ]
+
+    def test_as_tres_excecoes_de_traco_estao_NOMEADAS(self) -> None:
+        """A tolerancia e explicita, e nao um silencio do teste.
+
+        Sem esta lista escrita, "o teste nao cobra a borda" seria indistinguivel
+        de "alguem esqueceu de cobrar a borda".
+        """
+        assert len(EXCECOES_DE_TRACO) == 3
+        assert all(excecao.strip() for excecao in EXCECOES_DE_TRACO)
+
+    def test_a_escala_tipografica_tem_no_maximo_QUATRO_tamanhos(
+        self, css: str
+    ) -> None:
+        """Body, Label, Heading e Display — e nada alem disso.
+
+        O `clamp` do Display conta como UM, e nao como dois: o piso e o teto sao
+        extremos do MESMO papel da escala. Ler `32px` e `48px` como dois
+        tamanhos e o erro que o proprio checker do UI-SPEC ja levantou uma vez.
+        """
+        tamanhos = {
+            " ".join(valor.split())
+            for propriedade, valor in _DECLARACAO.findall(css)
+            if propriedade == "font-size"
+        }
+        assert len(tamanhos) <= 4, sorted(tamanhos)
+
+    def test_a_escala_tipografica_tem_no_maximo_DOIS_pesos(self, css: str) -> None:
+        pesos = {
+            valor.strip()
+            for propriedade, valor in _DECLARACAO.findall(css)
+            if propriedade == "font-weight"
+        }
+        assert len(pesos) <= 2, sorted(pesos)
+
+    def test_todo_numero_da_tela_usa_LARGURA_TABULAR(self, css: str) -> None:
+        """Sem largura tabular, um numero que se atualiza a cada 2 s DANCA
+        horizontalmente — ruido puro ao lado do jogo.
+
+        A regra e sobre o papel Display, que e o numero que decide dinheiro: se
+        ele existe, ele e monoespacado e tabular.
+        """
+        assert "font-variant-numeric: tabular-nums" in css
+        display = css[css.index(".cartao__valor {") : css.index(".cartao__valor--xm")]
+        assert "font-family: var(--font-num)" in display
+        assert "font-variant-numeric: tabular-nums" in display
+        assert "clamp(32px, 6vw, 48px)" in display
+
+    @pytest.mark.parametrize("arquivo", ["css", "html"])
+    def test_a_pagina_nao_pede_UM_BYTE_a_rede(self, arquivo: str, css: str, html: str) -> None:
+        """Nenhuma requisicao de rede alem das do proprio servidor.
+
+        Tres formas, e nao uma: um `@import`, um `@font-face` com `src:` e uma
+        URL absoluta em `url(...)` ou em `href`. A CSP `default-src 'none'`
+        barraria as tres no navegador — mas barrar no navegador e descobrir
+        tarde, e uma fonte que nao carrega vira uma tela sem tema sem ninguem
+        entender por que.
+        """
+        texto = css if arquivo == "css" else html
+        assert "://" not in texto
+        assert "@import" not in texto
+        assert "@font-face" not in texto
+
+    def test_a_regra_de_MOVIMENTO_REDUZIDO_zera_pulso_e_transicao(
+        self, css: str
+    ) -> None:
+        """Sem excecao — e um `0.01ms` "porque e praticamente nada" seria uma
+        excecao disfarcada de numero."""
+        gatilho = "@media (prefers-reduced-motion: reduce)"
+        assert gatilho in css
+        bloco = css[css.index(gatilho) :]
+        bloco = bloco[: bloco.index("\n}\n", bloco.index("{"))]
+        assert "animation: none" in bloco
+        assert "transition: none" in bloco
+
+    def test_o_CSS_INTEIRO_nao_escreve_o_nome_da_serie(self, css: str) -> None:
+        """DASH-05: o componente de serie e generico.
+
+        A busca e sobre o ARQUIVO INTEIRO e nao so sobre os seletores, e essa
+        severidade e deliberada — e a letra do `01-UI-SPEC.md` ("a palavra nao
+        aparece no CSS"). Um comentario que explica uma regra "para o caso da
+        Adena" e o primeiro passo para um seletor que so serve para a Adena; a
+        busca literal nao deixa o primeiro passo acontecer.
+
+        Uma segunda serie instanciada usa os MESMOS seletores. A escolha da cor
+        e de quem chama, e a paleta e do tema, nao do componente.
+        """
+        assert "adena" not in css.lower()
+
+
+# ---------------------------------------------------------------------------
+# O CONTRASTE, RECALCULADO
+# ---------------------------------------------------------------------------
+#
+# ESTE BLOCO NAO REPETE AS RAZOES DO `01-UI-SPEC.md` — ele as REFAZ, a partir dos
+# tokens que estao no CSS. E a diferenca entre uma tabela que envelhece em
+# silencio e uma que falha quando alguem mexe numa cor. O contrato manda por
+# extenso: "se o executor trocar um valor, a razao tem que ser recalculada, nao
+# estimada no olho".
+
+_TOKEN_DE_COR = re.compile(r"(--cor-[a-z-]+):\s*(#[0-9a-fA-F]{6})\s*;")
+
+
+def _canal_linear(valor: int) -> float:
+    """A linearizacao sRGB da WCAG 2.x, byte a byte."""
+    proporcao = valor / 255.0
+    if proporcao <= 0.04045:
+        return proporcao / 12.92
+    return ((proporcao + 0.055) / 1.055) ** 2.4
+
+
+def _luminancia(hexadecimal: str) -> float:
+    bruto = hexadecimal.lstrip("#")
+    vermelho, verde, azul = (int(bruto[i : i + 2], 16) for i in (0, 2, 4))
+    return (
+        0.2126 * _canal_linear(vermelho)
+        + 0.7152 * _canal_linear(verde)
+        + 0.0722 * _canal_linear(azul)
+    )
+
+
+def razao_de_contraste(frente: str, fundo: str) -> float:
+    """A razao da WCAG entre duas cores hexadecimais. FUNCAO PURA, de proposito.
+
+    Ela nao le arquivo, nao conhece token e nao sabe desta tela: e so a formula.
+    Quem a alimenta e o teste, com os valores lidos do bloco de tokens — e e
+    essa separacao que faz "trocar uma cor refaz a conta" ser verdade.
+    """
+    clara, escura = sorted((_luminancia(frente), _luminancia(fundo)), reverse=True)
+    return (clara + 0.05) / (escura + 0.05)
+
+
+# OS PARES DA TABELA DO `01-UI-SPEC.md`, com o piso COBRADO e a medicao
+# PUBLICADA. Os dois, e nao so o piso:
+#
+#   - o PISO e o que o par tem de cumprir para o texto ser legivel;
+#   - a MEDICAO publicada e conferida junto para que um token trocado nao possa
+#     baixar a razao ate a beira do piso sem ninguem notar. Passar raspando e um
+#     resultado diferente de passar com folga, e a tabela do contrato afirma a
+#     folga.
+#
+# SOBRE `texto-fraco` E `alerta`: a coluna "Piso" do contrato os rotula como
+# `AAA (corpo)` e `AA+`, mas a aritmetica da WCAG e clara — AAA para texto de
+# corpo exige 7:1, e 6,12 e 5,25 nao chegam la. As MEDICOES do contrato estao
+# certas; os ROTULOS delas e que sao generosos. O que se cobra aqui e o numero,
+# e o numero cumpre com folga o piso duro que o contrato escreve em prosa
+# ("nenhum texto da tela fica abaixo de 4,5:1"). Registrar a divergencia e mais
+# honesto que copiar o rotulo e fingir que 6,12 e AAA.
+PARES_DE_CONTRASTE = (
+    ("--cor-texto", "--cor-fundo", 7.0, 14.34),
+    ("--cor-texto", "--cor-painel", 7.0, 13.16),
+    ("--cor-serie-tipica", "--cor-painel", 7.0, 9.46),
+    ("--cor-ouro", "--cor-painel", 7.0, 8.89),
+    ("--cor-frio", "--cor-painel", 7.0, 7.80),
+    ("--cor-texto-fraco", "--cor-painel", 4.5, 6.12),
+    ("--cor-alerta", "--cor-painel", 4.5, 5.25),
+    # O EXTREMO MAIS CLARO DO GRADIENTE DA PLACA. Medir so contra `--cor-painel`
+    # deixaria de fora o topo do gradiente, que e o pior caso para um texto
+    # claro — e o painel inteiro e gradiente, entao esse pior caso EXISTE na
+    # tela. Aqui ele e cobrado.
+    ("--cor-serie-tipica", "--cor-relevo-topo", 7.0, 9.03),
+)
+
+
+@pytest.fixture(scope="module")
+def tokens(css: str) -> dict[str, str]:
+    """As cores LIDAS do bloco de tokens do CSS — nunca repetidas aqui.
+
+    Repetir os valores neste arquivo faria o teste conferir a si mesmo: trocar
+    uma cor no CSS deixaria a suite verde sobre a paleta antiga.
+    """
+    achados = dict(_TOKEN_DE_COR.findall(_bloco_de_tokens(css)))
+    assert achados, "o bloco de tokens deixou de declarar cor"
+    return achados
+
+
+class TestOContrasteFoiRecalculado:
+    @pytest.mark.parametrize(
+        ("frente", "fundo", "piso", "publicada"), PARES_DE_CONTRASTE
+    )
+    def test_o_par_cumpre_o_piso_do_contrato(
+        self,
+        frente: str,
+        fundo: str,
+        piso: float,
+        publicada: float,
+        tokens: dict[str, str],
+    ) -> None:
+        """LE os tokens do CSS e REFAZ a conta. Nao repete o numero da tabela.
+
+        Trocar um token no `dashboard.css` faz este teste recalcular a razao — e
+        falhar se o piso cair. E o oposto de uma tabela de contraste em Markdown,
+        que continua verde para sempre porque ninguem a executa.
+        """
+        razao = razao_de_contraste(tokens[frente], tokens[fundo])
+        assert razao >= piso, f"{frente} sobre {fundo}: {razao:.2f}"
+        assert abs(razao - publicada) < 0.05, (
+            f"{frente} sobre {fundo}: medido {razao:.2f}, "
+            f"contrato publica {publicada:.2f}"
+        )
+
+    def test_NENHUM_par_da_tabela_fica_abaixo_de_quatro_e_meio(
+        self, tokens: dict[str, str]
+    ) -> None:
+        """O piso duro que o contrato escreve em prosa, cobrado de uma vez.
+
+        E o que "o tema nunca custa legibilidade" significa em numero, em vez de
+        em promessa.
+        """
+        for frente, fundo, _, _ in PARES_DE_CONTRASTE:
+            assert razao_de_contraste(tokens[frente], tokens[fundo]) >= 4.5
+
+    def test_a_formula_de_contraste_conhece_os_DOIS_extremos(self) -> None:
+        """O CONTROLE da formula, com os unicos dois valores que ela nao pode
+        errar: branco sobre preto da 21, e uma cor sobre ela mesma da 1.
+
+        Sem ele, uma formula quebrada que devolvesse sempre um numero grande
+        aprovaria a tabela inteira.
+        """
+        assert abs(razao_de_contraste("#FFFFFF", "#000000") - 21.0) < 0.01
+        assert abs(razao_de_contraste("#E0B450", "#E0B450") - 1.0) < 0.01
