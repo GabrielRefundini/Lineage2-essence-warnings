@@ -18,11 +18,12 @@ nasceram nesta sessao.
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 import numpy as np
 
 from l2scanner import recaptura
-from l2scanner.frames import Frame, SaudeDoFrame
+from l2scanner.frames import Frame, Regiao, SaudeDoFrame
 from l2scanner.recaptura import (
     CONGELADOS_SEGUIDOS_PARA_RELIGAR,
     SEGUNDOS_ENTRE_TENTATIVAS,
@@ -41,6 +42,8 @@ class Contador:
         # e nenhuma fonte chega a nascer. E o que prova que o teto conta
         # TENTATIVAS, e nao sucessos.
         self.chamadas_da_fabrica = 0
+        # Cada fonte que nasceu, na ordem. `nascidas[-1]` e a viva.
+        self.nascidas: list = []
 
 
 class RelogioFalso:
@@ -70,6 +73,7 @@ class FonteFalsa:
 
     def __init__(self, contador: Contador, saude: SaudeDoFrame) -> None:
         contador.construcoes += 1
+        contador.nascidas.append(self)
         self.numero = contador.construcoes
         self._contador = contador
         self._saude = saude
@@ -438,3 +442,252 @@ class TestOOrcamentoVoltaInteiro:
         rodar(envelope, relogio, ticks_para_gastar_o_orcamento())
 
         assert contador.construcoes == 1 + TENTATIVAS_DE_RELIGACAO
+
+
+class FonteRica(FonteFalsa):
+    """Uma falsa com o resto da superficie da `JanelaSource`.
+
+    Cada resposta carrega o NUMERO DA CONSTRUCAO, entao o teste sabe qual
+    instancia atendeu sem espiar o interior do envelope.
+    """
+
+    def __init__(self, contador: Contador, saude: SaudeDoFrame) -> None:
+        super().__init__(contador, saude)
+        self.regiao = None
+
+    def capturar_completo(self):
+        return f"completo-{self.numero}"
+
+    def completo_do_frame_atual(self):
+        return f"atual-{self.numero}"
+
+    def apontar_para(self, regiao) -> None:
+        self.regiao = regiao
+
+
+class FonteRicaComCliente(FonteRica):
+    def estado_do_cliente(self):
+        return f"cliente-{self.numero}"
+
+
+class FonteQueRecusaReapontar(FonteRica):
+    """A recusa de `apontar_para` numa fonte de coordenadas de desktop.
+
+    `JanelaSource.apontar_para` levanta `ValueError` quando a regiao nao e
+    relativa a janela. Essa recusa nao pode virar crash de religacao.
+    """
+
+    def apontar_para(self, regiao) -> None:
+        if self.numero >= 2:
+            raise ValueError("regiao de desktop nao pode ser reapontada")
+        self.regiao = regiao
+
+
+def fabrica_rica(contador: Contador, classe=FonteRica, saude=SaudeDoFrame.CONGELADO):
+    def construir():
+        contador.chamadas_da_fabrica += 1
+        return classe(contador, saude)
+
+    return construir
+
+
+def forcar_religacao(envelope) -> None:
+    for _ in range(CONGELADOS_SEGUIDOS_PARA_RELIGAR):
+        envelope.capturar()
+
+
+class TestOsDonosDeReferenciaSobrevivemATroca:
+    """Sem isto, religar rebindaria so a variavel local e os tres donos da
+    referencia ficariam apontando para o objeto morto — o defeito de hoje,
+    agora em tres lugares."""
+
+    def test_metodo_ligado_colhido_antes_entrega_a_fonte_nova(self) -> None:
+        """O padrao EXATO do `Gravador`, que colhe o metodo na construcao."""
+        contador = Contador()
+        envelope = FonteRecuperavel(fabrica_rica(contador))
+
+        fonte_completa = envelope.completo_do_frame_atual  # como o Gravador faz
+        forcar_religacao(envelope)
+
+        assert contador.construcoes == 2
+        assert fonte_completa() == "atual-2"
+
+    def test_capturar_completo_chega_a_fonte_viva(self) -> None:
+        """O padrao do `Reancorador`, que guarda a fonte na construcao."""
+        contador = Contador()
+        envelope = FonteRecuperavel(fabrica_rica(contador))
+
+        forcar_religacao(envelope)
+
+        assert envelope.capturar_completo() == "completo-2"
+
+    def test_apontar_para_chega_a_fonte_viva(self) -> None:
+        contador = Contador()
+        envelope = FonteRecuperavel(fabrica_rica(contador))
+        forcar_religacao(envelope)
+
+        envelope.apontar_para("regiao-nova")
+
+        assert contador.nascidas[-1].regiao == "regiao-nova"
+
+
+class TestOHasattrRespondePeloInterior:
+    """`sessao.py:453` decide por `hasattr(fonte, "estado_do_cliente")`.
+
+    `MssSource` nao tem esse metodo. Um metodo DECLARADO no envelope faria o
+    caminho de desktop prometer um estado de cliente que nao existe e estourar
+    dentro do `try` de analise — por isso a delegacao e por `__getattr__`.
+    """
+
+    def test_e_False_quando_o_interior_nao_tem(self) -> None:
+        contador = Contador()
+        envelope = FonteRecuperavel(fabrica_rica(contador, FonteRica))
+
+        assert not hasattr(envelope, "estado_do_cliente")
+
+    def test_e_True_quando_o_interior_tem(self) -> None:
+        contador = Contador()
+        envelope = FonteRecuperavel(fabrica_rica(contador, FonteRicaComCliente))
+
+        assert hasattr(envelope, "estado_do_cliente")
+
+    def test_a_chamada_devolve_o_valor_do_interior_vivo(self) -> None:
+        contador = Contador()
+        envelope = FonteRecuperavel(fabrica_rica(contador, FonteRicaComCliente))
+
+        assert envelope.estado_do_cliente() == "cliente-1"
+        forcar_religacao(envelope)
+        assert envelope.estado_do_cliente() == "cliente-2"
+
+
+class TestAGeometriaReancoradaSobreviveARELIGACAO:
+    """Sem isto, um congelamento depois de um reancoramento devolveria o scanner
+    a ler o lugar antigo — ler um lugar com a regua de outro, que
+    `reancoragem.py:359` chama de pior que nao reancorar."""
+
+    def test_a_fonte_nova_recebe_a_regiao_reancorada(self) -> None:
+        contador = Contador()
+        envelope = FonteRecuperavel(fabrica_rica(contador))
+
+        envelope.apontar_para("regiao-reancorada")
+        forcar_religacao(envelope)
+
+        assert contador.construcoes == 2
+        assert contador.nascidas[-1].regiao == "regiao-reancorada"
+
+    def test_sem_reancoramento_nada_e_reaplicado(self) -> None:
+        contador = Contador()
+        envelope = FonteRecuperavel(fabrica_rica(contador))
+
+        forcar_religacao(envelope)
+
+        assert contador.nascidas[-1].regiao is None
+
+    def test_uma_recusa_de_reapontar_nao_derruba_a_religacao(self) -> None:
+        contador = Contador()
+        envelope = FonteRecuperavel(
+            fabrica_rica(contador, FonteQueRecusaReapontar)
+        )
+
+        envelope.apontar_para("regiao-de-desktop")
+        forcar_religacao(envelope)
+
+        # A religacao aconteceu e foi ADOTADA, apesar da recusa.
+        assert contador.construcoes == 2
+        assert envelope.capturar_completo() == "completo-2"
+
+
+def _args(replay=None, janela=None) -> SimpleNamespace:
+    return SimpleNamespace(replay=replay, janela=janela)
+
+
+def _cal(na_janela: bool = True) -> SimpleNamespace:
+    regiao = Regiao(esquerda=0, topo=0, largura=10, altura=10)
+    return SimpleNamespace(
+        party_window=regiao,
+        party_window_na_janela=regiao if na_janela else None,
+        hp_proprio=None,
+    )
+
+
+def _janela_falsa(contador: Contador):
+    class JanelaSourceFalsa(FonteRica):
+        def __init__(self, titulo, regiao, relativa=False, extras=None) -> None:
+            super().__init__(contador, SaudeDoFrame.OK)
+            self.titulo = titulo
+            self.relativa = relativa
+
+    return JanelaSourceFalsa
+
+
+def _mss_falsa(contador: Contador):
+    class MssSourceFalsa(FonteRica):
+        def __init__(self, regiao, extras=None) -> None:
+            super().__init__(contador, SaudeDoFrame.OK)
+            self.regiao_pedida = regiao
+
+    return MssSourceFalsa
+
+
+class TestOsDoisBackendsPassamPeloMesmoCano:
+    """`--janela` e `mss` sao embrulhados pela MESMA `FonteRecuperavel`.
+
+    O replay fica de fora de proposito: reconstruir um replay reiniciaria a
+    gravacao, e o fim dele ja e `StopIteration` no laco.
+    """
+
+    def test_o_caminho_da_janela_devolve_o_envelope(self, monkeypatch) -> None:
+        from l2scanner import __main__ as principal
+
+        contador = Contador()
+        monkeypatch.setattr(principal, "JanelaSource", _janela_falsa(contador))
+
+        fonte = principal.montar_fonte(_args(janela="Lineage II"), _cal(), {})
+
+        assert isinstance(fonte, FonteRecuperavel)
+        assert contador.construcoes == 1
+
+    def test_o_caminho_do_desktop_devolve_o_envelope(self, monkeypatch) -> None:
+        from l2scanner import __main__ as principal
+
+        contador = Contador()
+        monkeypatch.setattr(principal, "MssSource", _mss_falsa(contador))
+
+        fonte = principal.montar_fonte(_args(), _cal(na_janela=False), {})
+
+        assert isinstance(fonte, FonteRecuperavel)
+        assert contador.construcoes == 1
+
+    def test_o_replay_fica_fora_do_envelope(self, monkeypatch) -> None:
+        from l2scanner import __main__ as principal
+
+        class ReplaySourceFalsa:
+            def __init__(self, pasta) -> None:
+                self.pasta = pasta
+
+            def __len__(self) -> int:
+                return 7
+
+        monkeypatch.setattr(principal, "ReplaySource", ReplaySourceFalsa)
+
+        fonte = principal.montar_fonte(_args(replay="recordings/x"), _cal(), {})
+
+        assert isinstance(fonte, ReplaySourceFalsa)
+        assert not isinstance(fonte, FonteRecuperavel)
+
+    def test_a_religacao_da_janela_usa_a_mesma_fabrica(self, monkeypatch) -> None:
+        """A lista de argumentos existe UMA vez: a segunda fonte nasce igual."""
+        from l2scanner import __main__ as principal
+
+        contador = Contador()
+        monkeypatch.setattr(principal, "JanelaSource", _janela_falsa(contador))
+        fonte = principal.montar_fonte(_args(janela="Lineage II"), _cal(), {})
+
+        # A falsa devolve OK; congelamos empurrando CONGELADO na instancia viva.
+        for _ in range(CONGELADOS_SEGUIDOS_PARA_RELIGAR):
+            contador.nascidas[-1]._saude = SaudeDoFrame.CONGELADO
+            fonte.capturar()
+
+        assert contador.construcoes == 2
+        assert contador.nascidas[-1].titulo == "Lineage II"
+        assert contador.nascidas[-1].relativa is True
