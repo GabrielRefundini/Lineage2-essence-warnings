@@ -311,6 +311,26 @@ function pintar(dados) {
   // A PROCEDÊNCIA VIAJA NO PAYLOAD, e não no folclore de quem desenha.
   escrever("fonte-arquivo", dados.fonte.arquivo);
   anotarOTextoCompleto("fonte-arquivo", dados.fonte.arquivo);
+
+  // A PRIMEIRA SÉRIE DA LISTA, E NÃO "a série tal".
+  //
+  // O payload traz TODAS as séries que o arquivo conhece, porque filtrar do
+  // lado do Python seria o `if` de uma série específica que o DASH-05 recusa —
+  // e o teste que prende isto é uma busca LITERAL pelo nome dela no arquivo
+  // inteiro, então nem os comentários o escrevem. Quais séries a página
+  // instancia é decisão da página — e a decisão desta versão é: a
+  // primeira, porque há uma área de gráfico na tela. Instanciar uma segunda é
+  // passar `dados.series[1]` para a mesma função, e nenhuma linha de código de
+  // gráfico novo.
+  //
+  // `series` é `[]` nos dois estados de falha fechada, e aí não há série
+  // nenhuma para desenhar — o gráfico é apagado junto com o resto.
+  if (dados.series.length === 0) {
+    escrever("serie-titulo", "");
+    apagarOGrafico();
+  } else {
+    desenharUmaSerie(dados.series[0]);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -393,4 +413,473 @@ function darUmaVolta() {
   return buscarOsDados().then(agendarAProximaBusca);
 }
 
-document.addEventListener("DOMContentLoaded", darUmaVolta);
+// ===========================================================================
+// O COMPONENTE DE SÉRIE — GENÉRICO POR CONSTRUÇÃO (DASH-05)
+// ===========================================================================
+//
+// A PALAVRA QUE NOMEIA A SÉRIE DE HOJE NÃO APARECE NESTE ARQUIVO NEM NO CSS, e
+// isso é estrutural em vez de uma intenção: esta função recebe UM elemento da
+// lista `series` do payload e mais nada. Ela não sabe qual série está
+// desenhando, e é por isso que a segunda instância não pede código novo.
+//
+// Há teste afirmando as duas metades da mesma coisa: que a palavra não está no
+// JS nem no CSS, E que ela ESTÁ no que o Python serve. Sem a segunda metade, o
+// teste ficaria verde num projeto onde a palavra simplesmente não existe em
+// lugar nenhum — provando a genericidade pelo motivo errado.
+//
+// O CONTRATO DE PROPRIEDADES, E AS DUAS DIVERGÊNCIAS DECLARADAS
+// ==============================================================
+// O `01-UI-SPEC.md` escreve o contrato como
+// `{ titulo, unidade, pontos[], formatador, rotulo_principal, rotulo_tipico }`.
+// O que este arquivo consome é `{ titulo, unidade, pontos, baldes,
+// rotulo_principal, rotulo_tipico }`, e as duas diferenças têm razão:
+//
+//   - `formatador` NÃO CHEGA como propriedade porque ele já foi APLICADO. O
+//     ponto de decisão único (`formatador_do_unitario`) roda no Python, e o que
+//     atravessa a fronteira HTTP é o resultado dele: `menor_texto` e
+//     `tipica_texto`, prontos. Receber a função aqui exigiria reimplementá-la em
+//     JavaScript, que é exatamente o segundo formatador que o DASH-03 recusa.
+//   - `baldes` chega A MAIS porque o UI-SPEC pede que o zoom largo agregue por
+//     mediana inferior, e essa conta não pode acontecer aqui: ela é ordenação de
+//     fração exata, e no navegador viraria ordenação de ponto flutuante. O
+//     Python manda as três larguras já agregadas; a janela do zoom é decisão do
+//     navegador, a CONTA não é.
+//
+// Há teste afirmando que o conjunto de propriedades lidas nesta região é
+// EXATAMENTE esse, e nenhuma a mais.
+//
+// <<< COMPONENTE-DE-SERIE
+
+// As três larguras que o payload traz, e o alcance visível até o qual cada uma
+// serve. `null` é a série CRUA, um ponto por instante de leitura (CTX-1).
+//
+// ESTES LIMITES SÃO ESCOLHA, E NÃO MEDIÇÃO, e dizer isso é mais honesto do que
+// deixar o leitor supor que houve um experimento: um dia de janela visível ainda
+// desenha poucos pontos por pixel com o volume de hoje, e daí para cima a
+// agregação começa a valer. Se um dia isto ficar denso demais, o número muda
+// aqui — e nada mais no arquivo precisa saber.
+const SEGUNDOS_POR_HORA = 3600;
+const SEGUNDOS_POR_DIA = 24 * SEGUNDOS_POR_HORA;
+const RESOLUCOES = [
+  { nome: null, ate: SEGUNDOS_POR_DIA },
+  { nome: "cinco_minutos", ate: SEGUNDOS_POR_DIA * 7 },
+  { nome: "uma_hora", ate: SEGUNDOS_POR_DIA * 60 },
+  { nome: "um_dia", ate: Infinity },
+];
+
+// AS TRÊS EXCEÇÕES DECLARADAS DA ESCALA DE ESPAÇAMENTO, do `dashboard.css`:
+// espessura de linha do gráfico é parâmetro da BIBLIOTECA e não CSS de layout,
+// e por isso ela mora aqui e não lá. Sólido de dois contra tracejado de um e
+// meio.
+//
+// E O TRAÇO NÃO É REDUNDÂNCIA DA COR. Sólido contra tracejado sobrevive a
+// daltonismo, a monitor mal calibrado e ao `Gamma=1.16` do cliente; cor sozinha
+// não sobreviveria a nenhum dos três. A legenda da marcação usa exatamente as
+// mesmas duas formas, para que a amostra ao lado do rótulo seja a mesma coisa
+// que a linha no gráfico.
+const LARGURA_DA_LINHA_PRINCIPAL = 2;
+const LARGURA_DA_LINHA_TIPICA = 1.5;
+const TRACEJADO_DA_LINHA_TIPICA = [6, 4];
+const LARGURA_DA_GRADE = 1;
+
+// O último conjunto de textos entregue ao gráfico. A dica sob o cursor lê daqui.
+let textosDoGrafico = { instantes: [], principal: [], tipica: [] };
+let grafico = null;
+let resolucaoAtual = null;
+let alcanceTotal = null;
+
+/**
+ * A paleta, PEDIDA AO CSS por nome de token.
+ *
+ * A biblioteca desenha em canvas, e canvas não herda CSS: a cor tem de ser
+ * ENTREGUE a ela em configuração. Entregar um hexadecimal escrito aqui criaria
+ * a segunda paleta do projeto, e ela divergiria da primeira no dia em que o tema
+ * mudasse — sem quebrar nada em voz alta.
+ *
+ * Uma cor sem nome de token é uma cor que o gráfico não consegue pedir, e foi
+ * exatamente por isso que a cor da linha da mediana ganhou token próprio no CSS
+ * em vez de continuar sendo um literal solto.
+ */
+function paletaDoTema() {
+  const raiz = getComputedStyle(document.documentElement);
+  return {
+    principal: raiz.getPropertyValue("--cor-ouro").trim(),
+    tipica: raiz.getPropertyValue("--cor-serie-tipica").trim(),
+    grade: raiz.getPropertyValue("--cor-grade").trim(),
+    rotulo: raiz.getPropertyValue("--cor-texto-fraco").trim(),
+  };
+}
+
+/**
+ * A fonte dos rótulos do gráfico, LIDA de um elemento que o CSS já dimensionou.
+ *
+ * Mesma razão da paleta, e a mesma armadilha: o canvas não herda a folha de
+ * estilo, então a fonte precisa ser entregue como string. Escrever aqui o
+ * tamanho e a família seria a segunda escala tipográfica do projeto.
+ *
+ * A linha de prova do estado vazio é o modelo porque ela já é exatamente o papel
+ * que os rótulos do eixo têm: tamanho de rótulo, na fonte numérica. Ler dela é
+ * pegar a decisão que o CSS já tomou, em vez de repeti-la.
+ */
+function fonteDosRotulos() {
+  const modelo = document.getElementById("serie-vazio-prova");
+  if (modelo === null) {
+    return null;
+  }
+  const estilo = getComputedStyle(modelo);
+  return estilo.fontSize + " " + estilo.fontFamily;
+}
+
+/**
+ * O carimbo do Python virando o número que o eixo do tempo entende.
+ *
+ * `Date.parse` de um carimbo SEM FUSO é lido como hora LOCAL, e é isso que se
+ * quer: o CSV grava `agora.isoformat()` sem fuso, e o projeto inteiro usa hora
+ * local ingênua. Introduzir fuso aqui criaria duas convenções de tempo na mesma
+ * tela.
+ */
+function emSegundos(carimbo) {
+  return Date.parse(carimbo) / MILISSEGUNDOS_POR_SEGUNDO;
+}
+
+function conjuntoCru(serie) {
+  const pontos = serie.pontos;
+  return {
+    dados: [
+      pontos.map(function (ponto) {
+        return emSegundos(ponto.instante);
+      }),
+      pontos.map(function (ponto) {
+        return ponto.menor_pixel;
+      }),
+
+      // A MEDIANA AUSENTE VIRA VÃO NA LINHA, E NUNCA ZERO. O payload manda
+      // `null` — nunca `0.0` — e a razão é a mesma do lado de lá: zero é uma
+      // POSIÇÃO no eixo, e desenhar a ausência ali afirmaria que a taxa
+      // desabou. Abaixo do piso de evidência a linha simplesmente não existe
+      // naquele instante, e o texto da dica traz a frase de falta do Python.
+      pontos.map(function (ponto) {
+        return ponto.tipica_pixel;
+      }),
+    ],
+    textos: {
+      instantes: pontos.map(function (ponto) {
+        // O `n=` é rótulo, e não reescrita: a contagem entra do jeito que veio.
+        return ponto.instante + "  n=" + ponto.n;
+      }),
+      principal: pontos.map(function (ponto) {
+        return ponto.menor_texto;
+      }),
+      tipica: pontos.map(function (ponto) {
+        return ponto.tipica_texto;
+      }),
+    },
+  };
+}
+
+/**
+ * Um dos três conjuntos de balde, com as duas linhas ALINHADAS no mesmo eixo.
+ *
+ * O Python agrega cada linha separadamente, e por isso os instantes das duas não
+ * coincidem: um balde pode ter menor e não ter mediana. A biblioteca exige um
+ * eixo horizontal só, então as duas listas são reunidas pela união dos
+ * instantes, com vão onde a linha não tem valor.
+ *
+ * REUNIR NÃO É AGREGAR. Nenhum valor novo nasce aqui: cada número continua sendo
+ * o que o Python calculou com mediana inferior sobre fração exata, e o vão
+ * continua sendo vão. A regra do D-02 — um número exibido tem de ter existido —
+ * atravessa esta função intacta.
+ *
+ * A ORDENAÇÃO É SOBRE O CARIMBO EM TEXTO, e é correta por construção: todos os
+ * carimbos vêm do mesmo `isoformat()`, com o mesmo comprimento e os campos do
+ * mais significativo para o menos, então a ordem alfabética É a ordem
+ * cronológica.
+ */
+function conjuntoDeBalde(serie, nome) {
+  const balde = serie.baldes[nome];
+  const porInstante = new Map();
+
+  function guardar(lista, ondePoeOPixel, ondePoeOTexto) {
+    lista.forEach(function (item) {
+      let achado = porInstante.get(item.instante);
+      if (achado === undefined) {
+        achado = { principal: null, tipica: null, textoPrincipal: "", textoTipica: "" };
+        porInstante.set(item.instante, achado);
+      }
+      achado[ondePoeOPixel] = item.pixel;
+      achado[ondePoeOTexto] = item.texto;
+    });
+  }
+
+  guardar(balde.principal, "principal", "textoPrincipal");
+  guardar(balde.tipica, "tipica", "textoTipica");
+
+  const instantes = Array.from(porInstante.keys()).sort();
+  const reunidos = instantes.map(function (instante) {
+    return porInstante.get(instante);
+  });
+
+  return {
+    dados: [
+      instantes.map(emSegundos),
+      reunidos.map(function (item) {
+        return item.principal;
+      }),
+      reunidos.map(function (item) {
+        return item.tipica;
+      }),
+    ],
+    textos: {
+      // SEM `n` NO BALDE, e isso é honestidade e não esquecimento: `n` é a
+      // contagem de ofertas de UM instante, e um balde é vários instantes.
+      // Somar as contagens produziria um número que não qualifica o valor
+      // exibido — o valor exibido é o de um instante só, escolhido por mediana
+      // inferior entre os do balde.
+      instantes: instantes,
+      principal: reunidos.map(function (item) {
+        return item.textoPrincipal;
+      }),
+      tipica: reunidos.map(function (item) {
+        return item.textoTipica;
+      }),
+    },
+  };
+}
+
+function resolucaoPara(alcanceVisivel) {
+  for (let i = 0; i < RESOLUCOES.length; i += 1) {
+    if (alcanceVisivel <= RESOLUCOES[i].ate) {
+      return RESOLUCOES[i].nome;
+    }
+  }
+  return RESOLUCOES[RESOLUCOES.length - 1].nome;
+}
+
+function conjuntoNaResolucao(serie, nome) {
+  return nome === null ? conjuntoCru(serie) : conjuntoDeBalde(serie, nome);
+}
+
+/**
+ * A dica sob o cursor, montada a partir das STRINGS do ponto.
+ *
+ * A REGRA, QUE É A MESMA DA FRONTEIRA DO `float`: o número no payload é o PIXEL,
+ * e a string é a VERDADE. O `float` existe porque o canvas só aceita número de
+ * JS, e o erro dele foi medido — pior caso `1,9e-11`. Ele serve para posicionar
+ * uma linha; ele NÃO serve para ser lido. O que o usuário lê é a string que o
+ * Python formatou, e é por isso que cada ponto viaja com as duas coisas.
+ */
+function textoSobOCursor(qualLista) {
+  return function (instancia, valor, indiceDaSerie, indiceDoPonto) {
+    if (indiceDoPonto === null || indiceDoPonto === undefined) {
+      return "";
+    }
+    const texto = qualLista()[indiceDoPonto];
+    return texto === null || texto === undefined ? "" : texto;
+  };
+}
+
+function opcoesDoGrafico(serie, area) {
+  const paleta = paletaDoTema();
+  const fonte = fonteDosRotulos();
+  const eixo = {
+    stroke: paleta.rotulo,
+    grid: { stroke: paleta.grade, width: LARGURA_DA_GRADE },
+    ticks: { stroke: paleta.grade, width: LARGURA_DA_GRADE },
+  };
+  if (fonte !== null) {
+    eixo.font = fonte;
+    eixo.labelFont = fonte;
+  }
+
+  return {
+    width: area.clientWidth,
+    height: area.clientHeight,
+    scales: { x: { time: true }, y: {} },
+    axes: [
+      Object.assign({}, eixo),
+
+      // O RÓTULO DO EIXO VERTICAL É A UNIDADE QUE VEIO DO PYTHON, inteira. Ela
+      // muda com a série — a taxa e o unitário comum têm unidades diferentes —,
+      // e é justamente por isso que ela é propriedade do objeto e não uma
+      // constante deste arquivo.
+      Object.assign({}, eixo, { label: serie.unidade }),
+    ],
+    series: [
+      {
+        value: textoSobOCursor(function () {
+          return textosDoGrafico.instantes;
+        }),
+      },
+      {
+        label: serie.rotulo_principal,
+        stroke: paleta.principal,
+        width: LARGURA_DA_LINHA_PRINCIPAL,
+
+        // Vão é VÃO. Sem esta linha a biblioteca ligaria os dois lados de uma
+        // ausência com uma reta, desenhando uma variação que ninguém observou.
+        spanGaps: false,
+        value: textoSobOCursor(function () {
+          return textosDoGrafico.principal;
+        }),
+      },
+      {
+        label: serie.rotulo_tipico,
+        stroke: paleta.tipica,
+        width: LARGURA_DA_LINHA_TIPICA,
+        dash: TRACEJADO_DA_LINHA_TIPICA,
+        spanGaps: false,
+        value: textoSobOCursor(function () {
+          return textosDoGrafico.tipica;
+        }),
+      },
+    ],
+  };
+}
+
+function apagarOGrafico() {
+  if (grafico !== null) {
+    grafico.destroy();
+    grafico = null;
+  }
+  resolucaoAtual = null;
+  alcanceTotal = null;
+}
+
+/**
+ * Desenha UMA série. A instância de hoje é apenas a primeira chamada.
+ *
+ * O ESTADO VAZIO NÃO É DESENHADO AQUI, E ISSO É DE PROPÓSITO. Os eixos, a grade,
+ * a placa central e a legenda já estão no CSS e na marcação, governados pelo
+ * atributo de estado — gráfico vazio mudo está proibido, e a proibição foi
+ * cumprida do lado que desenha. Instanciar a biblioteca sem ponto nenhum aqui
+ * produziria um quadro em branco POR CIMA da placa, que é o oposto do combinado.
+ */
+function desenharUmaSerie(serie) {
+  // O título vem do nome exibido, que atravessa o OCR e oscila. Texto, nunca
+  // marcação; e o texto completo no atributo de título, porque o CSS corta a
+  // linha com reticência e quem precisa do nome inteiro tem de alcançá-lo.
+  escrever("serie-titulo", serie.titulo);
+  anotarOTextoCompleto("serie-titulo", serie.titulo);
+
+  const area = document.getElementById("serie-grafico");
+  if (area === null) {
+    return;
+  }
+
+  if (serie.pontos.length === 0) {
+    apagarOGrafico();
+    return;
+  }
+
+  const biblioteca = window[NOME_GLOBAL_DA_BIBLIOTECA];
+  if (biblioteca === undefined) {
+    // Os números do destaque continuam na tela: a falta da biblioteca de
+    // gráfico não pode derrubar a metade da página que não depende dela.
+    console.error("dashboard: a biblioteca de grafico nao carregou");
+    return;
+  }
+
+  // O ALCANCE TOTAL SAI SEMPRE DA SÉRIE CRUA, mesmo quando o desenho está num
+  // balde: ele é o período inteiro que existe, e é isso que o botão restaura.
+  const cru = conjuntoCru(serie);
+  const eixoDoTempo = cru.dados[0];
+  alcanceTotal = {
+    min: eixoDoTempo[0],
+    max: eixoDoTempo[eixoDoTempo.length - 1],
+  };
+
+  if (grafico === null) {
+    resolucaoAtual = null;
+    textosDoGrafico = cru.textos;
+    grafico = new biblioteca(opcoesDoGrafico(serie, area), cru.dados, area);
+    return;
+  }
+
+  // A INSTÂNCIA É REAPROVEITADA, e esta é a linha que mais importa do laço.
+  // Recriar o gráfico a cada volta jogaria fora, de dois em dois segundos, o
+  // zoom que o usuário acabou de dar — um defeito que não aparece em teste
+  // nenhum e aparece na primeira vez que alguém tenta olhar uma tarde
+  // específica. `false` no segundo argumento é o que preserva a escala.
+  const conjunto = conjuntoNaResolucao(serie, resolucaoAtual);
+  textosDoGrafico = conjunto.textos;
+  grafico.setData(conjunto.dados, false);
+}
+
+/**
+ * Devolve o período inteiro. Sem este botão o usuário fica preso no zoom.
+ */
+function verTodoOPeriodo() {
+  if (grafico === null || alcanceTotal === null) {
+    return;
+  }
+  if (alcanceTotal.max <= alcanceTotal.min) {
+    // Um ponto só não tem período para restaurar, e pedir à biblioteca uma
+    // escala de largura zero é pedir uma divisão por zero.
+    return;
+  }
+  grafico.setScale("x", { min: alcanceTotal.min, max: alcanceTotal.max });
+}
+
+// >>> COMPONENTE-DE-SERIE
+
+// ===========================================================================
+// A PARTIDA
+// ===========================================================================
+
+// A BIBLIOTECA DE GRÁFICO É CARREGADA POR ESTE ARQUIVO, E ISSO É UMA COSTURA
+// ENTRE PLANOS QUE FICA DECLARADA.
+// ==========================================================================
+// O `index.html` carrega a FOLHA DE ESTILO da biblioteca e o `dashboard.css`
+// retematiza o que ela desenha — mas a marcação nunca ganhou a linha que carrega
+// o CÓDIGO dela. Sem essa linha o objeto global não existe, e o gráfico não
+// poderia ser instanciado de jeito nenhum.
+//
+// O conserto mais simples é uma linha de `<script src>` no `index.html`, ao lado
+// da que já carrega este arquivo — e o teste de marcação da fase aceita vários
+// scripts, desde que todos carreguem por arquivo. Esse conserto NÃO foi feito
+// aqui porque o `index.html` está fora do alcance declarado deste plano; fica
+// registrado como pendência nomeada, e não como surpresa.
+//
+// A CARGA POR CÓDIGO É LEGÍTIMA, E NÃO UM DESVIO DA CSP: `script-src 'self'`
+// proíbe a forma EMBUTIDA e a origem de fora, e não a criação de um elemento com
+// origem própria. O caminho é uma constante deste arquivo — nunca um valor vindo
+// do payload —, então nada que atravesse a fronteira HTTP escolhe o que executa.
+const ARQUIVO_DA_BIBLIOTECA = "vendor/uPlot.iife.min.js";
+const NOME_GLOBAL_DA_BIBLIOTECA = "uPlot";
+
+function carregarABiblioteca(depois) {
+  if (window[NOME_GLOBAL_DA_BIBLIOTECA] !== undefined) {
+    depois();
+    return;
+  }
+  const elemento = document.createElement("script");
+  elemento.src = ARQUIVO_DA_BIBLIOTECA;
+
+  // NOS DOIS CASOS A PÁGINA SEGUE. Se a biblioteca não carregar, o destaque, a
+  // procedência e o campo do câmbio continuam funcionando — perder o gráfico não
+  // pode custar a metade da tela que responde "quanto vale agora".
+  elemento.addEventListener("load", depois);
+  elemento.addEventListener("error", function () {
+    console.error("dashboard: nao consegui carregar " + ARQUIVO_DA_BIBLIOTECA);
+    depois();
+  });
+  document.head.appendChild(elemento);
+}
+
+function comecar() {
+  const botao = document.getElementById("ver-todo-o-periodo");
+  if (botao !== null) {
+    botao.addEventListener("click", verTodoOPeriodo);
+  }
+
+  window.addEventListener("resize", function () {
+    const area = document.getElementById("serie-grafico");
+    if (grafico !== null && area !== null) {
+      grafico.setSize({ width: area.clientWidth, height: area.clientHeight });
+    }
+  });
+
+  carregarABiblioteca(darUmaVolta);
+}
+
+document.addEventListener("DOMContentLoaded", comecar);

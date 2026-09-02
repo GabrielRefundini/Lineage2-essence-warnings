@@ -32,7 +32,10 @@ virgula do outro lado.
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -167,6 +170,56 @@ def _acusacoes(sondas, texto: str) -> list[str]:
 
 
 _COMENTARIO_EM_BLOCO = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+# A REGIAO DO COMPONENTE DE SERIE, marcada no proprio fonte.
+#
+# As sentinelas existem para que a assercao "o componente le EXATAMENTE estas
+# propriedades" tenha uma fronteira DECIDIVEL. Sem elas, o teste teria de
+# adivinhar onde o componente comeca, e adivinhacao num guarda e o comeco de um
+# guarda que nao guarda nada.
+ABERTURA_DA_REGIAO = "// <<< COMPONENTE-DE-SERIE"
+FECHAMENTO_DA_REGIAO = "// >>> COMPONENTE-DE-SERIE"
+
+# O CONTRATO DE PROPRIEDADES, e as duas divergencias do `01-UI-SPEC.md` estao
+# escritas no `dashboard.js`, ao lado da regiao:
+#   - `formatador` nao chega porque ele ja foi APLICADO no Python (o texto de
+#     cada ponto chega pronto); recebe-lo aqui exigiria reimplementa-lo em JS,
+#     que e o segundo formatador que o DASH-03 recusa;
+#   - `baldes` chega a mais porque a agregacao do zoom largo e mediana inferior
+#     sobre fracao exata, e isso so existe no Python.
+PROPRIEDADES_DO_CONTRATO = {
+    "titulo",
+    "unidade",
+    "pontos",
+    "baldes",
+    "rotulo_principal",
+    "rotulo_tipico",
+}
+
+# A MESMA EXPRESSAO QUE `test_dashboard_tracer.py` e `test_dashboard_pagina.py`
+# ja usam. Mante-la igual nos tres e deliberado: uma paleta clandestina tem a
+# mesma forma nos tres arquivos, e tres expressoes diferentes divergiriam na
+# primeira correcao.
+CACA_HEXADECIMAL = re.compile(r"#[0-9a-fA-F]{3,8}\b")
+
+
+def _regiao_do_componente(js: str) -> str:
+    inicio = js.index(ABERTURA_DA_REGIAO) + len(ABERTURA_DA_REGIAO)
+    return js[inicio : js.index(FECHAMENTO_DA_REGIAO)]
+
+
+def _corpo_da_funcao(js: str, nome: str) -> str:
+    """O corpo de uma funcao de topo, ate a chave que fecha na coluna zero.
+
+    So e correto porque este arquivo declara toda funcao na coluna zero e a
+    fecha na coluna zero — e ha teste logo abaixo prendendo que o nome pedido
+    existe, para que um erro de digitacao nao devolva um corpo vazio que passe
+    calado em toda assercao de ausencia.
+    """
+    marca = "function " + nome + "("
+    inicio = js.index(marca)
+    fim = js.index("\n}\n", inicio)
+    return js[inicio:fim]
 
 
 def _so_o_codigo(js: str) -> str:
@@ -454,3 +507,179 @@ class TestAOrdemDosAvisosEhOCONTRATO:
 
         assert len(avisos) == 1
         assert avisos[0] == dashboard_dados.FRASE_DE_REAIS_INDISPONIVEL
+
+
+# ===========================================================================
+# O COMPONENTE DE SERIE E GENERICO (DASH-05)
+# ===========================================================================
+
+
+class TestOComponenteDeSerieEGenerico:
+    def test_a_palavra_que_nomeia_a_serie_NAO_esta_no_js_nem_no_css(
+        self, js: str, css: str, pasta: Path
+    ) -> None:
+        """As DUAS metades, e a segunda e a que torna a primeira uma prova.
+
+        Afirmar so a ausencia deixaria o teste verde num projeto onde a palavra
+        nao existe em lugar nenhum — genericidade provada pelo motivo errado. A
+        segunda assercao mostra que a palavra existe, viva, no que o servidor
+        manda: entao a ausencia no JS e no CSS e uma propriedade do DESENHO.
+        """
+        palavra = CHAVE_DA_SERIE_DA_ADENA.rstrip("#")
+
+        assert palavra not in js.lower()
+        assert palavra not in css.lower()
+
+        _escrever_cru(pasta, _cabecalho() + _linha(AGORA) + TERMINADOR)
+        servido = json.dumps(dashboard_dados.payload(pasta, AGORA), ensure_ascii=False)
+        assert palavra in servido.lower()
+
+    def test_a_contagem_de_hexadecimais_de_cor_no_js_e_zero(self, js: str) -> None:
+        assert CACA_HEXADECIMAL.findall(js) == []
+
+        # O CONTROLE NEGATIVO: a mesma expressao, no mesmo diretorio, ACHA
+        # hexadecimais no CSS — que e onde a paleta mora.
+        assert CACA_HEXADECIMAL.findall(ARQUIVO_DO_CSS.read_text(encoding="utf-8"))
+
+    def test_a_cor_e_PEDIDA_ao_css_por_nome_de_token(self, js: str) -> None:
+        """Uma cor sem nome de token e uma cor que o grafico nao consegue pedir.
+
+        Quatro e o piso porque sao quatro os papeis que a configuracao do
+        grafico precisa colorir: a linha principal, a da mediana, a grade e o
+        rotulo dos eixos.
+        """
+        leituras = re.findall(r"getPropertyValue\(\s*\"(--[a-z-]+)\"", js)
+        assert len(leituras) >= 4
+        assert len(set(leituras)) == len(leituras), "o mesmo token pedido duas vezes"
+
+        # E cada token pedido EXISTE no CSS. Um token com erro de digitacao
+        # devolve cadeia vazia, e a linha sairia sem cor nenhuma — calada.
+        css = ARQUIVO_DO_CSS.read_text(encoding="utf-8")
+        for token in leituras:
+            assert token + ":" in css, f"o JS pede {token}, que o CSS nao declara"
+
+    def test_a_funcao_de_serie_usa_EXATAMENTE_as_propriedades_do_contrato(
+        self, js: str
+    ) -> None:
+        """Nem uma a menos, nem uma a mais.
+
+        Uma propriedade A MAIS e o componente sabendo algo sobre a serie que o
+        contrato nao prometeu — e e assim que um componente generico vira um
+        componente de uma serie so, sem ninguem decidir isso.
+        """
+        regiao = _so_o_codigo(_regiao_do_componente(js))
+        lidas = set(re.findall(r"\bserie\.([a-z_]+)", regiao))
+
+        assert lidas == PROPRIEDADES_DO_CONTRATO
+
+    def test_as_duas_linhas_diferem_em_TRACO_alem_de_diferir_em_COR(
+        self, js: str
+    ) -> None:
+        """Traco sobrevive a daltonismo, a monitor mal calibrado e ao gama do
+        cliente. Cor sozinha nao sobreviveria a nenhum dos tres."""
+        regiao = _so_o_codigo(_regiao_do_componente(js))
+
+        # UMA das duas linhas e tracejada, e exatamente uma: duas tracejadas nao
+        # se distinguem, e nenhuma tracejada volta a depender so da cor.
+        assert len(re.findall(r"\bdash\s*:", regiao)) == 1
+
+        # E as duas cores continuam diferentes — o traco SOMA a cor, nao a
+        # substitui.
+        tracos = re.findall(r"stroke\s*:\s*paleta\.(\w+)", regiao)
+        assert "principal" in tracos
+        assert "tipica" in tracos
+
+    def test_a_dica_sob_o_cursor_vem_das_chaves_de_TEXTO(self, js: str) -> None:
+        """O numero no payload e o PIXEL; a string e a VERDADE.
+
+        O `float` existe porque o canvas so aceita numero de JS, e o erro dele
+        foi medido (pior caso 1,9e-11). Ele posiciona uma linha; ele nao e para
+        ser lido.
+        """
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "conjuntoCru"))
+        assert "textos:" in corpo
+
+        bloco_dos_textos = corpo[corpo.index("textos:") :]
+        assert "_texto" in bloco_dos_textos
+        assert "_pixel" not in bloco_dos_textos, (
+            "a dica esta sendo montada a partir do numero, e nao da string"
+        )
+
+        # CONTROLE: o bloco dos DADOS — o que vira pixel — de fato usa os
+        # numericos. Sem esta linha, a assercao acima ficaria verde sobre uma
+        # funcao que nao usa `_pixel` em lugar nenhum.
+        assert "_pixel" in corpo[: corpo.index("textos:")]
+
+    def test_o_botao_de_alcance_total_chama_o_metodo_de_ESCALA(self, js: str) -> None:
+        """Sem ele o usuario fica preso no zoom que ele mesmo deu."""
+        corpo = _corpo_da_funcao(js, "verTodoOPeriodo")
+        assert re.search(r"setScale\(\s*\"x\"", corpo) is not None
+
+        # E o botao da marcacao esta LIGADO a essa funcao.
+        assert re.search(
+            r"\"ver-todo-o-periodo\"[\s\S]{0,200}addEventListener\(\s*\"click\","
+            r"\s*verTodoOPeriodo",
+            js,
+        ) is not None
+
+    def test_o_grafico_NAO_e_recriado_a_cada_volta_do_polling(self, js: str) -> None:
+        """O defeito que nenhum teste de conteudo veria.
+
+        Recriar a instancia a cada resposta jogaria fora, de dois em dois
+        segundos, o zoom que o usuario acabou de dar. Ele nao quebra nada, nao
+        levanta erro, e aparece so na primeira vez que alguem tenta olhar uma
+        tarde especifica.
+        """
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "desenharUmaSerie"))
+
+        # A instancia so nasce quando nao existe...
+        assert "grafico === null" in corpo
+        # ...e o caminho de atualizacao entrega dados SEM redefinir a escala.
+        assert re.search(r"setData\([^)]*,\s*false\s*\)", corpo) is not None
+
+    def test_o_vao_da_mediana_ausente_e_VAO_e_nunca_zero(self, js: str) -> None:
+        """A ausencia da mediana e o caminho NORMAL desta tela, e nao uma borda.
+
+        O payload manda `null` — nunca `0.0` —, e a biblioteca precisa ser
+        instruida a NAO ligar os dois lados do vao com uma reta: ligar
+        desenharia uma variacao que ninguem observou.
+        """
+        regiao = _so_o_codigo(_regiao_do_componente(js))
+        assert len(re.findall(r"spanGaps\s*:\s*false", regiao)) == 2
+
+
+# ===========================================================================
+# O UNICO TESTE DESTE ARQUIVO QUE EXECUTA UM ANALISADOR DE VERDADE
+# ===========================================================================
+
+
+class TestOArquivoAoMenosANALISA:
+    """Nenhuma assercao sobre TEXTO ve um erro de sintaxe.
+
+    Todas as sondas acima continuariam verdes sobre um arquivo com uma chave
+    faltando — e um arquivo que nao analisa nao executa NADA: a pagina inteira
+    fica parada no rotulo de leitura em curso, sem numero, sem grafico e sem
+    formulario. E o modo de falha mais caro possivel, e o mais barato de pegar.
+
+    O `node` nao e dependencia deste projeto e nao entra no `requirements.txt`:
+    ele e uma ferramenta que a maquina pode ou nao ter. Quando ele existe, este
+    teste roda; quando nao existe, ele PULA com a razao dita, em vez de sumir
+    calado. Um teste que pula sem dizer por que e um silencio com cara de verde.
+    """
+
+    def test_o_dashboard_js_ANALISA_sem_erro(self) -> None:
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip(
+                "`node` nao esta nesta maquina, entao a analise sintatica do "
+                "dashboard.js nao pode rodar aqui. As sondas de texto deste "
+                "arquivo seguem valendo; o que se perde e so a garantia de que "
+                "o arquivo analisa."
+            )
+
+        concluido = subprocess.run(
+            [node, "--check", str(ARQUIVO_DO_JS)],
+            capture_output=True,
+            text=True,
+        )
+        assert concluido.returncode == 0, concluido.stderr
