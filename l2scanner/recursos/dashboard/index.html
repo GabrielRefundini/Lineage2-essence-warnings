@@ -179,6 +179,15 @@
       <h2 class="painel__titulo">Procedência</h2>
 
       <!--
+        A FRASE DE R$ INDISPONÍVEL VEM ANTES DO CAMPO, na ordem do documento e
+        não só na tela: ela é o motivo de o campo existir. Colocá-la depois com
+        um `order` do CSS deixaria a leitura visual certa e a de leitor de tela
+        errada — e quem depende do leitor de tela ouviria o pedido antes da
+        razão dele.
+      -->
+      <p class="procedencia__linha procedencia__linha--reais" id="aviso-reais-indisponivel">R$ indisponível — nenhum câmbio informado.</p>
+
+      <!--
         UM FORMULÁRIO DE VERDADE, e não um campo solto ao lado de um botão: a
         tecla de confirmação submete, que é o que a mão do usuário já espera.
 
@@ -212,8 +221,6 @@
       </form>
 
       <p class="cambio__erro" id="cambio-erro" role="alert"></p>
-
-      <p class="procedencia__linha procedencia__linha--reais" id="aviso-reais-indisponivel">R$ indisponível — nenhum câmbio informado.</p>
 
       <p class="procedencia__linha procedencia__linha--fonte">
         fonte: <span class="procedencia__arquivo" id="fonte-arquivo" title=""></span>

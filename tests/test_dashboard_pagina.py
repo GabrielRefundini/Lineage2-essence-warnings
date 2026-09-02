@@ -713,3 +713,227 @@ class TestOContrasteFoiRecalculado:
         """
         assert abs(razao_de_contraste("#FFFFFF", "#000000") - 21.0) < 0.01
         assert abs(razao_de_contraste("#E0B450", "#E0B450") - 1.0) < 0.01
+
+
+# ---------------------------------------------------------------------------
+# OS ESTADOS DESENHADOS
+# ---------------------------------------------------------------------------
+#
+# CADA ESTADO TEM DESENHO NO CSS, E O JS SO TROCA UM ATRIBUTO. Uma condicao de
+# tela escrita em JavaScript e uma condicao que NAO aparece na folha de estilo,
+# e as duas versoes da verdade divergem no primeiro ajuste — sem que nada quebre
+# em voz alta. Estes testes cobram a ancora de cada estado no CSS.
+
+# O seletor que ancora cada estado. Escrito por extenso e nao montado por
+# `f-string`: o que se quer afirmar e que ESTE texto esta la, e uma montagem
+# esconderia um erro de digitacao no proprio molde.
+ESTADOS_DESENHADOS = {
+    "estado vazio": 'body[data-estado="sem_leitura"]',
+    "sem cambio informado": 'body[data-cambio="ausente"]',
+    "dado velho": 'body[data-velho="sim"]',
+    "servidor mudo": 'body[data-servidor="mudo"]',
+    "primeira pintura": 'body[data-estado="primeira_pintura"]',
+    "salvamento em curso": '#botao-salvar[data-salvando="sim"]',
+}
+
+# DE ONDE VEM A COPIA DE CADA ESTADO. As duas procedencias sao afirmadas de
+# formas OPOSTAS, de proposito:
+#
+#   "marcacao" — a frase TEM de estar literal no HTML. E nossa, o Python nunca a
+#                emite, e o CSS so alterna a visibilidade dela.
+#   "servidor" — a frase NAO PODE estar no HTML. Ela vem pronta do Python, e uma
+#                copia na marcacao seria a segunda fonte da mesma frase: as duas
+#                divergiriam no primeiro ajuste de texto, e a tela passaria a
+#                mostrar uma versao que o servidor ja abandonou.
+COPIA_DE_CADA_ESTADO = {
+    "estado vazio": ("marcacao", dashboard_dados.TITULO_DO_ESTADO_VAZIO),
+    "sem cambio informado": ("marcacao", dashboard_dados.FRASE_DE_REAIS_INDISPONIVEL),
+    "dado velho": ("servidor", "O valor abaixo é dessa leitura, não de agora."),
+    "servidor mudo": ("marcacao", "Sem contato com o servidor local há"),
+    "primeira pintura": ("marcacao", "Lendo o arquivo…"),
+    "salvamento em curso": ("marcacao", "Salvando…"),
+}
+
+
+class TestOsEstadosTemDesenho:
+    @pytest.mark.parametrize("estado", sorted(ESTADOS_DESENHADOS))
+    def test_o_estado_tem_regra_ancorada_no_ATRIBUTO_de_estado(
+        self, estado: str, css: str
+    ) -> None:
+        """Sem a ancora no CSS, o desenho do estado so pode estar no JS."""
+        assert ESTADOS_DESENHADOS[estado] in css
+
+    @pytest.mark.parametrize("estado", sorted(COPIA_DE_CADA_ESTADO))
+    def test_a_copia_do_estado_esta_onde_declarado(
+        self, estado: str, html: str
+    ) -> None:
+        procedencia, frase = COPIA_DE_CADA_ESTADO[estado]
+        if procedencia == "marcacao":
+            assert frase in html
+        else:
+            assert frase not in html
+
+    def test_a_frase_de_dado_velho_e_MESMO_do_python(self) -> None:
+        """A contraparte da assercao negativa acima.
+
+        "Nao esta no HTML" sozinho ficaria verde se a frase nao existisse em
+        lugar NENHUM. Esta linha prova que ela existe — no Python, que e onde
+        ela deve estar.
+        """
+        _, frase = COPIA_DE_CADA_ESTADO["dado velho"]
+        assert frase in dashboard_dados.MOLDE_DO_DADO_VELHO
+
+    def test_o_body_nasce_com_os_QUATRO_atributos_de_estado(
+        self, arvore: _Arvore
+    ) -> None:
+        """Um atributo ausente e um seletor que nunca casa — e um estado que
+        nunca desenha. Eles nascem na marcacao com o valor mais conservador:
+        ainda lendo, sem cambio, nao velho, servidor de pe."""
+        corpo = arvore.de("body")
+        assert len(corpo) == 1
+        assert corpo[0]["data-estado"] == "primeira_pintura"
+        assert corpo[0]["data-cambio"] == "ausente"
+        assert corpo[0]["data-velho"] == "nao"
+        assert corpo[0]["data-servidor"] == "ok"
+
+    def test_o_cartao_de_reais_SAI_da_tela_sem_cambio_informado(
+        self, arvore: _Arvore, css: str
+    ) -> None:
+        """Ele nao fica cinza e nao fica zerado: SOME.
+
+        Um valor apagado ainda e um valor, e um zero e uma posicao no eixo. Duas
+        assercoes, porque a regra depende das duas pontas: o cartao existe na
+        marcacao E o CSS o retira sob o atributo de estado.
+        """
+        assert arvore.por_id("cartao-reais") is not None
+        assert 'body[data-cambio="ausente"] #cartao-reais' in css
+        assert 'body[data-cambio="ausente"] #cartao-xm' in css
+
+    def test_a_regra_de_dado_velho_troca_a_COR_e_nao_esconde_o_numero(
+        self, css: str
+    ) -> None:
+        """O que sai e a AFIRMACAO de agora, e nao o valor.
+
+        Esconder o numero transformaria "nao posso garantir que e de agora" em
+        "nao sei de nada" — uma perda de informacao que ninguem pediu, e o
+        oposto do que o estado significa.
+        """
+        regras = _regras_ancoradas_em(css, 'body[data-velho="sim"]')
+        assert any(
+            ".cartao__recencia" in seletor and "var(--cor-frio)" in corpo
+            for seletor, corpo in regras
+        )
+        # E o valor NUNCA e retirado por este estado.
+        assert not any(
+            ".cartao__valor" in seletor and "display: none" in corpo
+            for seletor, corpo in regras
+        )
+
+    def test_o_botao_de_salvar_troca_de_ROTULO_sem_o_JS_escrever_texto(
+        self, arvore: _Arvore, css: str
+    ) -> None:
+        """Os dois rotulos moram na marcacao; o CSS escolhe qual aparece.
+
+        E o que mantem a copia de interface conferivel por teste sobre o HTML —
+        um rotulo escrito pelo JS seria copia que nenhum teste desta suite ve.
+        O botao NAO vira indicador giratorio.
+        """
+        botao = arvore.por_id("botao-salvar")
+        assert botao is not None
+        assert botao["data-salvando"] == "nao"
+        assert '#botao-salvar[data-salvando="nao"] .botao__rotulo--salvando' in css
+        assert '#botao-salvar[data-salvando="sim"] .botao__rotulo--parado' in css
+
+
+def _regras_ancoradas_em(css: str, ancora: str) -> list[tuple[str, str]]:
+    """(seletor, corpo) de toda regra cujo seletor contem a ancora."""
+    achadas: list[tuple[str, str]] = []
+    for bruto in css.split("}"):
+        if "{" not in bruto:
+            continue
+        seletor, corpo = bruto.rsplit("{", 1)
+        if ancora in seletor:
+            achadas.append((seletor.strip(), corpo.strip()))
+    return achadas
+
+
+class TestOEstadoVazioEConteudo:
+    """A PRIMEIRA TELA que o usuario vai ver — medido, e nao suposto.
+
+    O CSV de campo tem 93 linhas e ZERO da serie vigiada. O estado vazio nao e
+    um caso de borda desta fase: e o caso NORMAL dela, e por isso ele e provado
+    estruturalmente em vez de ficar no "deve estar ok".
+    """
+
+    def test_a_placa_de_estado_vazio_esta_na_MARCACAO_mesmo_escondida(
+        self, arvore: _Arvore, css: str
+    ) -> None:
+        """Ela NAO e criada pelo JS.
+
+        Uma placa que so existe depois que o JS roda e uma placa que nao existe
+        quando o JS falha — e o momento em que o JS falha e exatamente o momento
+        em que o usuario mais precisa de uma tela que explique o que houve.
+        """
+        assert arvore.por_id("serie-vazio") is not None
+        assert arvore.por_id("serie-vazio-prova") is not None
+        # Escondida por padrao, e revelada pelo estado: as duas pontas.
+        assert ".serie__vazio {" in css
+        assert 'body[data-estado="sem_leitura"] .serie__vazio' in css
+
+    def test_a_placa_carrega_TITULO_CORPO_e_o_lugar_da_linha_de_prova(
+        self, html: str, arvore: _Arvore
+    ) -> None:
+        """A linha de prova e o que separa "nao ha o que mostrar" de "o
+        dashboard nao conseguiu abrir o arquivo". Os numeros dela vem do
+        servidor; o LUGAR dela e da marcacao."""
+        assert dashboard_dados.TITULO_DO_ESTADO_VAZIO in html
+        assert dashboard_dados.CORPO_DO_ESTADO_VAZIO in html
+        assert arvore.tag_do_id("serie-vazio-prova") == "p"
+
+    def test_o_molde_da_linha_de_prova_NAO_foi_copiado_para_a_marcacao(
+        self, html: str
+    ) -> None:
+        """Os numeros sao reais e vem do endpoint. Uma copia do molde no HTML
+        seria uma segunda frase de prova, capaz de divergir da primeira."""
+        assert "O arquivo foi lido:" not in html
+
+    def test_a_LEGENDA_das_duas_linhas_esta_na_marcacao(self, html: str) -> None:
+        """Ja visivel no estado vazio, para o usuario saber o que vai aparecer.
+
+        Sem ela, o quadro vazio nao diz nem o que ele MOSTRARIA — e a espera
+        vira uma aposta.
+        """
+        assert dashboard_dados.ROTULO_DO_MENOR in html
+        assert dashboard_dados.ROTULO_DA_TIPICA in html
+        assert "serie__amostra--principal" in html
+        assert "serie__amostra--tipica" in html
+
+    def test_a_area_do_grafico_desenha_GRADE_no_estado_vazio(self, css: str) -> None:
+        """GRAFICO VAZIO MUDO ESTA PROIBIDO.
+
+        A grade e os eixos sao a prova de que a area existe e esta viva. Um
+        retangulo em branco e indistinguivel de "o dashboard quebrou" — que e
+        exatamente o erro que esta fase existe para nao cometer.
+        """
+        regras = _regras_ancoradas_em(css, 'body[data-estado="sem_leitura"]')
+        do_grafico = [
+            corpo for seletor, corpo in regras if ".serie__grafico" in seletor
+        ]
+        assert do_grafico, "o estado vazio deixou de desenhar a area do grafico"
+        desenho = do_grafico[0]
+        assert "var(--cor-grade)" in desenho
+        assert "repeating-linear-gradient" in desenho
+        assert "border-left" in desenho and "border-bottom" in desenho
+
+    def test_a_legenda_fica_VISIVEL_no_estado_vazio(self, css: str) -> None:
+        """Em cor de texto fraco, e nao escondida: o contrato pede que ela ja
+        esteja la. Nenhuma regra do estado vazio a retira."""
+        regras = _regras_ancoradas_em(css, 'body[data-estado="sem_leitura"]')
+        assert not any(
+            "legenda" in seletor and "display: none" in corpo
+            for seletor, corpo in regras
+        )
+        assert any(
+            "serie__legenda-rotulo" in seletor and "var(--cor-texto-fraco)" in corpo
+            for seletor, corpo in regras
+        )

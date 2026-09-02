@@ -604,6 +604,200 @@ body {
 }
 
 /* ========================================================================= */
+/* OS ESTADOS, DESENHADOS                                                    */
+/* ========================================================================= */
+/*
+  CADA ESTADO TEM DESENHO PRÓPRIO AQUI, e o JS só troca o valor de um atributo.
+  NENHUMA DECISÃO VISUAL MORA NO JS: uma condição de tela escrita em JavaScript
+  é uma condição que não aparece na folha de estilo, e as duas versões da
+  verdade divergem no primeiro ajuste — sem que nada quebre em voz alta.
+
+  A precedência dos cinco estados é FECHADA e mora no `dashboard_dados`, num
+  lugar só. Os três ortogonais (`data-cambio`, `data-velho`, `data-servidor`)
+  MODIFICAM a tela sem tomar a precedência, e é por isso que são atributos
+  separados em vez de valores do mesmo atributo: vários podem ser verdade ao
+  mesmo tempo.
+*/
+
+/*
+  O que só aparece quando o estado pede. As linhas alimentadas pelo servidor
+  usam `:empty` para que o JS só precise ESCREVER O TEXTO — decidir se a linha
+  aparece continua sendo do CSS.
+*/
+.faixa,
+.destaque__aviso-velho,
+.cambio__carimbo,
+#aviso-reais-indisponivel,
+#aviso-cambio-historico {
+  display: none;
+}
+
+.cambio__erro:empty,
+#nota-linha-parcial:empty,
+#serie-titulo:empty {
+  display: none;
+}
+
+/* --- ESTADO 1 e 2: erro de contrato e arquivo ausente -------------------- */
+/*
+  FALHA FECHADA: sem destaque, sem gráfico, só a mensagem. Um painel meio
+  desenhado ao lado de um erro convida a ler o número que sobrou — e o número
+  que sobrou saiu de um arquivo que o programa acabou de dizer que não entende.
+*/
+body[data-estado="erro_de_contrato"] .painel,
+body[data-estado="arquivo_ausente"] .painel {
+  display: none;
+}
+
+body[data-estado="erro_de_contrato"] #faixa-erro,
+body[data-estado="arquivo_ausente"] #faixa-erro {
+  display: block;
+}
+
+/* --- ESTADO 3: sem leitura da série — O ESTADO VAZIO --------------------- */
+/*
+  ELE É A PRIMEIRA TELA, e não um caso de borda. Três coisas aparecem, e as três
+  são deliberadas:
+
+  1. A GRADE E OS EIXOS, desenhados. São a prova de que a área existe e está
+     viva. Sem eles o quadro fica em branco, e branco é indistinguível de
+     quebrado.
+  2. A PLACA centralizada, com título, corpo e a linha de prova com os números
+     reais do arquivo.
+  3. A LEGENDA das duas linhas, já visível em cor de texto fraco, para o usuário
+     saber o que vai aparecer ali.
+
+  A grade usa a própria escala de espaçamento como passo, para não inventar uma
+  segunda métrica só para ela.
+*/
+body[data-estado="sem_leitura"] .serie__vazio {
+  display: flex;
+}
+
+body[data-estado="sem_leitura"] .serie__grafico {
+  border-left: 1px solid var(--cor-grade);
+  border-bottom: 1px solid var(--cor-grade);
+  background-image:
+    repeating-linear-gradient(to right,
+      var(--cor-grade) 0 1px, transparent 1px var(--sp-3xl)),
+    repeating-linear-gradient(to bottom,
+      var(--cor-grade) 0 1px, transparent 1px var(--sp-2xl));
+}
+
+body[data-estado="sem_leitura"] .serie__legenda-rotulo--principal,
+body[data-estado="sem_leitura"] .serie__legenda-rotulo--tipica {
+  color: var(--cor-texto-fraco);
+}
+
+/* --- ORTOGONAL: sem câmbio informado ------------------------------------- */
+/*
+  O cartão de R$ SAI DA TELA. Ele não fica cinza e não fica zerado: um valor
+  apagado ainda é um valor, e um zero é uma posição no eixo. A ausência migra
+  para o rodapé, escrita com palavra, logo acima do campo que a resolve.
+*/
+body[data-cambio="ausente"] #cartao-reais {
+  display: none;
+}
+
+body[data-cambio="ausente"] #cartao-xm {
+  flex-basis: 100%;
+}
+
+body[data-cambio="ausente"] #aviso-reais-indisponivel {
+  display: flex;
+}
+
+body[data-cambio="informado"] #aviso-cambio-historico {
+  display: flex;
+}
+
+body[data-cambio="informado"] .cambio__carimbo {
+  display: inline;
+}
+
+/* --- ORTOGONAL: dado velho ----------------------------------------------- */
+/*
+  O NÚMERO CONTINUA NA TELA. O que sai é a AFIRMAÇÃO de "agora", e não o valor:
+  esconder o número transformaria "não posso garantir que é de agora" em "não
+  sei de nada", que é uma perda de informação que ninguém pediu.
+
+  A recência esfria, e a frase que RECUSA "agora" aparece acima do destaque. Ela
+  vem pronta do Python — remontá-la aqui seria o segundo formatador de tempo.
+*/
+body[data-velho="sim"] .cartao__recencia {
+  color: var(--cor-frio);
+}
+
+body[data-velho="sim"] .destaque__aviso-velho {
+  display: block;
+}
+
+/* --- ORTOGONAL: servidor mudo -------------------------------------------- */
+/*
+  Faixa no topo, VALORES MANTIDOS e marcados como sendo da última resposta
+  recebida. Limpar a tela quando o servidor cala seria trocar um dado velho
+  honesto por nenhum dado — e o usuário está olhando para isto ao lado do jogo,
+  onde o último valor conhecido ainda vale alguma coisa.
+*/
+body[data-servidor="mudo"] #faixa-servidor {
+  display: block;
+}
+
+body[data-servidor="mudo"] .cartao__procedencia {
+  color: var(--cor-frio);
+}
+
+/* --- ESTADO DE PRIMEIRA PINTURA ------------------------------------------ */
+/*
+  Os cartões nascem com o rótulo de leitura em curso NO LUGAR do número — uma
+  palavra, na cor de texto fraco e no tamanho de corpo, e não um número falso
+  vestido de Display.
+
+  NUNCA UM ZERO COM VÍRGULA COMO ESPAÇO RESERVADO. Ausência se escreve com
+  palavra: um zero na tela é indistinguível de uma leitura real de zero, e essa
+  é a mentira plausível que o projeto inteiro combate. A frase está na lista de
+  proibidas do contrato, com teste sobre estes arquivos.
+
+  `n` e recência ficam fora enquanto não há o que qualificar: um `n` sem número
+  ao lado não qualifica nada.
+*/
+body[data-estado="primeira_pintura"] .cartao__valor {
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--cor-texto-fraco);
+}
+
+body[data-estado="primeira_pintura"] .cartao__procedencia,
+body[data-estado="primeira_pintura"] .cartao__unidade {
+  display: none;
+}
+
+/* --- O BOTÃO DURANTE O ENVIO DO CÂMBIO ----------------------------------- */
+/*
+  Desabilitado, com o rótulo de salvamento em curso — e ELE NÃO VIRA INDICADOR
+  GIRATÓRIO. Os dois rótulos moram na marcação e o CSS escolhe qual aparece, de
+  modo que a cópia continua conferível por teste e o JS só troca um atributo.
+
+  O CAMPO PRESERVA O VALOR DIGITADO: nenhuma regra aqui o limpa. Se a resposta
+  demorar ou falhar, o usuário não redigita o que já digitou.
+*/
+#botao-salvar[data-salvando="nao"] .botao__rotulo--salvando {
+  display: none;
+}
+
+#botao-salvar[data-salvando="sim"] .botao__rotulo--parado {
+  display: none;
+}
+
+#botao-salvar[data-salvando="sim"] {
+  opacity: .7;
+}
+
+.botao:disabled {
+  cursor: not-allowed;
+}
+
+/* ========================================================================= */
 /* SOBREPOSIÇÕES DA FOLHA DA BIBLIOTECA VENDORIZADA                          */
 /* ========================================================================= */
 /*
