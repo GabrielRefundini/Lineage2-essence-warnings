@@ -32,14 +32,21 @@ NADA AQUI TOCA A `.mercado/` REAL. As observacoes sao montadas A MAO, no molde d
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal
 from fractions import Fraction
+from pathlib import Path
 
 import pytest
 
-from l2scanner import dashboard_dados
-from l2scanner.mercado_analise import N_MINIMO_PARA_MEDIANA
-from l2scanner.mercado_catalogo import CHAVE_DA_SERIE_DA_ADENA
+from l2scanner import dashboard_dados, mercado_console, mercado_registro
+from l2scanner.mercado_analise import (
+    N_MINIMO_PARA_MEDIANA,
+    mediana_dos_unitarios,
+    menor_pedido_visivel,
+)
+from l2scanner.mercado_catalogo import CHAVE_DA_SERIE_DA_ADENA, SEPARADOR
 from l2scanner.mercado_registro import ObservacaoLida
 
 AGORA = datetime(2026, 9, 1, 15, 0, 0)
@@ -322,3 +329,431 @@ class TestNadaNaAgregacaoDevolveFLOAT:
         assert (
             dashboard_dados.baldes([], timedelta(hours=1), AGORA) == []
         )
+
+
+# ===========================================================================
+# O PAYLOAD — A PRECEDENCIA FECHADA E A SERIE COMO ELEMENTO DE LISTA
+# ===========================================================================
+#
+# O CSV DE FIXTURE E ESCRITO A MAO, e nao pelo `RegistroDeObservacoes`: o que se
+# quer julgar aqui e o payload, e construir o arquivo com o escritor faria o
+# teste depender do escritor para julgar o leitor.
+
+TERMINADOR = "\r\n"
+
+
+def _escrever_csv(pasta: Path, linhas, cabecalho=None) -> Path:
+    campos = cabecalho or mercado_registro.COLUNAS
+    montadas = [SEPARADOR.join(campos)]
+    montadas.extend(SEPARADOR.join(linha) for linha in linhas)
+    alvo = pasta / mercado_registro.ARQUIVO_DE_OBSERVACOES
+    alvo.write_text(
+        "".join(linha + TERMINADOR for linha in montadas),
+        encoding="utf-8",
+        newline="",
+    )
+    return alvo
+
+
+def _linha(chave, nome, carimbo, total, quantidade) -> tuple[str, ...]:
+    return (chave, nome, carimbo, str(total), str(quantidade), "0")
+
+
+def _linhas_da_adena(totais, base="2026-09-01T14:0{}:00"):
+    return [
+        _linha(CHAVE_DA_SERIE_DA_ADENA, "Adena", base.format(i), total, 10_000_000)
+        for i, total in enumerate(totais)
+    ]
+
+
+@pytest.fixture
+def pasta(tmp_path: Path) -> Path:
+    alvo = tmp_path / ".mercado"
+    alvo.mkdir()
+    return alvo
+
+
+@dataclass(frozen=True)
+class _CambioDeTeste:
+    """A FORMA que o payload espera de um cambio — nada alem dela.
+
+    ELE NAO IMPORTA `dashboard_cambio`, E ISSO E ESTRUTURAL. O cambio entra no
+    payload por PARAMETRO (`key_links` do plano), e e isso que mantem
+    `dashboard_dados` puro e testavel sem disco. Um import dos dois lados
+    tornaria o modulo de dado dependente do modulo de persistencia para uma
+    conta que nao precisa de disco nenhum — e faria este arquivo de teste ter de
+    gravar um `cambio.json` para exercitar uma multiplicacao.
+
+    Os dois campos sao os que o `01-03` define em `Cambio`. Se ele mudar a forma,
+    este dublê fica vermelho junto — e e para isso que ele existe.
+    """
+
+    reais_por_xm: Decimal
+    informado_em: datetime
+
+
+def _todas_as_strings(valor):
+    """Todo valor de string do payload, em qualquer profundidade."""
+    if isinstance(valor, str):
+        yield valor
+    elif isinstance(valor, dict):
+        for chave, dentro in valor.items():
+            yield chave
+            yield from _todas_as_strings(dentro)
+    elif isinstance(valor, (list, tuple)):
+        for dentro in valor:
+            yield from _todas_as_strings(dentro)
+
+
+class TestAPrecedenciaDosCincoESTADOS:
+    """A ordem e FECHADA, e o primeiro que casar manda no destaque e no grafico.
+
+    Varios podem ser verdade ao mesmo tempo — um arquivo com cabecalho trocado
+    tambem nao tem serie da Adena — e e exatamente por isso que a ordem precisa
+    estar escrita num lugar so, e testada uma a uma mais o empate.
+    """
+
+    def test_o_cabecalho_QUEBRADO_e_o_primeiro_da_ordem(self, pasta: Path) -> None:
+        """Falha fechada: sem destaque, sem grafico, so a mensagem.
+
+        Adivinhar coluna num arquivo que deixou de ser este arquivo e como o
+        append escrevendo valores nas colunas erradas — o dado continua abrindo
+        e passa a estar errado, que e a pior das duas falhas possiveis.
+        """
+        _escrever_csv(
+            pasta,
+            _linhas_da_adena([11600]),
+            cabecalho=("chave", "nome", "quando", "total", "qtd", "res"),
+        )
+
+        pronto = dashboard_dados.payload(pasta, AGORA)
+
+        assert pronto["estado"] == "erro_de_contrato"
+        assert pronto["destaque"] is None
+        assert pronto["series"] == []
+        assert any("cabeçalho" in aviso for aviso in pronto["avisos"])
+
+    def test_arquivo_AUSENTE_tem_estado_proprio_e_diz_o_que_fazer(
+        self, pasta: Path
+    ) -> None:
+        pronto = dashboard_dados.payload(pasta, AGORA)
+
+        assert pronto["estado"] == "arquivo_ausente"
+        assert pronto["destaque"] is None
+        assert any("vigiar-mercado.bat" in aviso for aviso in pronto["avisos"])
+
+    def test_sem_leitura_da_adena_carrega_a_contagem_REAL_de_linhas(
+        self, pasta: Path
+    ) -> None:
+        """A frase de PROVA — sem ela, "0 da serie Adena" e indistinguivel de
+        "o dashboard nao conseguiu abrir o arquivo"."""
+        _escrever_csv(
+            pasta,
+            [
+                _linha("common-aztac#0", "Common Aztac", "2026-09-01T13:00:00", 6200, 48),
+                _linha("common-aztac#0", "Common Aztac", "2026-09-01T13:05:00", 6300, 48),
+            ],
+        )
+
+        pronto = dashboard_dados.payload(pasta, AGORA)
+
+        assert pronto["estado"] == "sem_leitura"
+        assert any("2 linhas" in aviso and "0 da série" in aviso for aviso in pronto["avisos"])
+        assert "sem evidencia" in pronto["destaque"]["xm"]["texto"]
+
+    def test_abaixo_do_piso_mostra_o_MENOR_e_a_frase_no_lugar_da_mediana(
+        self, pasta: Path
+    ) -> None:
+        """O menor tem piso 1 e existe; a mediana tem piso 5 e nao existe."""
+        _escrever_csv(pasta, _linhas_da_adena([11600, 12000]))
+
+        pronto = dashboard_dados.payload(pasta, AGORA)
+
+        assert pronto["estado"] == "abaixo_do_piso"
+        assert pronto["destaque"]["xm"]["texto"] == "11,60 XM por milhao de adena (derivado)"
+        tipica = pronto["series"][0]["pontos"][0]["tipica_texto"]
+        assert "sem evidencia" in tipica
+
+    def test_serie_presente_com_SEIS_ofertas_traz_o_numero_do_destaque(
+        self, pasta: Path
+    ) -> None:
+        _escrever_csv(
+            pasta, _linhas_da_adena([11600, 12000, 13000, 14000, 15000, 30000])
+        )
+
+        pronto = dashboard_dados.payload(pasta, AGORA)
+
+        assert pronto["estado"] == "serie_presente"
+        assert pronto["destaque"]["xm"]["n"] == 6
+        assert "0,00" not in pronto["destaque"]["xm"]["texto"]
+
+    def test_EMPATE_cabecalho_quebrado_E_sem_adena_vence_o_ERRO_DE_CONTRATO(
+        self, pasta: Path
+    ) -> None:
+        """Os dois sao verdade ao mesmo tempo; a ordem decide, e ela e fechada."""
+        _escrever_csv(
+            pasta,
+            [_linha("common-aztac#0", "Common Aztac", "2026-09-01T13:00:00", 6200, 48)],
+            cabecalho=("chave", "nome", "quando", "total", "qtd", "res"),
+        )
+
+        pronto = dashboard_dados.payload(pasta, AGORA)
+
+        assert pronto["estado"] == "erro_de_contrato"
+        assert pronto["estado"] != "sem_leitura"
+
+    def test_os_ESTADOS_sao_CINCO_na_ordem_do_UI_SPEC(self) -> None:
+        assert dashboard_dados.ESTADOS == (
+            "erro_de_contrato",
+            "arquivo_ausente",
+            "sem_leitura",
+            "abaixo_do_piso",
+            "serie_presente",
+        )
+
+
+class TestASerieEUmElementoDeLista:
+    """DASH-05 do lado do dado: uma serie nova e um ELEMENTO a mais.
+
+    Nao uma chave nova, nao um `if` da Adena, nao um campo `adena` no payload.
+    Se instanciar a segunda serie exigisse forma nova, o requisito seria uma
+    intencao escrita num documento; sendo um elemento de lista, ele e estrutural.
+    """
+
+    def test_duas_series_produzem_DOIS_elementos_com_as_MESMAS_chaves(
+        self, pasta: Path
+    ) -> None:
+        _escrever_csv(
+            pasta,
+            _linhas_da_adena([11600, 12000])
+            + [
+                _linha("common-aztac#0", "Common Aztac", "2026-09-01T13:00:00", 6200, 48),
+                _linha("common-aztac#0", "Common Aztac", "2026-09-01T13:05:00", 6300, 48),
+            ],
+        )
+
+        series = dashboard_dados.payload(pasta, AGORA)["series"]
+
+        assert len(series) == 2
+        assert set(series[0]) == set(series[1])
+        assert {serie["chave"] for serie in series} == {
+            CHAVE_DA_SERIE_DA_ADENA,
+            "common-aztac#0",
+        }
+
+    def test_series_e_LISTA_mesmo_com_UMA_serie_so(self, pasta: Path) -> None:
+        _escrever_csv(pasta, _linhas_da_adena([11600, 12000]))
+
+        series = dashboard_dados.payload(pasta, AGORA)["series"]
+
+        assert isinstance(series, list)
+        assert len(series) == 1
+
+    def test_a_serie_de_um_item_comum_sai_em_OUTRA_unidade_que_a_da_adena(
+        self, pasta: Path
+    ) -> None:
+        """O ponto de decisao continua sendo UM: `formatador_do_unitario`.
+
+        Se a unidade fosse decidida por um segundo `if` sobre a sentinela, o dia
+        em que os dois divergissem a tela imprimiria `0,00 por unidade` para a
+        Adena com toda a confianca do mundo.
+        """
+        _escrever_csv(
+            pasta,
+            _linhas_da_adena([11600])
+            + [_linha("common-aztac#0", "Common Aztac", "2026-09-01T13:00:00", 6200, 48)],
+        )
+
+        series = dashboard_dados.payload(pasta, AGORA)["series"]
+        unidades = {serie["chave"]: serie["unidade"] for serie in series}
+
+        assert unidades[CHAVE_DA_SERIE_DA_ADENA] != unidades["common-aztac#0"]
+
+
+class TestNenhumValorPadraoEChutado:
+    """Um cambio chutado vira decisao de dinheiro real errada.
+
+    A ausencia se escreve com PALAVRA, e nunca com zero — que e a mesma regra do
+    `0,00` proibido como espaco reservado.
+    """
+
+    def test_SEM_cambio_o_sub_objeto_de_reais_e_NULO(self, pasta: Path) -> None:
+        _escrever_csv(pasta, _linhas_da_adena([11600, 12000]))
+
+        pronto = dashboard_dados.payload(pasta, AGORA)
+
+        assert pronto["destaque"]["reais"] is None
+        assert any("indisponível" in aviso for aviso in pronto["avisos"])
+        # Nenhuma chave de R$ com numero em lugar nenhum do payload.
+        assert not any("R$ 0" in texto for texto in _todas_as_strings(pronto))
+
+    def test_COM_cambio_o_real_aparece_DERIVADO_e_com_carimbo(
+        self, pasta: Path
+    ) -> None:
+        _escrever_csv(pasta, _linhas_da_adena([11600, 12000]))
+        cambio = _CambioDeTeste(
+            reais_por_xm=Decimal("0.50"),
+            informado_em=datetime(2026, 9, 1, 14, 32),
+        )
+
+        pronto = dashboard_dados.payload(pasta, AGORA, cambio=cambio)
+        reais = pronto["destaque"]["reais"]
+
+        assert reais is not None
+        assert reais["derivado"] is True
+        assert reais["informado_em"] == "2026-09-01T14:32:00"
+        # 11,60 XM por milhao x R$ 0,50 por XM = R$ 5,80 por milhao.
+        assert "5,80" in reais["texto"]
+        assert "informado por você" in reais["texto"]
+        assert any("toda a série" in aviso for aviso in pronto["avisos"])
+
+    def test_o_R_de_hoje_aplicado_a_serie_INTEIRA_e_dito_em_voz_alta(
+        self, pasta: Path
+    ) -> None:
+        """Com UM valor informado nao existe serie de cambio, e a tela diz isso.
+
+        Aplicar o cambio de hoje a um ponto de tres dias atras sem avisar seria
+        um numero certo com um significado errado — a familia de mentira
+        plausivel que este projeto inteiro combate.
+        """
+        _escrever_csv(pasta, _linhas_da_adena([11600, 12000]))
+        cambio = _CambioDeTeste(
+            reais_por_xm=Decimal("0.50"), informado_em=datetime(2026, 9, 1, 14, 32)
+        )
+
+        pronto = dashboard_dados.payload(pasta, AGORA, cambio=cambio)
+
+        assert dashboard_dados.AVISO_DO_CAMBIO_HISTORICO in pronto["avisos"]
+
+
+class TestODadoVelhoPerdeOAgoraENaoONumero:
+    def test_recencia_ACIMA_do_limiar_marca_velho_e_MANTEM_o_numero(
+        self, pasta: Path
+    ) -> None:
+        """O que sai e a AFIRMACAO de "agora", e nao o valor."""
+        _escrever_csv(pasta, _linhas_da_adena([11600, 12000]))
+        muito_depois = datetime(2026, 9, 1, 14, 1) + dashboard_dados.LIMIAR_DE_FRESCOR + timedelta(minutes=1)
+
+        pronto = dashboard_dados.payload(pasta, muito_depois)
+
+        assert pronto["destaque"]["xm"]["velho"] is True
+        assert "11,60" in pronto["destaque"]["xm"]["texto"]
+        assert any("não de agora" in aviso for aviso in pronto["avisos"])
+        # A frase PROIBIDA e "agora" colado no numero — e a unica forma
+        # verificavel dela nesta arvore e o "agora mesmo" que o console emite
+        # para recencia abaixo de um minuto.
+        assert not any("agora mesmo" in texto for texto in _todas_as_strings(pronto))
+
+    def test_recencia_DENTRO_do_limiar_nao_marca_velho(self, pasta: Path) -> None:
+        _escrever_csv(pasta, _linhas_da_adena([11600, 12000]))
+
+        pronto = dashboard_dados.payload(pasta, datetime(2026, 9, 1, 14, 30))
+
+        assert pronto["destaque"]["xm"]["velho"] is False
+        assert not any("não de agora" in aviso for aviso in pronto["avisos"])
+
+
+class TestAsFrasesProibidasNaoAparecem:
+    def test_nenhuma_frase_proibida_em_NENHUM_dos_cinco_estados(
+        self, tmp_path: Path
+    ) -> None:
+        """As proibicoes herdadas do `mercado_console`, aplicadas ao payload.
+
+        `preco de venda` / `vendido por` / `valor de mercado`: o scanner ve
+        OFERTAS, e nao transacoes — ninguem comprou por este valor, alguem PEDIU
+        este valor. `0,00`: ausencia se escreve com palavra, nunca com zero, e
+        nenhuma fixture deste teste tem valor real que arredonde para zero — um
+        `0,00` aqui so pode vir de espaco reservado ou do formatador errado.
+        """
+        montagens = {
+            "erro_de_contrato": (
+                _linhas_da_adena([11600]),
+                ("chave", "nome", "quando", "total", "qtd", "res"),
+            ),
+            "sem_leitura": (
+                [_linha("common-aztac#0", "Common Aztac", "2026-09-01T13:00:00", 6200, 48)],
+                None,
+            ),
+            "abaixo_do_piso": (_linhas_da_adena([11600, 12000]), None),
+            "serie_presente": (
+                _linhas_da_adena([11600, 12000, 13000, 14000, 15000, 30000]),
+                None,
+            ),
+        }
+
+        prontos = []
+        for nome, (linhas, cabecalho) in montagens.items():
+            destino = tmp_path / nome
+            destino.mkdir()
+            _escrever_csv(destino, linhas, cabecalho=cabecalho)
+            prontos.append(dashboard_dados.payload(destino, AGORA))
+        # O quinto: arquivo ausente.
+        ausente = tmp_path / "arquivo_ausente"
+        ausente.mkdir()
+        prontos.append(dashboard_dados.payload(ausente, AGORA))
+
+        assert len(prontos) == len(dashboard_dados.ESTADOS)
+        assert {pronto["estado"] for pronto in prontos} == set(dashboard_dados.ESTADOS)
+
+        for pronto in prontos:
+            for texto in _todas_as_strings(pronto):
+                for proibida in dashboard_dados.FRASES_PROIBIDAS:
+                    assert proibida not in texto.lower(), (proibida, texto)
+
+
+class TestAFronteiraDoFLOAT:
+    """O `float` no JSON e o PIXEL; a `string` no JSON e a VERDADE."""
+
+    def test_o_ponto_carrega_o_pixel_em_float_E_a_verdade_em_string(
+        self, pasta: Path
+    ) -> None:
+        _escrever_csv(pasta, _linhas_da_adena([11600, 12000]))
+
+        ponto = dashboard_dados.payload(pasta, AGORA)["series"][0]["pontos"][0]
+
+        assert isinstance(ponto["menor_pixel"], float)
+        assert ponto["menor_pixel"] == pytest.approx(1160.0)
+        assert ponto["menor_texto"] == "11,60 XM por milhao de adena (derivado)"
+
+    def test_sem_valor_o_pixel_e_NULO_e_nao_zero(self, pasta: Path) -> None:
+        """Zero e um lugar no eixo; ausencia nao e."""
+        _escrever_csv(pasta, _linhas_da_adena([11600, 12000]))
+
+        ponto = dashboard_dados.payload(pasta, AGORA)["series"][0]["pontos"][0]
+
+        assert ponto["tipica_pixel"] is None
+        assert ponto["tipica_pixel"] != 0
+
+
+class TestAFraseDePisoEAMESMADoConsole:
+    """O antidoto para a duplicacao que o `01-01-SUMMARY` deixou sinalizada.
+
+    A frase de piso nao pode ser reusada por CHAMADA porque o console a entrega
+    dentro de uma linha ja formatada para o terminal (recuo de quatro espacos,
+    rotulo colado). O que da para prender e a IGUALDADE POR SUBSTRING: se alguem
+    mexer no texto de um dos dois lados, estes dois testes caem.
+    """
+
+    def test_a_frase_do_menor_e_SUBSTRING_da_linha_do_console(self) -> None:
+        observacoes = _instante(datetime(2026, 9, 1, 14, 0), [])
+
+        nossa = dashboard_dados.frase_de_piso_do_menor(
+            menor_pedido_visivel(observacoes).evidencia
+        )
+        do_console = mercado_console._linha_do_menor(
+            observacoes, AGORA, CHAVE_DA_SERIE_DA_ADENA
+        )
+
+        assert nossa in do_console
+
+    def test_a_frase_da_tipica_e_SUBSTRING_da_linha_do_console(self) -> None:
+        observacoes = _instante(datetime(2026, 9, 1, 14, 0), [11600, 12000])
+
+        nossa = dashboard_dados.frase_de_piso_da_tipica(
+            mediana_dos_unitarios(observacoes).evidencia
+        )
+        do_console = mercado_console._linha_da_mediana(
+            observacoes, AGORA, CHAVE_DA_SERIE_DA_ADENA
+        )
+
+        assert nossa in do_console
