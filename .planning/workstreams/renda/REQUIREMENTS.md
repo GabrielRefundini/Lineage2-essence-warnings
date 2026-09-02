@@ -43,6 +43,24 @@
       ponto de partida do calibrador, não constante do produto — mover a janela não pode custar
       um commit.
 
+- [ ] **LEIT-07**: **A calibração da renda é POR PERSONAGEM.** *(Acrescentado em 2026-09-02, a
+      partir de `01-MEDICOES-DE-CAMPO.md`, achado M-F.)* Medido com as duas instâncias vivas: a
+      janela de status da Faerlina põe o nível em `246,736` e a da Yazalaque em `236,750` — 14
+      px de diferença na vertical, porque o usuário posicionou a UI de cada cliente à mão. Um
+      retângulo único lê o nível certo de uma e **lixo da outra**, e o lixo aqui é o pior caso
+      possível: a região vizinha mostra outro número (`349` na Yazalaque, `112` na Faerlina) que
+      passaria em `numero_valido` sem reclamar. Os pisos de brilho seguem junto: o nível da
+      Faerlina lê em 190–220 e o da Yazalaque em 170–210.
+
+- [ ] **LEIT-08**: **Não existe um piso de brilho único, e a adena exige máscara.** *(M-E.)* As
+      bandas úteis do nível (190+) e da adena (150) **não têm interseção** — um campo único é
+      impossível, cada região tem o seu. E o recorte cru da adena devolve `''` nas duas escalas
+      quando o fundo atrás da barra semitransparente é claro: a premissa do LEIT-03 ("o OCR já
+      devolve a adena do recorte cru") veio do spike, onde o fundo estava escuro, e é **falsa no
+      caso geral**. Pior: a banda útil da adena da Faerlina tem **largura 1** (só `vmin=150`).
+      Isso não é margem, é sorte — e o calibrador tem que reportar a largura da banda e avisar
+      quando ela for estreita, não só gravar o valor.
+
 - [ ] **LEIT-06**: Existe um **calibrador** para essas regiões, na mesma família do
       `calibrar-mercado.bat` e do `calibrar.bat` que já existem. Sem ele, LEIT-05 é uma promessa
       sem como cumprir.
