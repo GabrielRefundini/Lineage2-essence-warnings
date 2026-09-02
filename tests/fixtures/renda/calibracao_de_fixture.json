@@ -121,5 +121,122 @@
         "altura": 1392
       }
     }
+  },
+  "renda_moldes_da_barra": {
+    "moldes": [
+      {
+        "glifo": "1",
+        "altura": 9,
+        "largura": 4,
+        "molde": {
+          "altura": 9,
+          "largura": 4,
+          "bytes": "0000ff00ffffff000000ff000000ff000000ff000000ff000000ff00ffffffff00000000"
+        }
+      },
+      {
+        "glifo": "5",
+        "altura": 9,
+        "largura": 4,
+        "molde": {
+          "altura": 9,
+          "largura": 4,
+          "bytes": "ffffffffff000000ff000000ffffff00000000ff000000ff000000ffffffff0000000000"
+        }
+      },
+      {
+        "glifo": ",",
+        "altura": 9,
+        "largura": 1,
+        "molde": {
+          "altura": 9,
+          "largura": 1,
+          "bytes": "000000000000ffffff"
+        }
+      },
+      {
+        "glifo": "3",
+        "altura": 9,
+        "largura": 4,
+        "molde": {
+          "altura": 9,
+          "largura": 4,
+          "bytes": "ffffff00000000ff000000ff00ffff00000000ff000000ff000000ffffffff0000000000"
+        }
+      },
+      {
+        "glifo": "4",
+        "altura": 9,
+        "largura": 6,
+        "molde": {
+          "altura": 9,
+          "largura": 6,
+          "bytes": "000000ffff0000000000ff0000000000ff0000000000ff00ffffffffffff00000000ff0000000000ff0000000000ff00000000000000"
+        }
+      },
+      {
+        "glifo": "7",
+        "altura": 9,
+        "largura": 4,
+        "molde": {
+          "altura": 9,
+          "largura": 4,
+          "bytes": "ffffffff00000000000000ff0000ff000000ff0000ff000000ff0000ff00000000000000"
+        }
+      },
+      {
+        "glifo": "9",
+        "altura": 9,
+        "largura": 4,
+        "molde": {
+          "altura": 9,
+          "largura": 4,
+          "bytes": "00ffff00ff0000ff00000000ff0000ff00ffffff000000ff000000ffffff000000000000"
+        }
+      },
+      {
+        "glifo": "8",
+        "altura": 9,
+        "largura": 4,
+        "molde": {
+          "altura": 9,
+          "largura": 4,
+          "bytes": "00ffff00ff0000ffff0000ff00ff0000ff0000ff00000000ff0000ff00ffff0000000000"
+        }
+      },
+      {
+        "glifo": "0",
+        "altura": 9,
+        "largura": 4,
+        "molde": {
+          "altura": 9,
+          "largura": 4,
+          "bytes": "00ffff00ff0000ffff0000000000000000000000ff0000ffff0000ff00ffff0000000000"
+        }
+      },
+      {
+        "glifo": "6",
+        "altura": 9,
+        "largura": 4,
+        "molde": {
+          "altura": 9,
+          "largura": 4,
+          "bytes": "0000ffffff000000ff000000ffffff00000000ff00000000ff0000ff00ffff0000000000"
+        }
+      },
+      {
+        "glifo": "2",
+        "altura": 9,
+        "largura": 4,
+        "molde": {
+          "altura": 9,
+          "largura": 4,
+          "bytes": "ffffff00000000ff000000ff000000ff0000ff0000ff0000ff000000ffffffff00000000"
+        }
+      }
+    ],
+    "piso_de_leitura": 0.4698309302330017,
+    "margem_de_leitura": 0.03698354959487915,
+    "folga_de_cola": null
   }
 }

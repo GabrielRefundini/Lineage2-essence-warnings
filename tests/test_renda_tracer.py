@@ -196,12 +196,17 @@ class TestAIdaEVoltaDaCalibracaoDaRenda:
         )
 
     def test_SEM_A_CHAVE_renda_moldes_da_barra_O_CAMPO_SAI_None(self, tmp_path):
+        """A ausencia e MONTADA aqui, e ate a onda 3 ela era herdada.
+
+        A fixtura nascia sem os moldes porque eles so existem depois da rodada
+        do cortador (`01-05`), e este teste tomava aquela ausencia emprestada. O
+        `01-04` FUNDIU a chave naquele arquivo — ele e o consumidor dos moldes,
+        e sem o merge a adena recusaria em toda rodada com a mensagem certa para
+        o motivo errado. O estado ausente continua sendo um dos TRES legitimos;
+        o que mudou e que ele agora e construido em vez de emprestado.
+        """
         dados = carregar_dados_da_fixtura()
-        assert "renda_moldes_da_barra" not in dados, (
-            "a fixtura nasce SEM os moldes de proposito: eles so existem depois "
-            "da rodada humana do cortador, e quem funde a chave aqui e o plano "
-            "consumidor"
-        )
+        dados.pop("renda_moldes_da_barra", None)
         cal = Calibracao.carregar(gravar(tmp_path, dados))
         assert cal.renda_moldes_da_barra is None
         assert cal.versao == 2
@@ -390,7 +395,9 @@ class TestAsTresPosicoesDoConjuntoDeMoldes:
     """Ausente, completo e INCOMPLETO carregam; malformado e recusado alto."""
 
     def test_AUSENTE_CARREGA(self, tmp_path):
+        """O `pop` e do `01-04`: a fixtura passou a CARREGAR os moldes na onda 3."""
         dados = carregar_dados_da_fixtura()
+        dados.pop("renda_moldes_da_barra", None)
         cal = Calibracao.carregar(gravar(tmp_path, dados))
         assert cal.renda_moldes_da_barra is None
         assert cal.versao == 2
@@ -705,7 +712,22 @@ class TestALeituraDeVerdadeContraPixelReal:
 class TestOComandoDeLeituraUnica:
     """De ponta a ponta: o comando roda contra a montagem e imprime o numero."""
 
-    def test_A_MONTAGEM_IMPRIME_O_EXP_COM_QUATRO_CASAS_E_SAI_EM_ZERO(self, capsys):
+    def test_A_MONTAGEM_IMPRIME_O_EXP_COM_QUATRO_CASAS(self, capsys):
+        """A fatia fina inteira: PNG resgatado -> EXP com quatro casas na tela.
+
+        O CODIGO DE SAIDA MUDOU NA ONDA 3, E A MUDANCA E O CUMPRIMENTO DE UMA
+        PROMESSA E NAO UMA REGRESSAO. Na onda 1 este comando imprimia SO o EXP,
+        por decisao escrita, e saia em 0. O `01-04` poe os TRES campos na tela —
+        e a regiao do nivel desta montagem e PRETA de proposito, com a promessa
+        registrada aqui desde a onda 1 de que ela viraria o caso de CAMPO VAZIO
+        do plano consumidor.
+
+        Entao o desfecho certo agora e o codigo de RECUSA: um campo nao saiu.
+        O que este teste continua provando — e continua sendo o unico lugar que
+        o prova de ponta a ponta na onda 1 — e que o EXP atravessa todas as
+        camadas e chega a tela com as quatro casas. Quem quiser o desfecho 0 le
+        `tests/test_renda_completa.py`, que roda contra `montagem_completa.png`.
+        """
         codigo = renda_modo.main(
             [
                 "--imagem",
@@ -716,10 +738,14 @@ class TestOComandoDeLeituraUnica:
                 str(CALIBRACAO_DE_FIXTURE),
             ]
         )
-        saida = capsys.readouterr().out
-        assert codigo == 0, saida
+        capturado = capsys.readouterr()
+        saida = capturado.out + capturado.err
         assert re.search(r"\d+[.,]\d{4}%", saida), saida
         assert "8,0012%" in saida
+        assert codigo == renda_modo.SAIDA_RECUSA, (
+            "a regiao do nivel desta montagem e preta de PROPOSITO, e um campo "
+            f"recusado nao pode sair com codigo 0:\n{saida}"
+        )
 
     def test_SEM_personagem_O_COMANDO_RECUSA_SEM_TRACEBACK(self, capsys):
         """Quem nao sabe de quem e a tela nao le a tela."""

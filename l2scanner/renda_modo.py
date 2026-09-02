@@ -46,8 +46,32 @@ familia de ferramenta: "recusou" e "quebrou" precisam ser distinguiveis de
 fora, porque quem vai olhar o codigo de saida e a fase seguinte e nao um
 humano. Um campo recusado NAO e um erro do programa.
 
-NESTA ONDA ELE IMPRIME SO O EXP. A adena e o nivel entram no plano `01-04`, que
-estende este arquivo em vez de reescreve-lo.
+DESDE O `01-04` ELE IMPRIME OS TRES CAMPOS, e a GRAFIA e o produto daquela
+onda. O modulo puro devolve INTEIRO — e o inteiro e o que a Fase 2 vai gravar e
+o que o `dashboard` vai consumir. Quem escreve o numero de volta na grafia que o
+jogo usa na tela e a FERRAMENTA, porque o criterio 1 e uma comparacao entre o
+terminal e o monitor, e uma comparacao so funciona se as duas grafias forem a
+mesma: o nivel como inteiro nu, o EXP com as quatro casas e o sinal de
+porcentagem, a adena com o separador de milhar que o jogo escreve. Um usuario
+nao deveria ter de traduzir mentalmente um inteiro sem separadores para
+conferir uma leitura.
+
+E UM CAMPO QUE RECUSOU IMPRIME A RECUSA, e nunca um espaco vazio. E o criterio
+3 aparecendo na TELA e nao so no log: os consertos sao diferentes e o usuario
+precisa distinguir qual e o dele.
+
+    campo-vazio           -> o retangulo ou o piso de brilho
+    gramatica             -> so o piso de brilho
+    personagem            -> rodar `calibrar-renda.bat` para este personagem
+    conjunto-de-moldes    -> rodar `calibrar-renda-moldes.bat` apontando o
+                             campo da barra onde os rotulos que faltam aparecem
+
+O QUARTO E NOVO NO `01-04`, e e o unico cujo conserto nao aponta para um
+retangulo nem para um piso: ele aponta para uma RODADA DO CORTADOR. Um usuario
+que visse "recusa de gramatica" ali passaria a noite mexendo em piso de brilho.
+E o conserto que ele anuncia MUDOU nesta revisao: ate o M-L ele era *farme ate
+o digito aparecer*, e medido, o `5` e o `7` ja estao na tela em outros campos
+da mesma barra. Um motivo generico aqui custa uma noite de suporte.
 """
 
 from __future__ import annotations
@@ -62,7 +86,17 @@ import cv2
 from .calibracao import Calibracao, CalibracaoInvalida
 from .cliente import nome_do_personagem
 from .frames import Regiao
-from .renda_leitura import RecusaDaRenda, exp_da_barra, recortar
+from .renda_leitura import (
+    CAMPO_DA_ADENA,
+    CAMPO_DO_EXP,
+    CAMPO_DO_NIVEL,
+    MOTIVO_DO_CAMPO_VAZIO,
+    MOTIVO_DO_CONJUNTO_DE_MOLDES,
+    MOTIVO_DO_PERSONAGEM,
+    RecusaDaRenda,
+    ValorDaRenda,
+    ler_os_tres_campos,
+)
 
 SAIDA_OK = 0
 SAIDA_OPERACIONAL = 1
@@ -74,10 +108,40 @@ SAIDA_RECUSA = 3
 # ferramenta acusaria "janela minimizada" para uma janela perfeitamente aberta.
 PAUSA_ATE_O_PRIMEIRO_FRAME = 0.3
 
-# A sub-chave do EXP dentro da entrada do personagem. O NOME MENTE, e a mentira
-# esta documentada no bloco de comentario do campo `renda_por_personagem`:
-# `barra_esquerda` descreve o EXP e `barra_direita` descreve a ADENA.
-SUBCHAVE_DO_EXP = "barra_esquerda"
+# O ROTULO DE CADA CAMPO NA TELA, na ordem em que eles aparecem no jogo.
+# Alinhados na mesma largura para que o olho desca a coluna dos numeros sem
+# tropecar — o criterio 1 e uma comparacao visual, e uma coluna torta e uma
+# comparacao mais lenta.
+ROTULO_DO_CAMPO = {
+    CAMPO_DO_NIVEL: "nivel",
+    CAMPO_DO_EXP: "EXP  ",
+    CAMPO_DA_ADENA: "adena",
+}
+
+# A MARCA DO CAMPO SUSTENTADO POR UMA ESCALA SO. Ela e a mesma disciplina de
+# `n` e recencia que o `--mercado` cola em todo numero que vai a tela, e ela
+# existe pela razao MEDIDA (M-D): nos campos em que uma escala abstem sempre, o
+# cruzamento NAO esta pegando substituicao de digito, e o unico verificador que
+# resta e o olho de quem compara o terminal com o monitor. Marcar e barato; nao
+# marcar e afirmar uma guarda que nao esta la.
+MARCA_DE_UMA_ESCALA = " *"
+
+# O CONSERTO DE CADA RECUSA, e eles sao DIFERENTES — que e a razao inteira de
+# os motivos serem distintos. Um motivo generico aqui custa uma noite de
+# suporte a quem seguir a mensagem errada.
+CONSERTO_POR_MOTIVO = {
+    MOTIVO_DO_CAMPO_VAZIO: (
+        "o campo nao apareceu na mascara: confira o RETANGULO ou o PISO DE "
+        "BRILHO desta regiao com `calibrar-renda.bat`"
+    ),
+    MOTIVO_DO_PERSONAGEM: (
+        "este personagem nao esta calibrado: rode `calibrar-renda.bat` para ele"
+    ),
+    MOTIVO_DO_CONJUNTO_DE_MOLDES: (
+        "rode `calibrar-renda-moldes.bat` apontando o campo da barra onde os "
+        "rotulos que faltam aparecem (--campo bonus, --campo lcoin, --campo exp)"
+    ),
+}
 
 
 def montar_analisador() -> argparse.ArgumentParser:
@@ -119,6 +183,57 @@ def _grafia_do_exp(valor: int) -> str:
     """
     pontos, decimos = divmod(int(valor), 10_000)
     return f"{pontos},{decimos:04d}%"
+
+
+def _grafia_da_adena(valor: int) -> str:
+    """`13160684` -> `13.160.684`, com o separador de milhar que o JOGO escreve.
+
+    O PONTO E O SEPARADOR DA TELA, e a virgula e o do OCR e dos glifos. Medido
+    (M21): `numero_valido("10.673.628")` e `False` — as funcoes do mercado
+    falam VIRGULA. Aqui a conversao vai no sentido contrario, do inteiro para a
+    tela, e ela e o que faz o criterio 1 ser conferivel: o usuario le
+    `13.160.684` no monitor e `13.160.684` no terminal, sem traduzir nada.
+
+    A separacao vem de `format`, e nao de uma aritmetica escrita a mao: um laco
+    de milhar aqui seria uma segunda gramatica de milhar nesta arvore, e o
+    `01-04` nao abre nenhuma.
+    """
+    return f"{int(valor):,}".replace(",", ".")
+
+
+def _grafia_do_nivel(valor: int) -> str:
+    """`67` -> `67`. Inteiro NU, porque e assim que a tela do jogo o escreve."""
+    return str(int(valor))
+
+
+GRAFIA_POR_CAMPO = {
+    CAMPO_DO_NIVEL: _grafia_do_nivel,
+    CAMPO_DO_EXP: _grafia_do_exp,
+    CAMPO_DA_ADENA: _grafia_da_adena,
+}
+
+
+def _linha_do_campo(campo: str, resultado) -> str:
+    """Uma linha da tabela: o rotulo, e o numero OU a recusa nomeada.
+
+    A RECUSA VAI NA PROPRIA LINHA DO CAMPO, e nao no lugar da tabela inteira.
+    Um leitor que abortasse no primeiro problema esconderia os outros dois, e o
+    usuario ficaria sem saber se a calibracao inteira esta errada ou so um
+    retangulo.
+    """
+    rotulo = ROTULO_DO_CAMPO[campo]
+    if isinstance(resultado, RecusaDaRenda):
+        return f"  {rotulo}  RECUSADO ({resultado.motivo}): {resultado.detalhe}"
+
+    grafia = GRAFIA_POR_CAMPO[campo](resultado.valor)
+    # A MARCA SO EXISTE ONDE HA CRUZAMENTO. A adena e lida por UM metodo so e
+    # nao carrega `escalas`: marca-la afirmaria uma guarda enfraquecida onde
+    # nunca houve guarda nenhuma, e nao marca-la seria mentir por omissao. Ela
+    # simplesmente nao entra nessa conversa, e a legenda diz isso.
+    marca = ""
+    if isinstance(resultado, ValorDaRenda) and resultado.escalas < 2:
+        marca = MARCA_DE_UMA_ESCALA
+    return f"  {rotulo}  {grafia}{marca}"
 
 
 def _carregar_calibracao(caminho: Path | None):
@@ -198,6 +313,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return SAIDA_OPERACIONAL
         personagem = args.personagem
+        fonte_de_pixel = args.imagem.name
         frame, erro = _frame_de_imagem(args.imagem)
     else:
         titulo = args.janela or cal.janela
@@ -212,6 +328,7 @@ def main(argv: list[str] | None = None) -> int:
         # abertas, adivinhar daria errado, e `--personagem` aqui seria uma
         # segunda verdade sobre a mesma janela.
         personagem = args.personagem or nome_do_personagem(titulo)
+        fonte_de_pixel = f"janela {titulo!r}"
         frame, erro = _frame_de_janela(titulo)
 
     if erro is not None:
@@ -243,34 +360,44 @@ def main(argv: list[str] | None = None) -> int:
         )
         return SAIDA_OPERACIONAL
 
-    bloco = entrada[SUBCHAVE_DO_EXP]
-    recorte = recortar(
-        frame, Regiao.de_dict(bloco["regiao"]), campo="exp"
-    )
-    if isinstance(recorte, RecusaDaRenda):
-        print(
-            f"RECUSADO  exp  ({recorte.motivo}): {recorte.detalhe}",
-            file=sys.stderr,
-        )
-        return SAIDA_RECUSA
+    campos = ler_os_tres_campos(frame, personagem=personagem, calibracao=cal)
 
-    leitura = exp_da_barra(recorte, piso_de_brilho=int(bloco["piso_de_brilho"]))
-    if isinstance(leitura, RecusaDaRenda):
-        print(
-            f"RECUSADO  exp  ({leitura.motivo}): {leitura.detalhe}",
-            file=sys.stderr,
-        )
-        return SAIDA_RECUSA
+    # O CABECALHO NOMEIA A LEITURA. Com duas instancias abertas, uma leitura
+    # anonima nao descreve ninguem — e a FONTE DE PIXEL entra junto porque
+    # `--imagem` e `--janela` provam coisas diferentes: a primeira prova o
+    # caminho contra uma fixtura, a segunda prova a tela de agora.
+    print(f"{personagem}  ({fonte_de_pixel})")
 
-    # A MARCA DE UMA ESCALA SO, e ela nao e enfeite: nos campos em que uma das
-    # escalas abstem sempre, o cruzamento NAO esta pegando substituicao de
-    # digito, e o unico verificador que resta e o olho de quem compara o
-    # terminal com o monitor. Marcar e barato; nao marcar e afirmar uma guarda
-    # que nao esta la.
-    marca = " *" if leitura.escalas < 2 else ""
-    print(f"{personagem}  EXP {_grafia_do_exp(leitura.valor)}{marca}")
-    if marca:
-        print("  * sustentado por UMA escala de leitura so (a outra abstem).")
+    por_campo = campos.por_campo
+    for campo in ROTULO_DO_CAMPO:
+        print(_linha_do_campo(campo, por_campo[campo]))
+
+    rodape = []
+    if any(
+        isinstance(r, ValorDaRenda) and r.escalas < 2 for r in por_campo.values()
+    ):
+        rodape.append(
+            f" {MARCA_DE_UMA_ESCALA.strip()} sustentado por UMA escala de "
+            "leitura so (a outra abstem): ali o cruzamento nao esta pegando "
+            "substituicao de digito, e quem confere e o seu olho."
+        )
+    for resultado in por_campo.values():
+        conserto = (
+            CONSERTO_POR_MOTIVO.get(resultado.motivo)
+            if isinstance(resultado, RecusaDaRenda)
+            else None
+        )
+        if conserto and conserto not in rodape:
+            rodape.append(f" -> {conserto}")
+    for linha in rodape:
+        print(linha)
+
+    # OS TRES DESFECHOS, e a separacao entre os dois ultimos e o que impede o
+    # desastre de suporte mais comum desta familia de ferramenta: quem vai ler
+    # o codigo de saida e a fase seguinte, e nao um humano. UM CAMPO RECUSADO
+    # NAO E UM ERRO DO PROGRAMA.
+    if any(isinstance(r, RecusaDaRenda) for r in por_campo.values()):
+        return SAIDA_RECUSA
     return SAIDA_OK
 
 

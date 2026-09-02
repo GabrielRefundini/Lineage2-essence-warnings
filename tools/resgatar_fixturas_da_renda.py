@@ -189,11 +189,26 @@ RESGATES = [
     ),
 ]
 
-# A montagem sai dos recortes da Faerlina, colados nas posicoes de calibracao.
+# AS DUAS MONTAGENS SAEM DOS RECORTES DA FAERLINA, colados nas posicoes de
+# calibracao. Elas nao sao rascunho uma da outra: cada uma prova um caso.
+#
+#   montagem_da_janela.png    a regiao do nivel fica PRETA -> o caso de CAMPO
+#                             VAZIO, e o comando sai com o codigo de recusa
+#   montagem_completa.png     a regiao do nivel leva o recorte de campo ->
+#                             os TRES campos saem como numero, e o comando sai
+#                             em 0. E o criterio 1 verificavel SEM o jogo aberto
+#
+# O PERSONAGEM E UM SO NAS DUAS, e nao por economia: a POSICAO do nivel e do
+# personagem (M-F), entao uma montagem com o nivel de um e a barra do outro
+# seria uma tela que nunca existiu.
 MONTAGEM = "montagem_da_janela.png"
+MONTAGEM_COMPLETA = "montagem_completa.png"
 PECAS_DA_MONTAGEM = [
     ("campo_faerlina_f000__barra_esquerda.png", BARRA_ESQUERDA),
     ("campo_faerlina_f000__barra_direita.png", BARRA_DIREITA),
+]
+PECAS_DA_MONTAGEM_COMPLETA = PECAS_DA_MONTAGEM + [
+    ("campo_faerlina_f000__nivel.png", NIVEL_FAERLINA),
 ]
 
 
@@ -245,18 +260,35 @@ def main(argv: list[str] | None = None) -> int:
     # ela e preta porque o caso de CAMPO VAZIO tambem precisa de uma fixtura —
     # e as de campo entregam o caso oposto. As duas existem, e cada uma prova
     # uma coisa.
+    #
+    # E A SEGUNDA MONTAGEM E O CRITERIO 1 SEM O JOGO ABERTO. Ela cola o recorte
+    # de campo do nivel na posicao de calibracao, e com ela os TRES campos saem
+    # como numero contra a verdade de campo escrita (nivel 67, EXP 8,0012%,
+    # adena 13.160.684). As duas montagens existem porque os dois desfechos do
+    # comando -- "leu" e "recusou" -- precisam de fixtura, e uma so nao entrega
+    # os dois.
+    if not montar(DESTINO / MONTAGEM, PECAS_DA_MONTAGEM):
+        return 1
+    print(f"{MONTAGEM}  <- montagem, regiao do nivel PRETA")
+    if not montar(DESTINO / MONTAGEM_COMPLETA, PECAS_DA_MONTAGEM_COMPLETA):
+        return 1
+    print(f"{MONTAGEM_COMPLETA}  <- montagem, os TRES campos presentes")
+    return 0
+
+
+def montar(destino: Path, pecas) -> bool:
+    """Uma tela preta do tamanho da janela com os recortes colados. `False` falha."""
     largura, altura = GEOMETRIA_DA_JANELA
     montagem = np.zeros((altura, largura, 3), dtype=np.uint8)
-    for peca, retangulo in PECAS_DA_MONTAGEM:
+    for peca, retangulo in pecas:
         recorte = cv2.imread(str(DESTINO / peca))
         if recorte is None:
             print(f"NAO CONSEGUI RELER {peca}", file=sys.stderr)
-            return 1
+            return False
         e, t, la, al = retangulo
         montagem[t : t + al, e : e + la] = recorte
-    cv2.imwrite(str(DESTINO / MONTAGEM), montagem)
-    print(f"{MONTAGEM}  <- montagem {largura}x{altura}, regiao do nivel PRETA")
-    return 0
+    cv2.imwrite(str(destino), montagem)
+    return True
 
 
 if __name__ == "__main__":

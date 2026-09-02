@@ -1117,6 +1117,17 @@ class TestOCasoSemMoldesQueEAPrimeiraRodadaDeTodoUsuario:
         cal = Calibracao.carregar(
             RAIZ / "tests" / "fixtures" / "renda" / "calibracao_de_fixture.json"
         )
+        # O CASO E "SEM MOLDES", E ELE E CONSTRUIDO AQUI EM VEZ DE HERDADO.
+        #
+        # Este teste nasceu (01-03) lendo a ausencia de moldes DA FIXTURA, e a
+        # fixtura os ganhou uma onda depois (01-04, que fundiu
+        # `renda_moldes_da_barra` nela para virar a unica verdade versionada
+        # dos moldes). O merge das duas ondas quebrou o teste, e a quebra era
+        # justa: um teste sobre a PRIMEIRA RODADA de um usuario nao pode
+        # depender de um arquivo compartilhado continuar vazio -- basta alguem
+        # cortar um molde para ele passar a medir outra coisa em silencio.
+        # Zerar a chave aqui torna a premissa explicita e local.
+        cal.renda_moldes_da_barra = None
         assert cal.renda_moldes_da_barra is None
         cr._imprimir_a_varredura_da_adena(
             cal, imagem, bloco, cr.grade_de_pisos(1, 254)
