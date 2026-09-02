@@ -32,6 +32,7 @@ NADA AQUI TOCA A `.mercado/` REAL. As observacoes sao montadas A MAO, no molde d
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -653,6 +654,23 @@ class TestODadoVelhoPerdeOAgoraENaoONumero:
         assert not any("não de agora" in aviso for aviso in pronto["avisos"])
 
 
+# O molde de um numero como a casa o escreve: `1.480,00`, `11,60`, `30,00`.
+#
+# ELE EXISTE PORQUE `"0,00" in texto` ESTA ERRADO, E O ERRO FOI MEDIDO AQUI: a
+# primeira redacao deste teste reprovou `"30,00 XM por milhao de adena
+# (derivado)"`, um valor perfeitamente legitimo, porque `0,00` e substring de
+# `30,00`. Toda taxa terminada em zero — `10,00`, `20,00`, `30,00` — seria
+# proibida, e a proibicao que o UI-SPEC escreveu nao e essa.
+#
+# A PROIBICAO E SOBRE O NUMERO INTEIRO SER ZERO, e nao sobre a cadeia aparecer em
+# algum lugar: `0,00` como espaco reservado enquanto carrega, ou saido do
+# formatador errado (`round(Fraction(11600, 10_000_000))` vale ZERO — a taxa por
+# unidade e inexibivel em centesimos, e e por isso que existem duas funcoes
+# irmas). Por isso a sonda extrai os TOKENS numericos e compara cada um por
+# igualdade.
+MOLDE_DE_NUMERO = re.compile(r"\d{1,3}(?:\.\d{3})*,\d{2}")
+
+
 class TestAsFrasesProibidasNaoAparecem:
     def test_nenhuma_frase_proibida_em_NENHUM_dos_cinco_estados(
         self, tmp_path: Path
@@ -661,9 +679,8 @@ class TestAsFrasesProibidasNaoAparecem:
 
         `preco de venda` / `vendido por` / `valor de mercado`: o scanner ve
         OFERTAS, e nao transacoes — ninguem comprou por este valor, alguem PEDIU
-        este valor. `0,00`: ausencia se escreve com palavra, nunca com zero, e
-        nenhuma fixture deste teste tem valor real que arredonde para zero — um
-        `0,00` aqui so pode vir de espaco reservado ou do formatador errado.
+        este valor. O `0,00` tem sonda propria abaixo, por TOKEN e nao por
+        substring — ver `MOLDE_DE_NUMERO`.
         """
         montagens = {
             "erro_de_contrato": (
@@ -699,6 +716,22 @@ class TestAsFrasesProibidasNaoAparecem:
             for texto in _todas_as_strings(pronto):
                 for proibida in dashboard_dados.FRASES_PROIBIDAS:
                     assert proibida not in texto.lower(), (proibida, texto)
+                assert "0,00" not in MOLDE_DE_NUMERO.findall(texto), texto
+
+    def test_CONTROLE_a_sonda_do_zero_ACUSA_um_zero_de_verdade(self) -> None:
+        """Sem este controle, a sonda por token poderia nao acusar nada nunca.
+
+        Ela e mais frouxa que a de substring de proposito; se a frouxidao for
+        demais, este controle e o que denuncia. `30,00` passa (valor legitimo),
+        `0,00` sozinho e reprovado.
+        """
+        assert "0,00" not in MOLDE_DE_NUMERO.findall(
+            "30,00 XM por milhao de adena (derivado)"
+        )
+        assert "0,00" in MOLDE_DE_NUMERO.findall(
+            "0,00 XM por milhao de adena (derivado)"
+        )
+        assert "0,00" in MOLDE_DE_NUMERO.findall("Lendo o arquivo: 0,00")
 
 
 class TestAFronteiraDoFLOAT:
