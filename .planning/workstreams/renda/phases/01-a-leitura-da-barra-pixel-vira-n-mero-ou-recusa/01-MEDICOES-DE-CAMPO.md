@@ -135,3 +135,86 @@ ela é, antes de ler.
 O item 4 é o único que mexe em requisito e não só em plano: `LEIT-05` diz "todas as regiões e
 todos os limiares moram no `calibration.json`" e continua verdadeiro, mas agora com uma dimensão
 a mais. Fica registrado aqui e propagado para o `REQUIREMENTS.md`.
+
+---
+
+# Adendo — a adena não sai por OCR, e o motivo tem número
+
+Feito depois da revisão dos planos, contra as mesmas duas fixtures. **Este adendo derruba a
+decisão de leitor da adena que estava no `01-04`.**
+
+## M-G — A regra da abstenção ACEITA número errado, medido nas duas instâncias
+
+Recorte `1500,1360 200x32`, varredura de piso de 5 em 5. Verdade: 13.160.684 e 1.696.020.
+
+| piso | Faerlina 2x / 3x | veredito | Yazalaque 2x / 3x | veredito |
+|---|---|---|---|---|
+| 150 | — / — | ambas abstêm | **106020** / — | **uma só → ERRADO E ACEITO** |
+| 155 | — / — | ambas abstêm | 1696020 / 1696020 | concordam → certo |
+| 160 | — / **91** | **uma só → ERRADO E ACEITO** | — / — | ambas abstêm |
+| 165 | — / 13160684 | uma só → certo | — / — | ambas abstêm |
+
+`106.020` e `91` **passam em `numero_valido`**. São gramaticalmente válidos, plausíveis, e
+errados por seis ordens de grandeza. A regra "uma válida + uma abstenção → aceita" que eu
+mesmo escrevi em M-D os aceitaria — e isto não é hipótese, saiu de dado real.
+
+A banda correta tem **largura 1 passo de 5** nas duas, e o passo vizinho devolve lixo válido.
+A varredura de 10 em 10 do M-E **pulou o 155** e por isso concluiu que a Yazalaque não lia.
+
+## M-H — E "as duas escalas concordam" também não salva: elas concordam na L-COIN
+
+Busca exaustiva sobre 4 topos × 4 alturas × 4 esquerdas × 4 direitas × 12 pisos:
+
+| personagem | concordâncias | certas | **erradas** |
+|---|---|---|---|
+| Faerlina | 173 | **0** | **173** — todas leem `13091`, que é a **L-Coin** |
+| Yazalaque | 110 | 40 | 70 — as erradas leem `9790`, a L-Coin |
+
+Quando o recorte encosta na L-Coin e a adena não renderiza no OCR, **as duas escalas concordam
+na moeda errada**. Concordância não é evidência de campo certo — é evidência de que as duas
+leram a mesma coisa, e a mesma coisa pode ser o campo do lado. Isto confirma o M18 do
+planejamento (a L-Coin passa a gramática de milhar inteira) com dado, e mostra que nem a
+posição do recorte resolve sozinha: a Faerlina não tem **nenhum** recorte, em 173 tentativas,
+onde as duas escalas concordem no valor certo.
+
+## M-I — A fonte da barra tem glifo de 17 px. Os moldes do mercado têm 9.
+
+`segmentar_glifos_no_brilho` sobre o recorte da adena, nas duas fixtures, em todo piso:
+`faixa=(9, 25)`, **altura 17**, invariável. Os 13 moldes de
+`mercado_templates_de_digito` têm `altura: 9`. **Eles não transferem** — esta é a resposta
+medida à primeira pergunta em aberto que a pesquisa deixou, e ela é "não".
+
+## M-J — Mas a SEGMENTAÇÃO por glifo é perfeita, e justo onde o OCR falha
+
+Mesmo recorte, `vmin=180` e `vmin=190` (onde o OCR devolve vazio nas duas escalas):
+
+    Yazalaque  larguras = [15, 5, 2, 5, 5, 5, 2, 5, 5, 5, 16]
+                            ^^                                 icone da moeda
+                                5  2  5  5  5  2  5  5  5      1 , 6 9 6 , 0 2 0
+                                                          ^^   icone seguinte
+
+    Faerlina   larguras = [15, 5, 5, 2, 5, 5, 5, 2, 5, 5, 7, 16]
+                                5  5  2  5  5  5  2  5  5  7   1 3 , 1 6 0 , 6 8 4
+
+Sete e oito dígitos de **largura 5**, vírgulas de **largura 2**, ícones de 15/16 nas pontas.
+A contagem bate com a verdade de campo nas duas, e é **estável** entre 180 e 190 — uma banda
+larga, ao contrário da banda de largura 1 do OCR.
+
+## O que este adendo obriga
+
+1. **A adena da barra é lida por GLIFO, não por OCR.** O `01-04` decide OCR mascarado a partir
+   do M-E; M-G e M-H mostram que OCR ali aceita número errado e que nenhuma regra de
+   cruzamento entre escalas conserta isso. `ler_glifos` recusa TUDO OU NADA por pontuação — é o
+   modo de falha certo para o campo que envenena a taxa.
+2. **Os moldes precisam ser construídos para esta fonte** (17 px), e isso é trabalho novo do
+   calibrador — `mercado_templates_de_digito` não serve. As duas fixtures já dão os dígitos
+   0, 1, 2, 3, 4, 6, 8 e 9; faltam **5 e 7**, que aparecem sozinhos com o tempo. O caminho é o
+   do `calibrar_mercado.propor_rotulo`: a máquina propõe, o humano confirma.
+3. **Os ícones das pontas (largura 15/16) têm que ser descartados por largura**, não por
+   recorte apertado — apertar o recorte foi o que fez as 173 concordâncias erradas da Faerlina.
+   `limite_de_glifo_unico` e `larguras_com_folga` já existem para exatamente isso.
+4. **O EXP continua por OCR.** Ele lê numa banda larga (130–170) nas duas instâncias, e a
+   gramática dele (`\d+[.,]\d{4}%`) não colide com nenhum campo vizinho — o problema da adena é
+   ter um sósia gramatical ao lado, e o EXP não tem.
+5. **A varredura de piso do calibrador anda de 5 em 5, não de 10 em 10.** O M-E concluiu
+   "a Yazalaque não lê" porque pulou o 155. Um passo grosso não erra para o lado seguro.
