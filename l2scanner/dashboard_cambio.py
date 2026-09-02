@@ -23,17 +23,28 @@ mil, e a decisao de dinheiro real sai dele.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
+from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "ARQUIVO_DO_CAMBIO",
     "MENSAGEM_DE_CAMBIO_INVALIDO",
     "MOLDE_DO_CAMBIO",
+    "SUFIXO_TEMPORARIO",
+    "Cambio",
     "CambioInvalido",
+    "HistoricoDoCambioIlegivel",
+    "gravar_o_cambio",
     "interpretar_o_cambio",
+    "ler_o_cambio",
 ]
 
 
@@ -171,3 +182,243 @@ def interpretar_o_cambio(texto: str) -> Decimal:
     if MOLDE_DO_CAMBIO.fullmatch(limpo) is None:
         raise CambioInvalido()
     return _apenas_o_valor(limpo)
+
+
+# ===========================================================================
+# A PERSISTENCIA: uma lista que SO CRESCE, escrita atomicamente
+# ===========================================================================
+
+# `.mercado/cambio.json` e o UNICO arquivo que o processo do dashboard escreve.
+# O `observacoes.csv` ao lado dele e aberto so em modo leitura, e ha teste de
+# impressao digital prendendo isso.
+ARQUIVO_DO_CAMBIO = "cambio.json"
+
+# O temporario mora AO LADO do destino, com o pid no nome. Ver `_escrever` para
+# as duas razoes (volume e concorrencia); o sufixo e constante porque a suite
+# conta o que sobrou na pasta, e derivar essa contagem de um literal repetido
+# no teste faria o teste concordar com qualquer coisa.
+SUFIXO_TEMPORARIO = ".tmp-"
+
+# As chaves do registro. Nomeadas porque sao lidas em tres lugares (escrita,
+# leitura e teste) e um erro de digitacao numa delas so apareceria em campo,
+# como um cambio que "sumiu".
+CAMPO_DO_VALOR = "reais_por_xm"
+CAMPO_DO_CARIMBO = "informado_em"
+
+
+class HistoricoDoCambioIlegivel(OSError):
+    """O `cambio.json` existe e NAO e a lista que este programa escreve.
+
+    Ela so aparece no caminho da ESCRITA, e existe para nao haver nenhuma acao
+    destrutiva nesta fase. Na LEITURA um arquivo assim vira `None` com aviso — a
+    pagina cai para "R$ indisponivel" e segue funcionando. Na escrita nao da
+    para ser tao gentil: gravar por cima do que nao foi entendido APAGARIA o
+    historico do usuario em silencio, e esse historico e a unica resposta a
+    pergunta "qual cambio estava valendo quando".
+    """
+
+
+@dataclass(frozen=True)
+class Cambio:
+    """A taxa vigente e QUANDO ela foi informada. As duas juntas, sempre.
+
+    O carimbo nao e enfeite de auditoria: o DASH-02 exige que todo valor em R$
+    apareca na tela declarado como *informado por voce, em tal data*, e nunca
+    como medido. Um `Cambio` sem `informado_em` tornaria essa frase impossivel
+    de montar, e a tela passaria a exibir um numero de procedencia calada.
+    """
+
+    reais_por_xm: Decimal
+    informado_em: datetime
+
+
+def _escrever(caminho: Path, texto: str) -> None:
+    """ESCRITA ATOMICA, o padrao que os tres escritores desta arvore ja usam.
+
+    `calibracao.py:764-768`, `loot.py:269-280` e `acervo.py:534-549` fazem a
+    mesma coisa, e a frase operacional e deles:
+
+        `os.replace` e atomico no mesmo volume: ou fica o arquivo antigo
+        inteiro, ou o novo inteiro. Nunca meio. O temporario vive AO LADO do
+        destino, e nao no `%TEMP%`, porque `os.replace` entre volumes
+        diferentes nao e atomico (e no Windows nem funciona).
+
+    O PID NO NOME vem do `loot.py`: duas abas do navegador, ou duas instancias
+    do dashboard, salvando ao mesmo tempo nao podem atropelar o temporario uma
+    da outra.
+
+    O `fsync` E A UNICA COISA A MAIS, e ele diverge dos tres analogos de
+    proposito. Sem ele o `os.replace` e atomico quanto ao NOME mas nao quanto
+    aos BYTES: numa queda de energia logo depois da troca, o diretorio pode
+    apontar para um arquivo cujo conteudo ainda nao desceu do cache. A pesquisa
+    mediu o custo em 9,18 ms — irrelevante para uma escrita por clique, e este e
+    o unico arquivo que este processo escreve.
+
+    SE ALGO FALHAR, O TEMPORARIO NAO FICA PARA TRAS. Ele nao e lido por ninguem,
+    mas lixo numa pasta que nunca e podada e lixo para sempre (`acervo.py:551`).
+    """
+    temporario = caminho.with_name(
+        f"{caminho.name}{SUFIXO_TEMPORARIO}{os.getpid()}"
+    )
+    try:
+        with open(temporario, "w", encoding="utf-8", newline="\n") as saida:
+            saida.write(texto)
+            saida.flush()
+            os.fsync(saida.fileno())
+        os.replace(temporario, caminho)
+    except OSError:
+        try:
+            temporario.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def _historico(caminho: Path) -> list[dict]:
+    """A lista crua do arquivo. Ausente -> lista vazia. Ilegivel -> LEVANTA.
+
+    A assimetria com `ler_o_cambio` e o desenho, e nao um descuido: esta funcao
+    so e chamada no caminho da ESCRITA, onde devolver lista vazia significaria
+    "comece do zero por cima do que voce nao entendeu".
+    """
+    try:
+        bruto = caminho.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    try:
+        historico = json.loads(bruto)
+    except ValueError as erro:
+        raise HistoricoDoCambioIlegivel(
+            f"O arquivo {caminho} existe e nao e uma lista JSON valida ({erro}). "
+            f"NENHUM byte dele foi alterado: gravar por cima apagaria em "
+            f"silencio o historico de cambios que voce ja informou. O QUE "
+            f"FAZER: abra o arquivo e conserte, ou renomeie-o para o programa "
+            f"criar um novo. Enquanto isso, a leitura do mercado e o resto da "
+            f"pagina seguem funcionando; so o R$ fica indisponivel."
+        ) from erro
+    if not isinstance(historico, list):
+        raise HistoricoDoCambioIlegivel(
+            f"O arquivo {caminho} existe e carrega {type(historico).__name__}, "
+            f"e nao a LISTA de registros que este programa escreve. NENHUM byte "
+            f"foi alterado. O QUE FAZER: renomeie o arquivo para o programa "
+            f"criar um novo. Enquanto isso, so o R$ fica indisponivel."
+        )
+    return historico
+
+
+def gravar_o_cambio(pasta: Path, texto: str, agora: datetime) -> Cambio:
+    """Valida o texto, APENDA o registro carimbado, e devolve o novo vigente.
+
+    APENDA, E NAO SOBRESCREVE, E ISSO E UMA DECISAO DECLARADA. Guardar so o
+    valor corrente custaria a mesma linha e perderia duas coisas:
+
+    1. A resposta a "qual cambio estava valendo quando" (T-01-12). Hoje isso
+       parece luxo; no dia em que um R$ da tela parecer errado, e a unica forma
+       de saber se o cambio mudou ou se o mercado mudou.
+    2. A forma que a COLETA AUTOMATICA vai preencher. O listener dos grupos de
+       venda do WhatsApp (adiado para o v2, em
+       `.planning/seeds/cambio-xm-brl-pelo-listener-do-whatsapp.md`) produz uma
+       SERIE de cotacoes com carimbo, nao um valor. A estrutura ja esta certa.
+
+    A ultima entrada e a vigente. Nada e sobrescrito e nada e apagado — que e o
+    que a linha de "confirmacao destrutiva" do UI-SPEC afirma por extenso.
+
+    O VALOR VIAJA COMO STRING no JSON, e a conversao esta declarada aqui porque
+    e a fronteira: JSON nao tem `Decimal`. Serializar como numero faria o
+    `json.load` devolver `float`, e `0.50` deixaria de ser exatamente `0.50` no
+    caminho de volta — reintroduzindo, na fronteira do disco, o erro de
+    representacao que o `Decimal` existe para tirar.
+    """
+    valor = interpretar_o_cambio(texto)  # a recusa acontece ANTES de tocar disco
+    caminho = Path(pasta) / ARQUIVO_DO_CAMBIO
+    historico = _historico(caminho)
+    historico.append(
+        {CAMPO_DO_VALOR: str(valor), CAMPO_DO_CARIMBO: agora.isoformat()}
+    )
+    _escrever(caminho, json.dumps(historico, indent=2, ensure_ascii=False) + "\n")
+    return Cambio(reais_por_xm=valor, informado_em=agora)
+
+
+def ler_o_cambio(pasta: Path) -> Cambio | None:
+    """O cambio vigente, ou `None`. NUNCA levanta, NUNCA cria, NUNCA apaga.
+
+    `None` E A FALHA FECHADA CORRETA AQUI, e nao um buraco. Sem cambio
+    informado, a pagina mostra o XM normalmente e diz `R$ indisponivel —
+    nenhum cambio informado`, com o campo logo abaixo. Um valor padrao chutado
+    faria a tela exibir R$ com a mesma confianca de um valor informado, e a
+    decisao de dinheiro real sairia de um numero que ninguem escolheu. O DASH-02
+    exige isso com todas as letras: *nenhum valor padrao e chutado*.
+
+    ARQUIVO CORROMPIDO TAMBEM DEVOLVE `None`, com aviso no log (o molde do aviso
+    de linha descartada de `mercado_registro.py:576-583`: nomeia o arquivo, diz
+    o motivo, e diz o que continua funcionando). E ELE NAO E APAGADO NEM
+    CONSERTADO: e um arquivo de texto na pasta do usuario, ele pode te-lo
+    editado a mao, e o pior aceitavel e perder o R$ da tela — nunca o registro.
+
+    O VALOR GUARDADO ATRAVESSA O MESMO PORTAO DO CAMPO (T-01-13). Um `1e3`
+    escrito a mao dentro do JSON passa por `json.loads` sem esforco; se a
+    leitura confiasse no arquivo por ele ser "nosso", a validacao do formulario
+    viraria enfeite contornavel por um editor de texto.
+    """
+    caminho = Path(pasta) / ARQUIVO_DO_CAMBIO
+    try:
+        bruto = caminho.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError as erro:
+        log.warning(
+            "Nao consegui LER o %s (%s). O R$ fica indisponivel nesta volta e a "
+            "pagina segue mostrando o XM normalmente; nenhum valor padrao foi "
+            "chutado e o arquivo nao foi tocado.",
+            caminho,
+            erro,
+        )
+        return None
+
+    try:
+        historico = json.loads(bruto)
+    except ValueError as erro:
+        log.warning(
+            "O %s nao e um JSON valido (%s) e por isso NENHUM cambio foi lido "
+            "dele. O arquivo esta INTACTO no disco: nenhum byte foi removido, "
+            "reparado ou reescrito. O QUE FAZER: conserte-o ou renomeie-o para "
+            "o programa criar um novo. Enquanto isso a pagina mostra o XM "
+            "normalmente e diz que o R$ esta indisponivel.",
+            caminho,
+            erro,
+        )
+        return None
+
+    if not isinstance(historico, list):
+        log.warning(
+            "O %s carrega %s, e nao a LISTA de registros que este programa "
+            "escreve; nenhum cambio foi lido dele e o arquivo esta INTACTO. A "
+            "pagina segue mostrando o XM e diz que o R$ esta indisponivel.",
+            caminho,
+            type(historico).__name__,
+        )
+        return None
+
+    if not historico:
+        # Lista vazia nao e defeito: e "nenhum cambio informado ainda", que e
+        # exatamente o que `None` significa. Avisar aqui seria ruido no log a
+        # cada leitura, na maquina de quem nunca preencheu o campo.
+        return None
+
+    ultimo = historico[-1]
+    try:
+        valor = interpretar_o_cambio(str(ultimo[CAMPO_DO_VALOR]))
+        carimbo = datetime.fromisoformat(str(ultimo[CAMPO_DO_CARIMBO]))
+    except (CambioInvalido, KeyError, TypeError, IndexError, ValueError) as erro:
+        log.warning(
+            "O ultimo registro do %s nao passou pelo mesmo portao do campo do "
+            "formulario (%s) e por isso NENHUM cambio foi lido dele. O arquivo "
+            "esta INTACTO. O QUE FAZER: informe o cambio de novo pela pagina, "
+            "que grava um registro novo sem apagar os antigos. Enquanto isso a "
+            "pagina mostra o XM e diz que o R$ esta indisponivel.",
+            caminho,
+            erro,
+        )
+        return None
+
+    return Cambio(reais_por_xm=valor, informado_em=carimbo)
