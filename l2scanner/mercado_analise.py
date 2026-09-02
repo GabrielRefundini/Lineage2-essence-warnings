@@ -694,6 +694,47 @@ class ModeloDeMercado:
             evidencia=mediana.evidencia,
         )
 
+    def vereditos_da_pagina(self, linhas) -> tuple[Destaque, ...]:
+        """TODAS as linhas da pagina contra a MESMA referencia CONGELADA.
+
+        O DEFEITO MEDIDO EM PRODUCAO (2026-09-02): quatro ofertas de Adena
+        anunciadas NO MESMO SEGUNDO citaram medianas diferentes —
+        `11,00 contra 13,87 n=7`, `11,20 contra 13,00 n=8`,
+        `11,40 contra 13,00 n=9`, `11,70 contra 12,00 n=10`. O laco julgava
+        linha a linha e acrescentava cada uma a populacao antes de comparar a
+        seguinte, entao a MESMA oferta era noticia forte na primeira fatia da
+        grade e quase nada na ultima.
+
+        O QUE FOI RECUSADO: o veredito dependendo de ONDE A LINHA CALHOU DE
+        ESTAR NA GRADE. Isso nao e opiniao sobre preco — e artefato de
+        varredura. O usuario nao tem como discordar de um numero que muda de
+        significado conforme a ordem em que o scanner leu a tela.
+
+        O CUSTO ACEITO, ESCRITO E NAO ESCONDIDO: uma pagina inteira de ofertas
+        baratas passa a anunciar TODAS contra a referencia congelada, em vez de
+        a segunda ja se comparar com a primeira. Numa enxurrada de ofertas
+        baratas isso e MAIS anuncio, e nao menos. O custo e conhecido e limitado
+        a UMA pagina; o defeito trocado por ele nao tinha limite nenhum e era
+        invisivel na leitura do log, porque cada linha parecia perfeitamente
+        coerente sozinha.
+
+        A REFERENCIA CONGELADA E A DE ANTES DA PAGINA, E NAO A DE ANTES DO TICK.
+        Hoje as duas sao a mesma coisa, porque o laco so chama `acrescentar`
+        dentro deste bloco — e esta escrito justamente para que um refactor
+        futuro nao acredite que a distincao nao existe. No dia em que outra
+        fonte alimentar o modelo dentro do tick, e a de antes da PAGINA que vale.
+
+        `veredito_do_destaque` CONTINUA EXISTINDO E PUBLICA — ela e a primitiva
+        de UMA linha e ha teste vivo sobre ela —, mas o laco nao a chama mais:
+        quem julga pagina julga a pagina inteira de uma vez.
+
+        A TUPLA SAI ALINHADA COM `linhas`, na MESMA ordem, para quem chama poder
+        fazer `zip(linhas, vereditos)` sem casar nada a mao. E esta funcao
+        continua PURA como o resto do modulo: ela nao escreve, nao chama
+        `acrescentar` e nao toca no relogio.
+        """
+        return tuple(self.veredito_do_destaque(linha) for linha in linhas)
+
 
 # ===========================================================================
 # A ORDENACAO PARA O CONSOLE — a watchlist como DESTAQUE
