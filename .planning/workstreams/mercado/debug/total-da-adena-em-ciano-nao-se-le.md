@@ -467,11 +467,32 @@ contra um conjunto sem o `8` casa 0,7826 com o `0` e 0,6198 com o `5`: folga
 
 ### A GUARDA DE PARIDADE, que e o que impede o esforco jogado fora
 
-`conferir_a_paridade_do_ciano` RECUSA, antes de escrever, um conjunto ciano
-cujo `0` seja um anel PARTIDO — a assinatura de corte sobre fundo 48. A
-mensagem diz onde cortar. Sem ela, os treze recortes de mouse do usuario
-produziriam um conjunto que parece calibrado e que erra exatamente as linhas
-que ja erram, com folga 0,0080 contra os 0,03698 exigidos.
+`conferir_a_paridade_do_ciano` RECUSA um conjunto ciano cujo `0` seja um anel
+PARTIDO — a assinatura de corte sobre fundo 48. A mensagem diz onde cortar. Sem
+ela, os treze recortes de mouse do usuario produziriam um conjunto que parece
+calibrado e que erra exatamente as linhas que ja erram, com folga 0,0080 contra
+os 0,03698 exigidos.
+
+**ATE 2026-09-01 O TITULO DESTA SECAO ERA FALSO, e o dia mediu o quanto.** A
+guarda existia num lugar so: dentro de `_gravar_os_glifos`, DEPOIS dos treze
+arrastos e DEPOIS de a matriz de confusao aprovar. Ela impedia a ESCRITA, e nao
+o esforco. O usuario cortou os treze glifos, viu a matriz aprovar, e so entao
+levou a recusa — **duas vezes seguidas, acertando so na terceira rodada**. Tres
+sessoes de marcacao a mao para uma recusa que era decidivel no primeiro `0`.
+
+**Consertado pela quick `260901-p2r`:** a mesma funcao passou a ser chamada
+tambem DENTRO do laco de `cortar_glifos`, sobre o corte da rodada, logo depois
+de cada numero marcado. `anel_do_zero_esta_partido` e pura sobre UM molde,
+entao o primeiro numero que contenha um `0` ja decide. **A recusa agora sai
+antes do segundo arrasto** — preso por `TestAGuardaAvisaANTESDosTrezeArrastos`
+em `tests/test_moldes_cromaticos.py`, que conta as chamadas de
+`_selecionar_regiao` e exige exatamente uma.
+
+A guarda da ESCRITA **continua existindo** e nao virou redundancia: a do laco ve
+so `cortados` (o corte da rodada) e e cega para uma rodada sem `0` sobre um
+conjunto anterior cujo `0` esta partido; a da escrita ve `fundidos` e pega esse
+caso. Ha teste para esse caminho, e ele passa por cima da guarda do laco de
+proposito.
 
 ### O CONTROLE NEGATIVO, POR LEITURA CERTA E NAO POR CONTAGEM
 
