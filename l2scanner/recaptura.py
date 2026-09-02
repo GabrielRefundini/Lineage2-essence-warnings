@@ -85,15 +85,26 @@ class FonteRecuperavel:
     nao sabe que existe um envelope no caminho.
     """
 
-    def __init__(self, construir: Callable[[], FrameSource]) -> None:
+    def __init__(
+        self,
+        construir: Callable[[], FrameSource],
+        relogio: Callable[[], float] = time.monotonic,
+    ) -> None:
         # A FABRICA E O UNICO LUGAR ONDE A LISTA DE ARGUMENTOS DA FONTE EXISTE.
         # Arranque e religacao chamam a MESMA funcao — nao ha um segundo site
         # com os parametros repetidos, que e como dois sites divergem em
         # silencio (e como `minimum_update_interval` apareceria de repente na
         # construcao da party).
         self._construir = construir
+        # O relogio entra por parametro pela mesma disciplina do resto do
+        # projeto: o portao de espera tem de ser demonstravel sem a suite
+        # dormir 30 s por caso.
+        self._relogio = relogio
         self._interior = construir()
         self._congelados_seguidos = 0
+        self._tentativas_gastas = 0
+        self._instante_da_ultima_tentativa: float | None = None
+        self._ja_avisou_que_desistiu = False
 
     def capturar(self) -> Frame:
         frame = self._interior.capturar()
@@ -104,6 +115,12 @@ class FonteRecuperavel:
                 self._religar()
         else:
             self._congelados_seguidos = 0
+            # O RESET DO ORCAMENTO ESTA ANCORADO NO FRAME SAUDAVEL, e nao no
+            # `__init__` ter retornado. A WGC entrega sessoes que constroem sem
+            # erro nenhum e continuam mortas — foi EXATAMENTE o caso medido em
+            # campo. Um reset ancorado na construcao nunca esgotaria o teto
+            # justamente nesse caso, e o teto so existiria no papel.
+            self._devolver_o_orcamento()
 
         # O FRAME DESTA VOLTA E SEMPRE DEVOLVIDO, inclusive no tick em que a
         # reconstrucao aconteceu. Quem chamou pediu um frame; a cura acontece
@@ -111,14 +128,80 @@ class FonteRecuperavel:
         # `PortaoGlobal.CEGO` que ja imprime "SEM VISAO".
         return frame
 
+    def _devolver_o_orcamento(self) -> None:
+        self._tentativas_gastas = 0
+        self._instante_da_ultima_tentativa = None
+        self._ja_avisou_que_desistiu = False
+
     def _religar(self) -> None:
+        if self._tentativas_gastas >= TENTATIVAS_DE_RELIGACAO:
+            self._avisar_que_desistiu()
+            return
+
+        # O PORTAO DE ESPERA E COMPARACAO DE INSTANTES, NUNCA `time.sleep`. O
+        # laco ja dorme `args.intervalo` por tick; dormir aqui atrasaria os
+        # comandos e a agenda do mesmo tick junto.
+        agora = self._relogio()
+        if (
+            self._instante_da_ultima_tentativa is not None
+            and agora - self._instante_da_ultima_tentativa
+            < SEGUNDOS_ENTRE_TENTATIVAS
+        ):
+            return
+
+        self._instante_da_ultima_tentativa = agora
+        # A TENTATIVA CONTA ANTES DE TENTAR. Contar so no sucesso deixaria uma
+        # fabrica que explode gastando tentativa nenhuma — e o teto, que existe
+        # justamente para o caso em que reconstruir nao resolve, nunca chegaria.
+        self._tentativas_gastas += 1
         log.warning(
-            "Captura congelada — reconstruindo a fonte (a sessao de captura "
-            "morreu com o jogo vivo; ver o cabecalho de recaptura.py)"
+            "Captura congelada — reconstruindo a fonte (tentativa %d de %d). "
+            "A sessao de captura pode ter morrido com o jogo vivo; ver o "
+            "cabecalho de recaptura.py.",
+            self._tentativas_gastas,
+            TENTATIVAS_DE_RELIGACAO,
         )
+
         antiga = self._interior
-        # CONSTRUIR O NOVO ANTES DE FECHAR O VELHO.
-        nova = self._construir()
-        antiga.fechar()
+        # CONSTRUIR O NOVO ANTES DE FECHAR O VELHO: uma fabrica que explode tem
+        # de deixar o scanner com a fonte ANTIGA, e nao sem fonte nenhuma.
+        try:
+            nova = self._construir()
+        except Exception:
+            log.exception(
+                "A reconstrucao da fonte falhou — seguindo com a fonte antiga"
+            )
+            return
+
+        # Falhar em FECHAR a antiga nao pode impedir a adocao da nova: o
+        # vazamento de uma thread de captura e ruim, ficar com o cadaver e pior.
+        try:
+            antiga.fechar()
+        except Exception:
+            log.warning(
+                "Nao consegui fechar a fonte antiga — adotando a nova assim "
+                "mesmo",
+                exc_info=True,
+            )
+
         self._interior = nova
         log.info("Fonte de captura reconstruida — voltando a ler a tela")
+
+    def _avisar_que_desistiu(self) -> None:
+        """UMA vez, alto, e o laco segue rodando cego.
+
+        Nao sai, nao levanta, nao silencia. Um erro por tick durante um farm de
+        tres horas e a forma mais confiavel de o aviso nao ser lido — mesma
+        disciplina do `_ja_avisou_que_nao_adotou` em `reancoragem.py`. A marca
+        volta a `False` no proximo frame saudavel, porque ai a proxima cegueira
+        e outra historia.
+        """
+        if self._ja_avisou_que_desistiu:
+            return
+        self._ja_avisou_que_desistiu = True
+        log.error(
+            "A captura NAO voltou depois de %d tentativas de religacao. O "
+            "scanner continua rodando, mas SEGUE CEGO: nada sera detectado nem "
+            "alertado ate a imagem mudar. Verifique a janela do jogo.",
+            TENTATIVAS_DE_RELIGACAO,
+        )
