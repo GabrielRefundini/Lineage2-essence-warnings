@@ -619,6 +619,125 @@ class TestASugestaoVemDoDiscoENuncaDeUmLiteral:
         assert "Yazalaque" in saida
 
 
+class TestAMedicaoDaFormaDaAdenaMedeENaoClassifica:
+    """A altura de faixa e as larguras do recorte escolhido, para o OLHO.
+
+    ELA NAO E A PENEIRA, e a diferenca e o que a mantem deste lado da fronteira
+    do `01-05`: ela nao devolve veredicto nenhum, nao decide dentro/fora de
+    banda e nao grava piso. Ela imprime numeros crus.
+
+    POR QUE ELA EXISTE ASSIM MESMO (T-01-61): quem escolhe o retangulo aqui
+    escolhe a ALTURA DE FAIXA que a guarda do `01-05` vai usar. Um recorte que
+    pega o icone seguinte travaria o cortador de moldes inteiro, e o conserto
+    seria AQUI, no retangulo -- mas sem esta medicao na tela o usuario so
+    descobriria duas ferramentas depois.
+
+    ESTES CASOS NAO PRECISAM DE OCR: `segmentar_glifos_no_brilho` e so cv2.
+    """
+
+    CROP_DE_CAMPO = (
+        RAIZ / "tests" / "fixtures" / "renda" / "campo_faerlina_f000__barra_direita.png"
+    )
+
+    # MEDIDO nesta arvore, na convencao EXCLUSIVA (`fim - inicio`), com piso
+    # 185. Bate caractere por caractere com a verdade de campo `13.160.684`:
+    # dez caracteres no meio, entre os dois icones de moeda.
+    LARGURAS_DE_CAMPO = [14, 4, 4, 1, 4, 4, 4, 1, 4, 4, 6, 15]
+    ALTURA_DE_FAIXA_DE_CAMPO = 16
+
+    def _crop(self):
+        import cv2
+
+        imagem = cv2.imread(str(self.CROP_DE_CAMPO))
+        assert imagem is not None, f"a fixtura {self.CROP_DE_CAMPO} nao abriu"
+        return imagem
+
+    def _bloco(self, imagem, piso=185):
+        return {
+            "regiao": {
+                "esquerda": 0,
+                "topo": 0,
+                "largura": int(imagem.shape[1]),
+                "altura": int(imagem.shape[0]),
+            },
+            "piso_de_brilho": piso,
+        }
+
+    def test_O_RECORTE_DE_CAMPO_DA_A_ALTURA_E_AS_LARGURAS_MEDIDAS(self):
+        imagem = self._crop()
+        texto = "\n".join(cr.medir_a_forma_da_adena(imagem, self._bloco(imagem)))
+        assert f"altura de faixa {self.ALTURA_DE_FAIXA_DE_CAMPO}" in texto, texto
+        assert str(self.LARGURAS_DE_CAMPO) in texto, texto
+
+    def test_A_CONVENCAO_DE_LARGURA_VAI_DECLARADA_NA_SAIDA(self):
+        """O "17" do M-I e o "5" do M-O ja custaram duas refutacoes a esta fase,
+
+        e as duas foram numero sem convencao declarada. A saida diz qual e.
+        """
+        imagem = self._crop()
+        texto = "\n".join(cr.medir_a_forma_da_adena(imagem, self._bloco(imagem)))
+        assert "EXCLUSIVA" in texto
+        assert "fim - inicio" in texto
+
+    def test_O_RECORTE_DE_CAMPO_NAO_DISPARA_O_AVISO_DE_RUN_LARGO_NO_MEIO(self):
+        """O CONTROLE NEGATIVO. Sem ele, um aviso que disparasse sempre passaria
+
+        no caso positivo abaixo e o usuario aprenderia a ignora-lo.
+        """
+        imagem = self._crop()
+        texto = "\n".join(cr.medir_a_forma_da_adena(imagem, self._bloco(imagem)))
+        assert "AVISO" not in texto, texto
+
+    def test_UM_RUN_LARGO_NO_MEIO_DISPARA_O_AVISO_CITANDO_A_REFUTACAO(self):
+        """O caso positivo, montado a mao.
+
+        A montagem sintetica e necessaria porque `montagem_da_janela.png` e um
+        COMPOSTO: o recorte da adena foi colado na posicao do retangulo certo,
+        entao o retangulo refutado (`1500,1360 200x32`) sobre ela devolve os
+        MESMOS runs -- conferido. A refutacao do M-N e do M-Q foi medida nos
+        frames de campo INTEIROS, que nao vem de clone limpo. Reproduzir a forma
+        e o que se pode fazer a partir do clone.
+        """
+        largura_do_icone = 15
+        # icone | digito | ICONE NO MEIO | digito | icone
+        blocos = [largura_do_icone, 4, 18, 4, largura_do_icone]
+        colunas = sum(blocos) + len(blocos)
+        imagem = np.zeros((20, colunas, 3), dtype=np.uint8)
+        x = 0
+        for bloco in blocos:
+            imagem[5:15, x : x + bloco] = 255
+            x += bloco + 1
+
+        texto = "\n".join(cr.medir_a_forma_da_adena(imagem, self._bloco(imagem)))
+        assert "AVISO" in texto, texto
+        assert "run LARGO NO MEIO" in texto
+        assert "1500,1360 200x32" in texto, (
+            "o aviso nao cita o retangulo refutado; sem o endereco o usuario "
+            "nao liga o sintoma a causa"
+        )
+
+    def test_UM_RECORTE_SEM_TINTA_NO_PISO_DIZ_ISSO_EM_VEZ_DE_CALAR(self):
+        imagem = np.zeros((20, 100, 3), dtype=np.uint8)
+        texto = "\n".join(cr.medir_a_forma_da_adena(imagem, self._bloco(imagem)))
+        assert "nao tem tinta nenhuma" in texto
+
+    def test_SEM_BLOCO_EM_DISCO_A_MEDICAO_NAO_INVENTA_NADA(self):
+        imagem = self._crop()
+        assert cr.medir_a_forma_da_adena(imagem, None) == []
+        assert cr.medir_a_forma_da_adena(imagem, {"regiao": {}}) == []
+
+    def test_ELA_NAO_DEVOLVE_VEREDICTO_NENHUM(self):
+        """A fronteira, afirmada: esta funcao MEDE. Quem classifica e a peneira
+
+        do `01-05`, e uma segunda forma aqui faria os moldes serem cortados de
+        um conjunto de corridas e lidos de outro.
+        """
+        imagem = self._crop()
+        texto = "\n".join(cr.medir_a_forma_da_adena(imagem, self._bloco(imagem)))
+        for veredicto in cr.VEREDICTOS:
+            assert veredicto not in texto, veredicto
+
+
 class TestOFonteNaoCarregaNumeroDeGEOMETRIA:
     """A sugestao vem do disco, e isso e afirmado por CODIGO e nao por leitura."""
 

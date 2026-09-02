@@ -193,6 +193,18 @@ PASSO_DA_GRADE_DE_PISOS = 5
 # apaga em seis meses; um aviso com a historia escrita fica.
 LARGURA_MAXIMA_DE_BANDA_FRAGIL = 2
 
+# A partir de que fracao da largura do ICONE uma corrida do MEIO deixa de poder
+# ser digito. Ela existe para o AVISO de recorte contaminado, e nunca para
+# decidir leitura -- quem decide forma e a peneira do `01-05`.
+#
+# MEDIDO nas quatro fixturas de campo, na convencao EXCLUSIVA: os icones de
+# ponta valem 14 e 15, e o digito mais largo desta fonte vale 6 (o `4`, o `7` e
+# o `9`). Metade do icone e 7,0-7,5, entao o digito mais largo passa com folga
+# de um pixel e o `18` que o retangulo refutado do M-N produzia no meio nao
+# passa. A folga e pequena de proposito: um aviso que so dispara no caso
+# extremo deixa passar o caso que de fato aconteceu em campo.
+FRACAO_DO_ICONE_QUE_AINDA_E_DIGITO = 0.5
+
 
 def grade_de_pisos(primeiro: int, ultimo: int) -> tuple[int, ...]:
     """Os pisos a experimentar, de `PASSO_DA_GRADE_DE_PISOS` em passo.
@@ -758,7 +770,71 @@ def _imprimir_a_varredura(varreduras: dict) -> dict:
     return bandas
 
 
-def _imprimir_o_estado_da_adena(cal: Calibracao) -> None:
+def medir_a_forma_da_adena(frame, bloco: dict | None) -> list[str]:
+    """A altura de faixa e as larguras das corridas do recorte ESCOLHIDO.
+
+    ESTA FUNCAO MEDE E NAO CLASSIFICA, e a distincao e o que a mantem deste
+    lado da fronteira. Ela nao decide se a forma e valida — quem decide e a
+    peneira `renda_leitura._glifos_do_numero`, do `01-05`, e escrever uma
+    segunda aqui seria criar duas formas para os mesmos moldes. Ela imprime os
+    numeros crus para o OLHO do usuario comparar.
+
+    POR QUE ELA EXISTE MESMO ASSIM, e e uma ameaca nomeada (T-01-61): quem
+    escolhe o retangulo aqui escolhe a ALTURA DE FAIXA que a guarda do `01-05`
+    vai usar. Medido (M-K), em `1560:1690` um run de largura 9 ainda entra no
+    fim e estica a faixa; um recorte que pega o icone seguinte travaria o
+    cortador de moldes inteiro, e o conserto seria AQUI, no retangulo, e nao la.
+    Sem esta medicao na tela, o usuario so descobriria isso duas ferramentas
+    depois.
+
+    A CONVENCAO DE LARGURA VAI DECLARADA, e ela ja custou duas refutacoes a
+    esta fase (o "17" do M-I e o "5" do M-O). Estes numeros saem de
+    `segmentar_glifos_no_brilho`, cuja convencao e `fim - inicio` —
+    **EXCLUSIVA**, a mesma de `larguras_de_molde`. O `01-MEDICOES-DE-CAMPO.md`
+    relata os mesmos runs na convencao INCLUSIVA (`fim - inicio + 1`), e as
+    duas descrevem a mesma tela diferindo por um pixel.
+    """
+    if not bloco or "regiao" not in bloco or "piso_de_brilho" not in bloco:
+        return []
+    from .mercado_leitura import segmentar_glifos_no_brilho
+    from .renda_leitura import recortar
+
+    recorte = recortar(
+        frame, Regiao.de_dict(bloco["regiao"]), campo=REGIAO_VARRIDA_POR_GLIFO
+    )
+    if isinstance(recorte, RecusaDaRenda):
+        return [f"  RECUSADO ({recorte.motivo}): {recorte.detalhe}"]
+
+    faixa, corridas = segmentar_glifos_no_brilho(recorte, int(bloco["piso_de_brilho"]))
+    if faixa is None or not corridas:
+        return [
+            f"  No piso {bloco['piso_de_brilho']} este recorte nao tem tinta "
+            f"nenhuma.",
+            "  Ou o retangulo nao esta sobre a adena, ou o piso apagou o campo.",
+        ]
+    larguras = [fim - inicio for inicio, fim in corridas]
+    linhas = [
+        f"  piso {bloco['piso_de_brilho']}  altura de faixa {faixa[1] - faixa[0]}"
+        f"  {len(corridas)} corridas",
+        f"  larguras (convencao EXCLUSIVA, `fim - inicio`): {larguras}",
+        "  Esperado: um run LARGO em cada ponta (os icones de moeda, 14 e 15) e",
+        "  no meio so larguras de digito (4, 5 ou 6) e de virgula (1).",
+    ]
+    if (
+        len(larguras) > 2
+        and max(larguras[1:-1])
+        > max(larguras[0], larguras[-1]) * FRACAO_DO_ICONE_QUE_AINDA_E_DIGITO
+    ):
+        linhas += [
+            "  AVISO: ha um run LARGO NO MEIO. O recorte esta pegando o icone da",
+            "  moeda de ouro, ou a cauda da L-Coin -- foi exatamente assim que o",
+            "  retangulo `1500,1360 200x32` foi refutado (M-N, M-Q). Marque um",
+            "  recorte que COMECE depois do icone e TERMINE antes do seguinte.",
+        ]
+    return linhas
+
+
+def _imprimir_o_estado_da_adena(cal: Calibracao, frame=None, bloco=None) -> None:
     """O que a adena esta esperando, dito no terminal do usuario.
 
     Este bloco sai SEMPRE nesta rodada, e nao so quando `renda_moldes_da_barra`
@@ -769,6 +845,9 @@ def _imprimir_o_estado_da_adena(cal: Calibracao) -> None:
     """
     print()
     print(f"--- {ROTULO_DA_REGIAO[REGIAO_VARRIDA_POR_GLIFO]} ---")
+    if frame is not None:
+        for texto in medir_a_forma_da_adena(frame, bloco):
+            print(texto)
     print("  A varredura de piso deste campo NAO rodou nesta rodada.")
     print("  Ele e classificado pela FORMA das corridas de glifo, e a peneira")
     print("  de forma (`renda_leitura._glifos_do_numero`) e escrita pelo passo")
@@ -954,7 +1033,11 @@ def calibrar_renda(args) -> int:
         _imprimir_a_varredura(
             _varrer_as_regioes_de_ocr(frame, entrada_em_disco, pisos_da_grade)
         )
-        _imprimir_o_estado_da_adena(cal)
+        _imprimir_o_estado_da_adena(
+            cal,
+            frame,
+            _bloco_da_regiao(entrada_em_disco, REGIAO_VARRIDA_POR_GLIFO),
+        )
         print()
         print("--so-medir: NADA foi escrito no disco.")
         return SAIDA_OK
@@ -998,7 +1081,9 @@ def calibrar_renda(args) -> int:
     bandas = _imprimir_a_varredura(
         _varrer_as_regioes_de_ocr(frame, efetiva, pisos_da_grade)
     )
-    _imprimir_o_estado_da_adena(cal)
+    _imprimir_o_estado_da_adena(
+        cal, frame, efetiva.get(REGIAO_VARRIDA_POR_GLIFO)
+    )
 
     pisos = {
         regiao: (escolher_o_piso(banda), banda.largura)
