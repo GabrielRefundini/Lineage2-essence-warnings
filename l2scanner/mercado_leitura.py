@@ -1195,12 +1195,12 @@ def ler_celula_de_quantidade(
 #     tolerancia    <= 1,0 centesimo por unidade     1273,0    CAIU
 #     deteccao      >= 0,90                          0,0164    tambem cairia
 #
-# O fechamento no LIMITE DERIVADO (0,5 por unidade, o que a aritmetica do
-# arredondamento permite) fica em apenas 0,6525. Para chegar a 0,99 a tolerancia
-# precisaria de 1273 centesimos por unidade — 2.546 vezes o limite derivado. Com
-# uma peneira dessas a guarda aprovaria tambem a substituicao que ela existe para
-# pegar, e a deteccao de 0,0164 sobre 1.893 substituicoes `0`<->`8` injetadas
-# confirma isso diretamente.
+# O fechamento no LIMITE DERIVADO (que naquele dia valia 0,5 por unidade, pela
+# hipotese do arredondamento) fica em apenas 0,6525. Para chegar a 0,99 a
+# tolerancia precisaria de 1273 centesimos por unidade — 1.273 vezes o limite
+# derivado de hoje, e 2.546 vezes o de entao. Com uma peneira dessas a guarda
+# aprovaria tambem a substituicao que ela existe para pegar, e a deteccao de
+# 0,0164 sobre 1.893 substituicoes `0`<->`8` injetadas confirma isso diretamente.
 #
 # ENTAO `mercado_tolerancia_do_cruzamento` ESTA GRAVADA COMO `None`, E A GUARDA
 # NAO DESCARTA NADA. Falha fechada vale para a guarda tambem: descartar dado bom
@@ -1215,34 +1215,181 @@ def ler_celula_de_quantidade(
 # NAO por unidade — ali a relacao nao vale por construcao, e nao por erro de
 # leitura. Isso explica parte da queda, mas nao toda: mesmo `pagina-cheia`, que e
 # negociacao pura, para em 84,2%. O veredito e robusto.
+#
+# ESSA ULTIMA FRASE — "o veredito e robusto" — ESTA REFUTADA POR MEDICAO,
+# 2026-09-02. Nada acima foi apagado: os numeros do 02-02 sao registro, e um
+# registro que se reescreve para caber na conclusao de hoje deixa de ser
+# registro. O que caiu foi a CONCLUSAO, e ela diz que caiu, com data e numero.
+#
+# A PROVA LIMPA: o vigia foi parado, o registro da Fase 3 foi truncado no
+# cabecalho (esta fase nao nomeia aquele arquivo — ver a fronteira presa por
+# `TestAFronteiraComAFase3`), as DEZ linhas da tela foram escritas a mao ANTES
+# de o scanner rodar,
+# a pagina nao mudou durante a leitura (grid diff 8.463 sobre um recorte de
+# 450.000 pixels) e o leitor acertou 10 de 10 em nome, quantidade e total. Sobre
+# essa MESMA pagina verificada:
+#
+#     fechamento com o limite antigo (0,5/unidade):   7 de 10   (70%)
+#     fechamento com o limite novo   (1,0/unidade):  10 de 10  (100%)
+#
+# As tres que caiam sao as tres que a aritmetica preve, e nenhuma e leitura
+# errada — o residuo guardado no CSV bate com a conta feita a partir do unitario
+# da propria tela: 1199/4 residuo 3 contra 2,0; 2200/6 residuo 4 contra 3,0;
+# 3500/9 residuo 8 contra 4,5.
+#
+# ENTAO A POPULACAO QUE O 02-02 LEU COMO "CHEIA DE LEITURA ERRADA" ERA, EM BOA
+# PARTE, O LIMITE VALENDO METADE. Os dois lados concordam: o 0,6525 do censo foi
+# medido contra a regua de 0,5, a mesma regua que reprova 3 das 10 linhas de uma
+# pagina que se sabe CERTA. Um fechamento medido contra uma regua curta nao mede
+# a leitura; mede a regua.
+#
+# A REMEDICAO FOI RODADA NO MESMO DIA, e ela esta aqui inteira.
+#
+# `tools/medir_leitura_de_glifo.py` rodou de novo (DRY-RUN, sem `--gravar`) sobre
+# as MESMAS 8 gravacoes do censo, agora com o limite derivado em 1,0/unidade e
+# com o portao de layout de PRODUCAO (`LeitorDePagina._casamento_do_layout`)
+# chamado uma vez por frame com painel aberto. A saida integral esta preservada
+# em `.planning/quick/260902-ca4-.../260902-ca4-DRY-RUN.txt`.
+#
+#     478 frames com painel aberto, 55.342 glifos — os MESMOS numeros do 02-02,
+#     porque o portao filtra a populacao do CRUZAMENTO e nao a de glifo.
+#
+#     o portao respondeu:  negociacao 347 | adena 25 | NENHUM 106 frames
+#     linhas completas:    negociacao 1172 | NENHUM 71 | adena 0
+#
+# O FECHAMENTO NO LIMITE DERIVADO SUBIU DE 0,6525 PARA 0,9377, e quase tudo isso
+# veio da CONSTANTE e nao do portao: o portao tirou 71 linhas de 1.243, e as 71
+# vieram de frames em que ele NAO OPINOU (nenhum layout passou o proprio limiar,
+# ou houve empate) — nao de frames de Adena.
+#
+# E ISSO DESMONTA A HIPOTESE DE CONTAMINACAO PELA ABA ADENA, que era a explicacao
+# escrita acima. As linhas de Adena nunca estiveram na populacao: naquela aba a
+# coluna `Quantity` de negociacao cai sobre VAZIO e devolve `None`, entao aquelas
+# linhas nunca foram COMPLETAS e nunca chegaram ao cruzamento. ZERO linhas de
+# `adena` foram tiradas — a contaminacao que se supunha nao existia, e o que
+# existia era o limite valendo metade. Um numero que sai ZERO tambem e resposta.
+#
+# O VEREDITO NAO MUDOU, E O CRITERIO QUE CAIU E O MESMO:
+#
+#     GUARDA REPROVADA por tolerancia, 1273.0000 centesimos por unidade
+#     (maximo 1.0)
+#
+#     criterio      exigido                          medido (2026-09-02)
+#     fechamento    >= 0,99                          0,9991 — so com tol. 1273
+#     tolerancia    <= 1,0 centesimo por unidade     1273,0    CAIU
+#     deteccao      >= 0,90                          0,0178    tambem cairia
+#                                                    (sobre 1.741 injetadas)
+#
+# O TETO CONTRA O QUAL ELE CAIU E O MESMO 1,0 DE ANTES, de proposito: a constante
+# dobrou e `FATOR_MAXIMO_SOBRE_O_LIMITE_DERIVADO` caiu de 2,0 para 1,0 no mesmo
+# commit, e o produto continua valendo um centesimo por unidade. Se o fator
+# tivesse ficado em 2,0, o teto teria virado 2,0 e esta reprovacao teria mudado de
+# regua sem ninguem decidir isso.
+#
+# ENTAO A GUARDA CONTINUA DESLIGADA, E POR MEDICAO E NAO POR OMISSAO. O 0,9377
+# ainda esta abaixo do 0,99 exigido, e a deteccao de 0,0178 esta a duas ordens de
+# grandeza do 0,90 — uma tolerancia de 1273 aprovaria justamente a substituicao
+# `0`<->`8` que a guarda existe para pegar. `mercado_tolerancia_do_cruzamento`
+# continua `None` no disco por construcao: a ferramenta so escreve com `--gravar`
+# e esta medicao rodou sem ele.
+#
+# NADA FOI GRAVADO. O par (piso, margem) que a ferramenta PROPORIA saiu
+# 0,469831 e 0,036984 — IDENTICO ao que ja esta no `calibration.json`, entao a
+# remedicao nao afrouxa nem aperta o piso de leitura. Ele e apenas relatado.
+#
+# E A `pagina-cheia` DESMENTE A OUTRA METADE DA FRASE REFUTADA. O paragrafo do
+# 02-02 usou justamente ela — negociacao pura, sem Adena para culpar — como
+# prova de que a queda nao era so de layout: `para em 84,2%`. Contra a regua
+# certa ela fecha 33 de 34, 97,1%. Nao era a leitura; era o limite.
+#
+#     fechamento no limite derivado, por gravacao (so negociacao, 2026-09-02):
+#       053105-mercado-aberto        847 de 917   92,4%
+#       055323-mercado-scroll        102 de 103   99,0%
+#       060622-mercado-pagina-cheia   33 de  34   97,1%   (era 84,2%)
+#       063409-mercado-scroll-transicao 117 de 118  99,2%
+#     as outras quatro do censo nao deixaram linha completa de negociacao.
+#
+# O QUE AINDA FALTA, e agora e a pergunta certa: sobram 6,2% de linhas de
+# negociacao que nao fecham nem com um centesimo por unidade, e a `053105`
+# sozinha responde por quase todas (847 de 917 contra 97-99% das outras tres).
+# A proxima remedicao comeca por olhar aquela gravacao, e nao por mexer no
+# limite de novo — um limite que se mexe ate o numero fechar nao e derivacao,
+# e ajuste de curva.
 
-# Meio centesimo por unidade — a DERIVACAO, e nunca a tolerancia de producao.
-LIMITE_DERIVADO_POR_UNIDADE = 0.5
+# UM centesimo por unidade — a DERIVACAO, e nunca a tolerancia de producao.
+#
+# ELE SAI DO TRUNCAMENTO, E O TRUNCAMENTO ESTA MEDIDO EM CAMPO (2026-09-02, a
+# prova limpa descrita acima): gabarito das 10 linhas declarado ANTES da leitura,
+# pagina imovel (grid diff 8.463 sobre 450.000 pixels), 10 de 10 exatos. Quatro
+# das dez linhas discriminam truncamento de arredondamento, e as QUATRO truncam:
+# 299,75 exibido `299` (arredondado daria 300), 366,67 exibido `366` (367), 387,5
+# exibido `387` (388) e 388,89 exibido `388` (389). ZERO linhas arredondam.
+#
+# O CUSTO DA DOBRA, MEDIDO E SEM SUAVIZAR: uma troca `0`<->`8` mexe o total em no
+# MINIMO 8 centesimos (o digito na ultima casa), entao a guarda so a pega
+# enquanto `quantidade x 1,0` for menor que 8 — ate 7 unidades ou incrementos,
+# contra ate 15 antes. Um limite mais CORRETO que pega MENOS e uma troca, e uma
+# troca que nao esta escrita e um afrouxamento disfarcado de conserto. Na Adena,
+# onde o cruzamento e GUARDA de verdade, as ofertas reais sao de 1 a 3
+# incrementos (5M/10M/15M), entao o caso de campo do usuario continua coberto; na
+# negociacao a guarda esta DESLIGADA e o efeito e so no limiar do log de
+# `_observar_o_cruzamento`.
+LIMITE_DERIVADO_POR_UNIDADE = 1.0
 
 
 def limite_derivado_do_cruzamento(quantidade: int) -> float:
-    """O maximo que o residuo pode valer se o unitario e um arredondamento.
+    """O maximo que o residuo pode valer, dado que a tela TRUNCA o unitario.
 
     NAO e uma tolerancia escolhida: e a consequencia aritmetica de a tela exibir
-    `round(total / quantidade, 2)`. Cada unidade carrega no maximo meio centesimo
-    de erro de arredondamento; `quantidade` unidades carregam `quantidade / 2`.
+    `trunc(total / quantidade, 2)`. Sob truncamento o unitario exibido e sempre
+    MENOR OU IGUAL ao verdadeiro, e a diferenca cabe num centesimo inteiro por
+    unidade — nao em meio, que e o que o arredondamento daria. Entao `quantidade`
+    unidades carregam ate `quantidade` centesimos, e o limite e a propria
+    quantidade.
 
-    O caso conhecido do spike fecha: `40,00` por 48 unidades aparece como `0,83`,
-    o residuo e `|4000 - 83 x 48| = 16`, e o limite derivado e 24.
+    O caso conhecido do spike fecha, e com a conta refeita: `40,00` por 48
+    unidades exibe `0,83` porque `0,8333...` TRUNCADO da `0,83` (arredondado
+    daria o mesmo `0,83` aqui — esta linha nao discrimina). O residuo continua
+    sendo `|4000 - 83 x 48| = 16`; o limite derivado passa de 24 para 48.
 
     ELE E REFERENCIA, E NAO PENEIRA, e a diferenca importa: o numero que liga a
-    guarda em producao e o MEDIDO pelo 02-02 e gravado no `calibration.json`. A
-    derivacao existe para dizer se o medido faz sentido — e foi ela que mostrou
-    que 1273 nao fazia.
+    guarda em producao e o MEDIDO e gravado no `calibration.json`. A derivacao
+    existe para dizer se o medido faz sentido — e foi ela que mostrou que 1273
+    nao fazia.
 
-    E O PROPRIO ARREDONDAMENTO E SUSPEITO, MEDIDO NAS FIXTURAS: em
-    `janela_negociacao_f005.png`, linha 5, a tela mostra `11,39` por 6 unidades
-    com unitario `1,89` — mas `1139 / 6 = 1,8983`, que ARREDONDA para `1,90`. O
-    cliente parece TRUNCAR, e nao arredondar, o que dobraria o limite (um
-    centesimo por unidade em vez de meio). O residuo ali e 5 contra limite
-    derivado 3. Uma observacao sobre uma fixtura nao vira lei — mas ela e mais
-    uma explicacao para o fechamento de 0,6525 que reprovou a guarda, e o dia em
-    que alguem remedir tem de comecar por aqui.
+    O TRUNCAMENTO ESTA CONFIRMADO, E ELE ERA SO SUSPEITA ATE 2026-09-02
+    -------------------------------------------------------------------
+    O PRIMEIRO INDICIO, uma fixtura so: em `janela_negociacao_f005.png`, linha 5,
+    a tela mostra `11,39` por 6 unidades com unitario `1,89` — mas
+    `1139 / 6 = 1,8983`, que ARREDONDA para `1,90`. Uma observacao sobre uma
+    fixtura nao vira lei, e por dois meses esta docstring disse exatamente isso.
+
+    A CONFIRMACAO, uma pagina inteira declarada ANTES da leitura: na prova limpa
+    de 2026-09-02 (gabarito escrito a mao antes de o scanner rodar, pagina imovel
+    com grid diff 8.463 sobre 450.000 pixels, 10 de 10 exatos em nome, quantidade
+    e total), SEIS das dez linhas dividem exato e nao opinam. As outras QUATRO
+    tem unitario diferente sob as duas hipoteses, e as quatro mostram o TRUNCADO:
+
+        1199 / 4 = 299,75   exibido `299`   arredondado daria 300
+        2200 / 6 = 366,67   exibido `366`   arredondado daria 367
+        3100 / 8 = 387,5    exibido `387`   arredondado daria 388
+        3500 / 9 = 388,89   exibido `388`   arredondado daria 389
+
+    NENHUMA LINHA DA PAGINA ARREDONDA. Quatro de quatro no mesmo sentido nao e
+    coincidencia de leitura: seria preciso que o leitor errasse o ultimo digito
+    de quatro unitarios diferentes sempre para baixo, sobre uma pagina cujas dez
+    linhas foram conferidas contra um gabarito escrito antes. O usuario tambem
+    leu na tela, na mesma sessao e de outra pagina, `6,74 / 5 = 1,348` exibido
+    `1,34` e `15,00 / 8 = 1,875` exibido `1,87` — o mesmo sentido, outra fonte.
+
+    E A VARREDURA DO CENSO JA DIZIA ISSO, de outro angulo: o rotulo por INTERVALO
+    de `tools/medir_brilho_da_quantidade.py` nasceu porque o criterio por residuo
+    contra `quantidade/2` marcava como erro leitura que estava CERTA
+    (`053105-mercado-aberto/frame_000066` L1, tela `51`, rotulo 52).
+
+    O CUSTO DESTA CORRECAO ESTA ESCRITO AO LADO DA CONSTANTE, e ele e real: com o
+    limite dobrado a guarda pega a troca `0`<->`8` ate 7 unidades de escala, e
+    nao mais ate 15.
     """
     return float(quantidade) * LIMITE_DERIVADO_POR_UNIDADE
 
@@ -1327,8 +1474,13 @@ def quantidade_de_adena(
 
     (c) OS DOIS CASOS DIFICEIS, COM AS CONTAS
     ------------------------------------------
-        ACEITA   133,33 por 66,66   n=2   |13333 - 2x6666| = 1    limite 1,0
-        REJEITA  135,88 por 67,50   n=2   |13588 - 2x6750| = 88   limite 1,0
+        ACEITA   133,33 por 66,66   n=2   |13333 - 2x6666| = 1    limite 2,0
+        REJEITA  135,88 por 67,50   n=2   |13588 - 2x6750| = 88   limite 2,0
+
+    O LIMITE DOBROU EM 2026-09-02 E A DISCRIMINACAO SOBREVIVEU, que e o que
+    importa: 1 contra 2,0 continua cabendo, 88 contra 2,0 continua estourando por
+    duas ordens de grandeza. A justificativa da Fase 5 nao dependia da estreiteza
+    do limite — ela depende de 88 ser enorme.
 
     O segundo e a LINHA 5 daquela fixtura, e ele e a justificativa desta guarda:
     a tela diz `135,00` e a leitura devolve `13588` — dois `0` lidos como `8`, o
@@ -1344,17 +1496,25 @@ def quantidade_de_adena(
 
     O CRITERIO NAO E ESCOLHIDO AQUI: e `limite_derivado_do_cruzamento`, que ja
     existe com a derivacao escrita ao lado. A escala de `n` sao INCREMENTOS e
-    nao unidades, e a derivacao continua valendo por construcao — a tela exibe
-    `round(total / incrementos, 2)` na coluna do incremento exatamente como
-    exibe o unitario na negociacao, entao cada incremento carrega no maximo meio
-    centesimo de erro de arredondamento.
+    nao unidades, e a derivacao continua valendo por construcao — a tela TRUNCA
+    `total / incrementos` na coluna do incremento exatamente como trunca o
+    unitario na negociacao, entao cada incremento carrega no maximo UM centesimo
+    de erro. (Ate 2026-09-02 este paragrafo dizia meio centesimo, pela hipotese
+    do arredondamento; a prova de campo daquele dia mostrou que a tela trunca —
+    ver a docstring de `limite_derivado_do_cruzamento`.)
 
-    A COMPARACAO E `residuo <= limite`, E O SINAL E LOAD-BEARING. Com `<` o
-    caso-bandeira `133,33 / 66,66` REPROVA — residuo 1 contra limite 1,0 — e a
-    Adena perde justamente as ofertas de preco quebrado, que sao as que o
-    usuario capturou. `<=` tambem e o sentido que `_observar_o_cruzamento` ja
-    usa (`if residuo <= limite_derivado_do_cruzamento(quantidade): return`);
-    escrever o outro aqui criaria DUAS leituras opostas do MESMO limite.
+    A COMPARACAO E `residuo <= limite`, E O SINAL CONTINUA LOAD-BEARING — MAS A
+    TESTEMUNHA MUDOU DE LUGAR. Enquanto o limite valia meio centesimo por
+    unidade, o caso-bandeira `133,33 / 66,66` passava por IGUALDADE (residuo 1
+    contra limite 1,0), e ele era a prova viva de que trocar `<=` por `<` custava
+    dado real. Com o limite em um centesimo por unidade esse mesmo caso passa com
+    FOLGA (residuo 1 contra limite 2,0) e ja nao testemunha nada sobre o sinal.
+    Quem prende o sinal hoje e `TestOSinalDaComparacao`, que INJETA o limite
+    (1,0 e 0,99 sobre o mesmo residuo 1) e por isso nao depende do valor da
+    constante — a testemunha certa para uma propriedade que nao deve depender
+    dela. O `<=` tambem e o sentido que `_observar_o_cruzamento` ja usa (`if
+    residuo <= limite_derivado_do_cruzamento(quantidade): return`); escrever o
+    outro aqui criaria DUAS leituras opostas do MESMO limite.
 
     (d) O RAMO QUE ACEITA O ARREDONDAMENTO NAO TEM PIXEL NO REPOSITORIO
     -------------------------------------------------------------------
@@ -1375,7 +1535,8 @@ def quantidade_de_adena(
     if incrementos < 1:
         return None
     residuo = abs(total - incrementos * incremento)
-    # `<=`, e nao `<`. Ver (c): o caso-bandeira passa por IGUALDADE.
+    # `<=`, e nao `<`. Ver (c): quem prende o sinal e `TestOSinalDaComparacao`,
+    # que injeta o limite — desde 2026-09-02 o caso-bandeira passa com folga.
     if residuo <= limite_derivado_do_cruzamento(incrementos):
         return ADENA_POR_INCREMENTO * incrementos, incrementos
     return None

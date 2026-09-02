@@ -1690,7 +1690,9 @@ GLIFOS_DO_UNITARIO = FIXTURES / "glifos_unitario_f010.png"
 
 # O caso conhecido do spike (SPIKE-RESPOSTAS secao 4): `40,00` por 48 unidades
 # aparece na tela como `0,83`, e `0,83 x 48 = 39,84` — um numero que nunca
-# existiu. O residuo e 16 contra o limite derivado 24.
+# existiu. O residuo e 16 contra o limite derivado 48. (O limite era 24 ate
+# 2026-09-02: a derivacao saia do arredondamento, e a prova de campo daquele dia
+# mostrou que a tela TRUNCA. O residuo NAO mudou; a regua dobrou.)
 SPIKE_TOTAL, SPIKE_UNITARIO, SPIKE_QUANTIDADE = 4000, 83, 48
 SPIKE_RESIDUO = 16
 
@@ -1698,10 +1700,12 @@ SPIKE_RESIDUO = 16
 def tolerancia_de_ensaio() -> float:
     """A tolerancia DERIVADA, por unidade — e nunca a de producao.
 
-    Ela sai da propria aritmetica do arredondamento (meio centesimo por
-    unidade), e nao de um numero escolhido: e por isso que ela pode viver num
-    teste sem ser constante magica. A de producao e o que o 02-02 mediu, e o que
-    ele mediu foi uma reprovacao.
+    Ela sai da propria aritmetica do TRUNCAMENTO (um centesimo por unidade,
+    medido em campo em 2026-09-02), e nao de um numero escolhido: e por isso que
+    ela pode viver num teste sem ser constante magica. Ela vale o DOBRO do que
+    valia, e continua nao sendo escolha — ela e a consequencia de como a tela
+    escreve o unitario. A de producao e o que o 02-02 mediu, e o que ele mediu
+    foi uma reprovacao.
     """
     return limite_derivado_do_cruzamento(1)
 
@@ -1814,7 +1818,8 @@ class TestOResiduoDoCruzamento:
             residuo_do_cruzamento(SPIKE_TOTAL, SPIKE_UNITARIO, SPIKE_QUANTIDADE)
             == SPIKE_RESIDUO
         )
-        assert limite_derivado_do_cruzamento(SPIKE_QUANTIDADE) == 24
+        # 48 unidades x 1,0 centesimo. Era 24 sob a hipotese do arredondamento.
+        assert limite_derivado_do_cruzamento(SPIKE_QUANTIDADE) == 48
         assert SPIKE_RESIDUO <= limite_derivado_do_cruzamento(SPIKE_QUANTIDADE)
 
     def test_o_resultado_e_INTEIRO_e_nunca_float(self) -> None:

@@ -31,13 +31,18 @@ o outro, que e a razao ja escrita em `calibrar_mercado.py:344-350`.
 
 A GUARDA DE CRUZAMENTO E DECIDIVEL, E OS DOIS CRITERIOS SAO OBRIGATORIOS
 -------------------------------------------------------------------------
-O unitario exibido e `Total / Quantity` arredondado a duas casas, entao o
-residuo `|total - unitario x quantidade|` e limitado por meio centesimo por
-unidade - em centesimos, `quantidade / 2`. Caso conhecido do spike:
-`40,00` por 48 unidades exibindo `0,83` da residuo 16 contra limite 24.
+O unitario exibido e `Total / Quantity` TRUNCADO a duas casas (medido em campo
+em 2026-09-02: quatro linhas discriminantes, as quatro truncando), entao o
+residuo `|total - unitario x quantidade|` e limitado por UM centesimo por
+unidade - em centesimos, a propria `quantidade`. Caso conhecido do spike:
+`40,00` por 48 unidades exibindo `0,83` da residuo 16 contra limite 48.
 
-    FECHAMENTO  >= 0,99, com a tolerancia proposta cabendo em 2x o limite
-                derivado. Abaixo disso a guarda descartaria linha boa em volume,
+    FECHAMENTO  >= 0,99, com a tolerancia proposta cabendo em 1x o limite
+                derivado. O fator era 2x enquanto o truncamento era hipotese; ele
+                caiu para 1x quando o truncamento virou a propria derivacao, para
+                a mesma folga nao ser contada duas vezes. O TETO em centesimos
+                por unidade e o mesmo dos dois lados: 0,5 x 2,0 = 1,0 x 1,0 = 1,0.
+                Abaixo disso a guarda descartaria linha boa em volume,
                 e descarte custa dado que o usuario viu na tela. Se a tolerancia
                 precisa ser muito mais larga para fechar, a guarda virou peneira
                 e aprovaria tambem a substituicao que existe para pegar.
@@ -94,6 +99,20 @@ from l2scanner.mercado_leitura import (  # noqa: E402
     segmentar_glifos,
 )
 from l2scanner.mercado_leitura import ler_celula as classificar_celula  # noqa: E402,F401
+
+# O PORTAO DE LAYOUT E CHAMADO, E NUNCA REIMPLEMENTADO AQUI.
+#
+# A varredura precisa saber QUAL aba esta em cada frame para julgar a guarda so
+# sobre a negociacao. A tentacao e escrever aqui um casamento de cabecalho de
+# dez linhas - e uma copia do portao mediria outra coisa que a producao decide.
+# No dia em que os limiares, o empate ou o conjunto de candidatos mudassem em
+# `LeitorDePagina`, esta ferramenta continuaria aprovando ou reprovando a guarda
+# com a regra ANTIGA, e o numero sairia com o nome certo e o significado errado.
+#
+# E E EXATAMENTE O DEFEITO QUE O DEBT-07 FECHOU: um teste que media a propria
+# copia em vez do original. A seta aqui aponta producao -> ferramenta, o inverso
+# da promocao do 02-06, e pela mesma razao: uma grandeza so pode ter uma casa.
+from l2scanner.mercado_pagina import LeitorDePagina  # noqa: E402
 from l2scanner.mercado_visao import (  # noqa: E402
     RastreioDoPainel,
     ancoras_de_calibracao,
@@ -126,10 +145,13 @@ MOTIVO_PARA_IGNORAR = _oclusao.MOTIVO_PARA_IGNORAR
 # Os criterios da guarda - escritos aqui para serem CONFERIVEIS, nao julgados
 # ---------------------------------------------------------------------------
 
-# Meio centesimo por unidade. NAO e escolha: e o limite DERIVADO do
-# arredondamento a duas casas. `unitario = round(total/quantidade, 2)` erra no
-# maximo meio centesimo por unidade, entao o residuo total erra no maximo
-# `quantidade/2` centesimos.
+# UM centesimo por unidade. NAO e escolha: e o limite DERIVADO do TRUNCAMENTO a
+# duas casas. `unitario = trunc(total/quantidade, 2)` erra ate um centesimo
+# inteiro por unidade, entao o residuo total erra ate `quantidade` centesimos.
+# Ate 2026-09-02 este apelido valia meio centesimo, pela hipotese do
+# arredondamento; a prova de campo daquele dia mostrou que a tela TRUNCA — quatro
+# linhas discriminantes, as quatro truncando, sobre uma pagina cujas dez linhas
+# foram declaradas por escrito ANTES da leitura.
 #
 # O NUMERO E A ARITMETICA MUDARAM DE CASA NO 02-06, e este nome e so um apelido
 # local. `limite_derivado_do_cruzamento` e `residuo_do_cruzamento` nasceram aqui,
@@ -139,10 +161,29 @@ MOTIVO_PARA_IGNORAR = _oclusao.MOTIVO_PARA_IGNORAR
 # coisas ligeiramente diferentes no dia em que uma delas fosse corrigida.
 LIMITE_POR_UNIDADE = LIMITE_DERIVADO_POR_UNIDADE
 
-# A tolerancia proposta tem de caber em 2x o limite derivado. Mais larga que
-# isso e peneira: ela passaria a aceitar tambem a substituicao que a guarda
-# existe para pegar.
-FATOR_MAXIMO_SOBRE_O_LIMITE_DERIVADO = 2.0
+# A tolerancia proposta tem de caber em 1x o limite derivado.
+#
+# ELE ERA 2,0 ATE 2026-09-02, E BAIXOU NO MESMO COMMIT EM QUE A CONSTANTE
+# DOBROU. O 2x existia para deixar espaco EXATAMENTE para a possibilidade do
+# truncamento, que naquele momento era suspeita sobre uma fixtura so. Com o
+# truncamento virando a PROPRIA derivacao, manter o 2x empilharia a mesma folga
+# duas vezes e afrouxaria a guarda como efeito colateral de um conserto — que e
+# o modo de falha que este projeto existe para evitar.
+#
+# O TETO ABSOLUTO NAO SE MOVE, E E ELE QUE IMPORTA: o produto
+# `LIMITE_POR_UNIDADE x FATOR_MAXIMO_SOBRE_O_LIMITE_DERIVADO` valia
+# `0,5 x 2,0 = 1,0` centesimo por unidade antes e vale `1,0 x 1,0 = 1,0` depois.
+# A linha de veredito continua dizendo `maximo 1.0`, e o 02-02 continua reprovado
+# pelo MESMO numero contra o MESMO teto. `TestOTetoAbsolutoDaTolerancia` afirma o
+# PRODUTO, e nao os fatores: afirmar so um deles deixaria a proxima mudanca de
+# constante mover o teto em silencio.
+#
+# A ALTERNATIVA FOI RECUSADA POR ESCRITO: manter 2,0 levaria o teto a 2,0
+# centesimos por unidade — o dobro do que qualquer pessoa decidiu — e uma guarda
+# duas vezes mais frouxa teria nascido de um commit cujo assunto era corrigir uma
+# derivacao. Um afrouxamento que ninguem escolheu e um afrouxamento que ninguem
+# revisa.
+FATOR_MAXIMO_SOBRE_O_LIMITE_DERIVADO = 1.0
 
 # Fracao minima das linhas que leram nas tres colunas e cujo residuo cabe na
 # tolerancia. Abaixo disso a guarda descarta linha boa em volume.
@@ -412,6 +453,14 @@ class ResultadoDaVarredura:
     abertos_por_gravacao: dict = field(default_factory=dict)
     runs_da_quantidade: list = field(default_factory=list)
     extremos_da_quantidade: dict = field(default_factory=dict)
+    # (gravacao, arquivo) -> "negociacao" | "adena" | None, direto do portao de
+    # PRODUCAO. `None` e resposta: nenhum layout passou o proprio limiar, ou
+    # houve empate - e `LeitorDePagina` devolve `None` no empate de proposito.
+    layout_por_frame: dict = field(default_factory=dict)
+    # veredito do portao -> quantos frames com painel aberto. A chave `None`
+    # entra na contagem: um relatorio que so contasse os frames classificados
+    # esconderia justamente a calibracao torta que faz o portao nao opinar.
+    abertos_por_layout: dict = field(default_factory=dict)
 
 
 def varrer(gravacoes: Path, cal: Calibracao) -> ResultadoDaVarredura:
@@ -434,6 +483,15 @@ def varrer(gravacoes: Path, cal: Calibracao) -> ResultadoDaVarredura:
 
     for nome in GRAVACOES_DO_CENSO:
         rastreio = RastreioDoPainel(ancoras, limiar)
+        # UM leitor de PRODUCAO por gravacao, com o rastreio DAQUELA gravacao.
+        #
+        # Catalogo vazio e as duas leitoras de texto em `None` porque a varredura
+        # NUNCA chama OCR: aqui so se usa `_casamento_do_layout`, que olha a
+        # banda do cabecalho e mais nada. Construi-lo por gravacao, e nao por
+        # frame, e o que a producao faz - o molde do cabecalho e ~28 KB de hex
+        # decodificados uma vez no arranque, e refaze-lo por frame seria
+        # trabalho puro sobre 478 frames.
+        leitor = LeitorDePagina(rastreio, {}, None, None, cal)
         abertos = 0
         arquivos = sorted(
             p for p in (gravacoes / nome).glob("frame_*.png") if p.is_file()
@@ -448,6 +506,14 @@ def varrer(gravacoes: Path, cal: Calibracao) -> ResultadoDaVarredura:
             abertos += 1
             ox, oy = rastreio.origem
             gy = oy + int(grade["dy"])
+
+            # O PORTAO DE PRODUCAO, CHAMADO. Uma vez por frame com painel
+            # aberto, com a mesma origem que a varredura ja usa para recortar.
+            layout = leitor._casamento_do_layout(frame, rastreio.origem)
+            resultado.layout_por_frame[(nome, caminho.name)] = layout
+            resultado.abertos_por_layout[layout] = (
+                resultado.abertos_por_layout.get(layout, 0) + 1
+            )
 
             for indice in range(n_linhas):
                 topo = gy + indice * altura
@@ -508,7 +574,7 @@ def linhas_do_cruzamento(
     piso: float | None = None,
     margem: float | None = None,
 ) -> list:
-    """As linhas em que as TRES colunas leram e respeitam a gramatica.
+    """As linhas em que as TRES colunas leram, na gramatica E NA NEGOCIACAO.
 
     Com `piso` e `margem`, a celula que tiver UM run reprovado derruba a linha
     inteira - o mesmo tudo-ou-nada de `classificar_celula`. Esse filtro importa
@@ -517,10 +583,31 @@ def linhas_do_cruzamento(
     medir uma populacao que ela nunca vai encontrar. Sem os dois parametros a
     funcao devolve tudo, que e o que a etapa ANTERIOR precisa - o piso ainda nao
     existe quando as linhas confirmadas sao escolhidas.
+
+    O PORTAO DE LAYOUT FILTRA AQUI, E SO AQUI. A identidade que esta populacao
+    existe para julgar e `total = unitario x quantidade`, e ela NAO VALE na aba
+    Adena por construcao: la a terceira coluna e `5 mln increment`, normalizada
+    por cinco milhoes de adena e nao por unidade. Uma linha de Adena entrando na
+    medicao nao e leitura errada - e outra aritmetica sendo julgada pela regua
+    errada, e ela reprovava a guarda sem nada a ver com a qualidade da leitura.
+
+    A ALTERNATIVA FOI RECUSADA POR ESCRITO: filtrar a VARREDURA inteira por
+    layout, e nao so o cruzamento. Ela custaria caro e por nada. A producao le
+    `Total Price` e `5 mln increment` da aba Adena com os MESMOS retangulos de
+    negociacao - medido no 05-01, dez linhas exatas sem tocar um pixel de
+    calibracao -, entao a populacao de GLIFO e a mesma nos dois layouts. Tirar os
+    frames de Adena da varredura removeria do piso e da margem glifos que a
+    producao REALMENTE le, e um piso medido sobre menos material que o de campo e
+    um piso que vai recusar leitura boa no primeiro tick fora do censo.
+
+    As duas populacoes ficam separadas de proposito: `resultado.amostras`
+    (glifo, todos os layouts) e esta (cruzamento, so negociacao).
     """
     linhas = []
     for (gravacao, arquivo, indice), leitura in resultado.celulas.items():
         if not {"total", "quantidade", "unitario"} <= set(leitura):
+            continue
+        if resultado.layout_por_frame.get((gravacao, arquivo)) != "negociacao":
             continue
         if piso is not None and margem is not None:
             reprovada = any(
@@ -547,6 +634,54 @@ def linhas_do_cruzamento(
     return linhas
 
 
+def quebra_do_cruzamento_por_layout(
+    resultado: ResultadoDaVarredura,
+    piso: float | None = None,
+    margem: float | None = None,
+) -> dict:
+    """Quantas linhas COMPLETAS cada layout tem, ANTES do descarte do portao.
+
+    Ela existe para o relatorio poder dizer o TAMANHO DO EFEITO do portao, e nao
+    so que ele existe: `{"negociacao": n, "adena": m, None: k}` responde de uma
+    vez quantas linhas o portao tirou da populacao do cruzamento e de onde elas
+    vinham. Sem esse numero, uma varredura em que o portao nao removeu NADA sairia
+    identica a uma em que ele removeu metade - e essas duas dizem coisas opostas
+    sobre a hipotese de contaminacao pela aba Adena.
+
+    Os mesmos criterios de `linhas_do_cruzamento` (tres colunas, gramatica, piso e
+    margem), MENOS o descarte por layout - que e justamente o que se quer medir.
+    """
+    quebra: dict = {}
+    for (gravacao, arquivo, _indice), leitura in resultado.celulas.items():
+        if not {"total", "quantidade", "unitario"} <= set(leitura):
+            continue
+        if piso is not None and margem is not None:
+            reprovada = any(
+                score < piso or distancia < margem
+                for pontuados in leitura.values()
+                for _, score, distancia in pontuados
+            )
+            if reprovada:
+                continue
+        texto = {
+            coluna: "".join(r for r, _, _ in pontuados)
+            for coluna, pontuados in leitura.items()
+        }
+        linha = LinhaMedida(
+            gravacao,
+            arquivo,
+            _indice,
+            centesimos_de_moeda(texto["total"]),
+            inteiro_de_quantidade(texto["quantidade"]),
+            centesimos_de_moeda(texto["unitario"]),
+        )
+        if not linha.completa:
+            continue
+        layout = resultado.layout_por_frame.get((gravacao, arquivo))
+        quebra[layout] = quebra.get(layout, 0) + 1
+    return quebra
+
+
 def propor_piso_e_margem(
     resultado: ResultadoDaVarredura, confirmadas: set
 ) -> tuple:
@@ -555,9 +690,9 @@ def propor_piso_e_margem(
     "Confirmado" nao e um rotulo digitado a mao sobre 4.800 linhas: e a linha
     cujas TRES colunas leram, respeitam a gramatica do numero, e fecham o
     cruzamento `Total = unitario x quantidade` dentro do limite DERIVADO do
-    arredondamento. Tres leituras independentes que concordam aritmeticamente
+    TRUNCAMENTO. Tres leituras independentes que concordam aritmeticamente
     nao concordam por acaso - a chance de dois digitos errados se compensarem
-    ate meio centesimo por unidade e desprezivel.
+    ate um centesimo por unidade e desprezivel.
 
     O par proposto e o MENOR score e a MENOR margem observados nessa populacao:
     qualquer par maior recusaria um glifo que o cruzamento confirmou correto, e
@@ -884,8 +1019,12 @@ def main(argv=None) -> int:
             f"{medida['por_unidade_p95']:.4f}, max "
             f"{medida['por_unidade_max']:.4f}"
         )
+        # O numero DERIVA de `LIMITE_POR_UNIDADE` em vez de ser repetido a mao.
+        # A versao anterior escrevia `0,5/unidade` literal e teria continuado
+        # escrevendo isso depois de a constante dobrar - um relatorio que mente
+        # sobre a propria regua e pior que um relatorio ausente.
         print(
-            f"  fechamento no LIMITE DERIVADO (0,5/unidade): "
+            f"  fechamento no LIMITE DERIVADO ({LIMITE_POR_UNIDADE}/unidade): "
             f"{medida['fechamento_no_limite_derivado']:.4f}"
         )
     print(
@@ -899,14 +1038,80 @@ def main(argv=None) -> int:
         f"deteccao={veredito['deteccao']:.4f} sobre "
         f"{veredito['casos_injetados']} substituicoes injetadas"
     )
+    # A QUEBRA POR LAYOUT, MEDIDA. Ate 2026-09-02 este lugar imprimia um aviso
+    # dizendo que o portao de layout ainda nao existia e que a varredura media
+    # sobre TODOS os layouts. Ele existe desde o 02-04, e agora e CHAMADO aqui -
+    # entao o aviso virou numero.
+    print("")
+    print("  O PORTAO DE LAYOUT DE PRODUCAO, CHAMADO UMA VEZ POR FRAME ABERTO:")
+    total_aberto = sum(resultado.abertos_por_layout.values())
+    for veredito_do_portao, quantos in sorted(
+        resultado.abertos_por_layout.items(), key=lambda par: str(par[0])
+    ):
+        rotulo = (
+            "NENHUM (nao casou, ou empate)"
+            if veredito_do_portao is None
+            else veredito_do_portao
+        )
+        print(f"    {rotulo:<32} {quantos:>5} frames")
+    print(f"    {'TOTAL com painel aberto':<32} {total_aberto:>5} frames")
+
+    quebra = quebra_do_cruzamento_por_layout(resultado, piso, margem)
+    de_negociacao = quebra.get("negociacao", 0)
+    tiradas = sum(
+        quantas for chave, quantas in quebra.items() if chave != "negociacao"
+    )
+    print("")
+    print("  LINHAS COMPLETAS DO CRUZAMENTO, POR LAYOUT (apos piso e margem):")
+    for veredito_do_portao, quantas in sorted(
+        quebra.items(), key=lambda par: str(par[0])
+    ):
+        rotulo = (
+            "NENHUM (nao casou, ou empate)"
+            if veredito_do_portao is None
+            else veredito_do_portao
+        )
+        print(f"    {rotulo:<32} {quantas:>5} linhas")
+    print(
+        f"    -> o portao TIROU {tiradas} linhas da populacao do cruzamento e "
+        f"deixou {de_negociacao}."
+    )
+    if tiradas == 0:
+        print(
+            "    -> ZERO linhas tiradas E RESPOSTA, e ela DESMONTA a hipotese de "
+            "contaminacao pela aba Adena: se o fechamento continuar baixo, a "
+            "causa esta em outro lugar."
+        )
+    if de_negociacao == 0:
+        print("")
+        print(
+            "  ####################################################################"
+        )
+        print(
+            "  ATENCAO: NENHUM frame venceu como `negociacao`. A medicao da guarda "
+            "ficou SEM POPULACAO."
+        )
+        print(
+            "  Isto NAO e uma guarda reprovada - e uma guarda NAO MEDIDA, e "
+            "confundir as duas gravaria `None` por engano."
+        )
+        print(
+            "  Causas provaveis: `mercado_cabecalho_de_coluna` ausente no "
+            "calibration.json (sem molde o portao nao tem candidato de "
+            "negociacao), ou o bloco `mercado_layouts` ausente/torto."
+        )
+        print(
+            "  ####################################################################"
+        )
+
     print("")
     print("  FECHAMENTO NO LIMITE DERIVADO, POR GRAVACAO:")
     print(
-        "  (o portao de LAYOUT so nasce no 02-04 Task 3, entao esta varredura "
-        "mede sobre frames de TODOS os layouts. Na aba Adena a terceira coluna "
-        "e `5 mln increment`, normalizada por 5 milhoes de adena e NAO por "
-        "unidade - ali a relacao `total = unitario x quantidade` nao vale, e "
-        "por construcao, nao por erro de leitura.)"
+        "  (so linhas de `negociacao`: o portao de PRODUCAO "
+        "`LeitorDePagina._casamento_do_layout` ja filtrou a populacao. Na aba "
+        "Adena a terceira coluna e `5 mln increment`, normalizada por 5 milhoes "
+        "de adena e NAO por unidade - ali a relacao `total = unitario x "
+        "quantidade` nao vale, e por construcao, nao por erro de leitura.)"
     )
     for nome in GRAVACOES_DO_CENSO:
         da_gravacao = [
