@@ -32,6 +32,45 @@ nao o numero delas: uma manutencao inventada custa uma mensagem falsa no
 grupo, e uma manutencao perdida custa o loot, o buff e a instance. Os dois
 lados pesam, e nenhum dos dois foi trocado pelo outro.
 
+E EM 2026-09-02 ELE FUNCIONOU E SPAMMOU: ~19 MENSAGENS PARA UMA MANUTENCAO
+==========================================================================
+O usuario: "Funcionou perfeitamente mas esta spammando muito, avise apenas
+quando aparece o anuncio e quando faltar 10m."
+
+Entre 11:58 e 12:52 daquele dia o grupo de WhatsApp recebeu ~19 vezes a MESMA
+mensagem de anuncio — "MANUTENCAO DO SERVIDOR em X (as HH:MM). Nao entre em
+instance." —, mais 3 do segundo tipo (12:11, 12:41 e 12:52), para UMA unica
+manutencao. Os 17 horarios-alvo que as mensagens carregaram se espalharam por
+54 minutos:
+
+    12:59  12:56  12:59  13:05  12:18  12:11  12:26  12:29  12:30
+    12:34  12:35  12:37  12:38  12:40  13:05  12:43  12:56
+
+A MECANICA, em uma frase: uma leitura fora da tolerancia vira `_candidata`; a
+leitura seguinte chega 5 s depois repetindo o MESMO erro sistematico de OCR e
+portanto cai dentro dos 60 s de `TOLERANCIA_DO_CONSENSO` em relacao a
+candidata; a ancora troca — e a troca zerava `_emitidos`, re-armando o anuncio.
+O consenso TEMPORAL e cego a erro de METODO por construcao, e isso ja estava
+escrito na docstring de `VigiaDeManutencao` antes de custar 19 mensagens.
+
+A DEDUP EM DISCO NAO PODIA SEGURAR, e o motivo esta em `chave_do_marcador`: a
+chave deriva do MOMENTO DA ANCORA arredondado ao minuto, entao cada deslize de
+minuto produz uma chave inedita e o `marcar` de `sessao.py` cria um arquivo
+novo em vez de barrar. Medido no replay da costura: 11 arquivos `*_anunciada`
+com 11 nomes diferentes. O marcador protege contra as DUAS INSTANCIAS do
+usuario, nunca contra a ancora escorregando.
+
+O QUE MUDOU: mover a ancora e re-armar o anuncio eram A MESMA LINHA e viraram
+duas. A ancora continua trocando — ela precisa —, mas o episodio agora so
+termina em `_expirar`, que passou a ser o unico lugar que zera `_emitidos`. Do
+segundo aviso, so ele volta a ficar armado, e so quando a remarcacao traz o
+alvo para alem de `ANTECEDENCIA`.
+
+NA MESMA RODADA, a pedido do usuario: `ANTECEDENCIA` passou de cinco para DEZ
+minutos, e o membro do enum perdeu o numero do nome. O VALOR DURAVEL nao
+acompanhou o nome, de proposito e com o preco escrito nos dois lados — ver
+`TipoDeAvisoDeManutencao`.
+
 A DISCIPLINA DESTE MODULO, com o mesmo peso do proposito
 ========================================================
 

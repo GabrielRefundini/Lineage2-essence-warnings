@@ -1195,6 +1195,24 @@ class Sessao:
         O `marcar` E a decisao de despachar, nunca uma checagem anterior: e o
         mesmo O_CREAT|O_EXCL que ja impede as duas instancias do usuario de
         mandarem o aviso de TvT em dobro.
+
+        E ELE NAO SEGUROU O SPAM DE 2026-09-02, POR CONSTRUCAO
+        ======================================================
+        Naquele dia o grupo recebeu ~19 vezes a mesma mensagem de anuncio para
+        UMA manutencao so, e o `marcar` abaixo deixou passar. Nao e defeito
+        dele: `chave_do_marcador` deriva do MOMENTO DA ANCORA arredondado ao
+        minuto, entao uma ancora que escorrega produz uma chave INEDITA a cada
+        minuto novo — e diante de uma chave inedita o `marcar` faz exatamente o
+        que promete, CRIA o arquivo, em vez de barrar. Medido no replay da
+        costura (`tests/test_sessao.py`): 11 arquivos `*_anunciada`, com 11
+        nomes diferentes, numa unica corrida.
+
+        O QUE ELE PROTEGE DE VERDADE sao as DUAS INSTANCIAS do usuario
+        (Yazalaque e Faerlina) chegando ao MESMO aviso, com a MESMA chave, no
+        mesmo instante — e nisso ele e exato. Uma guarda de uma-vez-por-episodio
+        e outra coisa, e tem de morar no VIGIA, que e o unico que sabe que a
+        ancora de agora e a mesma manutencao da ancora de cinco segundos atras.
+        Ela mora la desde 2026-09-02; ver `VigiaDeManutencao._registrar`.
         """
         if self.manutencao is None:
             return
