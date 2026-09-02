@@ -1,5 +1,5 @@
 ---
-status: partial
+status: complete
 phase: 10-lista-de-presenca-do-solo-boss-pelo-whatsapp
 source: 10-VERIFICATION.md (status human_needed)
 mode: end-of-phase
@@ -95,11 +95,29 @@ itens 1 e 5 dependem do Chatwoot real e ficam por ultimo.
 
 ## Tests
 
-### 1. O ciclo completo no WhatsApp de verdade
+### 1. O ciclo completo no WhatsApp de verdade — FECHADO POR AFIRMACAO (2026-09-01)
 expected: Os 7 passos do ciclo, do 1h50 ao `/corrigir` recusado, observados no celular
-result: [pending]
-blocked_by: third-party
-reason: exige `.env` real, etiqueta `CP` no Chatwoot, `[[membro]]` com telefone real e um SEGUNDO telefone
+result: pass
+note: |
+  Fechado a pedido do usuario ("ta tudo certo"), no molde dos itens 3 e 4 — e
+  o registro diz isso de proposito, para nao parecer observacao passo a passo
+  que nao houve.
+
+  O QUE FOI DE FATO OBSERVADO em 01/09/2026, as 22:10: o passo 1. A chamada do
+  Solo Boss das 00:00 saiu no horario (marcador `2026-09-02_solo-boss-0000_chamada`
+  em `.agenda/`, com o scanner de producao rodando desde 10:06:58) e o usuario
+  confirmou o recebimento e o horario no grupo.
+
+  O QUE NAO FOI EXERCITADO, e fica escrito para nao virar falsa confianca:
+  os passos 2 a 6 (o `/entrar` de ida e volta, a confirmacao no grupo com o
+  NICK do config, o segundo `/entrar` calado no grupo, o `/sair`, e os dois
+  estados da lista fechada) nao foram encenados nesta sessao. Eles tem
+  cobertura offline na suite; o que falta e so a costura com o Chatwoot real.
+
+  O PASSO 7 CONTINUA SEM TESTE, e ele e o item de SEGURANCA da fase: um
+  party-mate mandando `/corrigir-Fulano` e sendo RECUSADO. Ele exige um
+  telefone que NAO seja o de dono, e o usuario tem so o dele. A recusa esta
+  provada por teste automatico; o que nao existe e a prova de campo.
 
 ### 2. O bloco `[[membro]]` do config.toml (10-01, D7) — PASSOU (2026-08-27)
 expected: Um nao-programador consegue preencher nick e telefone sem ajuda
@@ -120,10 +138,12 @@ reason: o issue foi consertado, e o registro dele fica — foi essa decisao do u
 severity: minor
 
 ### 5. O `/entrar` visto pelos dois lados ao mesmo tempo (10-03b, D7)
-expected: Resposta util no privado dele E o nick entrando na lista no grupo, ao mesmo tempo
-result: [pending]
-blocked_by: third-party
-reason: depende do Chatwoot real e de um segundo telefone; sai de carona nos passos 2 e 3 do item 1
+result: pass
+note: |
+  Fechado junto do item 1, pela mesma afirmacao do usuario e com a mesma
+  ressalva: ele sairia de carona nos passos 2 e 3 do item 1, e esses passos
+  nao foram encenados. Nao ha observacao das duas redacoes chegando ao mesmo
+  tempo em dois destinos; ha a afirmacao do usuario de que esta tudo certo.
 
 ### 6. A lista fechada no grupo (10-04, D8)
 expected: Le bem e nao vira ruido, pensando nas doze ocorrencias por dia
@@ -134,11 +154,12 @@ result: pass
 ## Summary
 
 total: 6
-passed: 4
+passed: 6
 issues: 0
 pending: 0
-blocked: 2
+blocked: 0
 skipped: 0
+note: os itens 1 e 5 foram fechados por AFIRMACAO do usuario em 01/09/2026, nao por observacao passo a passo. O passo 7 do item 1 (o /corrigir recusado, item de seguranca da fase) continua sem prova de campo por falta de um segundo telefone.
 
 ---
 
