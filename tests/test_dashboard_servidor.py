@@ -34,6 +34,7 @@ cru sai na linha de pedido do jeito que foi escrito.
 from __future__ import annotations
 
 import ast
+import email.message
 import errno
 import hashlib
 import http.client
@@ -49,7 +50,7 @@ from pathlib import Path
 
 import pytest
 
-from l2scanner import dashboard, dashboard_dados, mercado_registro
+from l2scanner import dashboard, dashboard_cambio, dashboard_dados, mercado_registro
 from l2scanner.mercado_catalogo import CHAVE_DA_SERIE_DA_ADENA, SEPARADOR
 from l2scanner.raiz import RAIZ
 
@@ -499,3 +500,397 @@ class TestOBindENoEnderecoDeRetornoLocal:
         """O complemento do teste acima: o fonte nao contem a string E o soquete
         de verdade esta no endereco de retorno local."""
         assert servidor.server_address[0] == "127.0.0.1"
+
+
+# ===========================================================================
+# TAREFA 2 — O `POST /cambio` E O PORTAO DE ORIGEM
+# ===========================================================================
+#
+# A DEFESA QUE A CSP NAO COBRE. A politica de seguranca de conteudo impede a
+# NOSSA pagina de carregar coisa de fora; ela nao impede uma pagina de fora de
+# mandar um POST para a NOSSA API. Numa maquina onde o `.env` do Chatwoot mora ao
+# lado, uma API local que ESCREVE arquivo sem conferir a origem e uma superficie
+# de verdade — e o unico jeito de fechar isso e conferindo os cabecalhos.
+
+
+def _post(
+    porta: int,
+    caminho: str,
+    corpo,
+    *,
+    origem=None,
+    destino=None,
+    tamanho_declarado=None,
+):
+    """(status, cabecalhos, corpo) de um POST montado A MAO.
+
+    `putheader` um a um, e nao `request(..., headers=...)`, porque estes testes
+    precisam OMITIR cabecalhos — e "ausente" e um dos casos que o portao tem de
+    decidir. Um dicionario com `None` dentro mandaria a string `None`.
+
+    `tamanho_declarado` existe para o teste do teto: ele deixa declarar um
+    `Content-Length` MAIOR que os bytes efetivamente enviados, que e como se
+    prova que o servidor recusa ANTES de tentar ler o corpo. Se ele lesse, a
+    leitura ficaria pendurada esperando bytes que nunca chegam e o teste falharia
+    por tempo esgotado — que e exatamente o desfecho que se quer poder distinguir.
+    """
+    dados = corpo.encode("utf-8") if isinstance(corpo, str) else corpo
+    conexao = http.client.HTTPConnection("127.0.0.1", porta, timeout=5)
+    try:
+        conexao.putrequest("POST", caminho, skip_accept_encoding=True)
+        conexao.putheader("Content-Type", "application/json")
+        conexao.putheader(
+            "Content-Length",
+            str(len(dados) if tamanho_declarado is None else tamanho_declarado),
+        )
+        if origem is not None:
+            conexao.putheader("Origin", origem)
+        if destino is not None:
+            conexao.putheader("Sec-Fetch-Site", destino)
+        conexao.endheaders()
+        conexao.send(dados)
+        resposta = conexao.getresponse()
+        return resposta.status, resposta.headers, resposta.read()
+    finally:
+        conexao.close()
+
+
+def _corpo_do_cambio(texto: str) -> str:
+    return json.dumps({dashboard.CAMPO_DO_POST: texto})
+
+
+class TestOPortaoDeOrigemEUmaFuncaoPURA:
+    """O CONTROLE NEGATIVO, sem servidor nenhum.
+
+    SEIS ASSERCOES, e as duas ultimas sao a razao de esta classe existir. As
+    quatro primeiras (origem certa, origem de fora, origem ausente, porta errada)
+    passariam numa implementacao que ignorasse `Sec-Fetch-Site` inteiro. As duas
+    ultimas prendem a metade do destino de requisicao nos DOIS sentidos: ela nao
+    pode ser omitida (senao um pedido cross-site com Origin forjavel passaria) e
+    nao pode ser invertida (senao a ausencia do cabecalho recusaria todo mundo, e
+    um cliente que nao o envia ficaria de fora sem ninguem entender por que).
+    """
+
+    PORTA = 8787
+
+    def _cabecalhos(self, **pares):
+        """Um `email.message.Message`, que e o tipo REAL de `self.headers`.
+
+        Um `dict` passaria no teste e mentiria: `Message.get` e insensivel a
+        caixa, e um portao escrito contra `dict` quebraria com o `origin:` em
+        minusculas que qualquer cliente pode mandar.
+        """
+        cabecalhos = email.message.Message()
+        for nome, valor in pares.items():
+            if valor is not None:
+                cabecalhos[nome.replace("_", "-")] = valor
+        return cabecalhos
+
+    def test_1_a_origem_CERTA_e_aceita(self) -> None:
+        assert (
+            dashboard.origem_permitida(
+                self._cabecalhos(Origin=f"http://127.0.0.1:{self.PORTA}"), self.PORTA
+            )
+            is True
+        )
+
+    def test_2_a_origem_de_OUTRO_SITE_e_recusada(self) -> None:
+        assert (
+            dashboard.origem_permitida(
+                self._cabecalhos(Origin="https://algum-site.example"), self.PORTA
+            )
+            is False
+        )
+
+    def test_3_a_origem_AUSENTE_e_recusada(self) -> None:
+        """A ausencia NAO vale como permissao.
+
+        Um portao que aceitasse "sem Origin" seria contornavel por qualquer
+        cliente que simplesmente nao mandasse o cabecalho — que e todo cliente
+        que nao seja um navegador.
+        """
+        assert dashboard.origem_permitida(self._cabecalhos(), self.PORTA) is False
+
+    def test_4_a_origem_local_em_OUTRA_PORTA_e_recusada(self) -> None:
+        assert (
+            dashboard.origem_permitida(
+                self._cabecalhos(Origin=f"http://127.0.0.1:{self.PORTA + 1}"),
+                self.PORTA,
+            )
+            is False
+        )
+
+    def test_5_o_destino_CROSS_SITE_recusa_mesmo_com_a_origem_CERTA(self) -> None:
+        """OS DOIS SINAIS SAO CONFERIDOS, e nao o primeiro que casar."""
+        assert (
+            dashboard.origem_permitida(
+                self._cabecalhos(
+                    Origin=f"http://127.0.0.1:{self.PORTA}",
+                    Sec_Fetch_Site="cross-site",
+                ),
+                self.PORTA,
+            )
+            is False
+        )
+
+    def test_6_o_destino_AUSENTE_cai_para_a_decisao_da_ORIGEM(self) -> None:
+        """A ausencia do sinal moderno nao pode virar recusa universal.
+
+        `Sec-Fetch-Site` e recente; um cliente que nao o envie tem de ser julgado
+        pela origem, que e o sinal que sempre existiu. Sem esta assercao, uma
+        implementacao que exigisse o cabecalho passaria nas cinco de cima e
+        recusaria todo mundo em campo.
+        """
+        assert (
+            dashboard.origem_permitida(
+                self._cabecalhos(
+                    Origin=f"http://127.0.0.1:{self.PORTA}", Sec_Fetch_Site=None
+                ),
+                self.PORTA,
+            )
+            is True
+        )
+
+
+class TestOPOSTDoCambio:
+    """O caminho inteiro, pelo soquete, com o cabecalho escolhido a mao."""
+
+    def test_a_origem_CERTA_grava_e_responde_200_com_o_carimbo(
+        self, porta: int, pasta_do_mercado: Path
+    ) -> None:
+        status, _, corpo = _post(
+            porta,
+            dashboard.CAMINHO_DO_CAMBIO,
+            _corpo_do_cambio("0,50"),
+            origem=f"http://127.0.0.1:{porta}",
+            destino="same-origin",
+        )
+        assert status == 200
+
+        resposta = json.loads(corpo)
+        # O VALOR VIAJA COMO STRING: `Decimal` nao atravessa JSON, e serializar
+        # como numero faria `0.50` voltar `float` do outro lado.
+        assert resposta["reais_por_xm"] == "0.50"
+        assert isinstance(resposta["reais_por_xm"], str)
+        assert resposta["informado_em"]
+        assert "0,50" in resposta["mensagem"]
+
+        # E o arquivo no disco concorda com a resposta.
+        gravado = dashboard_cambio.ler_o_cambio(pasta_do_mercado)
+        assert gravado is not None
+        assert str(gravado.reais_por_xm) == "0.50"
+
+    def test_a_origem_de_OUTRO_SITE_e_recusada_com_403_e_NADA_e_gravado(
+        self, porta: int, pasta_do_mercado: Path
+    ) -> None:
+        """A prova de que o 403 nao e so um numero: o disco continua igual."""
+        dashboard_cambio.gravar_o_cambio(pasta_do_mercado, "0,50", AGORA)
+        antes = dashboard_cambio.ler_o_cambio(pasta_do_mercado)
+
+        status, _, _ = _post(
+            porta,
+            dashboard.CAMINHO_DO_CAMBIO,
+            _corpo_do_cambio("9,99"),
+            origem="https://algum-site.example",
+        )
+        assert status == 403
+
+        depois = dashboard_cambio.ler_o_cambio(pasta_do_mercado)
+        assert depois is not None
+        assert depois.reais_por_xm == antes.reais_por_xm
+        assert depois.informado_em == antes.informado_em
+
+    def test_a_origem_AUSENTE_e_recusada_com_403(self, porta: int) -> None:
+        status, _, _ = _post(
+            porta, dashboard.CAMINHO_DO_CAMBIO, _corpo_do_cambio("0,50"), origem=None
+        )
+        assert status == 403
+
+    def test_a_origem_local_em_OUTRA_PORTA_e_recusada_com_403(
+        self, porta: int
+    ) -> None:
+        status, _, _ = _post(
+            porta,
+            dashboard.CAMINHO_DO_CAMBIO,
+            _corpo_do_cambio("0,50"),
+            origem=f"http://127.0.0.1:{porta + 1}",
+        )
+        assert status == 403
+
+    def test_o_destino_CROSS_SITE_e_recusado_mesmo_com_a_origem_CERTA(
+        self, porta: int
+    ) -> None:
+        status, _, _ = _post(
+            porta,
+            dashboard.CAMINHO_DO_CAMBIO,
+            _corpo_do_cambio("0,50"),
+            origem=f"http://127.0.0.1:{porta}",
+            destino="cross-site",
+        )
+        assert status == 403
+
+    def test_SEM_o_destino_a_origem_certa_e_ACEITA(
+        self, porta: int, pasta_do_mercado: Path
+    ) -> None:
+        status, _, _ = _post(
+            porta,
+            dashboard.CAMINHO_DO_CAMBIO,
+            _corpo_do_cambio("0,50"),
+            origem=f"http://127.0.0.1:{porta}",
+            destino=None,
+        )
+        assert status == 200
+        assert dashboard_cambio.ler_o_cambio(pasta_do_mercado) is not None
+
+    @pytest.mark.parametrize("perigosa", ["1e3", "1_0", "+0.5", "1234567890123,5"])
+    def test_uma_forma_PERIGOSA_medida_e_recusada_com_400_e_a_frase_travada(
+        self, porta: int, pasta_do_mercado: Path, perigosa: str
+    ) -> None:
+        """As quatro que `Decimal` sozinho ACEITA, medidas na pesquisa.
+
+        `1_0` e a pior delas: o usuario queria `1,0` e o R$ da tela ficaria VINTE
+        VEZES maior, sem erro, sem aviso, com toda a aparencia de funcionar.
+
+        E ELAS NAO PASSAM PELO FORMULARIO: este teste manda o POST direto pelo
+        soquete, que e o que prova que a falha fechada mora no SERVIDOR e nao na
+        validacao do navegador.
+        """
+        dashboard_cambio.gravar_o_cambio(pasta_do_mercado, "0,50", AGORA)
+
+        status, _, corpo = _post(
+            porta,
+            dashboard.CAMINHO_DO_CAMBIO,
+            _corpo_do_cambio(perigosa),
+            origem=f"http://127.0.0.1:{porta}",
+        )
+        assert status == 400
+        assert dashboard_cambio.MENSAGEM_DE_CAMBIO_INVALIDO in corpo.decode("utf-8")
+
+        # O CAMBIO ANTERIOR CONTINUA VIGENTE — e continua sendo o que a leitura
+        # devolve. Recusar sem preservar seria trocar um erro por outro.
+        vigente = dashboard_cambio.ler_o_cambio(pasta_do_mercado)
+        assert str(vigente.reais_por_xm) == "0.50"
+
+    def test_um_corpo_MAIOR_que_o_teto_e_recusado_sem_ser_lido(
+        self, porta: int
+    ) -> None:
+        """O `Content-Length` declara mais do que os bytes enviados.
+
+        Se o servidor tentasse ler o corpo inteiro, ele ficaria pendurado
+        esperando bytes que nunca chegam, e este teste falharia por tempo
+        esgotado. A resposta rapida E a prova.
+        """
+        status, _, _ = _post(
+            porta,
+            dashboard.CAMINHO_DO_CAMBIO,
+            _corpo_do_cambio("0,50"),
+            origem=f"http://127.0.0.1:{porta}",
+            tamanho_declarado=dashboard.TETO_DO_CORPO_DO_POST + 1,
+        )
+        assert status == 413
+
+    def test_um_GET_no_caminho_do_cambio_NAO_grava_nada(
+        self, porta: int, pasta_do_mercado: Path
+    ) -> None:
+        """O caminho da escrita e o POST, e so ele."""
+        antes = sorted(p.name for p in pasta_do_mercado.iterdir())
+        _get(porta, dashboard.CAMINHO_DO_CAMBIO)
+        assert sorted(p.name for p in pasta_do_mercado.iterdir()) == antes
+        assert dashboard_cambio.ler_o_cambio(pasta_do_mercado) is None
+
+    def test_um_POST_em_OUTRO_caminho_responde_404(self, porta: int) -> None:
+        status, _, _ = _post(
+            porta,
+            "/qualquer-outra-coisa",
+            _corpo_do_cambio("0,50"),
+            origem=f"http://127.0.0.1:{porta}",
+        )
+        assert status == 404
+
+    def test_um_corpo_ILEGIVEL_nao_recebe_a_frase_de_cambio_invalido(
+        self, porta: int
+    ) -> None:
+        """A causa tem de bater com a frase.
+
+        Um corpo que nao e JSON nao e "um numero menor ou igual a zero"; dizer ao
+        usuario para "informar um numero maior que zero" descreveria um problema
+        que nao e o dele. E a mesma razao pela qual o `01-03` separou
+        `HistoricoDoCambioIlegivel` de `CambioInvalido`.
+        """
+        status, _, corpo = _post(
+            porta,
+            dashboard.CAMINHO_DO_CAMBIO,
+            "isto nao e json",
+            origem=f"http://127.0.0.1:{porta}",
+        )
+        assert status == 400
+        texto = corpo.decode("utf-8")
+        assert dashboard_cambio.MENSAGEM_DE_CAMBIO_INVALIDO not in texto
+        assert "O QUE FAZER" in texto
+
+    def test_o_historico_ILEGIVEL_tem_resposta_PROPRIA_e_o_arquivo_fica_INTACTO(
+        self, porta: int, pasta_do_mercado: Path
+    ) -> None:
+        """A SEGUNDA falha possivel do POST, apontada pelo `01-03` por nome.
+
+        `HistoricoDoCambioIlegivel` nao e culpa do que o usuario digitou — a
+        frase de cambio invalido mentiria sobre a causa. E o arquivo nao pode ser
+        tocado: ele e o unico registro de qual cambio valia quando.
+        """
+        arquivo = pasta_do_mercado / dashboard_cambio.ARQUIVO_DO_CAMBIO
+        arquivo.write_text("isto nao e uma lista JSON", encoding="utf-8")
+        antes = _impressao_do_arquivo(arquivo)
+
+        status, _, corpo = _post(
+            porta,
+            dashboard.CAMINHO_DO_CAMBIO,
+            _corpo_do_cambio("0,50"),
+            origem=f"http://127.0.0.1:{porta}",
+        )
+
+        assert status == 409
+        texto = corpo.decode("utf-8")
+        assert dashboard_cambio.MENSAGEM_DE_CAMBIO_INVALIDO not in texto
+        assert "O QUE FAZER" in texto
+        assert _impressao_do_arquivo(arquivo) == antes
+
+    def test_o_GET_dados_seguinte_a_um_POST_ja_traz_o_R_dolar(
+        self, porta: int
+    ) -> None:
+        """O cache do CSV nao sabe nada sobre o cambio — e nao pode atrapalhar.
+
+        Sem invalidacao, o R$ so apareceria na tela quando o `observacoes.csv`
+        mudasse, o que pode demorar minutos. O usuario clicaria em salvar e nao
+        veria nada acontecer.
+        """
+        _, _, antes = _get(porta, dashboard.CAMINHO_DOS_DADOS)
+        assert json.loads(antes)["destaque"]["reais"] is None
+
+        _post(
+            porta,
+            dashboard.CAMINHO_DO_CAMBIO,
+            _corpo_do_cambio("0,50"),
+            origem=f"http://127.0.0.1:{porta}",
+        )
+
+        _, _, depois = _get(porta, dashboard.CAMINHO_DOS_DADOS)
+        reais = json.loads(depois)["destaque"]["reais"]
+        assert reais is not None
+        assert reais["derivado"] is True
+        assert reais["texto"]
+
+    def test_a_recusa_por_origem_NAO_le_o_corpo(self, porta: int) -> None:
+        """403 ANTES do corpo, e a prova e a mesma do teto.
+
+        Um corpo enorme vindo de uma origem estranha nao pode nem ser carregado
+        na memoria: recusar depois de ler seria pagar o custo do ataque para so
+        entao dizer nao.
+        """
+        status, _, _ = _post(
+            porta,
+            dashboard.CAMINHO_DO_CAMBIO,
+            _corpo_do_cambio("0,50"),
+            origem="https://algum-site.example",
+            tamanho_declarado=dashboard.TETO_DO_CORPO_DO_POST - 1,
+        )
+        assert status == 403
