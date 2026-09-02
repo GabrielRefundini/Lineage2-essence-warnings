@@ -878,16 +878,29 @@ class TestOLacoCONSULTA_A_TRAVA:
         """A prova de FIACAO, e nao so da peca.
 
         A trava perfeita num modulo que o laco nao usa deixaria o defeito de
-        producao exatamente onde ele estava. `laco_do_mercado` tem de anunciar
-        PELA trava: uma chamada direta a `destaque_ao_vivo` no laco e, por
+        producao exatamente onde ele estava. O caminho do anuncio tem de
+        anunciar PELA trava: uma chamada direta a `destaque_ao_vivo` ali e, por
         construcao, uma chamada sem trava.
+
+        A JANELA CRESCEU EM 2026-09-02, E O TESTE MUDOU PORQUE O CODIGO MUDOU.
+        Ate aqui ela era so `laco_do_mercado`, porque era la que o `for linha`
+        vivia. O quick `260902-pqf` extraiu aquele corpo para
+        `processar_a_pagina_aceita` — para poder CONGELAR a mediana antes do
+        primeiro julgamento —, e a chamada da trava foi junto. A propriedade
+        afirmada nao mudou nem afrouxou: continua sendo "no caminho do anuncio
+        nao ha `destaque_ao_vivo` direto, e a trava e chamada". O que mudou foi
+        onde esse caminho mora, e a janela agora cobre as DUAS funcoes — uma
+        janela so no laco ficaria CEGA justamente para a funcao que faz o
+        anuncio.
         """
         laco = inspect.getsource(mercado_modo.laco_do_mercado)
-        assert "destaque_ao_vivo(" not in laco, (
-            "o laco voltou a chamar `destaque_ao_vivo` direto - sem trava, a "
-            "mesma oferta reanuncia a cada tick"
+        processar = inspect.getsource(mercado_modo.processar_a_pagina_aceita)
+        caminho_do_anuncio = laco + processar
+        assert "destaque_ao_vivo(" not in caminho_do_anuncio, (
+            "o caminho do anuncio voltou a chamar `destaque_ao_vivo` direto - "
+            "sem trava, a mesma oferta reanuncia a cada tick"
         )
-        assert "trava_do_destaque.anunciar(" in laco
+        assert "trava_do_destaque.anunciar(" in caminho_do_anuncio
 
     def test_a_trava_e_construida_UMA_vez_fora_do_laco(self) -> None:
         """Dentro do `while` ela seria construida por tick, e nasceria vazia

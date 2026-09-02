@@ -204,6 +204,127 @@ def _recusar(mensagens: list[str]) -> int:
     return SAIDA_RECUSADA
 
 
+def processar_a_pagina_aceita(
+    linhas,
+    *,
+    modelo,
+    catalogo,
+    registro,
+    trava_do_destaque,
+    contagem,
+    agora,
+) -> tuple[list[str], str | None]:
+    """Uma pagina aceita inteira: julgar, catalogar, registrar, acrescentar.
+
+    E o corpo do antigo `for linha in pagina.linhas:` de `laco_do_mercado`,
+    extraido palavra por palavra — os quatro passos numerados e os comentarios
+    do ANAL-02 vieram JUNTOS e nao se reescreveram. `paginas_desde_a_gravacao` e
+    a gravacao do catalogo a cada N paginas FICARAM no laco: aquilo e cadencia
+    do laco e nao processamento de pagina.
+
+    ELA DEVOLVE OS ANUNCIOS EM VEZ DE IMPRIMI-LOS, na doutrina ja usada por
+    `TravaDoDestaque.anunciar` e por `destaque_ao_vivo`, que devolvem texto e
+    nao escrevem. E o que torna esta funcao afirmavel sem `caplog` e sem
+    fixtura: o teste da ordem compara os TEXTOS que sairiam, que e exatamente o
+    que o usuario copia para o WhatsApp.
+
+    `contagem` continua sendo MUTADA no lugar, como no laco. O segundo valor
+    devolvido e o `ultimo_item` — `None` quando `linhas` vem vazia, para o laco
+    saber que nao ha o que atualizar em vez de receber uma string vazia
+    plausivel.
+    """
+    # O CONGELAMENTO E A PRIMEIRA LINHA DESTA FUNCAO, E ISSO E O PONTO INTEIRO.
+    #
+    # Descido para dentro do laco abaixo, a referencia voltaria a se mover a
+    # cada linha e a suite continuaria VERDE em tudo — menos no teste de ordem.
+    # E por isso que o teste de ordem existe: ele e o unico criterio que
+    # distingue esta linha aqui de um `veredito_do_destaque` ali dentro.
+    #
+    # O defeito que ela conserta esta medido em producao 2026-09-02: quatro
+    # ofertas de Adena no MESMO segundo citando `n=7`, `n=8`, `n=9` e `n=10`.
+    vereditos = modelo.vereditos_da_pagina(linhas)
+
+    anuncios: list[str] = []
+    ultimo_item: str | None = None
+
+    for linha, destaque in zip(linhas, vereditos):
+        contagem.series.add(linha.chave_da_serie)
+
+        # ---------------------------------------------------------
+        # PASSO 1 - O DESTAQUE, CONTRA O MODELO COMO ELE ESTA.
+        #
+        # ESTA CHAMADA VEM ANTES DE QUALQUER ESCRITA, E A ORDEM E O
+        # CORACAO DO ANAL-02. Se as linhas deste tick ja tiverem
+        # entrado no modelo, o item se compara CONSIGO MESMO: uma
+        # oferta muito barata puxa a propria mediana para baixo, o
+        # veredito encolhe, e o destaque vira ruido - exatamente a
+        # informacao que o requisito existe para dar.
+        #
+        # E o tipo de ordem que um refactor futuro desfaz sem
+        # perceber ("por que julgar antes de gravar?"), e por isso a
+        # razao esta escrita aqui e nao so no teste.
+        #
+        # O JULGAMENTO EM SI JA ACONTECEU, LA EM CIMA, PARA A PAGINA
+        # INTEIRA. Aqui so se le o veredito que sobrou, e e essa
+        # mudanca de lugar que impede a referencia de andar por
+        # dentro da pagina.
+        # ---------------------------------------------------------
+        if destaque.abaixo:
+            # SO O `abaixo` SAI NO LOG. "Acima da mediana" e o caso
+            # comum e imprimi-lo afogaria o unico que o usuario quer
+            # ver; "sem destaque" nao e um fato sobre o preco, e sim
+            # sobre a evidencia, e ele ja aparece na secao de
+            # analise com o que FALTA escrito por extenso.
+            #
+            # E SO A PRIMEIRA VEZ DE CADA OFERTA. A pagina e
+            # reaceita a cada tick, entao anunciar aqui sem trava
+            # repetia o MESMO destaque a 1 Hz enquanto a oferta
+            # estivesse na tela — medido em producao, ~10.800
+            # linhas por hora, que afogam a forense do log. Quem
+            # devolve o texto e a trava, e nao ha caminho que
+            # anuncie sem passar por ela.
+            anuncio = trava_do_destaque.anunciar(linha, destaque, agora)
+            if anuncio is not None:
+                anuncios.append(anuncio)
+
+        # PASSO 2 - O CATALOGO. A ordem contra o registro nao e
+        # arbitraria: a Fase 3 LE a chave que a Fase 2 produziu, e
+        # uma observacao gravada sobre uma chave que nao esta no
+        # catalogo e uma linha do CSV que ninguem consegue nomear
+        # depois.
+        catalogo.registrar(linha.chave_da_serie, linha.nome_exibido, agora)
+
+        # PASSO 3 - O REGISTRO, e PASSO 4 - o modelo, SO quando o
+        # passo 3 devolveu `True`. `registrar` devolve `False` para
+        # duplicada E para registro desligado; acrescentar fora
+        # desse portao faria a mesma oferta contar duas vezes no
+        # `n`, e o `n` e o numero que esta fase existe para nao
+        # mentir.
+        if registro.registrar(linha, agora):
+            contagem.observacoes += 1
+            # A observacao montada AQUI e campo a campo a mesma que
+            # `campos_da_observacao` acabou de escrever no CSV, com
+            # o MESMO `agora`: a historia em memoria e o arquivo
+            # concordam por construcao, e nao por coincidencia.
+            modelo.acrescentar(
+                mercado_registro.ObservacaoLida(
+                    chave_da_serie=linha.chave_da_serie,
+                    nome_exibido=linha.nome_exibido,
+                    primeira_vez=agora,
+                    total_em_centesimos=linha.total_em_centesimos,
+                    quantidade=linha.quantidade,
+                    residuo_do_cruzamento=linha.residuo_do_cruzamento,
+                )
+            )
+        elif registro.ligado:
+            contagem.duplicadas += 1
+        else:
+            contagem.perdidas += 1
+        ultimo_item = linha.nome_exibido
+
+    return anuncios, ultimo_item
+
+
 def laco_do_mercado(
     args,
     cal,
@@ -581,83 +702,25 @@ def laco_do_mercado(
 
             if pagina is not None:
                 agora = relogio.agora()
-                for linha in pagina.linhas:
-                    contagem.series.add(linha.chave_da_serie)
+                # A PAGINA INTEIRA DE UMA VEZ, e nao linha a linha: e dentro de
+                # `processar_a_pagina_aceita` que a referencia e CONGELADA antes
+                # do primeiro julgamento. O laco imprime; quem julga e ela.
+                anuncios, novo_item = processar_a_pagina_aceita(
+                    pagina.linhas,
+                    modelo=modelo,
+                    catalogo=catalogo,
+                    registro=registro,
+                    trava_do_destaque=trava_do_destaque,
+                    contagem=contagem,
+                    agora=agora,
+                )
+                for anuncio in anuncios:
+                    log.info("%s", anuncio)
+                if novo_item is not None:
+                    ultimo_item = novo_item
 
-                    # ---------------------------------------------------------
-                    # PASSO 1 - O DESTAQUE, CONTRA O MODELO COMO ELE ESTA.
-                    #
-                    # ESTA CHAMADA VEM ANTES DE QUALQUER ESCRITA, E A ORDEM E O
-                    # CORACAO DO ANAL-02. Se as linhas deste tick ja tiverem
-                    # entrado no modelo, o item se compara CONSIGO MESMO: uma
-                    # oferta muito barata puxa a propria mediana para baixo, o
-                    # veredito encolhe, e o destaque vira ruido - exatamente a
-                    # informacao que o requisito existe para dar.
-                    #
-                    # E o tipo de ordem que um refactor futuro desfaz sem
-                    # perceber ("por que julgar antes de gravar?"), e por isso a
-                    # razao esta escrita aqui e nao so no teste.
-                    # ---------------------------------------------------------
-                    destaque = modelo.veredito_do_destaque(linha)
-                    if destaque.abaixo:
-                        # SO O `abaixo` SAI NO LOG. "Acima da mediana" e o caso
-                        # comum e imprimi-lo afogaria o unico que o usuario quer
-                        # ver; "sem destaque" nao e um fato sobre o preco, e sim
-                        # sobre a evidencia, e ele ja aparece na secao de
-                        # analise com o que FALTA escrito por extenso.
-                        #
-                        # E SO A PRIMEIRA VEZ DE CADA OFERTA. A pagina e
-                        # reaceita a cada tick, entao anunciar aqui sem trava
-                        # repetia o MESMO destaque a 1 Hz enquanto a oferta
-                        # estivesse na tela — medido em producao, ~10.800
-                        # linhas por hora, que afogam a forense do log. Quem
-                        # devolve o texto e a trava, e nao ha caminho que
-                        # anuncie sem passar por ela.
-                        anuncio = trava_do_destaque.anunciar(
-                            linha, destaque, agora
-                        )
-                        if anuncio is not None:
-                            log.info("%s", anuncio)
-
-                    # PASSO 2 - O CATALOGO. A ordem contra o registro nao e
-                    # arbitraria: a Fase 3 LE a chave que a Fase 2 produziu, e
-                    # uma observacao gravada sobre uma chave que nao esta no
-                    # catalogo e uma linha do CSV que ninguem consegue nomear
-                    # depois.
-                    catalogo.registrar(
-                        linha.chave_da_serie, linha.nome_exibido, agora
-                    )
-
-                    # PASSO 3 - O REGISTRO, e PASSO 4 - o modelo, SO quando o
-                    # passo 3 devolveu `True`. `registrar` devolve `False` para
-                    # duplicada E para registro desligado; acrescentar fora
-                    # desse portao faria a mesma oferta contar duas vezes no
-                    # `n`, e o `n` e o numero que esta fase existe para nao
-                    # mentir.
-                    if registro.registrar(linha, agora):
-                        contagem.observacoes += 1
-                        # A observacao montada AQUI e campo a campo a mesma que
-                        # `campos_da_observacao` acabou de escrever no CSV, com
-                        # o MESMO `agora`: a historia em memoria e o arquivo
-                        # concordam por construcao, e nao por coincidencia.
-                        modelo.acrescentar(
-                            mercado_registro.ObservacaoLida(
-                                chave_da_serie=linha.chave_da_serie,
-                                nome_exibido=linha.nome_exibido,
-                                primeira_vez=agora,
-                                total_em_centesimos=linha.total_em_centesimos,
-                                quantidade=linha.quantidade,
-                                residuo_do_cruzamento=(
-                                    linha.residuo_do_cruzamento
-                                ),
-                            )
-                        )
-                    elif registro.ligado:
-                        contagem.duplicadas += 1
-                    else:
-                        contagem.perdidas += 1
-                    ultimo_item = linha.nome_exibido
-
+                # A CADENCIA DA GRAVACAO FICA NO LACO, e nao entrou na funcao:
+                # ela e sobre quantas PAGINAS passaram, e nao sobre esta pagina.
                 paginas_desde_a_gravacao += 1
                 if (
                     paginas_desde_a_gravacao

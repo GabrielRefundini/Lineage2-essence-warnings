@@ -1258,3 +1258,160 @@ class TestACadenciaDaSecaoDeAnalise:
             "as duas mensagens da casa: o que quebrou, e o que continua "
             "funcionando"
         )
+
+
+class TestAMedianaNaoSeMoveDebaixoDaPagina:
+    """O segundo defeito de producao de 2026-09-02, escrito como teste.
+
+    QUATRO ofertas de Adena anunciadas NO MESMO SEGUNDO citaram medianas
+    DIFERENTES — `11,00 contra 13,87 n=7`, `11,20 contra 13,00 n=8`,
+    `11,40 contra 13,00 n=9`, `11,70 contra 12,00 n=10`. Cada linha entrava na
+    populacao antes de a seguinte ser comparada, entao a MESMA oferta era
+    noticia forte na primeira fatia da grade e quase nada na ultima.
+
+    ISTO NAO E A TRAVA DO DESTAQUE FALHANDO. `TravaDoDestaque` fez o trabalho
+    dela: sao quatro ofertas DISTINTAS, e cada uma tinha direito ao seu anuncio.
+    O que estava errado era a REFERENCIA se mexendo por dentro da pagina.
+    """
+
+    # Sete observacoes (acima do piso da mediana, que e cinco) de unitarios
+    # 100..160 -> `median_low` de sete = 130. As quatro linhas da pagina ficam
+    # todas ABAIXO disso e com unitarios DISTINTOS entre si, que e o que faz os
+    # quatro anuncios serem quatro textos diferentes e comparaveis um a um.
+    _SEMENTE = tuple(range(100, 170, 10))
+    _DA_PAGINA = (50, 60, 70, 80)
+
+    def _modelo_semeado(self):
+        return ModeloDeMercado.de_observacoes(
+            [
+                observacao_lida(
+                    "belt", unitario, 1, quando=COMECO + i * UM_MINUTO
+                )
+                for i, unitario in enumerate(self._SEMENTE)
+            ]
+        )
+
+    def _linhas(self, ordem):
+        """As MESMAS quatro linhas, montadas na ordem pedida.
+
+        `indice` acompanha a posicao na GRADE, que e a variavel independente
+        deste teste: e exatamente "onde a linha calhou de estar" que o defeito
+        fazia importar.
+        """
+        return [
+            linha_de_grade("belt", unitario, 1, indice=i)
+            for i, unitario in enumerate(ordem)
+        ]
+
+    def _rodar(self, tmp_path, ordem, *, sufixo: str):
+        from l2scanner.mercado_console import TravaDoDestaque
+        from l2scanner.mercado_modo import processar_a_pagina_aceita
+
+        pasta = tmp_path / sufixo
+        modelo = self._modelo_semeado()
+        anuncios, ultimo = processar_a_pagina_aceita(
+            self._linhas(ordem),
+            modelo=modelo,
+            catalogo=montar_catalogo_de_mercado(pasta),
+            registro=RegistroDeObservacoes(pasta),
+            trava_do_destaque=TravaDoDestaque(),
+            contagem=Contagem(),
+            agora=COMECO + 9 * UM_MINUTO,
+        )
+        return modelo, anuncios, ultimo
+
+    def test_a_MESMA_pagina_em_DUAS_ORDENS_anuncia_os_MESMOS_textos(
+        self, tmp_path
+    ) -> None:
+        """O CRITERIO CENTRAL: o veredito nao pode depender da posicao na grade.
+
+        Compara TEXTO e nao campo, e de proposito: e o texto que o usuario copia
+        para o WhatsApp, e e nele que a mediana e o `n` aparecem. Um teste sobre
+        `destaque.mediana_de_referencia` mediria a mesma coisa por dentro e
+        deixaria passar um formatador que escolhesse outro numero na hora de
+        escrever.
+        """
+        _m1, direta, _u1 = self._rodar(tmp_path, (50, 60, 70, 80), sufixo="ida")
+        _m2, inversa, _u2 = self._rodar(
+            tmp_path, (80, 70, 60, 50), sufixo="volta"
+        )
+
+        assert len(direta) == 4, direta
+        assert len(inversa) == 4, inversa
+        # CASADOS LINHA A LINHA pelo unitario da oferta, e nao comparando as
+        # duas listas na ordem em que sairam: a ordem de SAIDA acompanha a
+        # ordem de ENTRADA de proposito (o log conta a pagina de cima para
+        # baixo). O que nao pode mudar e o TEXTO de cada oferta.
+        por_oferta_ida = {
+            unitario: texto
+            for unitario, texto in zip((50, 60, 70, 80), direta)
+        }
+        por_oferta_volta = {
+            unitario: texto
+            for unitario, texto in zip((80, 70, 60, 50), inversa)
+        }
+        assert por_oferta_ida == por_oferta_volta, (
+            "o anuncio de uma oferta mudou porque ela estava em outra posicao "
+            "da grade — a referencia se moveu por dentro da pagina"
+        )
+
+    def test_os_QUATRO_anuncios_citam_a_MESMA_mediana_e_o_MESMO_n(
+        self, tmp_path
+    ) -> None:
+        """O desmentido direto da sequencia `n=7 -> 8 -> 9 -> 10` de producao.
+
+        Sete observacoes semeadas: os quatro anuncios tem de dizer `n=7` e a
+        mediana dessas sete (130), e nao uma escada.
+        """
+        _modelo, anuncios, _ultimo = self._rodar(
+            tmp_path, (50, 60, 70, 80), sufixo="ns"
+        )
+        assert len(anuncios) == 4
+        enes = {
+            n for texto in anuncios for n in re.findall(r"n=(\d+)", texto)
+        }
+        assert enes == {"7"}, enes
+        medianas = {
+            m
+            for texto in anuncios
+            for m in re.findall(r"contra mediana de ([\d.,]+)", texto)
+        }
+        assert len(medianas) == 1, medianas
+
+    def test_o_teste_DISCRIMINA_e_nao_passa_por_vacuidade(
+        self, tmp_path
+    ) -> None:
+        """A mediana DEPOIS da pagina tem de DIFERIR da de antes.
+
+        Se as quatro ofertas nao movessem a populacao, os dois testes acima
+        passariam sobre nada — qualquer implementacao, congelada ou nao,
+        devolveria a mesma referencia quatro vezes. Mesma tecnica de
+        `test_a_referencia_e_a_mediana_de_ANTES_e_nao_a_de_DEPOIS`.
+        """
+        antes = self._modelo_semeado().veredito_do_destaque(
+            linha_de_grade("belt", 50, 1)
+        )
+        modelo, _anuncios, _ultimo = self._rodar(
+            tmp_path, (50, 60, 70, 80), sufixo="discrimina"
+        )
+        depois = modelo.veredito_do_destaque(linha_de_grade("belt", 50, 1))
+
+        assert antes.mediana_de_referencia == 130
+        assert depois.mediana_de_referencia != antes.mediana_de_referencia, (
+            "o cenario nao discrimina: as quatro ofertas tem de MOVER a "
+            "populacao, senao o congelamento nao muda nada e os outros dois "
+            "testes passam sobre nada"
+        )
+        assert depois.evidencia.n == 11, depois.evidencia.n
+
+    def test_a_RAZAO_esta_escrita_na_docstring_de_vereditos_da_pagina(
+        self,
+    ) -> None:
+        """O custo aceito E o que foi recusado. Um dos dois seria meia decisao.
+
+        Sem o custo escrito, o proximo a ler acha que a mudanca foi de graca.
+        Sem a recusa escrita, ele nao sabe o que estava errado e desfaz.
+        """
+        texto = inspect.getdoc(ModeloDeMercado.vereditos_da_pagina)
+        assert "congelada" in texto
+        assert "grade" in texto

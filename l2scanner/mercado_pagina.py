@@ -76,6 +76,7 @@ from .mercado_leitura import (
     Descarte,
     LinhaLida,
     TravaDaObservacao,
+    TravaDaRecusa,
     casamento_do_cabecalho,
     # AS DUAS LEITORAS SAO USADAS, e o `noqa` nao esconde codigo morto: elas
     # sao alcancadas por NOME, via `globals()`, em `leitora_de_linha` — que e
@@ -646,6 +647,17 @@ class LeitorDePagina:
         # afirmar que ESTA trava foi a que chegou a `ler_linha`.
         self.trava_da_observacao = TravaDaObservacao()
 
+        # A QUINTA TRAVA DESTE LEITOR, irma da de cima e pelo MESMO motivo de
+        # escopo: a repeticao que ela suprime e do TICK. A pagina e relida a
+        # cada segundo, e em producao 2026-09-02 18:27 a MESMA linha recusada
+        # era registrada a 1 Hz -- ~3.600 linhas por hora, por UMA oferta
+        # parada. Construida dentro do laco de linhas ela nasceria vazia a cada
+        # linha e nao travaria nada.
+        #
+        # PUBLICA, como a irma: e o que deixa o teste afirmar que ESTA trava foi
+        # a que chegou as DUAS leitoras.
+        self.trava_da_recusa = TravaDaRecusa()
+
         # A JANELA ANTERIOR e a corrida de iguais, para o congelamento.
         # Guardamos UM frame e um contador — e por isso `np.array_equal` (0,89
         # ms medido) basta e sha256 (3,70 ms) ou blake2b (6,81 ms) so custariam
@@ -1064,6 +1076,11 @@ class LeitorDePagina:
                     folga_de_cola=self._folga_de_cola,
                     sonda=self._sonda,
                     limiar_de_dispersao=self._limiar_de_dispersao,
+                    # O RAMO DA ADENA RECEBE A MESMA TRAVA DO OUTRO, e nao uma
+                    # sua: foi a linha 5 DESTA aba que gritou a 1 Hz em
+                    # 2026-09-02 18:27. Um ramo esquecido aqui seria metade do
+                    # defeito de volta.
+                    trava_da_recusa=self.trava_da_recusa,
                     catalogo=catalogo_da_pagina,
                 )
             else:
@@ -1090,6 +1107,10 @@ class LeitorDePagina:
                     # ticks da sessao, e e isso que faz cada divergencia ser
                     # registrada uma vez em vez de uma vez por segundo.
                     trava_da_observacao=self.trava_da_observacao,
+                    # A IRMA DELA, pela mesma razao e no mesmo lugar: e a
+                    # mesma em todos os ticks da sessao, e e isso que faz cada
+                    # recusa ser registrada uma vez em vez de uma por segundo.
+                    trava_da_recusa=self.trava_da_recusa,
                     catalogo=catalogo_da_pagina,
                     corte_de_similaridade=float(self._corte),
                     piso_de_similaridade=float(self._piso_de_similaridade),

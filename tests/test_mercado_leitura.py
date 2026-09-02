@@ -1077,6 +1077,7 @@ def chamar_ler_linha(
     *,
     tolerancia=None,
     trava=None,
+    trava_da_recusa=None,
 ):
     """`ler_linha` direto, com as duas leitoras CONTADORAS.
 
@@ -1089,11 +1090,18 @@ def chamar_ler_linha(
     chamada e o equivalente de "um tick isolado", que e o que a maioria destes
     testes quer. Quem precisa de DOIS ticks passa a MESMA trava nos dois, e e
     exatamente essa diferenca que prova a supressao da repeticao.
+
+    `trava_da_recusa` SEGUE A MESMA CONVENCAO, e pela mesma razao: omitida, ela
+    vira uma trava NOVA por chamada — um tick isolado. Quem quer medir a
+    supressao da RECUSA repetida passa a MESMA nos cinco ticks, e e essa
+    diferenca que `TestATravaDaRecusa` transforma em numero.
     """
-    from l2scanner.mercado_leitura import TravaDaObservacao
+    from l2scanner.mercado_leitura import TravaDaObservacao, TravaDaRecusa
 
     if trava is None:
         trava = TravaDaObservacao()
+    if trava_da_recusa is None:
+        trava_da_recusa = TravaDaRecusa()
     contagem = {"2x": 0, "3x": 0}
 
     def barata(_pixels):
@@ -1114,6 +1122,7 @@ def chamar_ler_linha(
         moldes=moldes,
         tolerancia_do_cruzamento=tolerancia,
         trava_da_observacao=trava,
+        trava_da_recusa=trava_da_recusa,
         piso=float(cal.mercado_limiar_de_leitura_de_glifo),
         margem=float(cal.mercado_margem_de_leitura_de_glifo),
         # OS DOIS PISOS DE BRILHO, cada um da sua fonte: as colunas de MOEDA no
@@ -1642,23 +1651,49 @@ class TestOLogDaRecusa:
         assert ">>>Earth Spirit Evolution Stone<<<" in texto
         assert ">>>Common Fafurion Doll<<<" in texto
 
-    def test_NAO_ha_limitacao_de_repeticao(self, cal, caplog) -> None:
-        """O log rotativo e a unica forense pos-farm: as linhas repetidas SAO
-        o que responde 'por que nao gravou'."""
+    def test_HA_limitacao_de_repeticao_desde_2026_09_02(
+        self, cal, caplog
+    ) -> None:
+        """ESTE TESTE MUDOU DE LADO, E A RAZAO E O DEFEITO QUE ELE NAO VIA.
+
+        Ate 2026-09-02 ele se chamava `test_NAO_ha_limitacao_de_repeticao` e
+        afirmava `2 x descartadas`, com o argumento de que o log rotativo e a
+        unica forense pos-farm e as linhas repetidas sao o que responde "por que
+        nao gravou". O argumento continua CERTO sobre o valor do log e estava
+        ERRADO sobre o efeito: em producao 2026-09-02 18:27 UMA oferta parada
+        produziu ~3.600 linhas identicas por hora e o RODIZIO apagou a forense
+        que a ausencia de trava existia para preservar.
+
+        A PRIMEIRA VEZ DE CADA RECUSA CONTINUA SAINDO — e isso que a primeira
+        assercao mede, e e o que responde "por que nao gravou". O que morreu foi
+        a repeticao: `TravaDaRecusa` e do LEITOR e atravessa os dois ticks.
+
+        O NUMERO NAO E ESCOLHIDO A MAO: ele continua DERIVADO de
+        `leitor.ultima_leitura.descartadas`, como antes, para que uma mudanca na
+        leitura nao deixe aqui um literal que sobreviveu a propria razao.
+        """
         leitor, _b, _c, _v2, _v3 = montar_leitor(
             cal, "Common Fafurion Doll", "Common Fafurion Doll"
         )
         with caplog.at_level("WARNING", logger="l2scanner.mercado_leitura"):
             leitor.observar(ler_fixtura(JANELA_TOOLTIP))
+            descartadas = len(leitor.ultima_leitura.descartadas)
+            do_primeiro_tick = len(recusas_emitidas(caplog))
+
             leitor.observar(ler_fixtura(JANELA_TOOLTIP))
-        recusas = [r for r in caplog.records if "RECUSADA" in r.getMessage()]
-        # UMA linha de log por linha descartada, em CADA uma das duas
-        # observacoes. O total e DERIVADO da leitura e nao escolhido a mao: com
-        # o piso proprio da Quantity duas das dez linhas passaram a atravessar,
-        # e um 20 gravado aqui viraria um numero que sobreviveu a propria razao.
-        descartadas = len(leitor.ultima_leitura.descartadas)
+            do_segundo_tick = (
+                len(recusas_emitidas(caplog)) - do_primeiro_tick
+            )
+
         assert descartadas > 0
-        assert len(recusas) == 2 * descartadas
+        assert do_primeiro_tick == descartadas
+        assert do_segundo_tick == 0, (
+            "a segunda leitura da MESMA tela nao pode reanunciar nada: era "
+            "isso que enchia ~3.600 linhas por hora no log rotativo"
+        )
+        # E O DADO NAO SE MOVEU: o segundo tick continua descartando as mesmas
+        # linhas. A trava alcanca a mensagem e nunca o `Descarte`.
+        assert len(leitor.ultima_leitura.descartadas) == descartadas
 
 
 # ---------------------------------------------------------------------------
@@ -2259,6 +2294,247 @@ class TestOLeitorDePaginaCONSULTA_A_TRAVA:
             and no.func.id == "TravaDaObservacao"
         ]
         assert construcoes_dentro_do_laco == []
+
+
+def recusas_emitidas(caplog) -> list[str]:
+    """So as linhas de RECUSA, e nunca `caplog.text` inteiro.
+
+    A mesma disciplina de `observacoes_emitidas`: contar registros do logger
+    inteiro juntaria a observacao do cruzamento, o aviso da sonda antiga e o
+    `debug` da excecao contida na mesma conta, e o teste ficaria verde (ou
+    vermelho) contando a mensagem errada.
+    """
+    return [
+        r.getMessage() for r in caplog.records if "RECUSADA" in r.getMessage()
+    ]
+
+
+class TestATravaDaRecusa:
+    """O primeiro defeito de producao de 2026-09-02 18:27, escrito como teste.
+
+    UMA oferta parada na tela produzia
+    `linha 5 RECUSADA (cruzamento): ... residuo=101` UMA VEZ POR SEGUNDO —
+    ~3.600 linhas por hora num `scanner.log` ROTATIVO, que e a unica ferramenta
+    de forense pos-farm deste projeto. O ruido come a evidencia que ele existe
+    para guardar.
+
+    NAO E O MESMO DEFEITO DE `TravaDaObservacao`, e nem a mesma mensagem: la a
+    linha SEGUE (a guarda esta desligada e o cruzamento e observacao); aqui a
+    linha CAI. E e justamente por a linha cair que a supressao nao pode alcancar
+    o dado — o Teste 2 desta classe existe so para medir isso.
+    """
+
+    def _cinco_ticks(self, cal, moldes, janela, caplog, *, mesma_trava: bool):
+        """Cinco ticks da MESMA oferta recusada. Devolve (registros, descartes).
+
+        `mesma_trava=True` e a producao: o leitor atravessa a sessao inteira com
+        UMA trava. `mesma_trava=False` e o CONTROLE NEGATIVO: cinco ticks
+        isolados, que e o que a suite ve quando o helper omite a trava.
+        """
+        from l2scanner.mercado_leitura import TravaDaRecusa
+
+        recortes = linha_com_o_total_adulterado(cal, janela, 8)
+        trava = TravaDaRecusa()
+        descartes = []
+        with caplog.at_level("WARNING", logger="l2scanner.mercado_leitura"):
+            for _tick in range(5):
+                resultado, _contagem = chamar_ler_linha(
+                    cal,
+                    moldes,
+                    recortes,
+                    8,
+                    tolerancia=tolerancia_de_ensaio(),
+                    trava_da_recusa=trava if mesma_trava else TravaDaRecusa(),
+                )
+                descartes.append(resultado)
+        return recusas_emitidas(caplog), descartes
+
+    def test_cinco_ticks_da_MESMA_recusa_dao_UM_registro_e_cinco_dao_CINCO(
+        self, cal, moldes, janela_f010, caplog
+    ) -> None:
+        """O NUMERO DO DEFEITO, com o seu controle negativo NO MESMO TESTE.
+
+        1 sozinho nao discrimina entre "travou" e "parou de logar": um
+        `log.warning` apagado passaria naquele numero. 5 sozinho nao discrimina
+        entre "nao travou" e "a trava nunca chegou aqui". Os dois juntos, sobre
+        o MESMO caminho e a MESMA linha, so passam quando a trava e quem faz a
+        diferenca.
+        """
+        travados, _ = self._cinco_ticks(
+            cal, moldes, janela_f010, caplog, mesma_trava=True
+        )
+        assert len(travados) == 1, (
+            "cinco ticks da mesma oferta recusada tem de dar UMA linha de log: "
+            f"vi {len(travados)} -> {travados}"
+        )
+        assert "RECUSADA (cruzamento)" in travados[0]
+
+        caplog.clear()
+        soltos, _ = self._cinco_ticks(
+            cal, moldes, janela_f010, caplog, mesma_trava=False
+        )
+        assert len(soltos) == 5, (
+            "cinco travas NOVAS sao cinco ticks isolados e tem de dar cinco "
+            f"linhas: vi {len(soltos)}"
+        )
+
+    def test_a_supressao_e_do_LOG_e_NUNCA_do_dado(
+        self, cal, moldes, janela_f010, caplog
+    ) -> None:
+        """T-PQF-02: os cinco ticks continuam devolvendo cinco `Descarte`.
+
+        Sem este teste a trava poderia estar ENGOLINDO a linha — devolvendo
+        `None` no tick repetido, por exemplo — e a suite aprovaria, porque o
+        Teste 1 so conta linhas de log. A linha recusada continua recusada em
+        todo tick, e e por isso que a contagem "li 7, perdi 3" do console nao
+        muda de valor nenhum.
+
+        ELE NAO AFIRMA A CONTAGEM DO LOG, E A OMISSAO E DELIBERADA. Essa conta
+        e do Teste 1, e duplica-la aqui destruiria o valor DIAGNOSTICO deste
+        teste: sob a mutacao que apaga o portao de `TravaDaRecusa.anunciar`,
+        um teste que afirmasse `len(registros) == 1` ficaria vermelho pela
+        MESMA razao do Teste 1, e "vermelho" deixaria de distinguir "a trava
+        quebrou" de "o `Descarte` foi engolido". Medido na prova por mutacao de
+        2026-09-02: com a assercao do log junto, este teste caia em
+        `assert 5 == 1` com os cinco `Descarte` INTACTOS — falha ruidosa sobre
+        um fato que nao era o dele. O numero de registros entra so na mensagem
+        de falha, como pista, e nunca como criterio.
+        """
+        registros, descartes = self._cinco_ticks(
+            cal, moldes, janela_f010, caplog, mesma_trava=True
+        )
+        assert len(descartes) == 5, (
+            f"cinco ticks tem de devolver cinco Descarte "
+            f"(registros no log: {len(registros)})"
+        )
+        assert all(isinstance(d, Descarte) for d in descartes), descartes
+        motivos = {d.motivo for d in descartes}
+        assert motivos == {MOTIVO_DO_CRUZAMENTO}, motivos
+
+    def test_o_INDICE_esta_na_chave_e_e_DELIBERADO(self) -> None:
+        """As duas afirmacoes JUNTAS, porque e a divergencia que elas fixam.
+
+        `TravaDaObservacao` deixa o indice FORA da chave de proposito: a
+        identidade da oferta existe nos tres numeros, e uma rolagem
+        reanunciaria a pagina inteira. Aqui o `detalhe` de metade dos motivos
+        NAO carrega identidade nenhuma — o da oclusao e a mesma frase constante
+        em toda linha —, e sem o indice a primeira linha coberta calaria todas
+        as outras da sessao.
+
+        O custo esta limitado e medido: uma rolagem reanuncia a oferta no
+        maximo uma vez por posicao da grade, dez linhas contra 3.600 por hora.
+        """
+        from l2scanner.mercado_leitura import TravaDaRecusa
+
+        trava = TravaDaRecusa()
+        assert trava.anunciar(3, "oclusao", "fundo nao uniforme") is not None
+        assert trava.anunciar(7, "oclusao", "fundo nao uniforme") is not None
+
+        outra = TravaDaRecusa()
+        primeira = outra.anunciar(5, "oclusao", "fundo nao uniforme")
+        assert isinstance(primeira, str)
+        assert primeira == "linha 5 RECUSADA (oclusao): fundo nao uniforme"
+        for _repeticao in range(4):
+            assert outra.anunciar(5, "oclusao", "fundo nao uniforme") is None
+
+    def test_o_leitor_PASSA_A_SUA_trava_a_cada_ler_linha(
+        self, cal, janela_f010, monkeypatch
+    ) -> None:
+        """A prova de FIACAO no ramo da NEGOCIACAO, medida POR CHAMADA.
+
+        Uma trava perfeita que o laco de linhas nao usa deixaria o defeito de
+        producao exatamente onde ele estava. Espelha
+        `TestOLeitorDePaginaCONSULTA_A_TRAVA`, e nao reinventa.
+        """
+        import l2scanner.mercado_pagina as mercado_pagina
+
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Earth Spirit Evolution Stone", "Earth Spirit Evolution Stone"
+        )
+        original = mercado_pagina.ler_linha
+        vistas: list = []
+
+        def espiao(*args, **kwargs):
+            vistas.append(kwargs.get("trava_da_recusa"))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(mercado_pagina, "ler_linha", espiao)
+        leitor.observar(janela_f010)
+        leitor.observar(janela_f010)
+
+        assert vistas, "`ler_linha` nao foi chamada: o teste nao cobre nada"
+        assert all(trava is leitor.trava_da_recusa for trava in vistas), (
+            "o leitor deixou de passar a SUA trava a `ler_linha` - sem ela a "
+            "mesma recusa reanuncia a cada tick"
+        )
+
+    def test_o_leitor_PASSA_A_SUA_trava_a_cada_ler_linha_de_adena(
+        self, cal, monkeypatch
+    ) -> None:
+        """O RAMO ESQUECIDO SERIA METADE DO DEFEITO DE VOLTA.
+
+        `_ler_a_pagina` tem DOIS ramos, e a producao de 2026-09-02 18:27 gritava
+        justamente pela linha 5 da ADENA (`total=11999 incremento=5949 n=2
+        residuo=101`). Uma trava so na negociacao seria verde no outro teste e
+        muda no defeito que a motivou.
+        """
+        import l2scanner.mercado_pagina as mercado_pagina
+
+        janela = ler_fixtura(FIXTURES / "janela_adena_f014.png")
+        leitor, _b, _c, _v2, _v3 = montar_leitor(
+            cal, "Common Fafurion Doll", "Common Fafurion Doll"
+        )
+        original = mercado_pagina.ler_linha_de_adena
+        vistas: list = []
+
+        def espiao(*args, **kwargs):
+            vistas.append(kwargs.get("trava_da_recusa"))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(mercado_pagina, "ler_linha_de_adena", espiao)
+        leitor.observar(janela)
+        leitor.observar(janela)
+
+        assert (
+            vistas
+        ), "`ler_linha_de_adena` nao foi chamada: o teste nao cobre nada"
+        assert all(trava is leitor.trava_da_recusa for trava in vistas), (
+            "o ramo da adena deixou de passar a trava do leitor - metade do "
+            "defeito de 2026-09-02 de volta"
+        )
+
+    def test_a_docstring_de__recusar_cita_o_CUSTO_MEDIDO(self) -> None:
+        """A regra da casa: a frase mudou porque o codigo mudou.
+
+        A docstring antiga tratava a repeticao como DECISAO ("sem rate-limit
+        porque o log rotativo e a unica forense"). Ela agora tem de nomear o
+        custo que essa decisao pagava, com a data e o numero.
+        """
+        import l2scanner.mercado_leitura as modulo
+
+        texto = inspect.getdoc(modulo._recusar)
+        assert "TravaDaRecusa" in texto
+        assert "3.600" in texto
+        assert "2026-09-02" in texto
+        assert "sem rate-limit" not in texto, "a frase antiga sobreviveu"
+
+    def test_a_trava_nao_tem_valor_de_fabrica_em_NENHUMA_das_duas_leitoras(
+        self,
+    ) -> None:
+        """O charter do modulo, e o motivo escrito de novo.
+
+        Um default esconderia quem forneceu a trava e devolveria o defeito
+        inteiro em silencio: quem esquecesse de passa-la ganharia uma trava
+        nova por tick e voltaria a logar a 1 Hz, com a suite verde.
+        """
+        import l2scanner.mercado_leitura as modulo
+
+        for leitora in (modulo.ler_linha, modulo.ler_linha_de_adena):
+            parametro = inspect.signature(leitora).parameters[
+                "trava_da_recusa"
+            ]
+            assert parametro.default is inspect.Parameter.empty, leitora
+            assert parametro.kind is inspect.Parameter.KEYWORD_ONLY, leitora
 
 
 class TestAFronteiraDaFase3:

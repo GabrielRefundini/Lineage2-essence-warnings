@@ -438,6 +438,9 @@ def ler_linha_da_fixtura(cal, moldes, janela, indice: int):
         limiar_de_dispersao=float(cal.mercado_limiar_de_dispersao_do_fundo),
         tolerancia_do_cruzamento=cal.mercado_tolerancia_do_cruzamento,
         trava_da_observacao=mercado_leitura.TravaDaObservacao(),
+        # UMA TRAVA NOVA POR CHAMADA, a convencao ja usada pela irma acima:
+        # e o equivalente de um tick isolado, que e o que estes testes medem.
+        trava_da_recusa=mercado_leitura.TravaDaRecusa(),
         catalogo={},
         corte_de_similaridade=float(cal.mercado_corte_de_similaridade),
         piso_de_similaridade=float(cal.mercado_piso_de_similaridade),
@@ -480,6 +483,7 @@ def ler_linha_de_adena_da_fixtura(cal, moldes, janela, indice: int):
         folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
         sonda=cal.mercado_sonda_do_fundo,
         limiar_de_dispersao=float(cal.mercado_limiar_de_dispersao_do_fundo),
+        trava_da_recusa=mercado_leitura.TravaDaRecusa(),
         catalogo={},
     )
 
@@ -904,6 +908,9 @@ def _opcoes_da_linha(cal):
         limiar_de_dispersao=float(cal.mercado_limiar_de_dispersao_do_fundo),
         tolerancia_do_cruzamento=cal.mercado_tolerancia_do_cruzamento,
         trava_da_observacao=mercado_leitura.TravaDaObservacao(),
+        # UMA TRAVA NOVA POR CHAMADA, a convencao ja usada pela irma acima:
+        # e o equivalente de um tick isolado, que e o que estes testes medem.
+        trava_da_recusa=mercado_leitura.TravaDaRecusa(),
         catalogo={},
         corte_de_similaridade=float(cal.mercado_corte_de_similaridade),
         piso_de_similaridade=float(cal.mercado_piso_de_similaridade),
@@ -1239,6 +1246,7 @@ class TestOCianoSELE:
             folga_de_cola=cal.mercado_folga_de_cola_do_glifo,
             sonda=cal.mercado_sonda_do_fundo,
             limiar_de_dispersao=float(cal.mercado_limiar_de_dispersao_do_fundo),
+            trava_da_recusa=mercado_leitura.TravaDaRecusa(),
             catalogo={},
         )
         assert isinstance(resultado, mercado_leitura.LinhaLida)

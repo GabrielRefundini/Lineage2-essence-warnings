@@ -1656,6 +1656,75 @@ class TravaDaObservacao:
         )
 
 
+class TravaDaRecusa:
+    """Que RECUSA ja foi registrada nesta sessao. Cada uma sai UMA vez.
+
+    O DEFEITO QUE ELA CONSERTA FOI VISTO EM PRODUCAO (sessao de 2026-09-02
+    18:27): UMA oferta parada na tela produzia
+    `linha 5 RECUSADA (cruzamento): total=11999 incremento=5949 n=2
+    residuo=101` uma vez por segundo. A 1 Hz sao ~3.600 linhas por hora, num
+    `scanner.log` ROTATIVO — o ruido come exatamente a forense que o log existe
+    para guardar, e por UMA oferta so.
+
+    ELA E A SETIMA TRAVA DO MODO E A QUINTA DESTE LEITOR, e da para conta-las
+    nomeando: `transicao_do_painel` (o aberto/fechado do painel),
+    `_layout_ja_recusado`, `_congelamento_ja_avisado` e `_falta_ja_avisada` (as
+    tres de ESTADO do leitor), `TravaDoDestaque` (o anuncio do console),
+    `TravaDaObservacao` (a divergencia do cruzamento) — e esta. Repeticao a 1 Hz
+    e o modo de falha nativo de um laco que rele a mesma tela; toda mensagem
+    deste modo acaba precisando de uma.
+
+    O INDICE ENTRA NA CHAVE AQUI, E SAI NA DE `TravaDaObservacao`. A divergencia
+    e deliberada e nao esquecimento. La a identidade da oferta EXISTE nos tres
+    numeros do cruzamento, entao o indice seria ruido e uma rolagem de uma linha
+    reanunciaria a pagina inteira. Aqui o `detalhe` de metade dos motivos NAO
+    carrega identidade nenhuma — o do motivo da oclusao e a frase constante
+    `fundo nao uniforme`, identica em toda linha coberta de toda pagina —, e sem
+    o indice a PRIMEIRA linha coberta calaria todas as outras da sessao.
+
+    O CUSTO DESSA ESCOLHA ESTA LIMITADO E ESCRITO: uma rolagem reanuncia a mesma
+    oferta no maximo uma vez POR POSICAO DA GRADE. Sao dez linhas por pagina,
+    contra as 3.600 por hora que ela corta. A conta fecha por duas ordens de
+    grandeza, e e por isso que a chave mais grossa perdeu.
+
+    ELA E DA SESSAO, e nao uma janela de tempo, pela mesma razao das irmas:
+    enquanto a oferta estiver no quadro ela sera relida a cada tick, e uma trava
+    que expirasse so trocaria milhares de linhas repetidas por dezenas de linhas
+    repetidas — continuaria sendo repeticao do mesmo fato. E O CONJUNTO NAO E
+    PODADO: ele guarda uma tupla curta por recusa DISTINTA, e o custo e
+    desprezivel perto do risco de uma poda reanunciar o que ja saiu.
+
+    ELA TRAVA O LOG E NUNCA O `Descarte`. A linha recusada continua recusada em
+    TODO tick — `_recusar` devolve o `Descarte` sempre, e so a mensagem passa
+    por aqui. E por isso que a contagem "li 7, perdi 3" do console nao muda de
+    valor nenhum, e e isso que
+    `TestATravaDaRecusa::test_a_supressao_e_do_LOG_e_NUNCA_do_dado` mede.
+    """
+
+    def __init__(self) -> None:
+        # PUBLICO, no padrao de `ja_observadas` e de `ja_anunciadas`: e o que
+        # deixa o teste afirmar a identidade escolhida sem espiar o objeto por
+        # dentro.
+        self.ja_recusadas: set[tuple[int, str, str]] = set()
+
+    def anunciar(self, indice: int, motivo: str, detalhe: str) -> str | None:
+        """O texto da recusa na PRIMEIRA vez desta linha; `None` depois.
+
+        `None` E NAO STRING VAZIA, pela razao ja escrita nas duas irmas: uma
+        string vazia atravessaria um `if texto:` distraido e registraria uma
+        linha em branco por tick — o mesmo ruido, com outra cara.
+
+        O TEXTO E BYTE-IDENTICO ao que `log.warning` renderizava antes desta
+        trava existir. Ha teste vivo lendo essa string, e mudar a forma
+        quebraria forense de campo por nada.
+        """
+        chave = (int(indice), motivo, detalhe)
+        if chave in self.ja_recusadas:
+            return None
+        self.ja_recusadas.add(chave)
+        return f"linha {indice} RECUSADA ({motivo}): {detalhe}"
+
+
 # ---------------------------------------------------------------------------
 # Os cinco motivos de recusa desta fase (D-17)
 # ---------------------------------------------------------------------------
@@ -1979,6 +2048,7 @@ def ler_linha(
     limiar_de_dispersao: float,
     tolerancia_do_cruzamento: float | None,
     trava_da_observacao: TravaDaObservacao,
+    trava_da_recusa: TravaDaRecusa,
     catalogo: dict[str, EntradaDoCatalogo],
     corte_de_similaridade: float,
     piso_de_similaridade: float,
@@ -2032,6 +2102,14 @@ def ler_linha(
     tolerancia e os dois pisos: um default aqui esconderia quem a forneceu, e um
     `None` silencioso devolveria o defeito inteiro sem nada denunciar.
 
+    A `trava_da_recusa` CHEGA DE FORA PELA MESMA RAZAO, e o defeito dela e o
+    IRMAO daquele: a recusa da linha tambem era registrada a 1 Hz enquanto a
+    oferta estivesse na tela — medido em producao 2026-09-02 18:27, ~3.600
+    linhas por hora por UMA oferta parada. A diferenca entre as duas e o que
+    acontece com a linha: a observacao deixa a linha SEGUIR, a recusa a
+    DERRUBA. A trava alcanca so a MENSAGEM nos dois casos; o `Descarte` sai em
+    todo tick. Ela tambem vem sem valor de fabrica, pelo charter do modulo.
+
     SAO DOIS PISOS DE BRILHO E NAO UM, E A RAZAO E MEDIDA. As colunas de MOEDA
     (`Total` e `Unit price`) recebem `valor_minimo_do_numero`, o piso
     COMPARTILHADO; a coluna Quantity recebe `valor_minimo_da_quantidade`, o piso
@@ -2065,7 +2143,12 @@ def ler_linha(
             else cv2.cvtColor(bgr_da_linha, cv2.COLOR_BGR2GRAY)
         )
         if linha_ocluida(cinza, sonda, limiar_de_dispersao):
-            return _recusar(indice, MOTIVO_DA_OCLUSAO, "fundo nao uniforme")
+            return _recusar(
+                indice,
+                MOTIVO_DA_OCLUSAO,
+                "fundo nao uniforme",
+                trava_da_recusa,
+            )
 
         # O PORTAO DA COR VEM ANTES DA LEITURA, e nao depois: depois nao ha o
         # que conferir. Uma substituicao `0`->`8` em tinta ciana devolve um
@@ -2080,6 +2163,7 @@ def ler_linha(
                 MOTIVO_DA_TINTA,
                 "a coluna Total esta desenhada numa cor que os moldes nao "
                 "descrevem",
+                trava_da_recusa,
             )
         total = ler_celula_de_numero(
             recorte_do_total,
@@ -2091,7 +2175,8 @@ def ler_linha(
         )
         if total is None:
             return _recusar(
-                indice, MOTIVO_DA_GRAMATICA, "a coluna Total nao se leu inteira"
+                indice, MOTIVO_DA_GRAMATICA, "a coluna Total nao se leu inteira",
+                trava_da_recusa,
             )
         # O MESMO portao, com o piso de brilho PROPRIO da Quantity: medir a cor
         # sobre a tinta que a leitura NAO usa descreveria outra celula.
@@ -2107,6 +2192,7 @@ def ler_linha(
                 MOTIVO_DA_TINTA,
                 "a coluna Quantity esta desenhada numa cor que os moldes nao "
                 "descrevem",
+                trava_da_recusa,
             )
         quantidade = ler_celula_de_quantidade(
             recorte_da_quantidade,
@@ -2121,6 +2207,7 @@ def ler_linha(
                 indice,
                 MOTIVO_DA_GRAMATICA,
                 "a coluna Quantity nao se leu inteira",
+                trava_da_recusa,
             )
         # A TERCEIRA leitura. Ela usa a MESMA `ler_celula_de_numero` das outras
         # duas, com o mesmo piso, a mesma margem E O MESMO PISO DE BRILHO do
@@ -2165,6 +2252,7 @@ def ler_linha(
                 f"residuo={residuo} estourou a tolerancia medida de "
                 f"{tolerancia_do_cruzamento} centesimos por unidade "
                 f"(limite {float(tolerancia_do_cruzamento) * quantidade})",
+                trava_da_recusa,
             )
         _observar_o_cruzamento(
             indice,
@@ -2187,10 +2275,16 @@ def ler_linha(
             piso_de_similaridade,
             ler_texto,
             ler_texto_conferencia,
+            trava_da_recusa,
         )
     except Exception as erro:  # noqa: BLE001 - roda dentro do tick
         log.debug("leitura da linha %d falhou: %s", indice, erro)
-        return _recusar(indice, MOTIVO_DA_GRAMATICA, f"excecao contida: {erro}")
+        return _recusar(
+            indice,
+            MOTIVO_DA_GRAMATICA,
+            f"excecao contida: {erro}",
+            trava_da_recusa,
+        )
 
 
 def ler_linha_de_adena(
@@ -2207,6 +2301,7 @@ def ler_linha_de_adena(
     folga_de_cola: int | None,
     sonda: dict | None,
     limiar_de_dispersao: float,
+    trava_da_recusa: TravaDaRecusa,
     catalogo: dict[str, EntradaDoCatalogo],
 ) -> LinhaLida | Descarte | None:
     """Uma linha da aba ADENA, de pixels a valor. `None` quando ela esta VAZIA.
@@ -2266,6 +2361,13 @@ def ler_linha_de_adena(
     escala de `n` sao INCREMENTOS de cinco milhoes e nao unidades:
     `|total - incremento x n|` em centesimos. Guardar outra coisa no campo
     homonimo faria a Fase 3 comparar duas grandezas diferentes na mesma coluna.
+
+    A `trava_da_recusa` ENTRA AQUI TAMBEM, e a simetria com `ler_linha` e o
+    ponto. Esta funcao NAO tem `trava_da_observacao` — o cruzamento aqui e
+    GUARDA e nao observacao —, e essa assimetria continua. Mas as duas RECUSAM,
+    e foi justamente a linha 5 DA ADENA que gritou em producao a 1 Hz em
+    2026-09-02 18:27 (`total=11999 incremento=5949 n=2 residuo=101`). Uma trava
+    so no ramo da negociacao seria metade do defeito de volta.
     """
     try:
         if linha_vazia(bgr_da_linha):
@@ -2277,7 +2379,12 @@ def ler_linha_de_adena(
             else cv2.cvtColor(bgr_da_linha, cv2.COLOR_BGR2GRAY)
         )
         if linha_ocluida(cinza, sonda, limiar_de_dispersao):
-            return _recusar(indice, MOTIVO_DA_OCLUSAO, "fundo nao uniforme")
+            return _recusar(
+                indice,
+                MOTIVO_DA_OCLUSAO,
+                "fundo nao uniforme",
+                trava_da_recusa,
+            )
 
         # O MESMO portao da negociacao, e de proposito o MESMO: a cor da tinta e
         # uma propriedade dos MOLDES, nao da aba. Um portao que valesse so num
@@ -2298,6 +2405,7 @@ def ler_linha_de_adena(
                 MOTIVO_DA_TINTA,
                 "a coluna Total Price esta desenhada numa cor que os moldes "
                 "nao descrevem",
+                trava_da_recusa,
             )
         total = ler_celula_de_numero(
             recorte_do_total,
@@ -2309,7 +2417,8 @@ def ler_linha_de_adena(
         )
         if total is None:
             return _recusar(
-                indice, MOTIVO_DA_GRAMATICA, "a coluna Total Price nao se leu inteira"
+                indice, MOTIVO_DA_GRAMATICA, "a coluna Total Price nao se leu inteira",
+                trava_da_recusa,
             )
         # E AQUI O PORTAO DERRUBA A LINHA, ao contrario do unitario da
         # negociacao: sem incremento nao ha quantidade, e sem quantidade nao ha
@@ -2326,6 +2435,7 @@ def ler_linha_de_adena(
                 MOTIVO_DA_TINTA,
                 "a coluna 5 mln increment esta desenhada numa cor que os "
                 "moldes nao descrevem",
+                trava_da_recusa,
             )
         incremento = ler_celula_de_numero(
             recorte_do_incremento,
@@ -2340,6 +2450,7 @@ def ler_linha_de_adena(
                 indice,
                 MOTIVO_DA_GRAMATICA,
                 "a coluna 5 mln increment nao se leu inteira",
+                trava_da_recusa,
             )
 
         derivada = quantidade_de_adena(total, incremento)
@@ -2352,6 +2463,7 @@ def ler_linha_de_adena(
                 f"residuo={residuo_do_cruzamento(total, incremento, candidato)} "
                 f"estourou o limite derivado de "
                 f"{limite_derivado_do_cruzamento(candidato)} centesimos",
+                trava_da_recusa,
             )
         quantidade, incrementos = derivada
 
@@ -2368,7 +2480,12 @@ def ler_linha_de_adena(
         )
     except Exception as erro:  # noqa: BLE001 - roda dentro do tick
         log.debug("leitura da linha %d da adena falhou: %s", indice, erro)
-        return _recusar(indice, MOTIVO_DA_GRAMATICA, f"excecao contida: {erro}")
+        return _recusar(
+            indice,
+            MOTIVO_DA_GRAMATICA,
+            f"excecao contida: {erro}",
+            trava_da_recusa,
+        )
 
 
 def _observar_o_cruzamento(
@@ -2421,6 +2538,7 @@ def _ler_o_nome(
     piso_de_similaridade: float,
     ler_texto,
     ler_texto_conferencia,
+    trava_da_recusa: TravaDaRecusa,
 ) -> LinhaLida | Descarte:
     """O ACORDO ENTRE AS DUAS ESCALAS — o mecanismo inteiro de D-01 e D-02.
 
@@ -2506,11 +2624,13 @@ def _ler_o_nome(
                 indice,
                 MOTIVO_DA_FAIXA_CINZENTA,
                 f"2x=>>>{barato}<<< 3x=>>>{caro}<<<",
+                trava_da_recusa,
             )
         return _recusar(
             indice,
             MOTIVO_DA_DISCORDANCIA,
             f"uma escala so leu. 2x=>>>{barato}<<< 3x=>>>{caro}<<<",
+            trava_da_recusa,
         )
 
     if veredito_barato.chave != veredito_caro.chave:
@@ -2519,6 +2639,7 @@ def _ler_o_nome(
             MOTIVO_DA_DISCORDANCIA,
             f"2x=>>>{barato}<<< ({veredito_barato.chave}) "
             f"3x=>>>{caro}<<< ({veredito_caro.chave})",
+            trava_da_recusa,
         )
 
     return LinhaLida(
@@ -2537,17 +2658,38 @@ def _e_faixa_cinzenta(veredito) -> bool:
     return veredito.chave is None and "FAIXA CINZENTA" in veredito.motivo
 
 
-def _recusar(indice: int, motivo: str, detalhe: str) -> Descarte:
-    """A recusa vai para o log com os delimitadores `>>><<<`, sem rate-limit.
+def _recusar(
+    indice: int, motivo: str, detalhe: str, trava: TravaDaRecusa
+) -> Descarte:
+    """A recusa vai para o log com os delimitadores `>>><<<`, UMA vez por linha.
 
-    A forma e a de `manutencao._registrar_desacordo` (`:506-527`), e as duas
-    decisoes dele valem aqui pelas mesmas razoes: os delimitadores porque espaco
-    em branco importa (`Lv. 1` e `Lv.1` sao leituras diferentes), e a AUSENCIA de
-    limitacao de repeticao porque o log rotativo e a unica ferramenta de forense
-    pos-farm do projeto — sao exatamente estas linhas que respondem "por que nao
-    gravou".
+    A forma e a de `manutencao._registrar_desacordo` (`:506-527`), e a decisao
+    dos DELIMITADORES vale aqui pela mesma razao dela: espaco em branco importa
+    (`Lv. 1` e `Lv.1` sao leituras diferentes), entao o texto lido pelo OCR vai
+    para o log cercado.
+
+    A REPETICAO NAO E MAIS TRATADA COMO DECISAO, PORQUE O CUSTO DELA FOI MEDIDO.
+    Ate 2026-09-02 esta funcao registrava sem limite nenhum, com o argumento de
+    que o log rotativo e a unica ferramenta de forense pos-farm do projeto. O
+    argumento estava certo sobre o VALOR do log e errado sobre o efeito: na
+    sessao de producao de 2026-09-02 18:27 UMA oferta parada na tela produziu
+    `linha 5 RECUSADA (cruzamento): ... residuo=101` uma vez por segundo —
+    ~3.600 linhas por hora, de UMA linha so, num log que RODIZIA. O ruido
+    apagava a propria forense que ele existia para guardar.
+
+    Quem decide o que ja foi dito e `TravaDaRecusa`, e ela chega de FORA: e a
+    trava do LEITOR, da sessao inteira. Uma construida aqui nasceria vazia a
+    cada chamada e nao travaria nada. O parametro vem SEM VALOR DE FABRICA, pelo
+    charter deste modulo — um default esconderia quem a forneceu e devolveria o
+    defeito inteiro em silencio.
+
+    A SUPRESSAO ALCANCA SO O LOG. O `Descarte` sai SEMPRE, em todo tick, e e por
+    isso que a contagem "li 7, perdi 3" do console nao muda de valor nenhum: o
+    dado recusado continua recusado, e o que parou de se repetir foi a frase.
     """
-    log.warning("linha %d RECUSADA (%s): %s", indice, motivo, detalhe)
+    texto = trava.anunciar(indice, motivo, detalhe)
+    if texto is not None:
+        log.warning("%s", texto)
     return Descarte(indice=indice, motivo=motivo)
 
 
