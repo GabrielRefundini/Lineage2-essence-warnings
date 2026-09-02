@@ -36,6 +36,7 @@ from __future__ import annotations
 import ast
 import email.message
 import errno
+import functools
 import hashlib
 import http.client
 import http.server
@@ -894,3 +895,400 @@ class TestOPOSTDoCambio:
             tamanho_declarado=dashboard.TETO_DO_CORPO_DO_POST - 1,
         )
         assert status == 403
+
+
+# ===========================================================================
+# TAREFA 3 — A TRAVESSIA, OS CABECALHOS, O DESLIGAMENTO E A SESSAO INTEIRA
+# ===========================================================================
+
+# AS DEZ SONDAS DE TRAVESSIA, na forma medida pela pesquisa desta fase. `{alvo}`
+# e o nome do arquivo da RAIZ que a sonda tenta alcancar.
+#
+# Cada familia existe porque ela quebra um jeito DIFERENTE de normalizar caminho:
+#
+#   `../`      -- a forma canonica, a que todo mundo lembra de fechar
+#   `../../`   -- duas subidas, para o caso de a defesa cortar so uma
+#   `..%2f`    -- a barra percent-encoded; quem decodifica DEPOIS de normalizar
+#                 volta a ter um `../` do outro lado
+#   `%2e%2e/`  -- os pontos percent-encoded, o espelho da de cima
+#   `....//`   -- a forma que sobrevive a um "remova todo `../`" ingenuo: tire o
+#                 `../` do meio e sobra `../`
+#   `..\`      -- o separador do Windows, que o `posixpath` nao reconhece
+#   `..%5c`    -- a contrabarra percent-encoded
+#   `C:/...`   -- o caminho ABSOLUTO, que nao sobe nada: ele so ignora a raiz
+#   `//`       -- a barra dupla, que em algumas normalizacoes vira raiz do sistema
+#   `vendor/../../` -- a subida a partir de um diretorio que EXISTE, que e a que
+#                 passa por implementacoes que so olham o comeco do caminho
+#
+# MEDIDO na pesquisa: 10 sondas, 0 vazamentos, e as duas de contrabarra devolvem
+# 301 para o proprio diretorio (o `translate_path` descarta o componente por ele
+# conter separador) em vez do arquivo.
+SONDAS_DE_TRAVESSIA = (
+    "/../{alvo}",
+    "/../../{alvo}",
+    "/..%2f{alvo}",
+    "/%2e%2e/{alvo}",
+    "/....//{alvo}",
+    "/..\\{alvo}",
+    "/..%5c{alvo}",
+    "/C:/Windows/win.ini",
+    "//{alvo}",
+    "/vendor/../../{alvo}",
+)
+
+# Os arquivos da RAIZ que NUNCA podem aparecer numa resposta. O `.env` e o alvo
+# de verdade — ele carrega o token do Chatwoot —, mas ele e ignorado pelo git e
+# por isso pode nao existir numa copia limpa da arvore. Os outros dois sao
+# versionados e existem sempre.
+NOMES_DE_FORA = (".env", "requirements.txt", "config.toml")
+
+
+@pytest.fixture(scope="module")
+def arquivos_de_fora() -> list[tuple[str, bytes]]:
+    """(nome, bytes) de cada arquivo da raiz que nao pode vazar.
+
+    POR QUE MAIS DE UM, E POR QUE NAO SO O `.env`: o criterio do plano manda ler
+    o arquivo de segredo da raiz e PULAR se ele nao existir. Se as dez sondas
+    dependessem so dele, elas sumiriam inteiras de qualquer arvore sem `.env` —
+    e uma sonda que pula nao e uma sonda, e um silencio com cara de verde. Os
+    arquivos versionados garantem que as dez rodam sempre; o teste dedicado logo
+    abaixo cobra o `.env` de verdade, e pula com mensagem clara quando ele falta.
+    """
+    achados = []
+    for nome in NOMES_DE_FORA:
+        caminho = RAIZ / nome
+        if caminho.exists():
+            achados.append((nome, caminho.read_bytes()))
+    assert achados, "nenhum arquivo de referencia na raiz — o teste nao mede nada"
+    return achados
+
+
+@pytest.fixture(scope="module")
+def bytes_dos_estaticos() -> set[bytes]:
+    """O conteudo de TODO arquivo servivel, para julgar uma resposta 200.
+
+    Uma sonda pode legitimamente responder 200 — `//` normaliza para a raiz e
+    entrega o `index.html`, por exemplo. O que nao pode acontecer e um 200 com
+    conteudo de FORA da pasta dos estaticos, e e isso que este conjunto permite
+    afirmar sem ter de adivinhar status por sonda.
+    """
+    return {
+        caminho.read_bytes()
+        for caminho in dashboard.PASTA_DOS_ESTATICOS.rglob("*")
+        if caminho.is_file()
+    }
+
+
+class TestATravessiaNaoPassa:
+    """T-01-01: o `.env` do Chatwoot mora na raiz da arvore que este processo ve.
+
+    O CLIENTE E O CRU, E ISSO E METADE DA PROVA. `urllib.request` NORMALIZA a URL
+    antes de enviar — ele resolve os `..` do lado do cliente e mandaria ao
+    servidor um caminho ja limpo. Metade das sondas abaixo chegaria como `/` e
+    passaria provando nada. `http.client.putrequest` manda a linha de pedido do
+    jeito que ela foi escrita.
+    """
+
+    @pytest.mark.parametrize("molde", SONDAS_DE_TRAVESSIA)
+    def test_a_sonda_nao_alcanca_arquivo_de_FORA_dos_estaticos(
+        self,
+        porta: int,
+        molde: str,
+        arquivos_de_fora: list,
+        bytes_dos_estaticos: set,
+    ) -> None:
+        alvo = arquivos_de_fora[0][0]
+        status, _, corpo = _get(porta, molde.format(alvo=alvo))
+
+        for nome, conteudo in arquivos_de_fora:
+            assert conteudo not in corpo, f"{molde} vazou {nome}"
+
+        # E a regra que nao depende de qual arquivo existe: um 200 so pode
+        # carregar bytes que estao DENTRO da pasta dos estaticos.
+        if status == 200:
+            assert corpo in bytes_dos_estaticos, f"{molde} serviu conteudo de fora"
+
+    def test_o_CONTROLE_POSITIVO_um_arquivo_que_EXISTE_responde_200(
+        self, porta: int
+    ) -> None:
+        """Sem ele, um servidor que respondesse 404 para tudo passaria nas dez.
+
+        E o mesmo padrao de defeito que `test_mercado_firewall_de_fase.py:449-470`
+        ja nomeia: um guarda cuja saida nao muda com o fato que ele julga.
+        """
+        status, _, corpo = _get(porta, "/index.html")
+        assert status == 200
+        assert corpo
+
+    def test_o_CONTROLE_NEGATIVO_as_sondas_ALCANCAM_quando_a_defesa_sai(
+        self, tmp_path: Path
+    ) -> None:
+        """O que transforma os dez `404` acima numa MEDICAO em vez de um silencio.
+
+        A defesa desta fase e uma linha: o `directory=` do manipulador. Se ela
+        sair — e o padrao de `SimpleHTTPRequestHandler` SEM `directory=` e servir
+        o diretorio de trabalho, que e a raiz do repo, onde mora o `.env` —, as
+        mesmas sondas passam a alcancar o arquivo.
+
+        MEDIDO fora da suite, apontando um manipulador para a RAIZ real do repo:
+        **6 das 10 sondas vazaram** (`../`, `../../`, `..%2f`, `%2e%2e/`, `//` e
+        `vendor/../../`). As quatro restantes nao vazam em mundo nenhum: as duas
+        de contrabarra devolvem 301 e as outras duas 404, e por isso elas provam
+        menos — mas continuam na bateria porque uma implementacao futura pode
+        mudar isso.
+
+        O SEGREDO AQUI E DE MENTIRA, e isso e deliberado: reproduzir o controle
+        apontando para a arvore de verdade exporia o repo inteiro num soquete,
+        ainda que por milissegundos, so para provar um ponto que um arquivo falso
+        prova igual.
+        """
+        segredo = tmp_path / "SEGREDO-DE-MENTIRA.txt"
+        segredo.write_bytes(b"token-que-nao-existe-mas-serve-de-alvo")
+        publico = tmp_path / "publico"
+        (publico / "vendor").mkdir(parents=True)
+        (publico / "index.html").write_text("<html></html>", encoding="utf-8")
+
+        servidor = dashboard.Servidor(
+            ("127.0.0.1", 0),
+            functools.partial(
+                dashboard.Manipulador,
+                directory=str(tmp_path),  # A DEFESA REMOVIDA: um nivel acima.
+                pasta_do_mercado=tmp_path,
+            ),
+        )
+        tarefa = threading.Thread(
+            target=servidor.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
+        tarefa.start()
+        try:
+            vazamentos = sum(
+                segredo.read_bytes()
+                in _get(
+                    servidor.server_address[1], molde.format(alvo=segredo.name)
+                )[2]
+                for molde in SONDAS_DE_TRAVESSIA
+            )
+        finally:
+            servidor.shutdown()
+            servidor.server_close()
+            tarefa.join(timeout=5)
+
+        assert vazamentos >= 1, (
+            "nenhuma sonda alcancou o alvo nem COM a defesa removida — as dez "
+            "sondas acima nao estao medindo nada"
+        )
+
+    def test_o_ENV_da_raiz_e_o_alvo_REAL_e_nenhuma_sonda_o_alcanca(
+        self, porta: int
+    ) -> None:
+        """O alvo de verdade, com o token do Chatwoot dentro.
+
+        Ele e ignorado pelo git, entao pode faltar numa copia limpa da arvore —
+        e nesse caso este teste PULA com a razao dita. As dez sondas acima
+        continuam rodando contra os arquivos versionados da raiz, entao o pulo
+        aqui nao abre buraco nenhum.
+        """
+        env = RAIZ / ".env"
+        if not env.exists():
+            pytest.skip(
+                f"{env} nao existe nesta copia da arvore (ele e ignorado pelo "
+                f"git). As dez sondas seguem rodando contra os arquivos "
+                f"versionados da raiz; so a mira no arquivo de segredo real fica "
+                f"de fora desta rodada."
+            )
+        segredo = env.read_bytes()
+        for molde in SONDAS_DE_TRAVESSIA:
+            _, _, corpo = _get(porta, molde.format(alvo=".env"))
+            assert segredo not in corpo, f"{molde} vazou o .env"
+
+
+class TestOsCabecalhosDeSeguranca:
+    """VEND-4, afirmavel sem navegador — que e a doutrina de prova desta fase.
+
+    DIRETIVA A DIRETIVA, e nao uma comparacao de string inteira: a CSP e uma
+    string longa que pode ganhar espaco em branco, mudar de ordem ou receber uma
+    diretiva nova sem que nenhuma das existentes tenha caido. Comparar o todo
+    quebraria por motivo errado; afirmar cada pedaco falha so quando a garantia
+    correspondente sumiu.
+    """
+
+    DIRETIVAS = (
+        "default-src 'none'",
+        "script-src 'self'",
+        "style-src 'self'",
+        "connect-src 'self'",
+        "img-src 'self' data:",
+        "base-uri 'none'",
+        "form-action 'none'",
+    )
+
+    @pytest.mark.parametrize("caminho", ["/index.html", "/dados"])
+    @pytest.mark.parametrize("diretiva", DIRETIVAS)
+    def test_a_diretiva_viaja_no_estatico_E_no_endpoint(
+        self, porta: int, caminho: str, diretiva: str
+    ) -> None:
+        _, cabecalhos, _ = _get(porta, caminho)
+        csp = cabecalhos.get("Content-Security-Policy")
+        assert csp is not None, caminho
+        assert diretiva in csp, f"{diretiva} faltando em {caminho}"
+
+    @pytest.mark.parametrize("caminho", ["/index.html", "/dados"])
+    def test_o_nosniff_e_o_no_referrer_viajam_junto(
+        self, porta: int, caminho: str
+    ) -> None:
+        """`nosniff` impede o navegador de adivinhar tipo de conteudo; o
+        `no-referrer` impede que o endereco local vaze no cabecalho de
+        referenciador se algum dia a pagina apontar para fora."""
+        _, cabecalhos, _ = _get(porta, caminho)
+        assert cabecalhos.get("X-Content-Type-Options") == "nosniff"
+        assert cabecalhos.get("Referrer-Policy") == "no-referrer"
+
+    def test_a_CSP_viaja_ate_nas_respostas_de_ERRO(self, porta: int) -> None:
+        """As respostas de erro sao HTML que o navegador RENDERIZA.
+
+        Pendurar a CSP em cada rota deixaria justamente elas descobertas — e por
+        isso ela mora no `end_headers`, que e o funil por onde passa tudo.
+        """
+        _, cabecalhos, _ = _get(porta, "/nao-existe-este-arquivo")
+        assert "default-src 'none'" in cabecalhos.get("Content-Security-Policy", "")
+
+    def test_a_CSP_do_codigo_e_a_MESMA_que_vai_no_cabecalho(self, porta: int) -> None:
+        """O controle que impede a lista de diretivas acima de virar folclore.
+
+        Se alguem acrescentar uma diretiva a `CSP` no fonte, este teste continua
+        verde (a lista acima e um piso, nao um teto) — mas se o cabecalho servido
+        deixar de ser a constante, ele cai.
+        """
+        _, cabecalhos, _ = _get(porta, "/index.html")
+        assert cabecalhos.get("Content-Security-Policy") == dashboard.CSP
+
+
+class TestODesligamentoELimpo:
+    """A suite nao pode deixar thread viva nem porta presa."""
+
+    def test_a_thread_morre_e_a_porta_e_DEVOLVIDA_ao_sistema(
+        self, pasta_do_mercado: Path
+    ) -> None:
+        """A segunda montagem na MESMA porta e o que prova que o soquete fechou.
+
+        NENHUM PEDIDO E FEITO NESTE TESTE, de proposito: uma conexao atendida
+        deixa um soquete em `TIME_WAIT` com outro par de portas, e com
+        `allow_reuse_address` desligado isso poderia atrapalhar a rebinda por um
+        motivo que nao tem nada a ver com o desligamento. Aqui a afirmacao e
+        estreita: subiu, desceu, e a porta voltou.
+        """
+        primeiro = dashboard.montar_servidor(porta=0, pasta_do_mercado=pasta_do_mercado)
+        numero = primeiro.server_address[1]
+        tarefa = threading.Thread(
+            target=primeiro.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
+        tarefa.start()
+
+        primeiro.shutdown()
+        primeiro.server_close()
+        tarefa.join(timeout=5)
+        assert not tarefa.is_alive()
+
+        segundo = dashboard.montar_servidor(
+            porta=numero, pasta_do_mercado=pasta_do_mercado
+        )
+        assert segundo.server_address[1] == numero
+        segundo.server_close()
+
+    def test_o_servidor_atende_e_ainda_assim_desliga(
+        self, pasta_do_mercado: Path
+    ) -> None:
+        """O caso real: ele desliga DEPOIS de ter atendido pedidos.
+
+        `daemon_threads` ligado e o que impede um pedido pendurado de segurar o
+        encerramento — sem ele, fechar a janela preta poderia deixar o Python
+        vivo esperando um `fetch` que o navegador ja abandonou.
+        """
+        servidor = dashboard.montar_servidor(porta=0, pasta_do_mercado=pasta_do_mercado)
+        tarefa = threading.Thread(
+            target=servidor.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
+        tarefa.start()
+        try:
+            for _ in range(5):
+                assert _get(servidor.server_address[1], "/dados")[0] == 200
+        finally:
+            servidor.shutdown()
+            servidor.server_close()
+            tarefa.join(timeout=5)
+        assert not tarefa.is_alive()
+        assert dashboard.Servidor.daemon_threads is True
+
+
+class TestOServidorNaoEscreveNoCSV:
+    """DASH-01 no nivel do SERVIDOR, por uma sessao inteira.
+
+    A prova da FUNCAO de leitura ja existe (300 leituras em
+    `tests/test_dashboard_leitura.py`, 50 no tracer). Esta e a do PROCESSO: com o
+    servidor de pe, atendendo pedidos e gravando o cambio, o `observacoes.csv`
+    tem de sair com o mesmo tamanho, o mesmo `mtime_ns` e o mesmo `sha256` com
+    que entrou.
+    """
+
+    def test_cinquenta_pedidos_e_um_POST_nao_mudam_um_BYTE_do_CSV(
+        self, porta: int, pasta_do_mercado: Path, arquivo: Path
+    ) -> None:
+        """A impressao de TRES componentes, e nao so o hash.
+
+        Uma reescrita com bytes identicos nao muda o `sha256` — e "escreveu por
+        cima com o mesmo conteudo" continua sendo escrita. O `mtime_ns` pega esse
+        caso.
+
+        O CACHE ABSORVE A MAIOR PARTE DAS CINQUENTA LEITURAS, e isso e esperado:
+        o que esta sob prova aqui nao e quantas vezes o arquivo foi lido, e sim
+        que nenhuma volta desta sessao o ESCREVEU.
+        """
+        antes = _impressao_do_arquivo(arquivo)
+        nomes_antes = {p.name for p in pasta_do_mercado.iterdir()}
+
+        for _ in range(50):
+            assert _get(porta, dashboard.CAMINHO_DOS_DADOS)[0] == 200
+
+        assert (
+            _post(
+                porta,
+                dashboard.CAMINHO_DO_CAMBIO,
+                _corpo_do_cambio("0,50"),
+                origem=f"http://127.0.0.1:{porta}",
+            )[0]
+            == 200
+        )
+
+        assert _impressao_do_arquivo(arquivo) == antes
+
+        # E O UNICO ARQUIVO NOVO NA PASTA E O DO CAMBIO. Nenhum temporario ficou
+        # para tras: lixo numa pasta que nunca e podada e lixo para sempre.
+        nomes_depois = {p.name for p in pasta_do_mercado.iterdir()}
+        assert nomes_depois - nomes_antes == {dashboard_cambio.ARQUIVO_DO_CAMBIO}
+        assert not [
+            nome
+            for nome in nomes_depois
+            if dashboard_cambio.SUFIXO_TEMPORARIO in nome
+        ]
+
+    def test_o_payload_AFIRMA_a_promessa_de_somente_leitura(self, porta: int) -> None:
+        """A promessa viaja no dado e aparece no rodape — e ha prova prendendo
+        que ela e verdade, e nao so uma chave com `True` dentro."""
+        _, _, corpo = _get(porta, dashboard.CAMINHO_DOS_DADOS)
+        assert json.loads(corpo)["fonte"]["somente_leitura"] is True
+
+    def test_o_do_POST_so_escreve_pelo_modulo_do_CAMBIO(self) -> None:
+        """Tripwire por leitura de fonte, no molde de
+        `test_mercado_analise.py:261-268`.
+
+        A impressao digital prova o que ACONTECEU; esta linha prova o que o
+        codigo PODE fazer, e pega a regressao no commit em que ela e escrita — um
+        `open(..., "w")` acrescentado ao manipulador cairia aqui antes de
+        qualquer sessao existir para medir.
+        """
+        fonte = inspect.getsource(dashboard.Manipulador)
+        assert '"w"' not in fonte
+        assert '"a"' not in fonte
+        assert "mkdir" not in fonte
+        # A unica escrita e delegada, e ela e nominal.
+        assert "dashboard_cambio.gravar_o_cambio" in fonte
