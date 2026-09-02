@@ -49,8 +49,110 @@ celula cintilante esta do texto que nao cintila:
 Cem por cento colado na linha 0 nao e cenario vazando: e SERRILHADO na borda das
 letras, o anti-aliasing do proprio glifo oscilando em volta do piso de brilho.
 Subir o `VALOR_MINIMO_DO_TEXTO` para caca-lo comeria texto de verdade e pioraria
-o reconhecimento. O limiar 180 esta CERTO e nao e o que precisa mudar; o que
-precisava mudar era a mensagem que o usuario le quando isso acontece.
+o reconhecimento; a resposta para a CINTILACAO nao e o limiar, e a mensagem que
+o usuario le quando ela acontece.
+
+E ESSA MEDICAO NAO GENERALIZA, o que so ficou claro no dia seguinte. Ela foi
+tirada com a party parada em GRAMA UNIFORME, que e um fundo benigno: escuro,
+liso, sem nada que passe do piso de brilho. Concluir dela que "o limiar 180 esta
+certo" foi ir alem do que ela mede, e a versao anterior deste paragrafo dizia
+exatamente isso. A segunda rodada, sobre PEDRA CLARA, esta logo abaixo e derruba
+a generalizacao: no MESMO limiar, centenas de celulas de cenario entram na
+mascara. O que a medicao da grama prova e uma coisa so, e ela continua valendo:
+a variacao entre frames de uma party PARADA EM FUNDO ESCURO e serrilhado de
+letra, e nao terreno.
+
+A SEGUNDA RODADA, EM PEDRA CLARA: 28 ENTRADAS QUE SAO 5 PESSOAS
+
+Medido em 01/09/2026 contra o acervo real do usuario. A pasta `.identidades/`
+tinha 28 assinaturas e a party dele tem de 2 a 5 pessoas. Renderizadas em ASCII
+uma a uma, elas nao sao gente diferente:
+
+    PIRULITO       8 copias   107 a 336 px de texto
+    TITANDER       8 copias   124 a 399
+    Welazkez       5 copias   175 a 515
+    Mostarda       3 copias    79 a 178
+    WesleySniper   2 copias   155, 159
+    lixo pontual   2 copias   uma delas com 843
+
+Todas no mesmo recorte de 20x110 = 2200 celulas, e as 4 assinaturas CALIBRADAS a
+mao pelo usuario (PIRULITO 110, Mostarda 114, TITANDER 130, Welazkez 159) sao a
+unica verdade de campo conferida por gente. As duas faixas, separadas pelo
+render:
+
+    nome legivel, no maximo com serrilhado e a coroa do lider   107 a 175 px
+    cenario visivel dentro do recorte                           178 a 843 px
+
+As de 336, 399, 515 e 843 estao cheias de cenario: a party estava em Silent
+Valley, sobre pedra clara de alto contraste, e a pedra passa do
+`VALOR_MINIMO_DO_TEXTO` e entra na mascara. Nasceram o dia inteiro (12:15,
+12:50, 16:30, 19:56, 20:12, 20:59 duas vezes, 21:10), e cada uma queimou um
+marcador `perguntado_` e disparou uma pergunta no WhatsApp com uma imagem de
+pedra.
+
+E O REMEDIO NAO E MEXER NO LIMIAR DE BRILHO, pela razao de sempre e por uma
+nova. A de sempre: as assinaturas calibradas do usuario foram gravadas COM o
+limiar atual, e mexer nele afeta o RECONHECIMENTO de todo mundo, nao so o
+aprendizado. A nova: mesmo um limiar perfeito nao separaria pedra clara de texto
+claro, porque em Silent Valley os dois SAO claros. O que separa e o TAMANHO da
+mascara, que e a mesma leitura que `identidade.FATOR_MAXIMO_DE_CONTAMINACAO` ja
+fazia no casamento. Ver `TETO_DE_OCUPACAO_DO_NOME`.
+
+O TETO NAO CONSERTA A DUPLICACAO, E ISSO TAMBEM FOI MEDIDO
+
+Fica escrito em voz alta porque a conclusao errada e a comoda: o teto pega as 11
+piores entradas e ainda assim o PIRULITO apareceu 8 vezes. As copias LIMPAS dele
+tem 107, 120 e 125 px, todas muito abaixo de qualquer teto, e mesmo assim nasceu
+uma entrada nova para cada uma.
+
+A razao nao e contaminacao. Correlacionando as 28 entradas do acervo real DUAS A
+DUAS, no alinhamento calibrado, o maior valor do triangulo inteiro e 0.72:
+NENHUM par chega ao `LIMIAR_DE_CASAMENTO` de 0.75. D-02 nunca teve nada para
+vetar, porque nenhuma copia parecia com nenhuma outra.
+
+O que separa as copias e DESLOCAMENTO HORIZONTAL. As mesmas mascaras, deslizadas
+de alguns pixels, casam com folga:
+
+    par                          alinhado   melhor   deslocamento
+    PIRULITO 107 x calibrada       0.220     0.918      -2 px
+    Mostarda 108 x calibrada       0.431     0.905      -6 px
+    Welazkez 175 x calibrada       0.236     0.891      -6 px
+    TITANDER 171 x calibrada       0.258     0.980     +13 px
+    PIRULITO 107 x PIRULITO 125    0.374     0.880      +4 px
+
+Isso e coerente com o que `_correlacionar` ja diz de si mesmo: ele pontua em UMA
+posicao so, e 1 px de erro derruba 1.000 para 0.24.
+
+DUAS DAS OITO JA ESTAO CONSERTADAS, e o conserto e de 2026-09-01. Os
+deslocamentos de +13 e +19 px sao a COROA do lider, e baixar
+`COLUNAS_DE_LACUNA_DO_ORNAMENTO` de 4 para 3 fez o segundo passe alcanca-las:
+rodando `identificar_linhas` hoje, as duas copias coroadas do TITANDER pontuam
+0.980 e 0.967 contra a calibrada e D-02 as vetaria. Os deslocamentos de -2 a
+-6 px NAO sao coroa; sao a origem da coluna do nome andando entre sessoes.
+
+E O CONSERTO OBVIO FOI MEDIDO E NAO FUNCIONA. "Ancorar as duas mascaras na
+primeira coluna com texto antes de correlacionar" e a primeira ideia de todo
+mundo, inclusive a minha. Medida sobre estas mesmas mascaras, ela leva os pares
+CERTOS a 0.15 ate 0.36, quando o deslizamento livre acha 0.80 a 0.98 nos mesmos
+pares. A primeira coluna acesa nao e ancora estavel: uma celula de serrilhado ou
+uma sujeira solta na frente do nome muda a ancora e joga a correlacao fora. Nao
+implementar essa ideia e resultado, e nao omissao.
+
+O QUE SOBRA COMO PROPOSTA, com o numero que falta para decidir. Deslizando livre
+de -25 a +25 px sobre o acervo real:
+
+    pior par CERTO    0.753
+    pior par ERRADO   0.483
+
+O limiar de 0.75 cai entre os dois, mas o pior par certo o passa por 0.003, e
+isso nao e margem. O `.max()` sobre 25 deslocamentos foi REMOVIDO deste projeto
+justamente por levar o pior casamento errado de 0.213 a 0.586, e 28 mascaras de
+uma sessao nao sao base para desfazer aquilo. O dado que falta tem nome: gravacao
+multi-frame de campo com a party se movendo, para medir a distribuicao dos pares
+errados sob deslizamento em vez de estima-la em 28 pontos. Ate la, o acervo do
+usuario continua ganhando uma entrada por sessao para quem ele ja conhece, e o
+`acervo.carregar_identidades` explica por que a resposta NAO e um segundo
+criterio de igualdade posto no olho.
 
 A OUTRA COISA QUE A MEDIDA SEPAROU: DOIS REGIMES, E SO UM DELES E CONFIGURAVEL
 
@@ -90,6 +192,91 @@ import numpy as np
 
 from .acervo import AcervoDeIdentidades, chave_da_assinatura
 from .identidade import LIMIAR_DE_CASAMENTO, PIXELS_MINIMOS_DE_TEXTO, Assinatura
+
+# Quanto do recorte do nome pode estar aceso e ainda ser SO um nome.
+#
+# O PISO SOZINHO DEIXOU 24 ENTRADAS DE LIXO ENTRAREM. Ate 02/09/2026 `observar`
+# conferia `PIXELS_MINIMOS_DE_TEXTO` e mais nada: um recorte com 843 pixels
+# acesos passava direto e virava assinatura permanente. A tabela das 28 esta no
+# topo deste modulo e e a base inteira deste numero.
+#
+# POR QUE O TETO NAO E REAPROVEITADO DE `FATOR_MAXIMO_DE_CONTAMINACAO` DIRETO,
+# que e a primeira coisa que se tenta. Aquele fator e uma afirmacao CONTRA UMA
+# ASSINATURA ESPECIFICA: "este recorte tem mais que o dobro dos pixels DESTE
+# nome, entao nao pode ser ele". O aprendizado nao tem esse segundo termo. Ele
+# roda exatamente quando o recorte NAO casou com ninguem (D-02), e numa
+# instalacao nova a lista de assinaturas esta VAZIA, que e onde esta fase mais
+# importa. Um teto que precisa de uma assinatura de referencia nao existe no
+# unico caminho em que ele e indispensavel.
+#
+# Pior: hoje os dois se contradizem em silencio. `_pontuar_mascara` ZERA a
+# pontuacao de um recorte contaminado, e o aprendiz le esse zero como "nao
+# conheco ninguem parecido" e GRAVA. A regra que existia para proteger o
+# reconhecimento estava alimentando o acervo. As entradas de 320, 336, 397, 399,
+# 515 e 843 px pontuam 0.000 contra as quatro calibradas, MEDIDO, e foram
+# aprendidas por causa disso.
+#
+# POR QUE E UMA FRACAO DO RECORTE, E NAO UM NUMERO DE PIXELS. A altura e a
+# largura da regiao do nome saem do `calibration.json`: mudam com a resolucao,
+# com a escala do Windows e com o tamanho da party window. Um teto em pixels
+# absolutos seria a "constante que so vale na maquina de quem mediu" que este
+# projeto proibe em todo lugar. Uma fracao da area sobrevive a recalibracao
+# porque texto e recorte crescem juntos.
+#
+# E POR QUE NAO E RELATIVO A LARGURA OCUPADA, que era a outra candidata. Medido
+# nas mesmas 28 mais as 4 calibradas, pixels por coluna ocupada:
+#
+#     nome limpo    1.36 a 3.16 px/coluna
+#     contaminada   2.23 a 7.66
+#
+# As duas faixas se SOBREPOEM, e o motivo e estrutural: a contaminacao que mais
+# importa e um risco fino atravessando o recorte inteiro, que aumenta o total e
+# DIMINUI a densidade por coluna. Densidade dentro da caixa do texto sobrepoe
+# ainda mais (7.54 a 39.53 contra 13.18 a 38.32). O total sobre a area do
+# recorte e a unica das tres que ordena as duas faixas sem sobreposicao.
+#
+# ONDE O CORTE FICA, e aqui nao ha "meio do vazio" para se apoiar, entao a
+# escolha vai escrita. Em fracao das 2200 celulas:
+#
+#     nome limpo (15 mascaras)    4.86% a 7.95%
+#     contaminada (14 mascaras)   8.09% a 38.32%
+#
+# O vazio entre 7.95% e 8.09% e fino demais para ser um vazio: um corte ali
+# estaria ajustado a dois pontos vizinhos. Os 10% ficam ACIMA de toda a faixa
+# limpa com 26% de folga (220 px contra os 175 do maior nome limpo medido), o
+# que cobre um nick uns 25% mais longo que o `WesleySniper` de 12 caracteres,
+# com coroa. Custa deixar passar as tres de 178, 200 e 209 px, que sao nome
+# dominante mais um risco fino, e pega as 11 piores.
+#
+# A ASSIMETRIA DECIDE ESSA TROCA, e ela e a mesma ja escrita para
+# `celulas_toleradas`. Um teto baixo demais recusa um nick longo de verdade e a
+# pessoa NUNCA ganha assinatura, em silencio. Um teto alto demais deixa passar
+# mais tres perguntas. Recusar demais e o erro caro aqui, e nao o barato, porque
+# a recusa por contaminacao FALA (ver `resumo_da_contaminacao`) enquanto a
+# pessoa que nunca e aprendida nao fala.
+#
+# E A CORROBORACAO QUE FAZ DO NUMERO UM ACHADO, E NAO UMA ESCOLHA:
+# `FATOR_MAXIMO_DE_CONTAMINACAO` (2.0) vezes a MENOR assinatura calibrada do
+# usuario (PIRULITO, 110 px em 2200 celulas) da exatamente 220 px, que e 10%. As
+# duas derivacoes, uma pela faixa das limpas e outra pela constante que o
+# casamento ja usava, caem no mesmo lugar. `tests/test_aprendiz.py` prende as
+# duas juntas, para nenhuma poder mudar calada.
+TETO_DE_OCUPACAO_DO_NOME = 0.10
+
+
+def teto_de_pixels_de_texto(mascara: np.ndarray) -> int:
+    """Quantos pixels de texto ESTE recorte pode ter e ainda ser so um nome.
+
+    Recebe a mascara e nao um numero de celulas porque e a mascara que o
+    chamador tem na mao, e porque o teto so faz sentido ao lado do recorte de
+    onde ele saiu. No recorte real do usuario (20x110 = 2200 celulas) o teto e
+    220 px; num recorte de 20x100 ele e 200.
+
+    O truncamento e para BAIXO (`int`), e nao arredondamento: numa fronteira o
+    desfecho mais barato e recusar uma leitura que volta no proximo tick, e nao
+    gravar uma a mais num acervo que nao tem comando de esquecer.
+    """
+    return int(mascara.size * TETO_DE_OCUPACAO_DO_NOME)
 
 # Quantas leituras seguidas com o recorte estavel bastam para gravar.
 #
@@ -351,6 +538,98 @@ class RecusaPorInstabilidade:
 
 
 @dataclass(frozen=True)
+class RecusaPorContaminacao:
+    """Uma leitura recusada pelo TETO, com o numero que a recusou.
+
+    O NUMERO E O REQUISITO, e nao um detalhe do diagnostico. Um teto que recusa
+    calado troca a fila de perguntas de lixo que o usuario esta recebendo por um
+    silencio inexplicavel: o aprendizado simplesmente para de acontecer, nada no
+    log diz por que, e ele nao teria como saber que e o teto que esta recusando.
+    E o mesmo argumento ja escrito para `RecusaPorInstabilidade`, com o mesmo
+    desfecho: guardar a MEDIDA junto do fato.
+
+    `celulas` viaja ao lado de `teto` porque o teto e uma FRACAO do recorte, e
+    um teto sem o tamanho do recorte e um numero que o usuario nao consegue
+    conferir contra nada.
+    """
+
+    indice: int
+    pixels: int
+    teto: int
+    celulas: int
+
+
+@dataclass(frozen=True)
+class RetratoDaContaminacao:
+    """A faixa dos recortes contaminados desta sessao, para uma linha de log.
+
+    Minimo e maximo, e nao mediana, e a diferenca em relacao a
+    `RetratoDasRecusas` tem razao. La a mediana existe porque o usuario vai
+    ESCOLHER UM NUMERO a partir dela, e um outlier o faria escolher grande
+    demais. Aqui nao ha nada para escolher: o teto e derivado e a acao certa e
+    sair do terreno claro. O que o usuario precisa ver e o TAMANHO do estrago
+    (o maior recorte que apareceu) e a distancia dele para o teto.
+
+    Tudo vale `None` quando nao houve contaminacao nenhuma, que e o estado
+    normal de uma party farmando em fundo escuro.
+    """
+
+    recusas: int = 0
+    menor: int | None = None
+    maior: int | None = None
+    teto: int | None = None
+    celulas: int | None = None
+
+
+def resumo_da_contaminacao(retrato: RetratoDaContaminacao) -> str:
+    """A linha que o usuario le no `scanner.log`. Sem acento e sem travessao.
+
+    ELA NAO MANDA CONFIGURAR NADA, e essa e a diferenca inteira em relacao a
+    `resumo_das_recusas`. A recusa por instabilidade termina numa linha pronta
+    para copiar no `config.toml` porque existe um numero que o usuario controla.
+    Aqui nao existe: o teto e derivado da area do recorte, e o unico limiar que
+    o usuario poderia mexer (`VALOR_MINIMO_DO_TEXTO`) e o brilho minimo do
+    texto, que vale para o RECONHECIMENTO de todo mundo e cujas assinaturas
+    calibradas foram gravadas com o valor atual. Uma mensagem que mandasse mexer
+    nele repetiria, com outra redacao, o defeito de 2026-09-01: obediencia que
+    nao conserta e estraga outra coisa.
+
+    Ela diz, entao, as tres coisas que sao verdade: quanto media o recorte, qual
+    o teto, e que por isso nada foi gravado. Mais o que fazer, que e ESPERAR ou
+    mover a party window, e nao editar arquivo nenhum.
+    """
+    if retrato.maior is None or retrato.menor is None or retrato.teto is None:
+        return (
+            "Nao recusei nenhum recorte por contaminacao nesta sessao: todos os "
+            "recortes de nome couberam no teto."
+        )
+
+    faixa = (
+        f"Nao aprendi assinatura nova por contaminacao do recorte: "
+        f"{retrato.recusas} recusa(s) nesta sessao, o recorte do nome tinha de "
+        f"{retrato.menor} a {retrato.maior} pixel(es) de texto e o teto e "
+        f"{retrato.teto} pixel(es) ({retrato.celulas} celulas de recorte). "
+    )
+    causa = (
+        "Acima do teto o que esta aceso nao e so o nome. A mascara de texto so "
+        "tem PISO de brilho e nao tem teto, entao terreno claro passando atras "
+        "do painel semitransparente entra junto com as letras. Medido em "
+        "01/09/2026 no acervo real: um nome limpo ocupa de 107 a 175 pixel(es) "
+        "no mesmo recorte, e as entradas de 290, 336, 399, 515 e 843 eram pedra "
+        "de Silent Valley gravada junto com a pessoa. "
+    )
+    acao = (
+        "NAO HA O QUE CONFIGURAR, e isto e deliberado: baixar o brilho minimo "
+        "do texto pioraria o reconhecimento de todo mundo, inclusive de quem ja "
+        "tem assinatura calibrada. O aprendizado volta sozinho quando a party "
+        "sair do terreno claro, ou quando a party window ficar sobre um fundo "
+        "escuro. Ate la, ninguem novo e gravado e todo o resto do scanner "
+        "continua igual."
+    )
+    return faixa + causa + acao
+
+
+@dataclass(frozen=True)
 class RetratoDasRecusas:
     """A faixa das distancias medidas nesta sessao, para uma linha de log.
 
@@ -524,10 +803,21 @@ def resumo_das_recusas(retrato: RetratoDasRecusas, tolerado: int) -> str:
 
 @dataclass(frozen=True)
 class ResultadoDoAprendiz:
-    """O que uma leitura produziu. As duas listas VAZIAS sao o estado normal."""
+    """O que uma leitura produziu. As tres listas VAZIAS sao o estado normal.
+
+    As DUAS recusas viajam separadas de proposito. Instabilidade e contaminacao
+    parecem a mesma coisa ("nao aprendi") e pedem respostas OPOSTAS: uma tem um
+    numero no `config.toml` que a resolve, a outra nao tem nada para configurar
+    e so passa quando a party sair do terreno claro. Junta-las numa lista so
+    obrigaria o leitor a desempatar por um campo, e a primeira mensagem escrita
+    depois disso daria o conselho errado para metade dos casos.
+    """
 
     aprendizados: list[Aprendizado] = field(default_factory=list)
     recusas: list[RecusaPorInstabilidade] = field(default_factory=list)
+    recusas_por_contaminacao: list[RecusaPorContaminacao] = field(
+        default_factory=list
+    )
 
 
 def distancia_de_hamming(a: np.ndarray, b: np.ndarray) -> int | None:
@@ -578,6 +868,9 @@ class Aprendiz:
         self._vigias: list[_Vigia] = []
         self._distancias: list[int] = []
         self._recusas = 0
+        self._pixels_contaminados: list[int] = []
+        self._teto_da_contaminacao: int | None = None
+        self._celulas_da_contaminacao: int | None = None
 
     @property
     def ajustes(self) -> AjustesDoAprendiz:
@@ -594,6 +887,24 @@ class Aprendiz:
         """
         return retrato_das_distancias(self._distancias, self._recusas)
 
+    def retrato_da_contaminacao(self) -> RetratoDaContaminacao:
+        """O acumulado das recusas pelo TETO nesta sessao.
+
+        Separado de `retrato` pela mesma razao que as duas listas de recusa sao
+        separadas: as duas faixas nao se misturam, tem unidades diferentes
+        (celulas de diferenca contra pixels de texto) e levam a conselhos
+        opostos.
+        """
+        if not self._pixels_contaminados:
+            return RetratoDaContaminacao()
+        return RetratoDaContaminacao(
+            recusas=len(self._pixels_contaminados),
+            menor=min(self._pixels_contaminados),
+            maior=max(self._pixels_contaminados),
+            teto=self._teto_da_contaminacao,
+            celulas=self._celulas_da_contaminacao,
+        )
+
     def observar(self, candidatas: Sequence[Candidata]) -> ResultadoDoAprendiz:
         """Uma leitura. Devolve o que gravou e o que recusou.
 
@@ -608,7 +919,16 @@ class Aprendiz:
            UNICO que existe nesse caminho, e sem ele a primeira coisa que o
            scanner aprenderia numa instalacao nova seria uma linha vazia.
 
-        2. CASAMENTO ACIMA DO LIMIAR E DESCARTADO (D-02). `Casamento(None, ...)`
+        2. RECORTE COM TEXTO DEMAIS E DESCARTADO, e este portao e o irmao do de
+           cima: o piso pergunta "isto e vazio?" e o teto pergunta "isto e SO um
+           nome?". Ele nasceu de uma medicao e nao de uma simetria — 24 das 28
+           entradas do acervo real do usuario entraram por aqui, e as piores
+           tinham 515 e 843 pixels de pedra de Silent Valley. O detalhe que fecha
+           o caso: `_pontuar_mascara` ZERA a pontuacao de um recorte
+           contaminado, e sem este portao o passo 3 leria esse zero como "nao
+           conheco ninguem parecido" e gravaria. Ver `TETO_DE_OCUPACAO_DO_NOME`.
+
+        3. CASAMENTO ACIMA DO LIMIAR E DESCARTADO (D-02). `Casamento(None, ...)`
            chega por DOIS motivos diferentes, que pedem desfechos opostos:
 
                melhor pontuacao < 0.75      "nao conheco ninguem parecido"  APRENDE
@@ -621,18 +941,18 @@ class Aprendiz:
            original casa 1.000 e a copia 0.921, diferenca 0.079, ABAIXO dos 0.12
            de `MARGEM_MINIMA_SOBRE_O_SEGUNDO`.
 
-        3. CASAMENTO COM O VIGIA MAIS PROXIMO DE FORMA IGUAL. Distancia
+        4. CASAMENTO COM O VIGIA MAIS PROXIMO DE FORMA IGUAL. Distancia
            `<= celulas_toleradas` conta como "a mesma leitura" e incrementa
            aquele vigia. Distancia maior RECUSA, e a candidata vira um vigia NOVO
            com contagem 1 — que e a forma exata de "instabilidade REINICIA a
            sequencia" de D-08. Nada de media e nada de mediana: uma assinatura
            media de duas leituras diferentes e uma assinatura de ninguem.
 
-        4. VIGIAS QUE NINGUEM CASOU NESTA LEITURA SAO DESCARTADOS. Isso mantem a
+        5. VIGIAS QUE NINGUEM CASOU NESTA LEITURA SAO DESCARTADOS. Isso mantem a
            estrutura limitada pelo numero de linhas da party window (T-02-09) e e
            a outra metade do reinicio de D-08.
 
-        5. VIGIA QUE CHEGOU A `leituras_para_aprender` GRAVA, com `nome=""`.
+        6. VIGIA QUE CHEGOU A `leituras_para_aprender` GRAVA, com `nome=""`.
 
         A MASCARA GRAVADA E A ANCORA DA SEQUENCIA, E NAO A ULTIMA LEITURA. Com
         `celulas_toleradas` maior que zero, comparar cada leitura com a ANTERIOR
@@ -650,14 +970,39 @@ class Aprendiz:
         """
         aprendizados: list[Aprendizado] = []
         recusas: list[RecusaPorInstabilidade] = []
+        contaminadas: list[RecusaPorContaminacao] = []
 
         disponiveis = list(self._vigias)
         sobreviventes: list[_Vigia] = []
         tolerado = self._ajustes.celulas_toleradas
 
         for candidata in sorted(candidatas, key=lambda c: c.indice):
-            if int(candidata.mascara.sum()) < PIXELS_MINIMOS_DE_TEXTO:
+            pixels = int(candidata.mascara.sum())
+            if pixels < PIXELS_MINIMOS_DE_TEXTO:
                 continue
+
+            teto = teto_de_pixels_de_texto(candidata.mascara)
+            if pixels > teto:
+                self._pixels_contaminados.append(pixels)
+                self._teto_da_contaminacao = teto
+                self._celulas_da_contaminacao = int(candidata.mascara.size)
+                contaminadas.append(
+                    RecusaPorContaminacao(
+                        indice=candidata.indice,
+                        pixels=pixels,
+                        teto=teto,
+                        celulas=int(candidata.mascara.size),
+                    )
+                )
+                # O `continue` faz DUAS coisas, e a segunda e a que importa: a
+                # candidata nao vira vigia novo E o vigia que ela sustentava
+                # fica fora de `sobreviventes`, entao a sequencia REINICIA. E o
+                # mesmo desfecho que a instabilidade produz (D-08), pela mesma
+                # razao: um frame em que nao da para confiar nos pixels nao e
+                # evidencia de nada, e deixa-lo contar faria as cinco leituras
+                # somarem frames em que o nome estava debaixo de pedra.
+                continue
+
             if candidata.confianca >= LIMIAR_DE_CASAMENTO:
                 continue
 
@@ -702,7 +1047,11 @@ class Aprendiz:
             # tick para sempre.
 
         self._vigias = sobreviventes
-        return ResultadoDoAprendiz(aprendizados=aprendizados, recusas=recusas)
+        return ResultadoDoAprendiz(
+            aprendizados=aprendizados,
+            recusas=recusas,
+            recusas_por_contaminacao=contaminadas,
+        )
 
     @staticmethod
     def _mais_proximo(

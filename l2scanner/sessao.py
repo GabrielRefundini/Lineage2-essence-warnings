@@ -51,7 +51,7 @@ from .agenda import (
 # `AcervoDeIdentidades` e stdlib, e NUNCA `sessao` (D-09, com portao AST em
 # `tests/test_aprendiz.py`). Declarar a candidata aqui obrigaria o aprendiz a
 # importar a sessao, e o ciclo fecharia no primeiro uso.
-from .aprendiz import Candidata, resumo_das_recusas
+from .aprendiz import Candidata, resumo_da_contaminacao, resumo_das_recusas
 # `sessao` fala com o `batismo`, e NUNCA com o `acervo` — o mesmo desenho que
 # ela ja tem com o `aprendiz`. O portao de
 # `tests/test_acervo.py::test_so_dois_modulos_conhecem_o_acervo` pergunta quem
@@ -171,6 +171,16 @@ class ResultadoDoTick:
     #
     # LISTA VAZIA TAMBEM E O ESTADO NORMAL, pela mesma razao da vizinha.
     recusas_de_aprendizado: list = field(default_factory=list)
+
+    # As recusas pelo TETO deste tick (`aprendiz.RecusaPorContaminacao`), com os
+    # PIXELS DE TEXTO medidos e o teto que os recusou.
+    #
+    # LISTA SEPARADA DA VIZINHA, e nao um campo a mais dentro dela. As duas
+    # recusas parecem a mesma coisa ("nao aprendi") e pedem respostas OPOSTAS:
+    # instabilidade tem um numero no `config.toml` que a resolve, contaminacao
+    # nao tem nada para configurar e so passa quando a party sair do terreno
+    # claro. Uma lista so obrigaria todo leitor a desempatar por um campo.
+    recusas_por_contaminacao: list = field(default_factory=list)
 
     # A extração falhou e o tick não concluiu nada sobre a party.
     falhou_ao_analisar: bool = False
@@ -323,6 +333,11 @@ class Sessao:
         # O ultimo retrato de recusas que ja foi para o log. A linha de resumo
         # so sai quando ele MUDA — ver `_registrar_recusas`.
         self._ultimo_retrato_de_recusas = None
+        # O ultimo retrato de contaminacao que ja foi para o log, pela mesma
+        # cadencia por MUDANCA do vizinho de cima. A party fica MINUTOS sobre a
+        # mesma pedra: sem isto o `scanner.log` levaria uma linha por segundo, e
+        # uma linha por segundo e a outra forma de nao ser lido.
+        self._ultimo_retrato_de_contaminacao = None
         # Ja avisamos que o recorte da janela nao chega? Uma vez, e so uma.
         #
         # Um vigia ligado que nunca recebe pixels e degradacao SILENCIOSA — o
@@ -848,7 +863,9 @@ class Sessao:
 
         resultado.aprendizados.extend(saida.aprendizados)
         resultado.recusas_de_aprendizado.extend(saida.recusas)
+        resultado.recusas_por_contaminacao.extend(saida.recusas_por_contaminacao)
         self._registrar_recusas(saida.recusas)
+        self._registrar_contaminacao(saida.recusas_por_contaminacao)
 
         for aprendizado in saida.aprendizados:
             if aprendizado.desfecho not in ("criado", "ja_existia"):
@@ -1059,6 +1076,47 @@ class Sessao:
             "%s",
             resumo_das_recusas(retrato, self.aprendiz.ajustes.celulas_toleradas),
         )
+
+    def _registrar_contaminacao(self, recusas: list) -> None:
+        """O mesmo auto-diagnostico do vizinho, para o TETO.
+
+        A RAZAO DE EXISTIR E A MESMA, E ELA E O REQUISITO INTEIRO DO TETO. Um
+        portao que recusa calado troca o defeito que o usuario tem hoje (uma
+        fila de perguntas com imagem de pedra) por outro que ele nao consegue
+        diagnosticar: o aprendizado simplesmente para, e nada diz que foi o teto.
+
+        A CADENCIA E POR MUDANCA DA FAIXA, copiada de `_registrar_recusas`
+        deliberadamente, e nao por um K novo. Ela e auto-limitada pelo mesmo
+        motivo: enquanto a party estiver sobre a mesma pedra os numeros
+        convergem e a linha cala sozinha; se a contaminacao piorar, ela volta a
+        falar com o numero pior.
+
+        O DEBUG SAI SEMPRE, com a linha e o pixel, para quem estiver depurando
+        ter a serie inteira em vez de so os extremos.
+        """
+        if not recusas:
+            return
+
+        for recusa in recusas:
+            log.debug(
+                "Recusei aprender a linha %d por contaminacao do recorte: "
+                "%d pixel(es) de texto, teto %d de %d celulas",
+                recusa.indice + 1,
+                recusa.pixels,
+                recusa.teto,
+                recusa.celulas,
+            )
+
+        retrato = self.aprendiz.retrato_da_contaminacao()
+        assinatura_do_retrato = (retrato.menor, retrato.maior)
+        if assinatura_do_retrato == self._ultimo_retrato_de_contaminacao:
+            return
+        self._ultimo_retrato_de_contaminacao = assinatura_do_retrato
+
+        # A REDACAO MORA NO `aprendiz`, pela mesma razao do vizinho: ela precisa
+        # da faixa das limpas e do teto, que sao derivados de uma MEDIDA, e
+        # monta-la aqui obrigaria a sessao a repetir a derivacao.
+        log.info("%s", resumo_da_contaminacao(retrato))
 
     def _contar_linhas_sem_nome(self, observacao: Observacao) -> None:
         """Quanto tempo cada linha ocupada esta sem ser reconhecida.
