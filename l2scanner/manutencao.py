@@ -765,6 +765,10 @@ class VigiaDeManutencao:
         verdade seria detectada, ancorada — e nunca anunciada, porque o vigia
         acharia que ja tinha avisado. E o pior modo de falha deste projeto,
         porque de fora ele parece estar funcionando.
+
+        E ESTE E O UNICO LUGAR QUE ZERA `_emitidos`, desde 2026-09-02. O ramo da
+        remarcacao em `_registrar` tambem zerava, e era ele que rendia ~19
+        anuncios para uma manutencao so. So a EXPIRACAO encerra o episodio.
         """
         if self._ancora is None:
             return
@@ -880,8 +884,37 @@ class VigiaDeManutencao:
         - JA ANCORADO E FORA DA TOLERANCIA -> NAO move a ancora. Uma leitura so
           nunca derruba um horario ja confirmado por duas. Se DUAS leituras
           seguidas concordarem no horario novo, e uma manutencao REMARCADA e ai
-          sim a ancora troca, com `_emitidos` zerado — a ancora velha nao pode
-          prender o vigia num horario que nao existe mais.
+          sim a ancora troca — a ancora velha nao pode prender o vigia num
+          horario que nao existe mais.
+
+          E `_emitidos` SOBREVIVE A TROCA. Ate 2026-09-02 este ramo zerava o
+          conjunto inteiro, e MOVER A ANCORA e RE-ARMAR O ANUNCIO eram a mesma
+          linha. O preco chegou medido: naquele dia, entre 11:58 e 12:52, o
+          grupo recebeu ~19 vezes a mesma mensagem de anuncio para UMA
+          manutencao so, com o horario-alvo pulando entre 17 leituras
+          espalhadas por 54 minutos (12:11 a 13:05).
+
+          A MECANICA, que nenhuma guarda anterior alcanca: a leitura fora da
+          tolerancia vira `_candidata`; a leitura seguinte chega 5 s depois
+          (`SEGUNDOS_ENTRE_LEITURAS`) repetindo o MESMO erro sistematico de OCR
+          e portanto cai dentro dos 60 s de `TOLERANCIA_DO_CONSENSO` em relacao
+          a candidata; a ancora troca. O consenso TEMPORAL e cego a erro de
+          METODO por construcao — ja esta escrito na docstring desta classe.
+
+          A ANCORA PRECISA MESMO SE MOVER, e por isso a correcao SEPAROU as
+          duas coisas em vez de apagar uma. O episodio so termina em `_expirar`,
+          que e o UNICO lugar que zera `_emitidos` — e tem de continuar sendo,
+          senao a manutencao SEGUINTE seria detectada, ancorada e nunca
+          anunciada, que e o pior modo de falha deste projeto.
+
+          O QUE VOLTA A FICAR ARMADO E SO O SEGUNDO AVISO, e so quando a
+          remarcacao o justifica: `duracao > ANTECEDENCIA` significa que a
+          manutencao foi genuinamente ADIADA para alem do limiar, e quem ja
+          ouviu "faltam poucos minutos" merece ouvir de novo quando o horario
+          novo chegar perto. `duracao` E o tempo restante lido, porque
+          `implicado = agora + duracao` — a regra e pura e nao precisa do
+          relogio. Um deslize DENTRO da tolerancia nao passa por aqui e nunca
+          re-arma nada.
         - SEM ANCORA -> a segunda leitura concordante confirma. E a porta de
           D-05: um digito comido pelo OCR sozinho nunca anuncia nada.
         """
@@ -895,7 +928,8 @@ class VigiaDeManutencao:
                 self._ancora = implicado
                 self._duracao_confirmada = duracao
                 self._candidata = None
-                self._emitidos.clear()
+                if duracao > ANTECEDENCIA:
+                    self._emitidos.discard(TipoDeAvisoDeManutencao.FALTAM5)
                 return
             self._candidata = implicado
             return
