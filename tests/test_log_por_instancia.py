@@ -482,6 +482,73 @@ class TestConfigurarLogUsaAInstancia:
             principal.log.handlers[:] = anteriores
             principal.log.setLevel(nivel)
 
+    def test_o_arranque_diz_em_qual_arquivo_esta_escrevendo(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """A pericia que parou, e o unico jeito de ela nao parar de novo.
+
+        Investigando a party sumindo em 2026-09-02, nao houve como dizer se os
+        blocos `[vigiando]` VAZIOS eram da instancia do Yazalaque (defeito) ou
+        da Faerlina, que nao esta em party nenhuma (normal). Separar os
+        arquivos resolve metade; a outra metade e o arquivo DIZER de quem ele e,
+        na primeira linha, para quem o abrir seis meses depois nao precisar
+        deduzir pelo nome nem confiar em quem o renomeou.
+
+        Vale tambem para o console: com as duas janelas abertas lado a lado, a
+        primeira linha diz qual e qual.
+        """
+        from l2scanner import __main__ as principal
+
+        monkeypatch.setattr(principal, "PASTA_LOGS", tmp_path / "logs")
+        monkeypatch.setattr(principal, "ARQUIVO_CALIBRACAO", tmp_path / "cal.json")
+
+        anteriores = list(principal.log.handlers)
+        nivel = principal.log.level
+        try:
+            with caplog.at_level(logging.INFO, logger=principal.log.name):
+                principal.configurar_log(False, janela="Yazalaque - XM Essence")
+
+            assert "Yazalaque" in caplog.text
+            assert "scanner-Yazalaque.log" in caplog.text
+
+            escrito = (tmp_path / "logs" / "scanner-Yazalaque.log").read_text(
+                encoding="utf-8"
+            )
+            assert "Yazalaque" in escrito, (
+                "o ARQUIVO tem de dizer de quem ele e - o console ja fechou "
+                "quando a pericia comeca"
+            )
+        finally:
+            for manipulador in list(principal.log.handlers):
+                if manipulador not in anteriores:
+                    manipulador.close()
+            principal.log.handlers[:] = anteriores
+            principal.log.setLevel(nivel)
+
+    def test_sem_nome_o_arranque_diz_isso_em_vez_de_inventar(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """Um rotulo inventado seria pior que nenhum: ele seria CRIVEL."""
+        from l2scanner import __main__ as principal
+
+        monkeypatch.setattr(principal, "PASTA_LOGS", tmp_path / "logs")
+        monkeypatch.setattr(principal, "ARQUIVO_CALIBRACAO", tmp_path / "cal.json")
+
+        anteriores = list(principal.log.handlers)
+        nivel = principal.log.level
+        try:
+            with caplog.at_level(logging.INFO, logger=principal.log.name):
+                principal.configurar_log(False)
+
+            assert "scanner.log" in caplog.text
+            assert "sem nome" in caplog.text
+        finally:
+            for manipulador in list(principal.log.handlers):
+                if manipulador not in anteriores:
+                    manipulador.close()
+            principal.log.handlers[:] = anteriores
+            principal.log.setLevel(nivel)
+
     def test_o_main_entrega_a_janela_ao_configurar_log(self):
         """O elo. Sem ele o arranque real continuaria caindo em `scanner.log`.
 

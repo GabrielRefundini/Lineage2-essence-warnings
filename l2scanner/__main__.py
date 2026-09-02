@@ -128,7 +128,10 @@ from .reancoragem import Reancorador  # noqa: E402
 # Modulo FOLHA (nao importa nada do pacote), pelo mesmo criterio de `raiz.py`:
 # `configurar_log` roda como PRIMEIRA coisa do arranque, e a decisao de qual
 # arquivo abrir nao pode depender de `cv2`.
-from .registro_de_log import montar_arquivo_rotativo  # noqa: E402
+from .registro_de_log import (  # noqa: E402
+    montar_arquivo_rotativo,
+    nome_da_instancia,
+)
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
 from .respawn import (  # noqa: E402
     ancoras_mais_recentes,
@@ -252,6 +255,23 @@ def configurar_log(verboso: bool, janela: str | None = None) -> None:
     log.setLevel(logging.DEBUG if verboso else logging.INFO)
     log.addHandler(arquivo)
     log.addHandler(console)
+
+    # A PRIMEIRA LINHA DIZ DE QUEM E O ARQUIVO, e ela e a outra metade do
+    # conserto. Separar os arquivos por instancia resolve a disputa de rotacao;
+    # nao resolve a pericia. Investigando a party sumindo em 2026-09-02, nao
+    # houve como dizer se os blocos `[vigiando]` VAZIOS eram da instancia do
+    # Yazalaque (defeito) ou da Faerlina, que nao esta em party nenhuma
+    # (normal), e a investigacao parou ali. Quem abrir este arquivo daqui a seis
+    # meses le o dono na linha 1, sem deduzir pelo nome do arquivo e sem confiar
+    # em quem o copiou para outro lugar. No console, com as duas janelas lado a
+    # lado, ela diz qual e qual.
+    #
+    # "sem nome" e dito em voz alta, e nao maquiado: um rotulo inventado para o
+    # caminho `mss` sem calibracao seria pior que nenhum, porque seria CRIVEL.
+    quem = nome_da_instancia(janela, ARQUIVO_CALIBRACAO)
+    log.info(
+        "Instancia: %s | log: %s", quem or "sem nome", arquivo.baseFilename
+    )
 
 
 def montar_despachante(args: argparse.Namespace) -> Despachante | None:
