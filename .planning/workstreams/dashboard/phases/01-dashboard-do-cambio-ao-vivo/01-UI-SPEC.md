@@ -187,8 +187,16 @@ solto: ela é passada para a configuração da biblioteca, e o que não tem nome
 | `--cor-serie-tipica` sobre `--cor-painel` | **9,46:1** | AAA |
 | `--cor-ouro` sobre `--cor-painel` | **8,89:1** | AAA |
 | `--cor-frio` sobre `--cor-painel` | **7,80:1** | AAA |
-| `--cor-texto-fraco` sobre `--cor-painel` | **6,12:1** | AAA (corpo) |
-| `--cor-alerta` sobre `--cor-painel` | **5,25:1** | AA+ |
+| `--cor-texto-fraco` sobre `--cor-painel` | **6,12:1** | AA (corpo) · AAA (texto grande) |
+| `--cor-alerta` sobre `--cor-painel` | **5,25:1** | AA (corpo) · AAA (texto grande) |
+
+> **Dois rótulos desta tabela estavam errados, e o executor do 01-06 pegou (2026-09-02).** Os
+> **números** foram recalculados a partir dos tokens e batem com esta tabela **dígito a dígito**
+> — a medição estava certa. O que estava errado era a coluna do piso: `6,12:1` vinha rotulado
+> `AAA (corpo)`, e a norma exige **7:1** para AAA em texto de corpo; e `AA+` **não é um nível
+> que exista** na WCAG. Nenhum token mudou: trocar uma cor legível para perseguir um rótulo
+> seria trocar uma cor boa por um adesivo bom. O piso que o teste cobra é o **4,5:1** que a
+> prosa desta seção sempre exigiu, e os dois pares o cumprem com folga.
 
 `--cor-serie-tipica` entra na tabela porque **ela não é só traço**: o mesmo valor pinta o rótulo
 `mediana` na legenda, e legenda é texto. Uma cor medida apenas como linha de gráfico teria passado
