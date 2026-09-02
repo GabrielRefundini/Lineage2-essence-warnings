@@ -482,11 +482,19 @@ const LARGURA_DA_LINHA_TIPICA = 1.5;
 const TRACEJADO_DA_LINHA_TIPICA = [6, 4];
 const LARGURA_DA_GRADE = 1;
 
+// O quanto uma parada da roda aproxima ou afasta. Escolha, e não medição.
+const PASSO_DO_ZOOM = 1.25;
+
+// O botão do meio, na numeração do evento do navegador.
+const BOTAO_DO_MEIO = 1;
+
 // O último conjunto de textos entregue ao gráfico. A dica sob o cursor lê daqui.
 let textosDoGrafico = { instantes: [], principal: [], tipica: [] };
 let grafico = null;
+let serieDesenhada = null;
 let resolucaoAtual = null;
 let alcanceTotal = null;
+let trocandoDeResolucao = false;
 
 /**
  * A paleta, PEDIDA AO CSS por nome de token.
@@ -695,6 +703,21 @@ function opcoesDoGrafico(serie, area) {
     width: area.clientWidth,
     height: area.clientHeight,
     scales: { x: { time: true }, y: {} },
+
+    // TODA MUDANÇA DE JANELA PASSA POR AQUI, venha ela da roda, do arrasto de
+    // deslocamento, do zoom por seleção nativo, do clique duplo que a biblioteca
+    // já usa para restaurar, ou do botão. Um gancho só, em vez de uma chamada
+    // repetida em cada manipulador: caminhos que se esquecem de avisar são
+    // exatamente como a resolução do desenho passa a discordar da janela visível.
+    hooks: {
+      setScale: [
+        function (instancia, chave) {
+          if (chave === "x") {
+            ajustarAResolucao();
+          }
+        },
+      ],
+    },
     axes: [
       Object.assign({}, eixo),
 
@@ -736,11 +759,146 @@ function opcoesDoGrafico(serie, area) {
   };
 }
 
+/**
+ * Troca a resolução do desenho quando a janela visível muda de ordem de
+ * grandeza. A JANELA é decisão do navegador; a CONTA não é.
+ *
+ * A trava existe porque entregar dados novos faz a biblioteca reavaliar as
+ * escalas, o que chama de volta o gancho que chamou esta função. Sem ela, a
+ * primeira rodada da roda entraria em recursão.
+ */
+function ajustarAResolucao() {
+  if (grafico === null || serieDesenhada === null || trocandoDeResolucao) {
+    return;
+  }
+  const desejada = resolucaoPara(grafico.scales.x.max - grafico.scales.x.min);
+  if (desejada === resolucaoAtual) {
+    return;
+  }
+  trocandoDeResolucao = true;
+  resolucaoAtual = desejada;
+  const conjunto = conjuntoNaResolucao(serieDesenhada, desejada);
+  textosDoGrafico = conjunto.textos;
+  grafico.setData(conjunto.dados, false);
+  trocandoDeResolucao = false;
+}
+
+// ===========================================================================
+// O ZOOM POR RODA E O ARRASTO DE DESLOCAMENTO — CÓDIGO NOSSO, E EIS A MEDIÇÃO
+// ===========================================================================
+//
+// A REFUTAÇÃO, COM O NÚMERO, PORQUE ELA CONTRARIA O QUE O UI-SPEC AFIRMAVA.
+// ------------------------------------------------------------------------
+// O `01-UI-SPEC.md` escreveu, sobre o gráfico: *"Zoom do gráfico: Roda do mouse
+// e arrasto, pela biblioteca"*, e justificou com *"Toda biblioteca dessa classe
+// faz isso com config"*.
+//
+// **Medido, e falso para a biblioteca que usamos.** A varredura sobre o arquivo
+// minificado das três candidatas contou os nomes de evento que cada uma
+// registra:
+//
+//     escolhida  -> click, dblclick, mousedown, mouseenter, mouseleave,
+//                   mousemove, mouseup, resize, scroll ....... ZERO `wheel`
+//     segunda    -> click, dblclick, mousedown, mousemove, mouseout,
+//                   mouseover, mouseup, resize, touchstart ... ZERO `wheel`
+//     terceira   -> ................................. 2x `wheel`, 2x `deltaY`
+//
+// E a documentação oficial da escolhida confirma o mecanismo, textualmente:
+// **"No built-in drag scrolling/panning"**, e o zoom por roda *"can be added
+// externally via the plugin/hooks API"*, com dois demos oficiais. O zoom por
+// SELEÇÃO retangular, esse sim, é nativo — e por isso não é reescrito aqui.
+//
+// ESTAS LINHAS SÃO CONSEQUÊNCIA DESSA MEDIÇÃO, E NÃO CAPRICHO. A alternativa
+// óbvia — a terceira candidata, a única que trazia o evento pronto — foi
+// recusada por outros três motivos, e nenhum deles é o `wheel`: veredito de
+// legitimidade suspeito por ser nova demais, quase quatro vezes o tamanho
+// vendorizado, e o risco não medido de ela ser feita para grade temporal
+// REGULAR enquanto a nossa série é esparsa e irregular. Trinta linhas nossas
+// custam menos que qualquer um dos três.
+//
+// A COLISÃO DE GESTOS, DITA POR EXTENSO. O arrasto com o botão principal já é o
+// zoom por seleção NATIVO, e ele não se reescreve — então o deslocamento não
+// pode morar no mesmo gesto. Ele mora no arrasto com a tecla de maiúsculas
+// pressionada, e no arrasto com o botão do meio. O clique duplo, que a
+// biblioteca já usa para restaurar o alcance, continua valendo, e o botão da
+// tela faz a mesma coisa com o nome escrito.
+
+function ligarOZoomEODeslocamento(instancia) {
+  const sobreposicao = instancia.over;
+
+  sobreposicao.addEventListener(
+    "wheel",
+    function (evento) {
+      // O NAVEGADOR PODE IGNORAR ESTA CHAMADA SEM AVISAR. Um ouvinte de roda
+      // registrado sem a opção abaixo é tratado como passivo em vários
+      // contextos, e aí o pedido de não rolar a página é descartado em
+      // silêncio: o gráfico aproximaria E a página desceria junto.
+      evento.preventDefault();
+
+      const caixa = sobreposicao.getBoundingClientRect();
+      const alvo = instancia.posToVal(evento.clientX - caixa.left, "x");
+      const minimo = instancia.scales.x.min;
+      const maximo = instancia.scales.x.max;
+
+      // O ZOOM É EM TORNO DO CURSOR, e não do centro: o instante que está
+      // debaixo do ponteiro continua debaixo do ponteiro depois da parada da
+      // roda. Zoom centrado no meio obriga a pessoa a corrigir a posição a cada
+      // passo, e é a diferença entre navegar e caçar.
+      const fator = evento.deltaY < 0 ? 1 / PASSO_DO_ZOOM : PASSO_DO_ZOOM;
+      instancia.setScale("x", {
+        min: alvo - (alvo - minimo) * fator,
+        max: alvo + (maximo - alvo) * fator,
+      });
+    },
+    { passive: false }
+  );
+
+  sobreposicao.addEventListener("mousedown", function (evento) {
+    const querDeslocar = evento.shiftKey || evento.button === BOTAO_DO_MEIO;
+    if (!querDeslocar) {
+      // Arrasto simples é o zoom por seleção nativo. Sair daqui é o que o
+      // preserva.
+      return;
+    }
+    evento.preventDefault();
+
+    const partiuDe = evento.clientX;
+    const minimoInicial = instancia.scales.x.min;
+    const maximoInicial = instancia.scales.x.max;
+    const larguraEmValor = maximoInicial - minimoInicial;
+    const larguraEmPixel = sobreposicao.clientWidth;
+    if (larguraEmPixel === 0) {
+      return;
+    }
+
+    function arrastar(movimento) {
+      const andou = ((movimento.clientX - partiuDe) / larguraEmPixel) * larguraEmValor;
+      instancia.setScale("x", {
+        min: minimoInicial - andou,
+        max: maximoInicial - andou,
+      });
+    }
+
+    // OS OUVINTES DE MOVIMENTO FICAM NO DOCUMENTO, e não na sobreposição: quem
+    // arrasta rápido tira o ponteiro do gráfico no meio do gesto, e um ouvinte
+    // preso ao elemento perderia o resto do arrasto e o `mouseup` — deixando a
+    // janela grudada no ponteiro para sempre.
+    function soltar() {
+      document.removeEventListener("mousemove", arrastar);
+      document.removeEventListener("mouseup", soltar);
+    }
+
+    document.addEventListener("mousemove", arrastar);
+    document.addEventListener("mouseup", soltar);
+  });
+}
+
 function apagarOGrafico() {
   if (grafico !== null) {
     grafico.destroy();
     grafico = null;
   }
+  serieDesenhada = null;
   resolucaoAtual = null;
   alcanceTotal = null;
 }
@@ -788,10 +946,13 @@ function desenharUmaSerie(serie) {
     max: eixoDoTempo[eixoDoTempo.length - 1],
   };
 
+  serieDesenhada = serie;
+
   if (grafico === null) {
     resolucaoAtual = null;
     textosDoGrafico = cru.textos;
     grafico = new biblioteca(opcoesDoGrafico(serie, area), cru.dados, area);
+    ligarOZoomEODeslocamento(grafico);
     return;
   }
 
@@ -821,6 +982,129 @@ function verTodoOPeriodo() {
 }
 
 // >>> COMPONENTE-DE-SERIE
+
+// ===========================================================================
+// O ENVIO DO CÂMBIO, SEM RECARREGAR
+// ===========================================================================
+//
+// INTERCEPTAR O ENVIO É OBRIGATÓRIO, E NÃO UMA MELHORIA.
+// -------------------------------------------------------
+// A diretiva de segurança servida em toda resposta traz `form-action 'none'`, e
+// o formulário da marcação NÃO TEM DESTINO — as duas coisas de propósito. Se
+// este arquivo não impedisse o comportamento padrão, a tecla de confirmação
+// dispararia um envio nativo que o NAVEGADOR BLOQUEIA, e o usuário não veria
+// nada além de um erro no console: o botão simplesmente não faria nada.
+//
+// E essa é a FALHA FECHADA CERTA, e é por isso que a marcação foi escrita assim:
+// se este arquivo morrer, o formulário não envia — em vez de recarregar a página
+// para lugar nenhum, ou de vazar o câmbio para fora da máquina. Mas o
+// interceptador é a metade que faz o caminho normal existir, e sem ele só
+// sobraria a falha.
+//
+// A VALIDAÇÃO NÃO MORA AQUI, E ISSO TAMBÉM É DE PROPÓSITO.
+// ---------------------------------------------------------
+// As únicas conveniências do lado do navegador são o comprimento máximo e o tipo
+// de teclado, e as duas moram na marcação. O JULGAMENTO do que é um câmbio
+// válido é inteiro do servidor, no portão de duas camadas — e escrever aqui um
+// "é número positivo?" seria um SEGUNDO validador, com a mesma doença do segundo
+// formatador: duas opiniões sobre a mesma pergunta, divergindo em silêncio.
+//
+// A falha fechada de verdade está do lado de lá: um envio feito por fora desta
+// página é recusado exatamente igual, e há teste em Python provando isso. O que
+// este arquivo faz com uma recusa é uma coisa só — EXIBIR a frase que veio.
+
+// As mesmas strings que o `dashboard.py` guarda do outro lado. As duas só podem
+// divergir de um jeito: silenciosamente.
+const CAMINHO_DO_CAMBIO = "/cambio";
+const CAMPO_DO_POST = "cambio";
+
+function enviarOCambio() {
+  const campo = document.getElementById("campo-cambio");
+  const botao = document.getElementById("botao-salvar");
+  if (campo === null || botao === null) {
+    return;
+  }
+
+  // O BOTÃO TROCA DE RÓTULO POR ATRIBUTO, e não por texto escrito daqui: os
+  // dois rótulos moram na marcação e o CSS escolhe qual aparece. Assim a cópia
+  // continua conferível por teste sobre o HTML, e este arquivo não vira o lugar
+  // onde texto de interface se esconde. E ele NÃO vira indicador giratório.
+  botao.setAttribute("data-salvando", "sim");
+  botao.disabled = true;
+  escrever("cambio-erro", "");
+
+  const pedido = {};
+  pedido[CAMPO_DO_POST] = campo.value;
+
+  // UMA CONSULTA RELATIVA DO PRÓPRIO DOCUMENTO JÁ MANDA A ORIGEM SOZINHA, e é
+  // disso que o portão de origem do servidor precisa. Não há nada a configurar —
+  // mas mexer no modo ou na origem à mão quebraria o envio com uma recusa, e o
+  // sintoma seria "o botão salvar não faz nada".
+  return fetch(CAMINHO_DO_CAMBIO, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(pedido),
+  })
+    .then(function (resposta) {
+      return resposta.json().then(function (conteudo) {
+        return { ok: resposta.ok, conteudo: conteudo };
+      });
+    })
+    .then(function (resultado) {
+      if (!resultado.ok) {
+        // A FRASE VEM PRONTA DO SERVIDOR, e cada causa tem a sua: o texto
+        // digitado, o histórico ilegível, a origem recusada, o corpo grande
+        // demais, a gravação que falhou. Colapsar as cinco numa mensagem só
+        // descreveria para o usuário um problema que não é o dele.
+        //
+        // E O CAMPO NÃO É LIMPO. O valor digitado permanece, para ninguém ter de
+        // redigitar o que acabou de escrever — não há nenhuma atribuição de
+        // valor vazio ao campo em caminho nenhum deste arquivo.
+        if (typeof resultado.conteudo.erro === "string") {
+          escrever("cambio-erro", resultado.conteudo.erro);
+        } else {
+          marcarOServidorComoMudo();
+        }
+        return null;
+      }
+
+      // A confirmação sai PRONTA do Python, com o carimbo dentro. Remontá-la
+      // aqui seria o segundo formatador de dinheiro e de data na mesma linha.
+      escrever("cambio-carimbo", resultado.conteudo.mensagem);
+
+      // E O R$ APARECE SEM RECARREGAR: uma volta imediata repinta a tela com o
+      // payload novo. Sem esta linha o usuário clicaria em salvar e não veria
+      // nada acontecer até o próximo ciclo.
+      //
+      // Ela NÃO agenda nada: quem agenda é o laço, e chamar a volta completa
+      // aqui criaria uma segunda corrente de temporizadores rodando em paralelo
+      // com a primeira, dobrando a frequência de consulta a cada salvamento.
+      return buscarOsDados();
+    })
+    .catch(function (erro) {
+      // O servidor local não respondeu — e a frase para isso já existe, na
+      // faixa do topo, com o tempo desde o último contato. Escrever aqui uma
+      // segunda frase de "não consegui falar" seria uma cópia nova de um texto
+      // que a página já tem.
+      console.error("dashboard: falha ao salvar o cambio", erro);
+      marcarOServidorComoMudo();
+    })
+    .then(function () {
+      botao.setAttribute("data-salvando", "nao");
+      botao.disabled = false;
+    });
+}
+
+function ligarOFormularioDoCambio() {
+  const formulario = document.getElementById("form-cambio");
+  if (formulario === null) {
+    return;
+  }
+  formulario.addEventListener("submit", function (evento) {
+    evento.preventDefault();
+    enviarOCambio();
+  });
+}
 
 // ===========================================================================
 // A PARTIDA
@@ -871,6 +1155,8 @@ function comecar() {
   if (botao !== null) {
     botao.addEventListener("click", verTodoOPeriodo);
   }
+
+  ligarOFormularioDoCambio();
 
   window.addEventListener("resize", function () {
     const area = document.getElementById("serie-grafico");

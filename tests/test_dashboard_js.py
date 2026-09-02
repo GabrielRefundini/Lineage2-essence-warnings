@@ -649,6 +649,218 @@ class TestOComponenteDeSerieEGenerico:
 
 
 # ===========================================================================
+# O ZOOM E DE NOS, E O FONTE DIZ POR QUE
+# ===========================================================================
+
+
+class TestOZoomEDeNosEDizPorQue:
+    """A biblioteca escolhida NAO faz zoom por roda, e isso foi medido.
+
+    A FRONTEIRA DESTAS ASSERCOES, DITA POR EXTENSO: elas caem se a
+    implementacao estiver vazia, se o evento errado for registrado, se ele for
+    pendurado no elemento errado ou se a API de escala nao for chamada. Elas NAO
+    distinguem um zoom que funciona de um registrador que faz a coisa errada —
+    nenhuma assercao sobre texto consegue. O criterio de zoom do ROADMAP repousa
+    no roteiro de verificacao humana do plano.
+    """
+
+    def test_a_roda_e_registrada_sobre_a_SOBREPOSICAO_do_grafico(self, js: str) -> None:
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "ligarOZoomEODeslocamento"))
+
+        # O ouvinte mora na sobreposicao da biblioteca, e nao no contorno da
+        # area: e ela que cobre a regiao desenhada e conhece a conversao de
+        # pixel para valor.
+        assert re.search(r"=\s*instancia\.over\b", corpo) is not None
+        assert re.search(r'addEventListener\(\s*"wheel"', corpo) is not None
+
+    def test_a_roda_chama_o_metodo_de_definicao_de_ESCALA(self, js: str) -> None:
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "ligarOZoomEODeslocamento"))
+
+        assert re.search(r'setScale\(\s*"x"', corpo) is not None
+        # E em torno do CURSOR: sem converter a posicao do ponteiro em valor, o
+        # zoom so poderia ser centrado, que e outro comportamento.
+        assert "posToVal" in corpo
+
+    def test_o_pedido_de_nao_rolar_a_pagina_e_REGISTRADO_como_nao_passivo(
+        self, js: str
+    ) -> None:
+        """A armadilha silenciosa deste bloco.
+
+        Um ouvinte de roda registrado sem esta opcao e tratado como passivo em
+        varios contextos, e ai o `preventDefault` e descartado SEM AVISO: o
+        grafico aproximaria e a pagina desceria junto.
+        """
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "ligarOZoomEODeslocamento"))
+
+        assert "preventDefault" in corpo
+        assert re.search(r"passive\s*:\s*false", corpo) is not None
+
+    def test_o_bloco_de_refutacao_traz_a_MEDICAO_e_nao_so_a_conclusao(
+        self, js: str
+    ) -> None:
+        """"A biblioteca nao faz" e uma conclusao; ela envelhece sem deixar
+        rastro.
+
+        O que nao envelhece e a contagem e a citacao: quem for atualizar a
+        biblioteca um dia pode REFAZER a medicao e comparar. Uma refutacao sem o
+        numero obriga o proximo leitor a acreditar; com o numero, ele pode
+        conferir.
+        """
+        # A contagem, para as DUAS candidatas que nao registram o evento.
+        assert len(re.findall(r"ZERO `wheel`", js)) == 2
+        # E a que registra, para a contagem nao ser vacua.
+        assert "2x `wheel`" in js
+        # A citacao textual da documentacao oficial.
+        assert "No built-in drag scrolling/panning" in js
+        # E o motivo de a candidata que trazia o evento pronto ter sido recusada
+        # mesmo assim — sem isso, a refutacao parece um argumento a favor dela.
+        assert "REGULAR" in js
+
+    def test_o_arrasto_simples_continua_sendo_o_zoom_por_SELECAO_nativo(
+        self, js: str
+    ) -> None:
+        """A colisao de gestos, resolvida e escrita.
+
+        O arrasto com o botao principal ja e o zoom por selecao da biblioteca, e
+        o plano manda nao reescreve-lo. Entao o deslocamento tem de morar em
+        outro gesto — e o manipulador precisa SAIR quando o gesto nao e o dele.
+        """
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "ligarOZoomEODeslocamento"))
+
+        assert re.search(r'addEventListener\(\s*"mousedown"', corpo) is not None
+        assert "shiftKey" in corpo
+        assert "BOTAO_DO_MEIO" in corpo
+        assert re.search(r"if\s*\(\s*!\s*querDeslocar\s*\)", corpo) is not None
+
+    def test_o_arrasto_solta_pelo_DOCUMENTO_e_nao_pelo_grafico(self, js: str) -> None:
+        """Quem arrasta rapido tira o ponteiro do grafico no meio do gesto.
+
+        Um ouvinte preso ao elemento perderia o `mouseup` e a janela ficaria
+        grudada no ponteiro — um defeito que so aparece com a mao apressada.
+        """
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "ligarOZoomEODeslocamento"))
+
+        assert re.search(r'document\.addEventListener\(\s*"mouseup"', corpo) is not None
+        assert re.search(r'document\.removeEventListener\(\s*"mouseup"', corpo) is not None
+
+
+# ===========================================================================
+# O ENVIO DO CAMBIO E INTERCEPTADO
+# ===========================================================================
+
+
+class TestOEnvioDoCambioEInterceptado:
+    def test_o_manipulador_de_envio_IMPEDE_o_comportamento_padrao(
+        self, js: str, html: str
+    ) -> None:
+        """Sem isto, a diretiva de destino de formulario bloquearia o envio em
+        silencio.
+
+        O formulario da marcacao nao tem destino, e a diretiva servida em toda
+        resposta proibe qualquer um. A tecla de confirmacao dispararia um envio
+        nativo que o navegador barra, e nada apareceria na tela — so um erro no
+        console.
+        """
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "ligarOFormularioDoCambio"))
+
+        assert re.search(r'addEventListener\(\s*"submit"', corpo) is not None
+        assert "preventDefault" in corpo
+
+        # E a outra metade da colisao continua verdadeira na marcacao: o
+        # formulario NAO tem destino. Sem esta linha, alguem "consertaria" o
+        # formulario dando um destino a ele, e a falha fechada iria embora sem
+        # nenhum teste ficar vermelho.
+        formulario = re.search(r"<form\b[^>]*>", html)
+        assert formulario is not None
+        assert "action" not in formulario.group(0)
+
+    def test_no_caminho_de_ERRO_o_valor_digitado_PERMANECE_no_campo(
+        self, js: str
+    ) -> None:
+        """Se a resposta falhar, ninguem redigita o que acabou de escrever."""
+        codigo = _so_o_codigo(js)
+
+        # Nenhuma ATRIBUICAO a `value` em caminho nenhum do arquivo — a leitura
+        # (`campo.value`) continua existindo, e e o que monta o pedido.
+        assert re.findall(r"\.value\s*=(?!=)", codigo) == []
+        assert ".reset()" not in codigo
+        assert re.search(r"\.value\b", codigo) is not None
+
+    def test_o_botao_troca_de_rotulo_por_ATRIBUTO_e_nao_por_texto(
+        self, js: str, html: str
+    ) -> None:
+        """A copia de interface mora na marcacao, onde ela e conferivel.
+
+        Os dois rotulos do botao estao no `index.html` e o CSS escolhe qual
+        aparece pelo atributo. O que ESTE teste prende e a outra metade: que o
+        JS nao guarda uma SEGUNDA copia desses textos. Um rotulo escrito daqui
+        seria copia que nenhum teste de marcacao ve.
+        """
+        rotulos = re.findall(
+            r'<span class="botao__rotulo[^"]*"[^>]*>([^<]+)</span>', html
+        )
+        assert len(rotulos) == 2, "os dois rotulos do botao sumiram da marcacao"
+
+        for rotulo in rotulos:
+            assert rotulo.strip() != ""
+            assert rotulo not in js, f"o rotulo {rotulo!r} tem uma segunda copia no JS"
+
+        # O rotulo de salvamento em curso e o que termina em reticencia — a
+        # forma travada no contrato de copia, afirmada sem recopiar a frase.
+        assert any(rotulo.strip().endswith("…") for rotulo in rotulos)
+
+        # E o JS so troca o atributo que o CSS le.
+        assert len(re.findall(r'setAttribute\(\s*"data-salvando"', js)) == 2
+
+    def test_o_botao_e_desabilitado_durante_o_envio_e_volta_DEPOIS(
+        self, js: str
+    ) -> None:
+        """Ele nao vira indicador giratorio, e ele VOLTA — inclusive na recusa.
+
+        Um botao que fica desabilitado para sempre depois de um erro obriga a
+        recarregar a pagina para tentar de novo, que e o oposto de "o valor
+        permanece no campo para voce nao redigitar".
+        """
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "enviarOCambio"))
+
+        assert "disabled = true" in corpo
+        assert "disabled = false" in corpo
+
+    def test_a_frase_da_recusa_vem_do_SERVIDOR_e_nao_daqui(self, js: str) -> None:
+        """Cada causa tem a sua frase, e elas sao cinco do lado do Python.
+
+        Colapsar as cinco numa mensagem escrita aqui descreveria para o usuario
+        um problema que nao e o dele — foi exatamente esse o buraco que a
+        separacao das excecoes do cambio fechou.
+        """
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "enviarOCambio"))
+
+        assert re.search(r'escrever\(\s*"cambio-erro",\s*resultado\.conteudo\.erro',
+                         corpo) is not None
+        assert re.search(r'escrever\(\s*"cambio-carimbo",\s*resultado\.conteudo\.mensagem',
+                         corpo) is not None
+
+        # E o campo do corpo do pedido e o mesmo que o servidor espera.
+        assert dashboard.CAMPO_DO_POST in js
+        assert dashboard.CAMINHO_DO_CAMBIO in js
+
+    def test_o_salvamento_repinta_SEM_criar_uma_segunda_corrente_de_polling(
+        self, js: str
+    ) -> None:
+        """O R$ aparece sem recarregar — e sem dobrar a frequencia de consulta.
+
+        Chamar a volta COMPLETA aqui repintaria a tela e agendaria mais uma
+        corrente de temporizadores, em paralelo com a que ja roda. Cada
+        salvamento dobraria a frequencia, para sempre, sem nenhum sintoma
+        visivel alem de um servidor mais ocupado.
+        """
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "enviarOCambio"))
+
+        assert "buscarOsDados()" in corpo
+        assert "darUmaVolta()" not in corpo
+
+
+# ===========================================================================
 # O UNICO TESTE DESTE ARQUIVO QUE EXECUTA UM ANALISADOR DE VERDADE
 # ===========================================================================
 
