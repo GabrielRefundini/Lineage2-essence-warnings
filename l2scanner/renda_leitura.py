@@ -226,7 +226,20 @@ def recortar(
 # campo com sinal de porcentagem — o bonus, medido em `592%` na Faerlina e
 # `612%` na Yazalaque —, e uma expressao que pegasse o primeiro numero com `%`
 # leria o bonus como se fosse o EXP.
-_EXP_DA_BARRA = re.compile(r"(\d{1,3})[.,](\d{4})%")
+#
+# E ELA E ANCORADA DOS DOIS LADOS, o que nao era obvio e custou um numero
+# fabricado. Sem o `(?<!\d)`, a expressao casa DENTRO de um numero maior:
+# `1234.5678%` devolvia `2345678`, porque `\d{1,3}` encontrava `234` e o resto
+# fechava. Isso nao e uma entrada inventada — o OCR desta arvore cola numero
+# vizinho na frente o tempo todo (`76 EXP 80012% 592%` e leitura real de
+# campo), e o EXP e uma fracao de nivel que nunca passa de 100 pontos
+# percentuais: quatro digitos na parte inteira NAO sao um EXP, e recortar os
+# tres ultimos para caber e fabricar leitura.
+#
+# O `(?![\d.,])` fecha o outro lado pelo mesmo motivo: sem ele, um separador ou
+# digito depois do `%` indicaria que a leitura continua e que a fatia casada
+# nao e o campo inteiro.
+_EXP_DA_BARRA = re.compile(r"(?<!\d)(\d{1,3})[.,](\d{4})%(?![\d.,])")
 
 # 100,0000% cabe em seis digitos significativos, e o EXP e uma fracao de nivel:
 # ele nunca passa de 100 pontos percentuais.
@@ -251,11 +264,18 @@ def decimos_de_milesimo(texto: str | None) -> int | None:
     """
     if not texto:
         return None
-    achado = _EXP_DA_BARRA.search(texto)
-    if achado is None:
+    candidatos = {
+        int(inteiro) * DECIMOS_DE_MILESIMO_POR_PONTO + int(decimal)
+        for inteiro, decimal in _EXP_DA_BARRA.findall(texto)
+    }
+    if len(candidatos) != 1:
+        # ZERO e nao ha o que ler. MAIS DE UM e AMBIGUIDADE, e ela recusa em vez
+        # de escolher: pegar o primeiro seria uma decisao tomada pela ordem em
+        # que o motor de OCR devolveu as palavras, e essa ordem nao e informacao
+        # sobre a tela. O MESMO valor repetido nao e ambiguidade — por isso o
+        # conjunto, e nao a lista.
         return None
-    inteiro, decimal = achado.group(1), achado.group(2)
-    return int(inteiro) * DECIMOS_DE_MILESIMO_POR_PONTO + int(decimal)
+    return candidatos.pop()
 
 
 def _cruzar_as_escalas(
