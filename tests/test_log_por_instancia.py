@@ -230,7 +230,10 @@ class TestARotacaoQueFalhaNaoInunda:
 
       - Deixar o traceback sair (hoje): inunda o console a cada linha logada e
         PERDE o registro, porque `emit` desvia para `handleError` antes de
-        chegar ao `FileHandler.emit`. Perder a linha `[vigiando]` de um farm de
+        chegar ao `FileHandler.emit`. MEDIDO com dois processos de verdade e
+        WinError 32 real, dez linhas logadas apos o limite: o manipulador do
+        stdlib produziu 8 tracebacks e salvou SO os ticks 0 e 1; este salvou os
+        dez, com uma linha de aviso. Perder a linha `[vigiando]` de um farm de
         tres horas e o oposto do que o arquivo de log existe para fazer.
       - Calar o erro sem avisar: o arquivo cresce sem teto e ninguem sabe.
         Silencio treina o usuario a confiar num sinal que nao significa mais
@@ -303,7 +306,11 @@ class TestARotacaoQueFalhaNaoInunda:
             handler.close()
 
         erro = capsys.readouterr().err
-        assert erro.count("rotacionar") == 1, erro
+        # O PREFIXO, e nao a palavra "rotacionar" solta: a mensagem diz o que
+        # aconteceu, o que ela vai fazer agora e como consertar, e as tres
+        # frases usam o verbo. Contar a palavra mediria a redacao do aviso, e
+        # nao quantas vezes ele saiu.
+        assert erro.count("Nao consegui rotacionar") == 1, erro
         assert "Traceback" not in erro
         assert "--- Logging error ---" not in erro
 
@@ -366,7 +373,7 @@ class TestARotacaoQueFalhaNaoInunda:
             handler.close()
 
         escrito = (tmp_path / "scanner.log").read_text(encoding="utf-8")
-        assert escrito.count("rotacionar") == 1, escrito[-2000:]
+        assert escrito.count("Nao consegui rotacionar") == 1, escrito[-2000:]
 
     def test_qualquer_OSError_de_rotacao_e_tratado(self, tmp_path, monkeypatch):
         """Disco cheio e antivirus travando o arquivo caem no mesmo lugar.
@@ -520,3 +527,75 @@ class TestASuiteNaoEscreveNoLogDeProducao:
         precisam continuar podendo escrever em `tmp_path`."""
         handler = logging.FileHandler(tmp_path / "scanner.log")
         handler.close()
+
+
+class TestOSubprocessoTambemObedece:
+    """A QUARTA porta, invisivel ao instrumento em processo.
+
+    Instrumentar o construtor do `RotatingFileHandler` e nomear o teste corrente
+    achou tres portas. Nao achou esta: `tests/test_agenda.py` roda
+    `python -m l2scanner --testar-agenda --dry-run` num processo FILHO, e um
+    processo filho nao ve `monkeypatch` nenhum. Ela so apareceu conferindo a
+    pasta `logs/` DEPOIS de a suite inteira rodar, e o que ela deixava la eram
+    as linhas mais enganosas do repertorio:
+
+        Modo simulacao: alertas so no console. Nada e enviado...
+        Enviado: TvT comeca em 10 minutos, as 19:30.
+
+    Indistinguiveis de saida de campo. E exatamente a forma das duas cacas a
+    fantasma que este conjunto de testes existe para nunca mais permitir.
+    """
+
+    def test_o_arranque_de_verdade_nao_toca_no_log_de_campo(self, tmp_path):
+        import subprocess
+        import sys
+
+        campo = RAIZ / "logs"
+        antes = (
+            {a.name: a.stat().st_mtime_ns for a in campo.iterdir() if a.is_file()}
+            if campo.exists()
+            else {}
+        )
+
+        destino = tmp_path / "logs"
+        ambiente = dict(os.environ)
+        ambiente["L2SCANNER_PASTA_DE_LOGS"] = str(destino)
+        rodada = subprocess.run(
+            [sys.executable, "-m", "l2scanner", "--testar-agenda", "--dry-run"],
+            cwd=RAIZ, env=ambiente, capture_output=True, text=True, timeout=120,
+        )
+
+        assert rodada.returncode == 0, rodada.stdout + rodada.stderr
+        assert list(destino.glob("*.log")), "o desvio nao pode calar o log"
+
+        depois = (
+            {a.name: a.stat().st_mtime_ns for a in campo.iterdir() if a.is_file()}
+            if campo.exists()
+            else {}
+        )
+        assert depois == antes, (
+            "o arranque de teste mexeu no log de campo - nenhum arquivo de "
+            "`logs/` pode nascer, mudar ou sumir por causa da suite"
+        )
+
+    def test_sem_a_variavel_o_caminho_e_o_de_sempre(self):
+        """A variavel e DESVIO, e nunca padrao.
+
+        Sem ela, `PASTA_LOGS` volta a ser `<repo>/logs` byte por byte - quem
+        nunca ouviu falar dela nao percebe diferenca nenhuma.
+        """
+        import subprocess
+        import sys
+
+        ambiente = dict(os.environ)
+        ambiente.pop("L2SCANNER_PASTA_DE_LOGS", None)
+        rodada = subprocess.run(
+            [
+                sys.executable, "-c",
+                "import l2scanner.__main__ as p; print(p.PASTA_LOGS)",
+            ],
+            cwd=RAIZ, env=ambiente, capture_output=True, text=True, timeout=120,
+        )
+
+        assert rodada.returncode == 0, rodada.stderr
+        assert Path(rodada.stdout.strip()) == RAIZ / "logs"

@@ -17,10 +17,10 @@ _MODO_DPI = tornar_consciente_de_dpi()
 import argparse  # noqa: E402
 import cv2  # noqa: E402
 import logging  # noqa: E402
+import os  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
 from datetime import datetime, timedelta  # noqa: E402
-from logging.handlers import RotatingFileHandler  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from .acervo import AcervoDeIdentidades, carregar_identidades  # noqa: E402
@@ -125,6 +125,10 @@ from .rastreador import EstadoDoMembro, PortaoGlobal, Rastreador  # noqa: E402
 # das ferramentas interativas nem pelo efeito colateral de DPI que `calibrar.py`
 # executa no import. Ver a docstring de `reancoragem.Reancorador`.
 from .reancoragem import Reancorador  # noqa: E402
+# Modulo FOLHA (nao importa nada do pacote), pelo mesmo criterio de `raiz.py`:
+# `configurar_log` roda como PRIMEIRA coisa do arranque, e a decisao de qual
+# arquivo abrir nao pode depender de `cv2`.
+from .registro_de_log import montar_arquivo_rotativo  # noqa: E402
 from .relogio import Relogio, fonte_chatwoot  # noqa: E402
 from .respawn import (  # noqa: E402
     ancoras_mais_recentes,
@@ -138,7 +142,29 @@ from .visao import EstadoDaLinha  # noqa: E402
 RAIZ = Path(__file__).resolve().parent.parent
 ARQUIVO_CALIBRACAO = RAIZ / "calibration.json"
 PASTA_GRAVACOES = RAIZ / "recordings"
-PASTA_LOGS = RAIZ / "logs"
+
+# A pasta de log, com UM DESVIO POR VARIAVEL DE AMBIENTE.
+#
+# ELA EXISTE POR CAUSA DE UM TESTE DE SUBPROCESSO, e a razao merece ficar
+# escrita porque parece contorcionismo e nao e.
+# `tests/test_agenda.py::TestModoAgendaSemJogo` roda `python -m l2scanner
+# --testar-agenda --dry-run` DE VERDADE, num processo filho - e essa e a prova
+# de ponta a ponta de que a agenda funciona sem jogo e sem calibracao, que
+# nenhum teste em processo consegue dar. Um processo filho nao ve `monkeypatch`
+# nenhum, entao ele escrevia no `logs/scanner.log` de campo, e o que caia la era
+# exatamente o tipo de linha que ja custou duas cacas a fantasma:
+#
+#     Modo simulacao: alertas so no console. Nada e enviado...
+#     Enviado: TvT comeca em 10 minutos, as 19:30.
+#
+# Indistinguivel de saida de campo, lida como saida de campo. Variavel de
+# ambiente e o unico canal que atravessa a fronteira do processo sem o teste
+# precisar lembrar de nada: `subprocess.run` herda o ambiente do pai por padrao,
+# entao o desvio vale para todo subprocesso que a suite subir, hoje e amanha.
+#
+# E UM DESVIO, E NUNCA UM PADRAO: sem a variavel, o caminho e `<repo>/logs`,
+# byte por byte o de antes. Quem nunca ouviu falar dela nao percebe diferenca.
+PASTA_LOGS = Path(os.environ.get("L2SCANNER_PASTA_DE_LOGS") or (RAIZ / "logs"))
 ARQUIVO_OUTBOX = RAIZ / "outbox.jsonl"
 # Marcadores de "este aviso ja saiu". Compartilhada pelas DUAS instancias
 # que o usuario roda — e o que impede o grupo de receber tudo em dobro.
@@ -180,11 +206,23 @@ DESVIO_TOLERAVEL_SEGUNDOS = 60.0
 log = logging.getLogger("l2scanner")
 
 
-def configurar_log(verboso: bool) -> None:
-    """Log em arquivo rotativo + console.
+def configurar_log(verboso: bool, janela: str | None = None) -> None:
+    """Log em arquivo rotativo + console, com UM ARQUIVO POR INSTANCIA.
 
     O arquivo importa: quando o scanner morre calado durante um farm de tres
     horas, o log e a unica forma de descobrir o porque depois.
+
+    O `janela` E O QUE SEPARA AS DUAS INSTANCIAS DO USUARIO. Ate hoje as duas
+    (Yazalaque e Faerlina) apontavam o mesmo `RotatingFileHandler` para
+    `logs/scanner.log`, e no Windows o `os.rename` de um arquivo que outro
+    processo mantem aberto levanta WinError 32 - um traceback POR LINHA logada,
+    inundando o console e engolindo o registro. O criterio de nome, as
+    alternativas recusadas e o desfecho da rotacao que falha estao em
+    `registro_de_log.py`, que e onde a decisao mora.
+
+    O parametro e OPCIONAL de proposito: `mercado_modo._garantir_log` e as
+    ferramentas de bancada chamam `configurar_log(False)` sem janela nenhuma, e
+    todas continuam valendo sem mudar uma linha.
     """
     PASTA_LOGS.mkdir(exist_ok=True)
 
@@ -201,8 +239,10 @@ def configurar_log(verboso: bool) -> None:
         "%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S"
     )
 
-    arquivo = RotatingFileHandler(
-        PASTA_LOGS / "scanner.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8"
+    arquivo = montar_arquivo_rotativo(
+        PASTA_LOGS,
+        janela=janela,
+        arquivo_de_calibracao=ARQUIVO_CALIBRACAO,
     )
     arquivo.setFormatter(formato)
 
@@ -3034,7 +3074,18 @@ def main() -> int:
             "expoe como unidade."
         )
 
-    configurar_log(args.verboso)
+    # A JANELA VAI JUNTO, e e o que da um arquivo de log a cada instancia.
+    #
+    # Aqui `args.janela` ainda pode ser `"AUTO"` - a resolucao contra
+    # `cal.janela` so acontece depois de a calibracao carregar, e ela NAO pode
+    # subir para antes: a recusa de `ToleranciaAlemDoTeto` e a de
+    # `CalibracaoInvalida` precisam de um manipulador de log JA instalado para
+    # chegar ao usuario sem virar traceback cru. Por isso `nome_da_instancia`
+    # espia o `calibration.json` por conta propria, de forma tolerante: o
+    # arranque mais comum do usuario (`vigiar-party.bat`, que passa `--janela`
+    # sem valor) e exatamente o caso `"AUTO"`, e sem essa espiada as duas
+    # instancias voltariam a dividir o mesmo arquivo.
+    configurar_log(args.verboso, janela=args.janela)
 
     log.debug("Consciencia de DPI: %s", _MODO_DPI)
     if _MODO_DPI.startswith("FALHOU"):
