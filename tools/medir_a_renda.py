@@ -36,6 +36,35 @@ EXP e um decimal com sinal de porcentagem --, entao para eles o cruzamento
 2x x 3x e a UNICA defesa que cabe dentro de uma leitura unica. Uma guarda que
 recusa se justifica por TAXA, e nao por caso.
 
+O QUE ESTA BANCADA JA RESPONDEU -- RESULTADO DE **UMA** RODADA, 2026-09-02
+===========================================================================
+Os veredictos abaixo sao de UMA execucao, contra as QUATRO fixturas de campo,
+com a calibracao de fixtura. Eles estao aqui para poderem ser REFUTADOS por
+outra rodada, e nao para virarem constante. O relatorio inteiro, com procedencia
+linha a linha, esta em `01-MEDICOES.md`, nesta mesma fase.
+
+    A TAXA DE DISCORDANCIA entre leituras VALIDAS, com denominador:
+        nivel  2 / 124  (1,6%)   EXP  0 / 124   adena  0 / 124
+    E ELA NAO DORME: os dois casos do nivel leem `65` contra `69` -- e `65` e
+    exatamente o valor que a CONCORDANCIA entre as duas escalas ACEITOU noutro
+    frame, nos pisos vizinhos. A guarda pegou o erro que a outra deixou passar.
+
+    DE TODAS AS LEITURAS ACEITAS, quantas estavam ERRADAS contra a verdade de
+    campo:  adena 5/10 (50,0%)   nivel 4/18 (22,2%)   EXP 3/27 (11,1%)
+    A linha da adena e o M-G COM DENOMINADOR, e ela CONFIRMA o LEIT-09.
+
+    CONCORDANCIA NAO E EVIDENCIA DE ACERTO EM CAMPO NENHUM, e isto e NOVO: 3 das
+    4 leituras de NIVEL aceitas-e-erradas sao `ACEITA-2-ESCALAS`. O M-H tinha
+    medido isso na adena e explicado por sosia gramatical (a L-Coin); no nivel
+    nao ha sosia -- as duas escalas leram o mesmo digito errado.
+
+    A TABELA DE BANDAS DO M-E NAO SOBREVIVEU: 11 das 12 comparacoes DISCORDAM.
+    A unica que BATE (adena da Yazalaque de 09h30, piso 110) e o que da credito
+    as outras onze -- uma reproducao que so pode discordar esta quebrada.
+
+    AS BANDAS SE MOVEM COM O CENARIO: o EXP da Faerlina vai de 140..170 (00h45)
+    para 160..180 (09h30), 8h30 depois. Uma calibracao nao vale para sempre.
+
 A GRADE ANDA DE 5 EM 5, E O PASSO DE 10 E UM DEFEITO MEDIDO
 =============================================================
 Quem for encurtar o tempo da varredura vai olhar o passo primeiro. Entao o
