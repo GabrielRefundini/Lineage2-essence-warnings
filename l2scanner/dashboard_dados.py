@@ -14,6 +14,23 @@ montagem do dicionario que vira JSON.
 ELE E PURO QUANTO DA: sem servidor, sem relogio proprio (o `agora` entra por
 parametro), sem escrita. A unica coisa que ele toca no disco e uma leitura em
 modo `"r"`, e ha teste de impressao digital prendendo isso.
+
+O INVARIANTE DE LEITURA, ESCRITO POR EXTENSO (DASH-01 / T-01-04)
+=================================================================
+**Nenhuma funcao deste modulo abre arquivo fora do modo de leitura, e nenhuma
+cria pasta.** `RegistroDeObservacoes.carregar` cria o `observacoes.csv` ausente
+com cabecalho porque ela e o arranque do ESCRITOR; aqui nao ha escritor nenhum.
+Criar o arquivo ou a pasta seria o programa ESCREVENDO num caminho de LEITURA —
+o mesmo argumento com que `conferir_o_terminador` recusa truncar a cauda no
+disco em vez de "consertar" o arquivo do usuario. Um arquivo que aparece sozinho
+porque alguem abriu o dashboard e um efeito colateral que ninguem pediu,
+inclusive num diretorio apontado por engano.
+
+DUAS PROVAS PRENDEM ISSO, e nao uma: a impressao digital de tres componentes em
+300 leituras (`tests/test_dashboard_leitura.py`) prova o que aconteceu; o
+tripwire por leitura de fonte sobre `observacoes_ao_vivo` e sobre
+`ArquivoRecortado.open` prova o que o codigo PODE fazer, e pega a regressao no
+commit em que ela e escrita.
 """
 
 from __future__ import annotations
@@ -53,9 +70,36 @@ log = logging.getLogger(__name__)
 __all__ = [
     "ArquivoRecortado",
     "LeituraAoVivo",
+    "NOTA_DE_LINHA_PARCIAL",
     "observacoes_ao_vivo",
     "payload",
 ]
+
+
+# ===========================================================================
+# AS FRASES DA TELA — TODAS CONSTANTES NOMEADAS, TODAS DO PYTHON
+# ===========================================================================
+#
+# ELAS SAO COPIA LITERAL DO `## Copywriting Contract` DO `01-UI-SPEC.md`, e
+# moram aqui em vez de literais espalhados pelo corpo das funcoes pela mesma
+# razao que `UNIDADE_DA_JANELA` mora no topo de `mercado_analise`: uma frase
+# escrita duas vezes e uma frase que diverge no primeiro ajuste, e a divergencia
+# aparece na tela do usuario e nao no teste.
+#
+# ELAS LEVAM ACENTO, e as do `mercado_console` nao — isso e INTENCIONAL e esta
+# escrito no UI-SPEC. O console e ASCII por escolha dele (o `cmd` do Windows abre
+# em cp1252); esta pagina e HTML em UTF-8 e a moldura e nossa. O que NAO pode
+# acontecer e o navegador reacentuar a string que veio pronta do console: isso
+# seria o SEGUNDO formatador que o DASH-03 proibe.
+
+# A nota da cauda ignorada. Ela viaja no payload quando `cauda_incompleta` for
+# verdadeiro, e chega PRONTA ao JS.
+#
+# E ELA E REDE DE SEGURANCA, E NAO O CAMINHO NORMAL — a medicao esta na
+# docstring de `observacoes_ao_vivo`: ZERO leituras parciais em 22.970 tentativas
+# durante 200.000 appends concorrentes. Um aviso que aparecesse toda hora viraria
+# ruido, e ruido e indistinguivel de defeito.
+NOTA_DE_LINHA_PARCIAL = "Última linha ignorada: incompleta (o scanner estava escrevendo)."
 
 
 @dataclass(frozen=True)
@@ -147,6 +191,25 @@ class LeituraAoVivo:
     cauda_incompleta: bool = False
     arquivo_ausente: bool = False
 
+    # QUANTAS LINHAS DE DADO O TRECHO COMPLETO TINHA — sem o cabecalho, e
+    # contando tambem as que o parser descartou.
+    #
+    # ELA E A PROVA DE QUE A LEITURA ACONTECEU, e e isso que a torna necessaria:
+    # no estado vazio a tela precisa dizer "o arquivo foi lido: N linhas, 0 da
+    # serie Adena". Sem esse numero, "0 da serie Adena" e indistinguivel de "o
+    # dashboard nao conseguiu abrir o arquivo" — que e exatamente o erro que o
+    # estado vazio desenhado existe para nao cometer.
+    #
+    # ELA CONTA REGISTROS, E NAO LINHAS DO ARQUIVO. A frase que ela alimenta poe
+    # duas contagens lado a lado ("N linhas, M da serie"), e as duas tem de ser
+    # da mesma especie: incluir o cabecalho de um lado e contar observacoes do
+    # outro seria comparar coisas diferentes com a mesma palavra.
+    #
+    # E ELA CONTA A LINHA RUIM TAMBEM. A linha esta no arquivo; quem quiser saber
+    # quantas sobreviveram ao parser tem `len(observacoes)` ao lado, e o log
+    # NOMEIA cada uma que caiu.
+    linhas_completas: int = 0
+
 
 def observacoes_ao_vivo(arquivo: Path) -> LeituraAoVivo:
     """As observacoes do CSV ATE A ULTIMA LINHA COMPLETA, com o arquivo em uso.
@@ -225,6 +288,13 @@ def observacoes_ao_vivo(arquivo: Path) -> LeituraAoVivo:
         observacoes=mercado_registro.observacoes_do_arquivo(
             ArquivoRecortado(caminho_real=arquivo, texto=completo)
         ),
+        # As linhas de DADO do trecho completo: tudo menos o cabecalho, e sem
+        # contar as linhas em branco que o parser tambem pula. O `max` protege o
+        # unico caso em que o arquivo tem cabecalho e mais nada — subtrair daria
+        # `-1`, e uma contagem negativa na frase de prova seria pior que nenhuma.
+        linhas_completas=max(
+            0, len([linha for linha in completo.splitlines() if linha.strip()]) - 1
+        ),
         # `bool(cauda)` e nao `bool(cauda.strip())`: qualquer byte depois do
         # ultimo terminador e uma linha que o programa nao consegue afirmar,
         # inclusive um punhado de espacos. O rodape prefere dizer "ignorei uma
@@ -283,7 +353,11 @@ def payload(pasta_do_mercado: Path, agora: datetime) -> dict:
             "arquivo": str(arquivo),
             "cauda_incompleta": leitura.cauda_incompleta,
             "arquivo_ausente": leitura.arquivo_ausente,
+            "linhas_completas": leitura.linhas_completas,
         },
+        # A frase da cauda ignorada VIAJA PRONTA. O JS a exibe como recebeu;
+        # monta-la la seria a segunda copia de um texto que ja existe aqui.
+        "avisos": ([NOTA_DE_LINHA_PARCIAL] if leitura.cauda_incompleta else []),
         "destaque": {
             "xm": {
                 "texto": texto,
