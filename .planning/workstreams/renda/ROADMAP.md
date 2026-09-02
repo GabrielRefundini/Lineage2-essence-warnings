@@ -16,7 +16,7 @@ ser três fases e ser oito.
 | Peça | Onde | O que ela já resolve para nós |
 |---|---|---|
 | OCR do Windows (WinRT) | `l2scanner/ocr.py` — `ler_texto`, `ler_texto_ampliado`, `disponivel`, `motivo_indisponivel` | O spike leu `Special 58,40 13,091 10,679,769` da direita da barra com `ler_texto` sobre o recorte **cru**. **A frase "a leitura da adena já quase funciona" está REFUTADA e fica escrita para que se veja que caiu** — duas vezes: com fundo claro o cru devolve `''` (LEIT-08), e sobre a máscara o OCR aceita número errado e concorda na L-Coin (LEIT-09). O OCR continua sendo o leitor do **EXP** e do **nível**, e não da adena. |
-| Leitor de dígitos por molde de glifo | `l2scanner/mercado_leitura.py` — `segmentar_glifos`, `ler_glifos`, `moldes_da_tinta`, `mascara_de_numero`, `quantidade_de_adena`, `numero_valido` | Um leitor de números **feito para a fonte deste jogo**, com máscara por `valor_minimo`, pontuação de glifo e recusa nomeada. **Medido: ele é o plano A da ADENA** (LEIT-09), e não do nível — a região do nível nunca mostra dez dígitos para cortar moldes. O que **não** vem de graça são os moldes: os do mercado têm 9 px e os da barra 17, e o calibrador corta os dele. |
+| Leitor de dígitos por molde de glifo | `l2scanner/mercado_leitura.py` — `segmentar_glifos`, `ler_glifos`, `moldes_da_tinta`, `mascara_de_numero`, `quantidade_de_adena`, `numero_valido` | Um leitor de números **feito para a fonte deste jogo**, com máscara por `valor_minimo`, pontuação de glifo e recusa nomeada. **Medido: ele é o plano A da ADENA** (LEIT-09), e não do nível — a região do nível nunca mostra dez dígitos para cortar moldes. O que **não** vem de graça são os moldes: os do mercado são **4x9** e os da barra **5x10** — medido sobre um recorte sem ícone (M-K, que corrigiu a altura 17 do M-I) —, e o cortador do `01-05` corta os dele. |
 | Calibração e o `calibration.json` | `l2scanner/calibracao.py`, `calibrar.py`, `calibrar_mercado.py` | A convenção inteira: `Regiao`, `LimiaresDeCor`, campos opcionais por feature, carregamento validado, e dois `.bat` que já ensinam o usuário a calibrar. |
 | Captura e cegueira | `l2scanner/captura_janela.py`, `visao.py`, `frames.py` (`SaudeDoFrame`, `FRAMES_IDENTICOS_PARA_CONGELADO = 30`), `cliente.py` (`EstadoDoCliente.TELA_DE_LOGIN`, `esta_na_tela_de_login`) | Captura por janela (Windows Graphics Capture), detecção de frame escuro/congelado e reconhecimento da tela de login — endurecidos em **quatro rodadas de correção** no v1. CEGO-01 e CEGO-02 são reuso, não invenção. |
 | Registro append-only com contrato | `l2scanner/mercado_registro.py` — `COLUNAS`, `conferir_o_cabecalho`, `conferir_o_terminador`, `ContratoDoArquivoQuebrado` | O dialeto (`;`, `csv` da stdlib, cabeçalho-contrato, `"a"` em vez de reescrita atômica) e as **quatro divergências deliberadas** já argumentadas por escrito. |
@@ -112,14 +112,20 @@ não constante do produto.** Mover a janela não pode custar um commit — é a 
    na tela: o nível `66`, o EXP `68,5632%` com as **quatro** casas e a adena `10.673.628`.
    Conferível olhando para o monitor e para o terminal ao mesmo tempo. — LEIT-01, LEIT-02, LEIT-03
 
-   > **Ressalva medida, 2026-09-02 (LEIT-09).** A adena passou a ser lida por glifo, e o conjunto
-   > de moldes da fonte da barra só fica completo quando um `5` e um `7` aparecerem no total de
-   > adena do usuário — as duas fixturas de campo dão `0 1 2 3 4 6 8 9`. Enquanto faltarem, a
-   > linha da adena sai como **recusa nomeando os dígitos que faltam**, e isso **conta como
-   > passar**: é exatamente o critério 3 funcionando. O critério 1 fecha em duas etapas — nível e
-   > EXP de imediato, adena quando o pixel existir —, e o que **não** fecha é a adena sair como
-   > número com o conjunto pela metade, porque meio conjunto lê errado com a confiança do
-   > conjunto inteiro.
+   > **Ressalva medida, 2026-09-02 (LEIT-09) — e ela CAIU no mesmo dia, pelo M-L.** A adena
+   > passou a ser lida por glifo, e esta ressalva dizia que o conjunto de moldes só ficaria
+   > completo quando um `5` e um `7` aparecessem no total de adena do usuário, porque as duas
+   > fixturas de campo dão `0 1 2 3 4 6 8 9`. **Medido depois: os dois já estão na tela**, em
+   > outros campos da mesma barra — o bônus da Faerlina é `592%`, o EXP da Yazalaque é `76.6646%`
+   > e a L-Coin dela é `9.790` —, e a largura 5 foi confirmada por segmentação em todos eles: **é
+   > uma fonte só na barra inteira**. O conjunto 0-9 **fecha com as duas fixturas que já
+   > existem**, desde que o cortador colha de qualquer campo — e é isso que o `01-05` faz. **O
+   > critério 1 fecha de uma vez, e não em duas etapas.** O que continua valendo é a guarda: se
+   > alguém não rodar o cortador até o fim, a linha da adena sai como **recusa nomeando os
+   > dígitos que faltam e o campo onde procurá-los**, e isso conta como passar — é o critério 3
+   > funcionando. O que **não** fecha é a adena sair como número com o conjunto pela metade,
+   > porque meio conjunto lê errado com a confiança do conjunto inteiro. A ressalva antiga fica
+   > escrita porque um número que caiu precisa dizer que caiu.
 2. Um EXP que saia sem as quatro decimais — `68,56%`, `685632`, `68,5632` sem o sinal de
    porcentagem — é **recusado com o motivo escrito**, nunca arredondado nem completado. As
    decimais são o que torna a taxa mensurável em minutos em vez de horas; perdê-las em silêncio
@@ -164,7 +170,7 @@ não constante do produto.** Mover a janela não pode custar um commit — é a 
   são do personagem, e sem mira o scanner lê a instância errada. `vigiar-mercado.bat` já resolve
   o título pela chave `[jogo] personagem` do `config.toml`; esta fase herda esse caminho inteiro.
 
-**Plans**: 4 planos escritos
+**Plans**: 5 planos escritos
 
 - [ ] `01-01-PLAN.md` — o traçador: de um PNG resgatado ao EXP com quatro casas, atravessando
       calibração, recorte com guarda, máscara, duas escalas e recusa nomeada (onda 1)
@@ -175,9 +181,11 @@ não constante do produto.** Mover a janela não pode custar um commit — é a 
       10** (onda 2)
 - [ ] `01-03-PLAN.md` — o calibrador `calibrar-renda.bat` **por personagem**, a não-destruição
       provada (inclusive a do personagem vizinho), a largura da banda como aviso, o critério 4
-      como teste executável, a ida e volta da janela movida, **e o `calibrar-renda-moldes.bat` que
-      corta os moldes de 17 px da fonte da barra** — a máquina propõe, o humano confirma, e o
-      conjunto incompleto é gravado nomeando o que falta (onda 2)
+      como teste executável e a ida e volta da janela movida (onda 2)
+- [ ] `01-05-PLAN.md` — o cortador `calibrar-renda-moldes.bat` dos moldes **5x10** da fonte da
+      barra, mais a peneira de forma `_glifos_do_numero` no módulo puro: a máquina propõe, o
+      humano confirma, a colheita varre **qualquer campo da barra** (M-L) e o conjunto incompleto
+      é gravado nomeando o que falta e **onde procurá-lo** (onda 2)
 - [ ] `01-04-PLAN.md` — a adena **por glifo** e o nível por OCR mascarado no comando de leitura
       única, os três campos impressos na grafia do jogo para um personagem nomeado, e as recusas
       que só existem sobre um par: EXP para trás sem mudança de nível e adena saltando ordem de
@@ -187,6 +195,12 @@ não constante do produto.** Mover a janela não pode custar um commit — é a 
 > conhecer as bandas úteis de piso por região — e elas foram medidas em campo antes, nas duas
 > instâncias, e estão escritas em `01-MEDICOES-DE-CAMPO.md`. A dependência caiu por medição e não
 > por corte de escopo, e o `01-02` e o `01-03` passam a correr em paralelo na onda 2.
+>
+> **E o `01-05` nasceu de um corte, não de escopo novo.** Ele era a Tarefa 4 do `01-03` — quatro
+> tarefas e 148k, violando a regra de 2-3 tarefas por plano. O cortador já morava em módulo,
+> `.bat` e arquivo de teste próprios, e **não divide um único arquivo com o `01-03`**: ele saiu
+> com a mesma dependência (`01-01`) e ficou na **mesma onda 2**. Nenhuma onda mudou; o `01-03`
+> voltou para três tarefas e 104k. A onda 2 corre `01-02`, `01-03` e `01-05` em paralelo.
 
 ---
 
