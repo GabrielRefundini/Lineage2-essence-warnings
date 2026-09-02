@@ -1,11 +1,18 @@
 """A peneira de forma da barra: `renda_leitura._glifos_do_numero`.
 
-Este arquivo e INTEIRAMENTE SINTETICO de proposito, e a razao nao e comodidade:
-os vetores de corrida que ele monta a mao sao os que a medicao de campo produziu
-(M-J, M-K, M-L, M-N, M-O), e monta-los aqui e o que permite afirmar cada regra
-da peneira ISOLADA — sem OCR, sem disco, sem `recordings/`. Uma peneira testada
-so contra o frame inteiro fica verde por acidente: o frame certo passa por
-qualquer peneira que nao recuse nada.
+Ele e SINTETICO em quase tudo, e a razao nao e comodidade: os vetores de corrida
+que ele monta a mao sao os que a medicao de campo produziu (M-J, M-K, M-L, M-N,
+M-O), e monta-los aqui e o que permite afirmar cada regra da peneira ISOLADA —
+sem OCR e sem `recordings/`. Uma peneira testada so contra o frame inteiro fica
+verde por acidente: o frame certo passa por qualquer peneira que nao recuse
+nada.
+
+A EXCECAO, NO FIM DO ARQUIVO, LE AS FIXTURAS VERSIONADAS DE CAMPO — e ela e
+deliberada. Os numeros da GEOMETRIA desta fonte nao podem sair de um bloco que
+o proprio teste desenhou: isso seria afirmar a propria suposicao. Eles saem de
+pixel de jogo, das quatro imagens que o `01-01` resgatou para
+`tests/fixtures/renda/` e que vem em qualquer clone. Nao e `recordings/`, que e
+gitignored (precedente literal: `tests/test_mercado_glifos.py:4-8`).
 
 A CONVENCAO DE LARGURA E DECLARADA, E ELA JA CUSTOU UMA REFUTACAO A ESTA FASE
 =============================================================================
@@ -28,16 +35,29 @@ os traduziu medindo com `segmentar_glifos_no_brilho` nas quatro fixturas.
 O CASO QUE ESTE ARQUIVO EXISTE PARA PRENDER
 ===========================================
 `test_a_faixa_e_MEDIDA_DEPOIS_do_descarte...` e o M-K virado teste. O M-I mediu
-altura **17** para a fonte da barra sobre um recorte que continha os icones de
-moeda, porque `segmentar_glifos` devolve UMA faixa para o retangulo inteiro. A
-fonte tem altura **10**. Sem este caso a correcao do M-K seria uma frase no
+a altura da fonte da barra sobre um recorte que continha os icones de moeda,
+porque `segmentar_glifos` devolve UMA faixa para o retangulo inteiro, e o icone
+empurrou o topo e a base. Sem este caso a correcao do M-K seria uma frase no
 plano em vez de um comportamento no codigo — e uma guarda de altura escrita
-contra 17 recusaria todo molde legitimo desta barra, produzindo um cortador que
-roda, sai com codigo 0 e nunca corta nada.
+contra a altura contaminada recusaria todo molde legitimo desta barra,
+produzindo um cortador que roda, sai com codigo 0 e nunca corta nada.
+
+E OS NUMEROS DO PROPRIO M-K CAIRAM UM PIXEL, MEDIDO AQUI. Ele publicou faixa
+bruta 17 e fonte 10; nesta convencao — a de `faixa[1] - faixa[0]`, que e a mesma
+em que a guarda do cortador compara — as quatro fixturas de campo dao, nos tres
+pisos da banda de glifo, **16 e 9**, invariavel nas doze medicoes. E o mesmo
+pixel de convencao que o M-P ja tinha achado nas LARGURAS, agora na ALTURA. Os
+casos sinteticos continuam com 17 e 10 porque o que eles afirmam e o
+COMPORTAMENTO (a faixa encolhe do icone para a fonte); quem afirma o VALOR e o
+bloco de campo no fim do arquivo.
 """
 
 from __future__ import annotations
 
+import ast
+import pathlib
+
+import cv2
 import numpy as np
 import pytest
 
@@ -321,8 +341,14 @@ def test_recorte_sem_corrida_nenhuma_recusa_e_nao_levanta():
 # ---------------------------------------------------------------------------
 
 
-def test_a_faixa_e_MEDIDA_DEPOIS_do_descarte_e_a_altura_da_fonte_e_10_e_nao_17():
+def test_a_faixa_e_MEDIDA_DEPOIS_do_descarte_e_encolhe_do_ICONE_para_a_FONTE():
     """M-K, e este e o caso que prova que a correcao entrou no CODIGO.
+
+    Os numeros deste caso sao SINTETICOS: os blocos foram desenhados com icone
+    de 17 linhas e digito de 10, que sao os numeros que o M-K publicou. O que o
+    caso afirma nao e o valor — e o COMPORTAMENTO: a faixa que sai e a do miolo,
+    e nao a do retangulo inteiro. Os valores reais desta fonte, medidos sobre as
+    fixturas de campo, estao no ultimo teste deste arquivo, e sao 16 e 9.
 
     O M-I mediu `faixa=(9, 25)` — altura **17** — sobre um recorte da adena que
     incluia os icones de moeda das duas pontas. `segmentar_glifos` devolve UMA
@@ -455,9 +481,6 @@ def test_o_modulo_puro_nao_importa_nenhum_calibrador():
     """Se `renda_leitura` importasse um `calibrar_*`, um modulo de producao
     pagaria `tornar_consciente_de_dpi()` e as janelas do OpenCV so por existir.
     """
-    import ast
-    import pathlib
-
     import l2scanner.renda_leitura as modulo
 
     arvore = ast.parse(pathlib.Path(modulo.__file__).read_text(encoding="utf-8"))
@@ -475,9 +498,6 @@ def test_existe_UMA_peneira_de_forma_nesta_fase():
     e lidos de outro, e o desalinhamento apareceria como pontuacao baixa que
     alguem consertaria baixando o piso de leitura — trocando um defeito visivel
     por um invisivel."""
-    import ast
-    import pathlib
-
     import l2scanner.renda_leitura as modulo
 
     arvore = ast.parse(pathlib.Path(modulo.__file__).read_text(encoding="utf-8"))
@@ -487,3 +507,111 @@ def test_existe_UMA_peneira_de_forma_nesta_fase():
         if isinstance(no, ast.FunctionDef) and no.name == "_glifos_do_numero"
     ]
     assert definicoes == ["_glifos_do_numero"]
+
+
+# ---------------------------------------------------------------------------
+# A GEOMETRIA REAL DESTA FONTE, sobre as fixturas VERSIONADAS
+# ---------------------------------------------------------------------------
+#
+# ESTE E O UNICO CASO DESTE ARQUIVO QUE TOCA O DISCO, E A EXCECAO E DELIBERADA.
+# Todo o resto e sintetico porque so o sintetico consegue isolar UMA regra por
+# vez. Mas os numeros da fonte — os que a guarda de altura do cortador vai
+# comparar em campo — nao podem sair de um bloco que eu mesmo desenhei: isso
+# seria afirmar a minha propria suposicao. Eles saem de PIXEL DE JOGO.
+#
+# As quatro imagens sao as fixturas VERSIONADAS de `tests/fixtures/renda/`,
+# resgatadas pelo `01-01` e presentes em qualquer clone. NAO e `recordings/`,
+# que e gitignored e ficaria verde nesta maquina e amarelo em toda outra
+# (`tests/test_mercado_glifos.py:4-8` e o precedente literal: fixtura
+# versionada, sim; gravacao, nunca).
+#
+# E ELE EXISTE PORQUE UM NUMERO CAIU AQUI. O M-K publicou faixa bruta 17 e fonte
+# 10; medido nesta convencao — a mesma em que `faixa[1] - faixa[0]` e a mesma em
+# que a guarda compara — sao 16 e 9. E o mesmo pixel de diferenca que o M-P ja
+# tinha achado nas LARGURAS, agora na ALTURA. Sem este teste, a correcao seria
+# prosa numa docstring, que e exatamente como o 17 sobreviveu a uma revisao
+# inteira.
+
+
+FIXTURAS_DA_ADENA = sorted(
+    pathlib.Path("tests/fixtures/renda").glob("*__barra_direita.png")
+)
+PISOS_DA_BANDA_DE_GLIFO = (180, 185, 190)
+
+
+def test_ha_fixturas_de_campo_versionadas_para_medir():
+    """O controle do caso abaixo: um `glob` vazio faria o laco nao rodar nenhuma
+    asserção e o teste passar sem medir nada — o resultado mais tranquilizador
+    possivel para a medicao que nao aconteceu."""
+    assert len(FIXTURAS_DA_ADENA) >= 4
+
+
+def test_a_geometria_MEDIDA_desta_fonte_e_faixa_bruta_16_e_peneirada_9():
+    medidas = set()
+    for arquivo in FIXTURAS_DA_ADENA:
+        pixels = cv2.imread(str(arquivo))
+        assert pixels is not None, arquivo
+        for piso in PISOS_DA_BANDA_DE_GLIFO:
+            mascara = mascara_de_numero(pixels, piso)
+            faixa_bruta, runs = segmentar_glifos_no_brilho(pixels, piso)
+            # O limite de arranque da primeira rodada: a maior largura que NAO
+            # esta numa ponta. Ele nao e uma constante — sai das proprias
+            # corridas daquele recorte.
+            limite = max(b - a for a, b in runs[1:-1])
+            peneirado = _glifos_do_numero(mascara, faixa_bruta, runs, limite=limite)
+            assert isinstance(peneirado, GlifosDoNumero), (arquivo.name, piso)
+            medidas.add(
+                (
+                    faixa_bruta[1] - faixa_bruta[0],
+                    peneirado.faixa[1] - peneirado.faixa[0],
+                )
+            )
+
+    # INVARIAVEL nas doze medicoes: a faixa bruta carrega o icone, a peneirada
+    # carrega a fonte. Os numeros 17 e 10 do M-K sao os MESMOS pixels contados
+    # de forma inclusiva (M-P, agora tambem para a altura).
+    assert medidas == {(16, 9)}
+
+
+def test_a_contagem_do_meio_bate_com_a_VERDADE_DE_CAMPO_caractere_a_caractere():
+    """A prova de que a peneira nao esta apenas devolvendo alguma coisa.
+
+    A verdade de campo esta no M-O, e ela foi lida na tela por um humano:
+
+        campo_faerlina_f000        13.160.684   -> 10 caracteres
+        campo_yazalaque_f001        1.696.020   ->  9
+        segundo_cenario_faerlina   15.134.779   -> 10
+    """
+    verdade = {
+        "campo_faerlina_f000__barra_direita.png": 10,
+        "campo_yazalaque_f001__barra_direita.png": 9,
+        "segundo_cenario_faerlina__barra_direita.png": 10,
+        "segundo_cenario_yazalaque__barra_direita.png": 9,
+    }
+    for arquivo in FIXTURAS_DA_ADENA:
+        esperado = verdade.get(arquivo.name)
+        if esperado is None:
+            continue
+        pixels = cv2.imread(str(arquivo))
+        for piso in PISOS_DA_BANDA_DE_GLIFO:
+            mascara = mascara_de_numero(pixels, piso)
+            faixa, runs = segmentar_glifos_no_brilho(pixels, piso)
+            limite = max(b - a for a, b in runs[1:-1])
+            peneirado = _glifos_do_numero(mascara, faixa, runs, limite=limite)
+            assert len(peneirado.runs) == esperado, (arquivo.name, piso)
+
+
+def test_o_digito_desta_fonte_NAO_tem_uma_largura_so_EM_CAMPO():
+    """O `4`, o `7` e o `9` saem mais largos. Uma peneira que exigisse UMA
+    largura recusaria `15,134,779` inteiro (01-01-SUMMARY, desvio 2)."""
+    larguras = set()
+    for arquivo in FIXTURAS_DA_ADENA:
+        pixels = cv2.imread(str(arquivo))
+        for piso in PISOS_DA_BANDA_DE_GLIFO:
+            mascara = mascara_de_numero(pixels, piso)
+            faixa, runs = segmentar_glifos_no_brilho(pixels, piso)
+            limite = max(b - a for a, b in runs[1:-1])
+            peneirado = _glifos_do_numero(mascara, faixa, runs, limite=limite)
+            larguras |= {b - a for a, b in peneirado.runs}
+
+    assert larguras == {1, 4, 5, 6}, larguras

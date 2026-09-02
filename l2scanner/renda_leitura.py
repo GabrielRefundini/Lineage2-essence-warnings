@@ -556,6 +556,27 @@ def _glifos_do_numero(
     17 recusaria TODO molde legitimo desta barra, e o modo de falha seria um
     cortador que roda, sai com codigo 0 e nunca corta nada.
 
+    E OS DOIS NUMEROS DO M-K TAMBEM ESTAO NA CONVENCAO INCLUSIVA -- MEDIDO AQUI,
+    E ESTA E A TERCEIRA VEZ QUE UM PIXEL DE CONVENCAO MORDE ESTA FASE. O M-P
+    pegou a divergencia nas LARGURAS de run; ela vale igual para a ALTURA da
+    faixa. Reconferido sobre as QUATRO fixturas versionadas de campo
+    (`tests/fixtures/renda/*__barra_direita.png`), nos pisos 180, 185 e 190, com
+    esta funcao e com `segmentar_glifos_no_brilho`:
+
+        faixa bruta      (com os icones dentro)  -> 16, invariavel nas 12 medicoes
+        faixa peneirada  (depois do descarte)    ->  9, invariavel nas 12 medicoes
+
+    Sao os MESMOS pixels que o M-K chamou de 17 e 10. `faixa[1] - faixa[0]` da
+    16 e 9; contados de forma inclusiva, 17 e 10. O comportamento medido do
+    descarte -- a faixa encolhendo do icone para a fonte -- e exatamente o que o
+    M-K descreve, e e ele que importa.
+
+    NADA AQUI DEPENDE DO VALOR, E ESSE E O PONTO. Esta funcao nao compara altura
+    com numero nenhum: ela RECOMPUTA e devolve. Quem compara e a guarda do
+    cortador, e ela compara contra a altura DOMINANTE dos moldes ja gravados.
+    Por isso a correcao custou uma docstring e nao uma reescrita -- e por isso
+    ela e escrita em vez de o numero ser trocado em silencio.
+
     A GUARDA DO RUN ANORMALMENTE LARGO, E ELA E MEDIDA E NAO IMAGINADA. Um run
     que caberia `SIMBOLOS_POR_RUN_ANORMAL` glifos de largura maxima e recusado
     com a largura NOMEADA, e nunca fatiado. A aritmetica e o argumento inteiro:

@@ -542,11 +542,25 @@ def test_a_fixtura_de_moldes_NAO_e_produzida_por_codigo():
     Uma fixtura que aparecesse por codigo de teste seria a falha aberta do
     LEIT-09 entrando pela suite.
 
-    Este teste vira o seu proprio contrario no dia em que a rodada humana
-    acontecer, e ai ele deve ser SUBSTITUIDO pelas asserções do `01-04` sobre a
-    fixtura real — nao apagado.
+    A asserção e sobre o CODIGO e nao sobre o disco, de proposito: um teste que
+    afirmasse "o arquivo nao existe" viraria vermelho no dia em que a rodada
+    humana acontecesse — punindo o sucesso. O que precisa continuar verdade para
+    sempre e que **nenhuma linha de codigo escreve aquele arquivo**: se ele
+    existir, so pode ter vindo de um humano confirmando rotulo a rotulo.
+
+    (O criterio complementar — o arquivo AINDA nao existe ao fim da Tarefa 2 —
+    e conferido por `ls` na verificacao do plano, e nao aqui.)
     """
     fonte = pathlib.Path(cortador.__file__).read_text(encoding="utf-8")
     assert "moldes_da_barra.json" not in fonte
-    meu = pathlib.Path(__file__).read_text(encoding="utf-8")
-    assert "fixtures/renda/moldes" not in meu
+
+    meu = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"))
+    escritas = [
+        no
+        for no in ast.walk(meu)
+        if isinstance(no, ast.Attribute) and no.attr in ("write_text", "write_bytes")
+    ]
+    # A unica escrita desta suite e a do `calibration.json` semeado em
+    # `tmp_path`, dentro de `_semear`. Qualquer segunda escrita precisa ser
+    # olhada por um humano antes de entrar.
+    assert len(escritas) == 1
