@@ -427,3 +427,15 @@ O portao continua sendo a coisa certa a ter na varredura — ele fecha por const
 que estava aberta, e o custo e uma chamada por frame. Mas o merito do salto e de outro numero:
 o fechamento no limite derivado subiu de 0,6525 para 0,9377, e disso quase tudo e a regua,
 nao o filtro.
+
+## A suite na arvore principal, com os skips explicados
+
+`python -m pytest -q --ignore=tests/test_agenda.py` no tronco ja mesclado:
+**4865 passed, 29 skipped em 357,41 s**, saida 0.
+
+Os 29 skips foram abertos e conferidos um a um, e NENHUM e desta tarefa: **27 deles estao todos
+em `tests/test_renda_tracer.py`** — arquivo do workstream `renda`, de outro agente — e pulam
+com a mesma mensagem, *"Este Python nao tem as bindings de OCR do Windows"*: eles precisam do
+`.venv`, e o pytest do projeto roda no python GLOBAL. A propria mensagem de skip ensina como
+rodar (`PYTHONPATH=".;<repo>/.venv/Lib/site-packages"`). Os **2** restantes sao exatamente a
+linha de base historica do repositorio.
