@@ -181,6 +181,8 @@
 | LEIT-04 | Phase 1 | Pendente |
 | LEIT-05 | Phase 1 | Pendente |
 | LEIT-06 | Phase 1 | Pendente |
+| LEIT-07 | Phase 1 | Pendente |
+| LEIT-08 | Phase 1 | Pendente |
 | REND-01 | Phase 2 | Pendente |
 | REND-02 | Phase 2 | Pendente |
 | REND-03 | Phase 2 | Pendente |
@@ -196,8 +198,22 @@
 | CEGO-01 | Phase 3 | Pendente |
 | CEGO-02 | Phase 3 | Pendente |
 
-**Cobertura:** 18 requisitos v1 (17 originais + REG-04), 18 mapeados, 0 sem fase, 0 em duas
-fases.
+**Cobertura:** 20 requisitos v1 (17 originais + REG-04 + LEIT-07 + LEIT-08), 20 mapeados, 0 sem
+fase, 0 em duas fases.
+
+**Dono de cada requisito da Fase 1, depois da revisão de 2026-09-02 contra
+`01-MEDICOES-DE-CAMPO.md`** — nenhum requisito fica sem plano:
+
+| Requisito | Plano(s) que o fecham |
+|---|---|
+| LEIT-01 — o nível | `01-04` (o leitor), com o retângulo e o piso vindos do `01-03` |
+| LEIT-02 — o EXP com quatro casas | `01-01` |
+| LEIT-03 — a adena | `01-04` (e a premissa "o cru já lê" está refutada por LEIT-08) |
+| LEIT-04 — leitura duvidosa vira recusa | `01-01` (gramática, cruzamento, recorte), `01-02` (a taxa de discordância com denominador), `01-04` (as três regras de par) |
+| LEIT-05 — tudo no `calibration.json` | `01-01` (o esquema), `01-03` (o escritor) |
+| LEIT-06 — o calibrador | `01-03` |
+| LEIT-07 — calibração por personagem | `01-01` (o esquema e a proibição de queda), `01-03` (o calibrador por personagem), `01-04` (a leitura por personagem) |
+| LEIT-08 — um piso por região, e a adena exige máscara | `01-01` (o esquema com três pisos), `01-03` (a banda por região e a largura como aviso), `01-04` (a máscara obrigatória na adena) |
 
 ## Premissas assumidas (usuário dormindo)
 

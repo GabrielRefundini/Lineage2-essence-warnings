@@ -70,7 +70,16 @@ por um calibrador da mesma família dos dois que já existem.
 (`ocr.py`, `mercado_leitura.py`, `calibracao.py`, `captura_janela.py`) já está no repositório e
 verificado em campo.
 
-**Requirements**: LEIT-01, LEIT-02, LEIT-03, LEIT-04, LEIT-05, LEIT-06
+**Requirements**: LEIT-01, LEIT-02, LEIT-03, LEIT-04, LEIT-05, LEIT-06, LEIT-07, LEIT-08
+
+> **LEIT-07 e LEIT-08 foram acrescentados em 2026-09-02**, depois de os quatro planos desta fase
+> já estarem escritos, a partir de `phases/01-a-leitura-da-barra-pixel-vira-n-mero-ou-recusa/01-MEDICOES-DE-CAMPO.md`
+> — a primeira medição feita com as **duas instâncias vivas**. Eles não ampliam escopo: eles
+> corrigem dois pressupostos que estavam errados. A calibração é **por personagem** (a janela de
+> status da Faerlina põe o nível 14 px acima da da Yazalaque, e o retângulo errado devolve um
+> número plausível em vez de um campo vazio), e **não existe piso de brilho único** (a banda útil
+> do nível e a da adena não têm interseção) — além de a adena **exigir** máscara, o que refuta a
+> premissa do LEIT-03 no caso geral.
 
 **O que o spike já entregou, e que esta fase NÃO precisa redescobrir** (`.planning/spikes/renda-barra-inferior.md`, medido na tela do usuário em 2026-09-01):
 
@@ -138,13 +147,21 @@ não constante do produto.** Mover a janela não pode custar um commit — é a 
 
 - [ ] `01-01-PLAN.md` — o traçador: de um PNG resgatado ao EXP com quatro casas, atravessando
       calibração, recorte com guarda, máscara, duas escalas e recusa nomeada (onda 1)
-- [ ] `01-02-PLAN.md` — a bancada de medição: as bandas úteis de piso por região, o censo de
-      discordância e a caça ao nível, com procedência (onda 2)
-- [ ] `01-03-PLAN.md` — o calibrador `calibrar-renda.bat`, a não-destruição provada, o critério 4
-      como teste executável e a ida e volta da janela movida (onda 3)
-- [ ] `01-04-PLAN.md` — a adena e o nível no comando de leitura única, os três campos impressos
-      na grafia do jogo, e as recusas que só existem sobre um par: EXP para trás sem mudança de
-      nível e adena saltando ordem de grandeza (onda 4)
+- [ ] `01-02-PLAN.md` — a bancada de medição, **encolhida em 2026-09-02**: cinco das seis
+      perguntas foram respondidas em campo e ficam citadas; sobram o censo dos quatro desfechos
+      com denominador e a varredura de piso reproduzível por comando (onda 2)
+- [ ] `01-03-PLAN.md` — o calibrador `calibrar-renda.bat` **por personagem**, a não-destruição
+      provada (inclusive a do personagem vizinho), a largura da banda como aviso, o critério 4
+      como teste executável e a ida e volta da janela movida (onda 2)
+- [ ] `01-04-PLAN.md` — a adena (sob máscara obrigatória) e o nível no comando de leitura única,
+      os três campos impressos na grafia do jogo para um personagem nomeado, e as recusas que só
+      existem sobre um par: EXP para trás sem mudança de nível e adena saltando ordem de
+      grandeza (onda 3)
+
+> **Ondas revistas em 2026-09-02.** Eram quatro; são três. O `01-03` dependia do `01-02` para
+> conhecer as bandas úteis de piso por região — e elas foram medidas em campo antes, nas duas
+> instâncias, e estão escritas em `01-MEDICOES-DE-CAMPO.md`. A dependência caiu por medição e não
+> por corte de escopo, e o `01-02` e o `01-03` passam a correr em paralelo na onda 2.
 
 ---
 
@@ -272,6 +289,14 @@ portas para o mesmo arquivo é como um arquivo passa a ter duas verdades.
   login pelo título da janela; `captura_janela.py` já captura por janela e funciona com o jogo
   **coberto**. Foram **quatro rodadas de correção** no v1 para chegar até aqui. Uma segunda
   implementação de cegueira neste repositório é um passivo, não uma feature.
+- **"Funciona com o jogo coberto" deixou de ser afirmação e virou medição, em 2026-09-02.** A
+  medição de campo da Fase 1 (`phases/01-a-leitura-da-barra-pixel-vira-n-mero-ou-recusa/01-MEDICOES-DE-CAMPO.md`)
+  foi feita inteira com o jogo **atrás do navegador**, nas duas instâncias: o `mss` devolvia a
+  tela do browser e o OCR devolvia vazio nas três regiões, e a `JanelaSource` (Windows Graphics
+  Capture) leu as duas janelas normalmente. É a **primeira confirmação em campo nesta árvore** de
+  que a captura por janela lê o jogo ocluído, e ela vale exatamente para esta fase: CEGO-01 pode
+  afirmar, com medição, que "coberto por outra janela" **não** é cegueira. O que continua fora de
+  alcance é **minimizado**, que para de renderizar — e é por isso que o item abaixo não muda.
 - **CEGO-02 tem um caso que o congelamento de frame não pega, e é o mais provável.** O jogo pode
   estar renderizando normalmente — o frame muda, nuvem passa, personagem respira — e mesmo assim
   o EXP e a adena não se moverem, porque o usuário está de fato parado. `SaudeDoFrame` diria
