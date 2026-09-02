@@ -19,17 +19,28 @@ parametrizacao: um nome que cita `1_0` e o que faz alguem parar antes de
 
 from __future__ import annotations
 
+import json
+import logging
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
 from l2scanner.dashboard_cambio import (
+    ARQUIVO_DO_CAMBIO,
     MENSAGEM_DE_CAMBIO_INVALIDO,
     MOLDE_DO_CAMBIO,
+    SUFIXO_TEMPORARIO,
+    Cambio,
     CambioInvalido,
+    HistoricoDoCambioIlegivel,
     _apenas_o_valor,
+    gravar_o_cambio,
     interpretar_o_cambio,
+    ler_o_cambio,
 )
+
+AGORA = datetime(2026, 9, 1, 14, 32, 10, 123456)
 
 # ===========================================================================
 # A TABELA MEDIDA DA PESQUISA (01-RESEARCH.md, Pitfall 5), REMEDIDA AQUI
@@ -177,3 +188,134 @@ class TestOControleNegativoDaSegundaCamada:
         sem_a_flag = re.compile(MOLDE_DO_CAMBIO.pattern)
         assert sem_a_flag.fullmatch("٥") is not None
         assert MOLDE_DO_CAMBIO.fullmatch("٥") is None
+
+
+def _temporarios(pasta) -> list[str]:
+    """Os arquivos de trabalho que sobraram na pasta. Tem que ser sempre zero."""
+    return [f.name for f in pasta.iterdir() if SUFIXO_TEMPORARIO in f.name]
+
+
+class TestAPersistenciaCarimbada:
+    """`.mercado/cambio.json`: uma lista que SO CRESCE, escrita atomicamente.
+
+    A estrutura e uma lista e nao um valor unico DE PROPOSITO, e o custo disso e
+    uma linha. Cada alteracao fica com carimbo, a ultima e a vigente, e nada e
+    apagado — que e o que a linha de "confirmacao destrutiva" do UI-SPEC afirma
+    por extenso para esta fase. E e exatamente a forma que a coleta automatica
+    do cambio pelo listener dos grupos de venda vai preencher quando existir.
+    """
+
+    def test_gravar_num_diretorio_SEM_o_arquivo_cria_com_UM_registro(self, tmp_path):
+        gravado = gravar_o_cambio(tmp_path, "0,50", AGORA)
+
+        assert gravado == Cambio(reais_por_xm=Decimal("0.50"), informado_em=AGORA)
+        registros = json.loads((tmp_path / ARQUIVO_DO_CAMBIO).read_text("utf-8"))
+        assert len(registros) == 1
+
+    def test_gravar_de_novo_APENDA_e_o_PRIMEIRO_continua_no_arquivo(self, tmp_path):
+        gravar_o_cambio(tmp_path, "0,50", AGORA)
+        gravar_o_cambio(tmp_path, "0,60", AGORA + timedelta(hours=3))
+
+        registros = json.loads((tmp_path / ARQUIVO_DO_CAMBIO).read_text("utf-8"))
+        assert len(registros) == 2, "o segundo cambio SOBRESCREVEU o primeiro"
+        assert ler_o_cambio(tmp_path).reais_por_xm == Decimal("0.60")
+
+    def test_cada_registro_carrega_o_valor_e_o_carimbo_em_ISO(self, tmp_path):
+        gravar_o_cambio(tmp_path, "0,50", AGORA)
+
+        registro = json.loads((tmp_path / ARQUIVO_DO_CAMBIO).read_text("utf-8"))[0]
+        # O valor viaja como STRING: JSON nao tem Decimal, e um `float` aqui
+        # reintroduziria o erro de representacao que o Decimal existe para tirar.
+        assert registro["reais_por_xm"] == "0.50"
+        assert isinstance(registro["reais_por_xm"], str)
+        assert datetime.fromisoformat(registro["informado_em"]) == AGORA
+
+    def test_ler_de_uma_pasta_SEM_o_arquivo_devolve_NULO_e_NAO_cria_o_arquivo(
+        self, tmp_path
+    ):
+        assert ler_o_cambio(tmp_path) is None
+        assert not (tmp_path / ARQUIVO_DO_CAMBIO).exists()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_uma_lista_VAZIA_devolve_NULO_sem_chutar_valor_nenhum(self, tmp_path):
+        (tmp_path / ARQUIVO_DO_CAMBIO).write_text("[]", encoding="utf-8")
+        assert ler_o_cambio(tmp_path) is None
+
+    def test_JSON_corrompido_devolve_NULO_avisa_e_NAO_apaga_o_arquivo(
+        self, tmp_path, caplog
+    ):
+        arquivo = tmp_path / ARQUIVO_DO_CAMBIO
+        estragado = '[{"reais_por_xm": "0.5'
+        arquivo.write_text(estragado, encoding="utf-8")
+
+        with caplog.at_level(logging.WARNING, logger="l2scanner.dashboard_cambio"):
+            assert ler_o_cambio(tmp_path) is None
+
+        assert caplog.records, "a leitura calou sobre um arquivo corrompido"
+        assert ARQUIVO_DO_CAMBIO in caplog.text
+        # O arquivo e do USUARIO. Ninguem o apaga, ninguem o conserta sozinho.
+        assert arquivo.read_text("utf-8") == estragado
+
+    def test_um_valor_ILEGAL_editado_a_MAO_no_arquivo_devolve_NULO(
+        self, tmp_path, caplog
+    ):
+        # T-01-13: o arquivo e texto na pasta do usuario. `1e3` posto ali a mao
+        # atravessa `json.loads` sem esforco; quem tem de para-lo e o MESMO
+        # portao que para o campo do formulario.
+        (tmp_path / ARQUIVO_DO_CAMBIO).write_text(
+            json.dumps([{"reais_por_xm": "1e3", "informado_em": AGORA.isoformat()}]),
+            encoding="utf-8",
+        )
+
+        with caplog.at_level(logging.WARNING, logger="l2scanner.dashboard_cambio"):
+            assert ler_o_cambio(tmp_path) is None
+        assert caplog.records
+
+    def test_duzentas_gravacoes_nao_deixam_UM_temporario_para_tras(self, tmp_path):
+        for numero in range(200):
+            gravar_o_cambio(tmp_path, "0,50", AGORA + timedelta(seconds=numero))
+
+        assert _temporarios(tmp_path) == []
+        registros = json.loads((tmp_path / ARQUIVO_DO_CAMBIO).read_text("utf-8"))
+        assert len(registros) == 200
+
+    def test_gravar_sobre_um_destino_que_JA_EXISTE_deixa_o_arquivo_INTEIRO(
+        self, tmp_path
+    ):
+        for numero in range(5):
+            gravar_o_cambio(tmp_path, "0,50", AGORA + timedelta(seconds=numero))
+        gravar_o_cambio(tmp_path, "0,75", AGORA + timedelta(minutes=1))
+
+        # Se o `os.replace` deixasse um arquivo pela metade, isto levantaria.
+        registros = json.loads((tmp_path / ARQUIVO_DO_CAMBIO).read_text("utf-8"))
+        assert len(registros) == 6
+        assert registros[-1]["reais_por_xm"] == "0.75"
+        assert _temporarios(tmp_path) == []
+
+    def test_um_texto_RECUSADO_nao_cria_nem_toca_o_arquivo(self, tmp_path):
+        # A falha fechada do lado da ESCRITA: o cambio anterior continua
+        # valendo porque o arquivo dele nao foi encostado.
+        gravar_o_cambio(tmp_path, "0,50", AGORA)
+        antes = (tmp_path / ARQUIVO_DO_CAMBIO).read_bytes()
+
+        with pytest.raises(CambioInvalido):
+            gravar_o_cambio(tmp_path, "1_0", AGORA + timedelta(hours=1))
+
+        assert (tmp_path / ARQUIVO_DO_CAMBIO).read_bytes() == antes
+        assert ler_o_cambio(tmp_path).reais_por_xm == Decimal("0.50")
+        assert _temporarios(tmp_path) == []
+
+    def test_gravar_sobre_um_historico_ILEGIVEL_RECUSA_em_vez_de_APAGAR(
+        self, tmp_path
+    ):
+        arquivo = tmp_path / ARQUIVO_DO_CAMBIO
+        estragado = "{ isto nao e a lista que este programa escreve"
+        arquivo.write_text(estragado, encoding="utf-8")
+
+        with pytest.raises(HistoricoDoCambioIlegivel):
+            gravar_o_cambio(tmp_path, "0,50", AGORA)
+
+        # Gravar por cima teria APAGADO o historico do usuario em silencio, que
+        # e a unica acao destrutiva possivel nesta fase.
+        assert arquivo.read_text("utf-8") == estragado
+        assert _temporarios(tmp_path) == []
