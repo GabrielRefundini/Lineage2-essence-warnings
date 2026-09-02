@@ -39,8 +39,15 @@
       Adena na tela; a generalidade é provada em teste.
 
 - [ ] **DASH-06**: O dashboard sobe por **lançador próprio** (`dashboard.bat`), em processo
-      separado. O caminho do `--mercado` fica **byte-idêntico** — nenhuma linha do modo mercado
-      muda por causa desta fase —, e derrubar o dashboard não derruba a coleta da noite.
+      separado, e derrubar o dashboard não derruba a coleta da noite. O comportamento do
+      `--mercado` fica **idêntico**, com **uma exceção nomeada e aprovada pelo usuário em
+      2026-09-01**: `mercado_catalogo.py` troca `from .config import RAIZ` por um módulo folha
+      `l2scanner/raiz.py`. A redação anterior dizia "byte-idêntico" e foi corrigida quando a
+      pesquisa mediu o preço de mantê-la: sem esse corte, o dashboard carrega **280 módulos,
+      44 MB e ~300 ms** de OpenCV e numpy que nunca usa — `config` era importado ali **só** por
+      essa constante. Com o corte: **52 módulos, 17 MB, ~50 ms, zero pesado**, e `RAIZ ==
+      raiz.RAIZ` verificado. A promessa que sobrevive é a que importa: **nenhuma mudança de
+      comportamento no caminho da coleta**.
 
 ## Restrições herdadas — valem no workstream inteiro
 

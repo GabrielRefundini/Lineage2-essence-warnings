@@ -90,6 +90,29 @@ rede ou pelo celular; coleta automática do câmbio XM→BRL (é seed, não é e
   que a casa já faz com o OCR real e o congelamento de captura. Playwright foi recusado:
   instalador pesado, contra a doutrina.
 
+### As três decisões que a pesquisa devolveu ao usuário (2026-09-01, depois do 01-RESEARCH.md)
+
+- **O ponto do gráfico continua sendo UM INSTANTE DE LEITURA, como combinado na área 2.** O
+  usuário foi confrontado com a medição — 92 linhas, só 13 instantes distintos, a maior série
+  com 2 instantes, e `N_MINIMO_PARA_MEDIANA = 5` — e **manteve a decisão literal**, recusando o
+  cumulativo. Consequência aceita e que a tela tem de dizer em voz alta: **a linha da mediana
+  fica ausente na maior parte do gráfico**, e onde ela falta aparece a frase de piso vinda do
+  Python, nunca um número. Isso não é um defeito do gráfico — é a linha `partial` das
+  `## UI Considerations` fazendo exatamente o trabalho para o qual foi escrita.
+
+- **O corte do RAIZ está AUTORIZADO.** Nasce `l2scanner/raiz.py` (folha, sem imports do
+  pacote) e `mercado_catalogo.py` passa a importar dali. É a única linha do mercado que esta
+  fase toca, e o DASH-06 foi reescrito para dizer "comportamento idêntico" em vez de
+  "byte-idêntico", com o preço da alternativa medido no próprio requisito.
+
+- **A biblioteca é uPlot, com o zoom escrito por nós.** A medição derrubou a suposição do
+  UI-SPEC de que "toda biblioteca dessa classe faz wheel zoom por config": uPlot registra
+  **zero** listeners de `wheel`, dygraphs zero, e o repositório oficial do uPlot diz
+  textualmente que não há *drag scrolling/panning* embutido. Escolhido mesmo assim, porque é o
+  único dos três que passa o portão VEND-2 limpo (**zero** primitivas de rede no fonte;
+  dygraphs tem `XMLHttpRequest` duas vezes, lightweight-charts foi marcada SUS por *too-new*).
+  O wheel/drag vira ~30 linhas nossas pela API de hooks — código testável em vez de promessa.
+
 ### Claude's Discretion
 
 - Nome do módulo, nome do endpoint, porta escolhida, e qual biblioteca de gráfico exatamente
