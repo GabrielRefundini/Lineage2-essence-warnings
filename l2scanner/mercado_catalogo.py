@@ -92,7 +92,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
-from .config import RAIZ
+# DO MODULO FOLHA, e nao de `config`. Esta linha era `from .config import RAIZ`,
+# e ela sozinha arrastava `config -> notificador -> rastreador -> visao -> cv2`
+# para dentro de qualquer processo que tocasse o catalogo — por UMA constante. A
+# medicao inteira, e o que o corte NAO compra, estao na docstring de `raiz.py`.
+#
+# ESTE E O UNICO ARQUIVO DO WORKSTREAM `mercado` QUE A FASE DO DASHBOARD TOCA,
+# por decisao explicita do usuario em 2026-09-01 (CTX-2). E foi por causa desta
+# unica linha que o DASH-06 foi reescrito de "byte-identico" para "comportamento
+# identico": `config` continua RE-EXPORTANDO `RAIZ`, entao nenhum chamador
+# existente mudou, mas o byte deste arquivo mudou e o requisito passou a dizer a
+# verdade em vez de a frase mais forte.
+from .raiz import RAIZ
 
 log = logging.getLogger(__name__)
 
