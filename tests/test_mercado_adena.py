@@ -38,21 +38,30 @@ taxa `135,88` — plausivel e errada.
 
 O CRITERIO NAO E ESCOLHIDO, E REUSADO
 --------------------------------------
-`limite_derivado_do_cruzamento` ja existe (`mercado_leitura.py:1027`) com a
-derivacao escrita ao lado, e ela DISCRIMINA os dois casos dificeis conhecidos:
+`limite_derivado_do_cruzamento` ja existe com a derivacao escrita ao lado, e ela
+DISCRIMINA os dois casos dificeis conhecidos:
 
-    133,33 / 66,66  ->  n=2  residuo=1   limite=1,0  ->  ACEITA (por IGUALDADE)
-    13588  / 6750   ->  n=2  residuo=88  limite=1,0  ->  REJEITA
+    133,33 / 66,66  ->  n=2  residuo=1   limite=2,0  ->  ACEITA (com FOLGA)
+    13588  / 6750   ->  n=2  residuo=88  limite=2,0  ->  REJEITA
 
-O caso bom passa por IGUALDADE, e nao por folga. E por isso que a comparacao e
-`residuo <= limite`; com `<` o caso legitimo REPROVA e a Adena perde as ofertas
-de preco quebrado. `TestOSinalDaComparacao` prende os dois lados disso.
+O LIMITE DOBROU EM 2026-09-02 e esta tabela foi recomputada, nao reinterpretada:
+a tela TRUNCA `total / quantidade` em vez de arredondar, o que da um centesimo
+inteiro por unidade em vez de meio. Medido contra um gabarito de dez linhas
+declarado por escrito ANTES da leitura, com quatro linhas discriminantes
+truncando as quatro.
+
+A DISCRIMINACAO SOBREVIVEU A DOBRA, e e isso que sustenta a fase: 1 contra 2,0
+cabe, 88 contra 2,0 estoura por duas ordens de grandeza. O que NAO sobreviveu
+foi o caso bom ser a testemunha do sinal `<=`: ele passava por IGUALDADE contra
+o limite 1,0 e agora passa com folga contra 2,0. Quem prende o sinal e
+`TestOSinalDaComparacao`, que INJETA o limite e nao depende da constante.
 """
 
 from __future__ import annotations
 
 import inspect
 import logging
+import math
 from pathlib import Path
 
 import cv2
@@ -211,13 +220,26 @@ def chamar_ler_linha_da_adena(
 
 
 class TestOsDoisCasosDificeis:
-    """O par que da valor um ao outro: eles discriminam em sentidos OPOSTOS."""
+    """O par que da valor um ao outro: eles discriminam em sentidos OPOSTOS.
+
+    ESTA CLASSE TINHA UM SEGUNDO PROPOSITO ATE 2026-09-02, E ELE MORREU: com o
+    limite derivado em meio centesimo por unidade o caso bom passava por
+    IGUALDADE (residuo 1 contra 1,0), e por isso ele testemunhava tambem o sinal
+    `<=`. O limite dobrou (a tela TRUNCA, medido em campo) e o caso bom passou a
+    passar com FOLGA (1 contra 2,0). A testemunha do sinal se mudou por inteiro
+    para `TestOSinalDaComparacao`, que injeta o limite e por isso nao depende do
+    valor da constante - onde essa propriedade devia ter morado desde sempre.
+
+    O QUE SOBREVIVEU, e e o que esta classe mede: a DISCRIMINACAO. 1 contra 2,0
+    cabe; 88 contra 2,0 estoura por duas ordens de grandeza.
+    """
 
     def test_aceita_o_arredondamento_de_133_33_por_66_66(self) -> None:
         """A captura do usuario de 2026-09-01, 17h: 10M de adena por 133,33 XM.
 
         `round(13333 / 6666) = 2`, e `|13333 - 2 x 6666| = 1` contra o limite
-        derivado `2 x 0,5 = 1,0`. PASSA RASPANDO: nao ha folga nenhuma aqui.
+        derivado `2 x 1,0 = 2,0`. PASSA COM FOLGA - e ate 2026-09-02 passava
+        raspando, contra o limite 1,0 da hipotese do arredondamento.
         """
         assert quantidade_de_adena(13333, 6666) == (10_000_000, 2)
 
@@ -225,21 +247,190 @@ class TestOsDoisCasosDificeis:
         """`13588` por `6750`: a substituicao `0`x`8` que a fase existe para pegar.
 
         `round(13588 / 6750) = 2`, e `|13588 - 2 x 6750| = 88` contra o limite
-        derivado `1,0`. Sem esta recusa a taxa `135,88` entraria no CSV.
+        derivado `2,0`. Sem esta recusa a taxa `135,88` entraria no CSV. A
+        justificativa da Fase 5 SOBREVIVE a dobra do limite: 88 nao chega perto
+        de 2,0, e nao chegaria perto nem de 20.
         """
         assert quantidade_de_adena(13588, 6750) is None
 
-    def test_a_aceitacao_do_caso_bom_e_por_IGUALDADE_e_nao_por_folga(self) -> None:
-        """A conta explicita, para o proximo mantenedor nao supor que ha margem."""
+    def test_a_aceitacao_do_caso_bom_e_por_FOLGA_desde_a_medicao_de_02_09(
+        self,
+    ) -> None:
+        """A conta explicita, recomputada contra o limite do TRUNCAMENTO.
+
+        Ela dizia `limite == 1.0` e se chamava `..._por_IGUALDADE_e_nao_por_folga`.
+        Deixar o nome antigo em teste verde seria manter no repositorio uma
+        afirmacao que a constante desmentiu - e um teste que afirma o contrario
+        do que mede e pior que teste nenhum.
+        """
         total, incremento, n = 13333, 6666, 2
         assert abs(total - n * incremento) == 1
-        assert limite_derivado_do_cruzamento(n) == 1.0
+        assert limite_derivado_do_cruzamento(n) == 2.0
+        assert abs(total - n * incremento) < limite_derivado_do_cruzamento(n)
 
-    def test_a_recusa_do_caso_ruim_e_por_88_contra_1(self) -> None:
+    def test_a_recusa_do_caso_ruim_e_por_88_contra_2(self) -> None:
         """O controle negativo do teste acima: a distancia REAL entre os dois."""
         total, incremento, n = 13588, 6750, 2
         assert abs(total - n * incremento) == 88
-        assert limite_derivado_do_cruzamento(n) == 1.0
+        assert limite_derivado_do_cruzamento(n) == 2.0
+
+
+class TestAFronteiraDeDeteccaoDaDobraDoLimite:
+    """O CUSTO da dobra de 2026-09-02, medido nos DOIS lados e com o controle.
+
+    O limite derivado dobrou porque a tela TRUNCA o unitario em vez de
+    arredonda-lo (prova de campo de 2026-09-02: gabarito de dez linhas declarado
+    por escrito ANTES da leitura, 10 de 10 exatos, quatro linhas discriminantes
+    truncando as quatro). Um limite mais CORRETO que pega MENOS e uma troca, e
+    uma troca que ninguem mediu e um afrouxamento disfarcado de conserto. Esta
+    classe mede.
+
+    A ARITMETICA DO CUSTO, sem suavizar: uma troca `0`<->`8` mexe o total em no
+    MINIMO 8 centesimos - o digito na ultima casa decimal. A guarda so pega essa
+    troca enquanto `quantidade x LIMITE_DERIVADO_POR_UNIDADE` for menor que 8:
+
+        limite 0,5/unidade  ->  pega ate 15 unidades ou incrementos de escala
+        limite 1,0/unidade  ->  pega ate  7
+
+    A FRONTEIRA EXATA, com residuo 8 nos dois casos e so a escala mudando:
+
+        (1000, 144)  n=7  residuo 8  contra limite 7,0  ->  RECUSA (pega)
+        (1000, 126)  n=8  residuo 8  contra limite 8,0  ->  ACEITA (escapa)
+
+    O CASO DE CAMPO CONTINUA COBERTO: as ofertas reais da aba Adena sao de 1 a 3
+    incrementos (5M/10M/15M), limites 1,0 / 2,0 / 3,0 - todos bem abaixo de 8. E
+    na negociacao a guarda esta DESLIGADA, entao la o efeito e so no limiar do
+    log de `_observar_o_cruzamento`, nunca em descarte.
+    """
+
+    def test_com_n_igual_a_7_a_troca_ainda_e_PEGA(self) -> None:
+        """`|1000 - 7 x 144| = 8` contra limite `7 x 1,0 = 7,0`. Estoura."""
+        n = round(1000 / 144)
+        assert n == 7
+        assert abs(1000 - n * 144) == 8
+        assert limite_derivado_do_cruzamento(n) == 7.0
+        assert quantidade_de_adena(1000, 144) is None
+
+    def test_com_n_igual_a_8_a_troca_ESCAPA_e_esse_e_o_custo(self) -> None:
+        """`|1000 - 8 x 126| = 8` contra limite `8 x 1,0 = 8,0`. Cabe.
+
+        O MESMO residuo 8, uma unidade de escala adiante, passa a ser aceito.
+        Este teste existe para o custo estar escrito como AFIRMACAO e nao como
+        prosa: com o limite dobrado, a partir de 8 de escala a guarda deixa de
+        pegar a substituicao que ela existe para pegar.
+        """
+        n = round(1000 / 126)
+        assert n == 8
+        assert abs(1000 - n * 126) == 8
+        assert limite_derivado_do_cruzamento(n) == 8.0
+        assert quantidade_de_adena(1000, 126) == (ADENA_POR_INCREMENTO * 8, 8)
+
+    def test_com_o_limite_ANTIGO_injetado_o_mesmo_caso_era_RECUSADO(
+        self, monkeypatch
+    ) -> None:
+        """O controle que MEDE a dobra: 0,5 de volta, e o n=8 volta a ser pego.
+
+        Sem ele, "n=8 escapa" seria compativel com qualquer outra causa. Aqui a
+        UNICA coisa que muda e a constante, e o veredito vira - o que prova que o
+        custo veio da dobra, e nao de outro lugar.
+        """
+        monkeypatch.setattr(mercado_leitura, "LIMITE_DERIVADO_POR_UNIDADE", 0.5)
+        assert limite_derivado_do_cruzamento(8) == 4.0
+        assert quantidade_de_adena(1000, 126) is None
+
+    def test_a_conta_de_ate_quanto_cada_limite_pega(self) -> None:
+        """15 contra 7: os dois numeros escritos no fonte, conferidos aqui.
+
+        Uma troca `0`<->`8` vale no minimo 8 centesimos, entao a guarda pega
+        enquanto o limite for ESTRITAMENTE menor que 8.
+        """
+        escalas = range(1, 30)
+        com_o_novo = [n for n in escalas if limite_derivado_do_cruzamento(n) < 8]
+        assert max(com_o_novo) == 7
+        com_o_antigo = [n for n in escalas if n * 0.5 < 8]
+        assert max(com_o_antigo) == 15
+
+    def test_as_ofertas_REAIS_da_aba_continuam_cobertas(self) -> None:
+        """1, 2 e 3 incrementos (5M/10M/15M): limites 1,0 / 2,0 / 3,0 < 8."""
+        for n in (1, 2, 3):
+            assert limite_derivado_do_cruzamento(n) < 8
+
+
+class TestOGabaritoDeCampoDe20260902:
+    """As dez linhas declaradas ANTES da leitura, contra a regua nova e a velha.
+
+    A prova limpa: o vigia foi parado, `.mercado/observacoes.csv` foi truncado no
+    cabecalho, as dez linhas da tela foram escritas a mao ANTES de o scanner
+    rodar, a pagina nao mudou durante a leitura (grid diff 8.463 sobre um recorte
+    de 450.000 pixels) e o leitor acertou 10 de 10 em nome, quantidade e total.
+    Essas dez linhas estao CERTAS por construcao - qualquer regua que reprove
+    alguma delas esta errada sobre a regua, e nao sobre a leitura.
+
+    Preservadas em `.planning/quick/260902-ca4-o-limite-derivado-do-cruzamento-
+    passa-de/260902-ca4-GABARITO-DA-PROVA-REAL.txt` e no CSV que o scanner
+    produziu logo depois.
+    """
+
+    # (quantidade, total_em_centesimos, unitario_exibido)
+    GABARITO = (
+        (8, 2000, 250),
+        (4, 1199, 299),
+        (6, 1800, 300),
+        (3, 1000, 333),
+        (4, 1360, 340),
+        (3, 1050, 350),
+        (6, 2200, 366),
+        (8, 3100, 387),
+        (9, 3500, 388),
+        (5, 1980, 396),
+    )
+
+    def test_as_dez_linhas_fecham_contra_o_limite_de_hoje(self) -> None:
+        fecham = [
+            (q, t, u)
+            for q, t, u in self.GABARITO
+            if mercado_leitura.residuo_do_cruzamento(t, u, q)
+            <= limite_derivado_do_cruzamento(q)
+        ]
+        assert len(fecham) == 10, "a pagina verificada fecha 10 de 10"
+
+    def test_com_o_limite_ANTIGO_tres_linhas_CERTAS_eram_reprovadas(
+        self, monkeypatch
+    ) -> None:
+        """7 de 10. As tres que caem sao as que a aritmetica preve, e nomeadas.
+
+        Este e o teste que justifica a mudanca da constante inteira: nao ha
+        leitura errada nenhuma aqui, e mesmo assim a regua antiga descarta 30% de
+        uma pagina que se sabe certa.
+        """
+        monkeypatch.setattr(mercado_leitura, "LIMITE_DERIVADO_POR_UNIDADE", 0.5)
+        caem = [
+            (q, t, u)
+            for q, t, u in self.GABARITO
+            if mercado_leitura.residuo_do_cruzamento(t, u, q)
+            > limite_derivado_do_cruzamento(q)
+        ]
+        assert caem == [(4, 1199, 299), (6, 2200, 366), (9, 3500, 388)]
+        assert len(self.GABARITO) - len(caem) == 7
+
+    def test_as_QUATRO_linhas_discriminantes_TRUNCAM_as_quatro(self) -> None:
+        """A evidencia direta de que a tela trunca, e nao arredonda.
+
+        Seis das dez dividem exato e nao opinam. As outras quatro tem unitario
+        diferente sob as duas hipoteses - e o exibido e o TRUNCADO nas quatro.
+        Zero linhas arredondam.
+        """
+        discriminantes = []
+        for q, t, u in self.GABARITO:
+            truncado = math.floor(t / q)
+            arredondado = round(t / q)
+            if truncado == arredondado:
+                continue
+            discriminantes.append((q, t, u, truncado, arredondado))
+        assert len(discriminantes) == 4
+        for q, t, u, truncado, arredondado in discriminantes:
+            assert u == truncado, f"{t}/{q}: exibido {u}, truncado {truncado}"
+            assert u != arredondado
 
 
 class TestAsLeiturasQueSustentamARotaDerivada:
@@ -318,10 +509,18 @@ class TestOCriterioEChamadoENaoCopiado:
 class TestOSinalDaComparacao:
     """`residuo <= limite`. O sinal e LOAD-BEARING, nos DOIS sentidos.
 
-    Com `<` no lugar do `<=`, o caso-bandeira `(13333, 6666)` — residuo 1 contra
-    limite 1,0 — REPROVA, e a fase perde justamente a linha de arredondamento
-    que o usuario capturou. O `<=` e o mesmo sentido que `_observar_o_cruzamento`
-    ja usa (`mercado_leitura.py:1700`).
+    ESTA CLASSE E A UNICA TESTEMUNHA DO SINAL DESDE 2026-09-02, e ela sempre foi
+    a testemunha certa: ela INJETA o limite (1,0 e 0,99 sobre o mesmo residuo 1)
+    e por isso nao depende do valor de `LIMITE_DERIVADO_POR_UNIDADE`. Ate aquele
+    dia `TestOsDoisCasosDificeis` tambem testemunhava, por acidente: com o limite
+    em meio centesimo por unidade o caso-bandeira `(13333, 6666)` passava por
+    igualdade (residuo 1 contra 1,0), entao trocar `<=` por `<` o derrubava. Com
+    o limite dobrado ele passa com folga (1 contra 2,0) e ja nao denuncia nada -
+    uma testemunha que a mudanca de uma constante fez calar. Aqui a injecao
+    mantem o par de casos exatamente na fronteira, para sempre.
+
+    O `<=` e o mesmo sentido que `_observar_o_cruzamento` ja usa; escrever o
+    outro criaria DUAS leituras opostas do MESMO limite.
     """
 
     def test_residuo_IGUAL_ao_limite_ACEITA(self, monkeypatch) -> None:

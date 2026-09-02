@@ -31,13 +31,18 @@ o outro, que e a razao ja escrita em `calibrar_mercado.py:344-350`.
 
 A GUARDA DE CRUZAMENTO E DECIDIVEL, E OS DOIS CRITERIOS SAO OBRIGATORIOS
 -------------------------------------------------------------------------
-O unitario exibido e `Total / Quantity` arredondado a duas casas, entao o
-residuo `|total - unitario x quantidade|` e limitado por meio centesimo por
-unidade - em centesimos, `quantidade / 2`. Caso conhecido do spike:
-`40,00` por 48 unidades exibindo `0,83` da residuo 16 contra limite 24.
+O unitario exibido e `Total / Quantity` TRUNCADO a duas casas (medido em campo
+em 2026-09-02: quatro linhas discriminantes, as quatro truncando), entao o
+residuo `|total - unitario x quantidade|` e limitado por UM centesimo por
+unidade - em centesimos, a propria `quantidade`. Caso conhecido do spike:
+`40,00` por 48 unidades exibindo `0,83` da residuo 16 contra limite 48.
 
-    FECHAMENTO  >= 0,99, com a tolerancia proposta cabendo em 2x o limite
-                derivado. Abaixo disso a guarda descartaria linha boa em volume,
+    FECHAMENTO  >= 0,99, com a tolerancia proposta cabendo em 1x o limite
+                derivado. O fator era 2x enquanto o truncamento era hipotese; ele
+                caiu para 1x quando o truncamento virou a propria derivacao, para
+                a mesma folga nao ser contada duas vezes. O TETO em centesimos
+                por unidade e o mesmo dos dois lados: 0,5 x 2,0 = 1,0 x 1,0 = 1,0.
+                Abaixo disso a guarda descartaria linha boa em volume,
                 e descarte custa dado que o usuario viu na tela. Se a tolerancia
                 precisa ser muito mais larga para fechar, a guarda virou peneira
                 e aprovaria tambem a substituicao que existe para pegar.
@@ -126,10 +131,13 @@ MOTIVO_PARA_IGNORAR = _oclusao.MOTIVO_PARA_IGNORAR
 # Os criterios da guarda - escritos aqui para serem CONFERIVEIS, nao julgados
 # ---------------------------------------------------------------------------
 
-# Meio centesimo por unidade. NAO e escolha: e o limite DERIVADO do
-# arredondamento a duas casas. `unitario = round(total/quantidade, 2)` erra no
-# maximo meio centesimo por unidade, entao o residuo total erra no maximo
-# `quantidade/2` centesimos.
+# UM centesimo por unidade. NAO e escolha: e o limite DERIVADO do TRUNCAMENTO a
+# duas casas. `unitario = trunc(total/quantidade, 2)` erra ate um centesimo
+# inteiro por unidade, entao o residuo total erra ate `quantidade` centesimos.
+# Ate 2026-09-02 este apelido valia meio centesimo, pela hipotese do
+# arredondamento; a prova de campo daquele dia mostrou que a tela TRUNCA — quatro
+# linhas discriminantes, as quatro truncando, sobre uma pagina cujas dez linhas
+# foram declaradas por escrito ANTES da leitura.
 #
 # O NUMERO E A ARITMETICA MUDARAM DE CASA NO 02-06, e este nome e so um apelido
 # local. `limite_derivado_do_cruzamento` e `residuo_do_cruzamento` nasceram aqui,
@@ -139,10 +147,29 @@ MOTIVO_PARA_IGNORAR = _oclusao.MOTIVO_PARA_IGNORAR
 # coisas ligeiramente diferentes no dia em que uma delas fosse corrigida.
 LIMITE_POR_UNIDADE = LIMITE_DERIVADO_POR_UNIDADE
 
-# A tolerancia proposta tem de caber em 2x o limite derivado. Mais larga que
-# isso e peneira: ela passaria a aceitar tambem a substituicao que a guarda
-# existe para pegar.
-FATOR_MAXIMO_SOBRE_O_LIMITE_DERIVADO = 2.0
+# A tolerancia proposta tem de caber em 1x o limite derivado.
+#
+# ELE ERA 2,0 ATE 2026-09-02, E BAIXOU NO MESMO COMMIT EM QUE A CONSTANTE
+# DOBROU. O 2x existia para deixar espaco EXATAMENTE para a possibilidade do
+# truncamento, que naquele momento era suspeita sobre uma fixtura so. Com o
+# truncamento virando a PROPRIA derivacao, manter o 2x empilharia a mesma folga
+# duas vezes e afrouxaria a guarda como efeito colateral de um conserto — que e
+# o modo de falha que este projeto existe para evitar.
+#
+# O TETO ABSOLUTO NAO SE MOVE, E E ELE QUE IMPORTA: o produto
+# `LIMITE_POR_UNIDADE x FATOR_MAXIMO_SOBRE_O_LIMITE_DERIVADO` valia
+# `0,5 x 2,0 = 1,0` centesimo por unidade antes e vale `1,0 x 1,0 = 1,0` depois.
+# A linha de veredito continua dizendo `maximo 1.0`, e o 02-02 continua reprovado
+# pelo MESMO numero contra o MESMO teto. `TestOTetoAbsolutoDaTolerancia` afirma o
+# PRODUTO, e nao os fatores: afirmar so um deles deixaria a proxima mudanca de
+# constante mover o teto em silencio.
+#
+# A ALTERNATIVA FOI RECUSADA POR ESCRITO: manter 2,0 levaria o teto a 2,0
+# centesimos por unidade — o dobro do que qualquer pessoa decidiu — e uma guarda
+# duas vezes mais frouxa teria nascido de um commit cujo assunto era corrigir uma
+# derivacao. Um afrouxamento que ninguem escolheu e um afrouxamento que ninguem
+# revisa.
+FATOR_MAXIMO_SOBRE_O_LIMITE_DERIVADO = 1.0
 
 # Fracao minima das linhas que leram nas tres colunas e cujo residuo cabe na
 # tolerancia. Abaixo disso a guarda descarta linha boa em volume.
@@ -555,9 +582,9 @@ def propor_piso_e_margem(
     "Confirmado" nao e um rotulo digitado a mao sobre 4.800 linhas: e a linha
     cujas TRES colunas leram, respeitam a gramatica do numero, e fecham o
     cruzamento `Total = unitario x quantidade` dentro do limite DERIVADO do
-    arredondamento. Tres leituras independentes que concordam aritmeticamente
+    TRUNCAMENTO. Tres leituras independentes que concordam aritmeticamente
     nao concordam por acaso - a chance de dois digitos errados se compensarem
-    ate meio centesimo por unidade e desprezivel.
+    ate um centesimo por unidade e desprezivel.
 
     O par proposto e o MENOR score e a MENOR margem observados nessa populacao:
     qualquer par maior recusaria um glifo que o cruzamento confirmou correto, e
@@ -884,8 +911,12 @@ def main(argv=None) -> int:
             f"{medida['por_unidade_p95']:.4f}, max "
             f"{medida['por_unidade_max']:.4f}"
         )
+        # O numero DERIVA de `LIMITE_POR_UNIDADE` em vez de ser repetido a mao.
+        # A versao anterior escrevia `0,5/unidade` literal e teria continuado
+        # escrevendo isso depois de a constante dobrar - um relatorio que mente
+        # sobre a propria regua e pior que um relatorio ausente.
         print(
-            f"  fechamento no LIMITE DERIVADO (0,5/unidade): "
+            f"  fechamento no LIMITE DERIVADO ({LIMITE_POR_UNIDADE}/unidade): "
             f"{medida['fechamento_no_limite_derivado']:.4f}"
         )
     print(

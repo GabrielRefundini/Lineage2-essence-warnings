@@ -287,18 +287,27 @@ class TestAGramaticaDoNumero:
 
 
 class TestOLimiteDerivadoDoCruzamento:
-    """O unitario e `Total / Quantity` arredondado a duas casas.
+    """O unitario e `Total / Quantity` TRUNCADO a duas casas.
 
-    Entao o residuo `|total - unitario x quantidade|` e limitado por meio
-    centesimo POR UNIDADE. O caso conhecido do spike e o que prende isso.
+    Entao o residuo `|total - unitario x quantidade|` e limitado por UM
+    centesimo POR UNIDADE, e o limite E a propria quantidade.
+
+    OS NUMEROS DESTA CLASSE DOBRARAM EM 2026-09-02, e a razao e medicao e nao
+    gosto: a prova limpa daquele dia declarou as dez linhas da tela por escrito
+    ANTES de o scanner rodar, o leitor acertou 10 de 10, e as QUATRO linhas que
+    discriminam truncamento de arredondamento truncaram as quatro (299,75 ->
+    `299`, 366,67 -> `366`, 387,5 -> `387`, 388,89 -> `388`). Sob a regua antiga
+    tres das dez linhas CERTAS eram reprovadas; sob esta, nenhuma.
     """
 
     def test_o_caso_conhecido_do_spike(self) -> None:
         # scroll-transicao/frame_000012: 40,00 XM Coin por 48 unidades, com o
-        # jogo exibindo 0,83 no unitario (0,8333... arredondado).
+        # jogo exibindo 0,83 no unitario (0,8333... truncado - esta linha nao
+        # discrimina truncamento de arredondamento, os dois dariam 0,83).
+        # O residuo continua 16; o LIMITE passou de 24 para 48.
         residuo = residuo_do_cruzamento(total=4000, unitario=83, quantidade=48)
         assert residuo == 16
-        assert limite_derivado_do_cruzamento(48) == 24
+        assert limite_derivado_do_cruzamento(48) == 48
         assert residuo <= limite_derivado_do_cruzamento(48)
 
     def test_as_divisoes_exatas_fecham_com_residuo_zero(self) -> None:
@@ -307,8 +316,9 @@ class TestOLimiteDerivadoDoCruzamento:
         assert residuo_do_cruzamento(total=1800, unitario=600, quantidade=3) == 0
 
     def test_o_limite_cresce_com_a_quantidade(self) -> None:
-        assert limite_derivado_do_cruzamento(10) == 5
-        assert limite_derivado_do_cruzamento(1) == 0.5
+        # Um centesimo por unidade: o limite E a quantidade, e nao a metade.
+        assert limite_derivado_do_cruzamento(10) == 10
+        assert limite_derivado_do_cruzamento(1) == 1.0
 
 
 class TestOVereditoDaGuarda:
@@ -351,7 +361,10 @@ class TestOVereditoDaGuarda:
 
         `100,00` por 10 unidades daria `10,00` de unitario; aqui o unitario
         exibido e `5,00`, entao o residuo e 5.000 centesimos contra um limite
-        derivado de 5. Nenhuma tolerancia dentro de 2x o limite fecha isso.
+        derivado de 10 (era 5 ate 2026-09-02, quando a derivacao passou do
+        arredondamento para o TRUNCAMENTO). Nenhuma tolerancia dentro do teto
+        de 1,0 centesimo por unidade fecha isso - e o teto e o mesmo dos dois
+        lados da mudanca, porque o fator caiu de 2,0 para 1,0 no mesmo commit.
         """
         linhas = [LinhaMedida("t", "f", i, 10000, 10, 500) for i in range(20)]
         veredito = veredito_da_guarda(linhas)
@@ -367,6 +380,59 @@ class TestOVereditoDaGuarda:
         assert veredito["aprovada"] is False
         assert veredito["tolerancia_gravada"] is None
         assert veredito["linha_do_veredito"].startswith("GUARDA REPROVADA")
+
+
+class TestOTetoAbsolutoDaTolerancia:
+    """O teto e o PRODUTO dos dois fatores, e e ele que nao pode se mover.
+
+    `LIMITE_POR_UNIDADE x FATOR_MAXIMO_SOBRE_O_LIMITE_DERIVADO` e o maximo em
+    centesimos por unidade que a ferramenta aceita como tolerancia proposta. Em
+    2026-09-02 os DOIS fatores mudaram no mesmo commit, em sentidos opostos:
+
+        antes   0,5 x 2,0 = 1,0
+        depois  1,0 x 1,0 = 1,0
+
+    O 2x existia para deixar espaco para a hipotese do TRUNCAMENTO. Com o
+    truncamento virando a propria derivacao, manter o 2x empilharia a mesma folga
+    duas vezes e levaria o teto a 2,0 - um afrouxamento nascido de um commit cujo
+    assunto era corrigir uma derivacao, que e o modo de falha que este projeto
+    existe para evitar.
+
+    ESTE TESTE AFIRMA O PRODUTO E NAO OS FATORES, DE PROPOSITO. Um teste que
+    afirmasse `FATOR == 1.0` ficaria verde no dia em que alguem dobrasse
+    `LIMITE_POR_UNIDADE` de novo, e o teto subiria em silencio. O produto e a
+    grandeza que decide, entao e ele que tem de estar preso.
+    """
+
+    TETO = 1.0
+
+    def test_o_produto_dos_dois_fatores_vale_um_centesimo_por_unidade(self) -> None:
+        produto = (
+            ferramenta.LIMITE_POR_UNIDADE
+            * ferramenta.FATOR_MAXIMO_SOBRE_O_LIMITE_DERIVADO
+        )
+        assert produto == self.TETO
+
+    def test_o_veredito_publica_o_MESMO_teto_que_o_produto(self) -> None:
+        """O numero do relatorio nao pode divergir do numero que julga.
+
+        Sem isto, a linha de formato fixo que o 02-06 le poderia anunciar um teto
+        e a comparacao usar outro - e a reprovacao do 02-02 esta transcrita no
+        fonte de producao com o `maximo 1.0` dessa linha.
+        """
+        veredito = veredito_da_guarda([LinhaMedida("t", "f", 0, 1890, 2, 945)])
+        assert veredito["limite_aceitavel_por_unidade"] == self.TETO
+
+    def test_a_reprovacao_do_02_02_cai_contra_o_MESMO_teto_de_antes(self) -> None:
+        """1273 continua estourando 1,0, e por isso o registro nao mudou.
+
+        Se o teto tivesse subido para 2,0 como efeito colateral, a frase
+        `(maximo 1.0)` transcrita em `mercado_leitura.py` teria virado ficcao.
+        """
+        linhas = [LinhaMedida("t", "f", i, 10000, 10, 500) for i in range(20)]
+        veredito = veredito_da_guarda(linhas)
+        assert veredito["criterio_que_caiu"] == "tolerancia"
+        assert f"(maximo {self.TETO})" in veredito["linha_do_veredito"]
 
 
 class TestAsFerramentasNAO_ESCREVEM_EM_RECORDINGS:

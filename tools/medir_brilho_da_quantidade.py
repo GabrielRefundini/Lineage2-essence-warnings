@@ -1061,8 +1061,13 @@ def main(argv=None) -> int:
         dentro = sum(1 for r, limite in residuos if r <= limite + 1e-9)
         print("")
         print(
+            # O rotulo do limite deriva de `LIMITE_DERIVADO_POR_UNIDADE`, e
+            # nao repete o numero a mao: em 2026-09-02 a derivacao passou do
+            # arredondamento para o TRUNCAMENTO e este rotulo teria
+            # continuado anunciando `quantidade/2` sobre uma conta que ja
+            # valia `quantidade`.
             f"  O RESIDUO DOS {len(residuos)} ROTULOS ACEITOS contra o limite "
-            f"DERIVADO do arredondamento (quantidade/2 centesimos):"
+            f"DERIVADO ({LIMITE_DERIVADO_POR_UNIDADE} centesimo por unidade):"
         )
         print(
             f"    cabem no limite derivado: {dentro} de {len(residuos)} "
