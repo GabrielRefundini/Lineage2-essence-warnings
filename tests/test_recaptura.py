@@ -17,11 +17,16 @@ nasceram nesta sessao.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
+from l2scanner import recaptura
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.recaptura import (
     CONGELADOS_SEGUIDOS_PARA_RELIGAR,
+    SEGUNDOS_ENTRE_TENTATIVAS,
+    TENTATIVAS_DE_RELIGACAO,
     FonteRecuperavel,
 )
 
@@ -32,6 +37,27 @@ class Contador:
     def __init__(self) -> None:
         self.construcoes = 0
         self.fechamentos = 0
+        # Quantas vezes a FABRICA foi chamada — sobe tambem quando ela explode
+        # e nenhuma fonte chega a nascer. E o que prova que o teto conta
+        # TENTATIVAS, e nao sucessos.
+        self.chamadas_da_fabrica = 0
+
+
+class RelogioFalso:
+    """Um relogio que so anda quando o teste manda.
+
+    Sem ele o portao de espera so seria testavel dormindo de verdade, e um
+    teste que dorme 30 s por caso e um teste que ninguem roda.
+    """
+
+    def __init__(self) -> None:
+        self.agora = 0.0
+
+    def __call__(self) -> float:
+        return self.agora
+
+    def avancar(self, segundos: float) -> None:
+        self.agora += segundos
 
 
 class FonteFalsa:
@@ -63,11 +89,41 @@ class FonteFalsa:
         self._contador.fechamentos += 1
 
 
+class FonteRoteirizada(FonteFalsa):
+    """Uma fonte falsa com um ROTEIRO de saudes: a ultima repete para sempre.
+
+    Serve para o unico caso que uma saude fixa nao cobre: a fonte que religou,
+    entregou UM frame bom e voltou a congelar horas depois — que e o episodio de
+    campo.
+    """
+
+    def __init__(self, contador: Contador, saudes) -> None:
+        super().__init__(contador, saudes[0])
+        self._roteiro = list(saudes)
+
+    def capturar(self) -> Frame:
+        self._saude = (
+            self._roteiro[0] if len(self._roteiro) == 1 else self._roteiro.pop(0)
+        )
+        return super().capturar()
+
+
 def fabrica_de(contador: Contador, saude_por_construcao):
     """Devolve a fabrica sem argumentos que o envelope chama."""
 
     def construir() -> FonteFalsa:
+        contador.chamadas_da_fabrica += 1
         return FonteFalsa(contador, saude_por_construcao(contador.construcoes + 1))
+
+    return construir
+
+
+def fabrica_roteirizada(contador: Contador, roteiro_por_construcao):
+    def construir() -> FonteRoteirizada:
+        contador.chamadas_da_fabrica += 1
+        return FonteRoteirizada(
+            contador, roteiro_por_construcao(contador.construcoes + 1)
+        )
 
     return construir
 
@@ -159,3 +215,226 @@ class TestNCongeladosReconstroemAFonte:
         ]
 
         assert all(isinstance(frame, Frame) for frame in frames)
+
+
+def rodar(envelope, relogio: RelogioFalso, ticks: int) -> None:
+    """Ticks com o relogio andando o bastante para a espera nunca ser o freio."""
+    for _ in range(ticks):
+        envelope.capturar()
+        relogio.avancar(SEGUNDOS_ENTRE_TENTATIVAS)
+
+
+def ticks_para_gastar_o_orcamento() -> int:
+    """Com folga de dez vezes: o teto tem de segurar por mais que se ande."""
+    return CONGELADOS_SEGUIDOS_PARA_RELIGAR * TENTATIVAS_DE_RELIGACAO * 10
+
+
+class TestOTetoEMedidoNaoPrometido:
+    """Sem teto, uma fabrica que nunca cura martelaria a WGC por tick, eterno."""
+
+    def test_o_total_de_construcoes_para_no_teto(self) -> None:
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            fabrica_de(contador, sempre(SaudeDoFrame.CONGELADO)), relogio=relogio
+        )
+
+        rodar(envelope, relogio, ticks_para_gastar_o_orcamento())
+
+        assert contador.construcoes == 1 + TENTATIVAS_DE_RELIGACAO
+
+    def test_o_teto_nao_anda_com_dez_vezes_mais_ticks(self) -> None:
+        """A mesma medicao DUAS vezes: o numero tem de ser o mesmo.
+
+        Este par tambem e a prova de que o reset do orcamento esta ancorado no
+        FRAME SAUDAVEL e nao no `__init__` ter retornado. Aqui toda fonte nova
+        CONSTROI sem erro — e continua morta, que e o caso de campo. Se o reset
+        olhasse para a construcao, o teto nunca seria alcancado e este numero
+        cresceria sem parar.
+        """
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            fabrica_de(contador, sempre(SaudeDoFrame.CONGELADO)), relogio=relogio
+        )
+
+        rodar(envelope, relogio, ticks_para_gastar_o_orcamento())
+        no_teto = contador.construcoes
+        rodar(envelope, relogio, ticks_para_gastar_o_orcamento() * 10)
+
+        assert contador.construcoes == no_teto
+
+    def test_esgotado_o_teto_sai_UM_error_e_nao_um_por_tick(self, caplog) -> None:
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            fabrica_de(contador, sempre(SaudeDoFrame.CONGELADO)), relogio=relogio
+        )
+
+        with caplog.at_level(logging.ERROR, logger="l2scanner.recaptura"):
+            rodar(envelope, relogio, ticks_para_gastar_o_orcamento())
+
+        erros = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(erros) == 1
+
+    def test_esgotado_o_teto_capturar_continua_devolvendo_frame(self) -> None:
+        """Nao sai, nao levanta, nao silencia: segue cego e honesto."""
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            fabrica_de(contador, sempre(SaudeDoFrame.CONGELADO)), relogio=relogio
+        )
+
+        rodar(envelope, relogio, ticks_para_gastar_o_orcamento())
+
+        assert isinstance(envelope.capturar(), Frame)
+
+
+class TestAEsperaEntreTentativas:
+    def test_o_relogio_parado_impede_a_segunda_tentativa(self) -> None:
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            fabrica_de(contador, sempre(SaudeDoFrame.CONGELADO)), relogio=relogio
+        )
+
+        for _ in range(ticks_para_gastar_o_orcamento()):
+            envelope.capturar()
+
+        assert contador.construcoes == 2
+
+    def test_avancar_o_relogio_libera_a_proxima_tentativa(self) -> None:
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            fabrica_de(contador, sempre(SaudeDoFrame.CONGELADO)), relogio=relogio
+        )
+
+        for _ in range(CONGELADOS_SEGUIDOS_PARA_RELIGAR):
+            envelope.capturar()
+        assert contador.construcoes == 2
+
+        relogio.avancar(SEGUNDOS_ENTRE_TENTATIVAS)
+        envelope.capturar()
+
+        assert contador.construcoes == 3
+
+    def test_o_envelope_nunca_dorme(self, monkeypatch) -> None:
+        """`time.sleep` aqui atrasaria os comandos e a agenda do mesmo tick."""
+
+        def explodir(_segundos):  # pragma: no cover - existe para NAO rodar
+            raise AssertionError(
+                "o envelope chamou time.sleep — o laco ja dorme por tick"
+            )
+
+        monkeypatch.setattr(recaptura.time, "sleep", explodir)
+
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            fabrica_de(contador, sempre(SaudeDoFrame.CONGELADO)), relogio=relogio
+        )
+
+        rodar(envelope, relogio, ticks_para_gastar_o_orcamento())
+
+
+class TestUmaReconstrucaoQueExplode:
+    """A excecao morre dentro do envelope. O braco `except` do laco nao e usado."""
+
+    @staticmethod
+    def _fabrica_que_explode_depois_da_primeira(contador: Contador):
+        def construir():
+            contador.chamadas_da_fabrica += 1
+            if contador.chamadas_da_fabrica > 1:
+                raise RuntimeError("a WGC recusou a sessao nova")
+            return FonteFalsa(contador, SaudeDoFrame.CONGELADO)
+
+        return construir
+
+    def test_capturar_devolve_frame_sem_propagar(self) -> None:
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            self._fabrica_que_explode_depois_da_primeira(contador), relogio=relogio
+        )
+
+        rodar(envelope, relogio, ticks_para_gastar_o_orcamento())
+
+        assert isinstance(envelope.capturar(), Frame)
+
+    def test_o_interior_continua_sendo_a_fonte_antiga(self) -> None:
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            self._fabrica_que_explode_depois_da_primeira(contador), relogio=relogio
+        )
+
+        rodar(envelope, relogio, ticks_para_gastar_o_orcamento())
+
+        # `indice` e o numero da construcao: 1 significa "a de sempre".
+        assert envelope.capturar().indice == 1
+        assert contador.construcoes == 1
+
+    def test_a_antiga_nao_e_fechada_quando_a_nova_nao_nasce(self) -> None:
+        """Construir ANTES de fechar: falhar em religar nao pode deixar o
+        scanner sem fonte nenhuma."""
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            self._fabrica_que_explode_depois_da_primeira(contador), relogio=relogio
+        )
+
+        rodar(envelope, relogio, ticks_para_gastar_o_orcamento())
+
+        assert contador.fechamentos == 0
+
+    def test_a_falha_conta_tentativa_e_o_teto_e_respeitado(self) -> None:
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            self._fabrica_que_explode_depois_da_primeira(contador), relogio=relogio
+        )
+
+        rodar(envelope, relogio, ticks_para_gastar_o_orcamento())
+
+        # 1 chamada do arranque + TENTATIVAS_DE_RELIGACAO que explodiram.
+        assert contador.chamadas_da_fabrica == 1 + TENTATIVAS_DE_RELIGACAO
+
+
+class TestOOrcamentoVoltaInteiro:
+    """Um congelamento novo horas depois compra um orcamento CHEIO de novo."""
+
+    @staticmethod
+    def _roteiro_que_cura_uma_vez(numero: int):
+        # A segunda fonte entrega UM frame bom e volta a congelar — o episodio
+        # de campo: a sessao nova nasce viva e morre depois.
+        if numero == 2:
+            return [SaudeDoFrame.OK, SaudeDoFrame.CONGELADO]
+        return [SaudeDoFrame.CONGELADO]
+
+    def test_um_frame_saudavel_devolve_o_orcamento(self) -> None:
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            fabrica_roteirizada(contador, self._roteiro_que_cura_uma_vez),
+            relogio=relogio,
+        )
+
+        rodar(envelope, relogio, ticks_para_gastar_o_orcamento())
+
+        # 1 do arranque + 1 da religacao que curou + TENTATIVAS do orcamento
+        # NOVO que o frame saudavel comprou. Sem o reset o total pararia em
+        # 1 + TENTATIVAS.
+        assert contador.construcoes == 2 + TENTATIVAS_DE_RELIGACAO
+
+    def test_sem_frame_saudavel_o_total_e_estritamente_menor(self) -> None:
+        """O par honesto: mesma bancada, unica diferenca o frame bom."""
+        contador = Contador()
+        relogio = RelogioFalso()
+        envelope = FonteRecuperavel(
+            fabrica_de(contador, sempre(SaudeDoFrame.CONGELADO)), relogio=relogio
+        )
+
+        rodar(envelope, relogio, ticks_para_gastar_o_orcamento())
+
+        assert contador.construcoes == 1 + TENTATIVAS_DE_RELIGACAO
