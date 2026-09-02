@@ -21,6 +21,23 @@
   -->
   <link rel="stylesheet" href="vendor/uPlot.min.css">
   <link rel="stylesheet" href="dashboard.css">
+  <!--
+    A BIBLIOTECA VEM ANTES DO NOSSO SCRIPT, e a ordem também é afirmação aqui:
+    dois `defer` executam na ordem do documento, então `uPlot` já existe como
+    global quando `comecar()` roda. Esta linha faltava — o 01-06 trouxe a FOLHA
+    do uPlot e não o script, e o 01-07 descobriu isso ao instanciar a série. Ele
+    não pôde consertar aqui (o `index.html` estava fora do alcance declarado
+    daquele plano) e resolveu carregando a biblioteca por código, com a pendência
+    escrita no fonte em vez de deixada como surpresa. Esta linha é o conserto que
+    ele nomeou, feito pelo orquestrador ao fechar a fase.
+
+    O CARREGADOR EM `dashboard.js` FICA, e não vira código morto: ele confere
+    `window.uPlot` antes de agir, então com esta linha presente ele é um no-op, e
+    continua sendo a rede se o arquivo do vendor sumir ou falhar em carregar. As
+    duas rotas são compatíveis de propósito — nenhuma das duas é a única prova de
+    que o gráfico consegue existir.
+  -->
+  <script src="vendor/uPlot.iife.min.js" defer></script>
   <script src="dashboard.js" defer></script>
 </head>
 
