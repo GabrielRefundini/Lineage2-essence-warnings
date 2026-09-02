@@ -104,7 +104,25 @@ Duas razões, e a segunda é a que decide.
 - **`n` e recência acompanham todo número**, como já é regra no console. Um valor de R$ com
   `n=1` de duas horas atrás e um com `n=30` de agora **não podem sair iguais na tela**.
 
-**Plans**: a definir em `/gsd-plan-phase 1 --ws dashboard`
+**Plans:** 8 plans, em 4 ondas de execucao
+
+Plans:
+- [ ] 01-01-PLAN.md — O corte da RAIZ e o tracer de ponta a ponta: do byte do CSV ao numero na tela (onda 1)
+- [ ] 01-02-PLAN.md — A leitura ao vivo endurecida, a agregacao por instante e o payload com precedencia de estados (onda 2)
+- [ ] 01-03-PLAN.md — O cambio XM para BRL: portao de duas camadas e persistencia carimbada e atomica (onda 2)
+- [ ] 01-04-PLAN.md — A biblioteca vendorizada: VEND-1 proveniencia, VEND-2 revisao de fonte, VEND-3 o teste que quebra (onda 2)
+- [ ] 01-05-PLAN.md — O servidor completo: bind exclusivo, listagem desligada, portao de origem no POST, cache e as provas sem navegador (onda 3)
+- [ ] 01-06-PLAN.md — A pagina: as tres regioes e o tema de Lineage 2, com contraste recalculado por teste (onda 3)
+- [ ] 01-07-PLAN.md — O dashboard.js: polling, estados, o componente de serie generico e o zoom escrito por nos (onda 4)
+- [ ] 01-08-PLAN.md — O lancador dashboard.bat e a prova sem navegador da generalidade da serie (onda 4)
+
+**Nota do planejamento (2026-09-01):** a rota (a) recomendada pela pesquisa para a leitura ao
+vivo tocaria `mercado_registro.py`, o que CTX-2 nao autoriza — ela foi trocada por um adaptador
+com forma de `Path` que mantem um parser so e zero arquivos do `mercado` alterados. E a segunda
+aresta do grafo de import **nao** e cortada: `mercado_console` arrasta OpenCV e numpy pela cadeia
+do console, medido em 350 modulos, o que invalida em parte a justificativa escrita no DASH-06. A
+promessa que sobrevive — nenhuma mudanca de comportamento no caminho da coleta — segue de pe, e
+a refutacao fica escrita no fonte.
 
 **Nota de nomenclatura:** os slugs de diretório levam o prefixo `dashboard-`
 (ex.: `phases/01-dashboard-cambio-ao-vivo/`), pelo mesmo motivo do `mercado` e do `tiat` —
@@ -116,7 +134,7 @@ escopos de commit não podem colidir entre workstreams.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Dashboard do cambio ao vivo | 0/? | Not planned | - |
+| 1. Dashboard do cambio ao vivo | 0/8 | Planned | - |
 
 ## Coverage
 
