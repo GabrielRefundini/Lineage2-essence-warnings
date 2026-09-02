@@ -277,3 +277,74 @@ restringir a colheita a uma região.
 cola tudo num run único de 141 px, porque a **barra verde de progresso** atrás do texto entra na
 máscara. Colher dali exige recorte vertical apertado (`1366:1386` funcionou) ou piso mais alto.
 O bônus não tem esse problema e sozinho já entrega o `5`.
+
+---
+
+# Segunda rodada de campo — 2026-09-02, 09h30, e o retângulo do B1 ainda estava errado
+
+Duas fixtures novas, mesmas duas instâncias, **oito horas e meia depois**, com outro cenário
+atrás da barra semitransparente:
+
+    recordings/20260902-093000-renda-segundo-cenario/frame_faerlina.png    1720x1392
+    recordings/20260902-093000-renda-segundo-cenario/frame_yazalaque.png   1720x1392
+
+| campo | Faerlina 00h45 | Faerlina 09h30 |
+|---|---|---|
+| adena | 13.160.684 | **15.134.779** |
+| L-Coin | 13.091 | 14.465 |
+| EXP | 8,0012% | (ilegível no cru; a Yazalaque foi de 76,6646% para **85,2845%**) |
+
+## M-M — A primeira taxa real medida deste projeto
+
+A adena da Faerlina subiu **1.974.095** em ~8,5 horas: **≈ 232 mil adena por hora**. Não é
+requisito de fase nenhuma, mas é o primeiro número que responde à pergunta que o usuário fez, e
+ele serve de ordem de grandeza para os testes da Fase 2: um salto de ordem de grandeza (REND-04)
+tem que ser calibrado contra isto, não contra um número inventado.
+
+## M-N — O retângulo `1500,1360 200x32` que o conserto do B1 escolheu está ERRADO
+
+Ele veio do M-G, que o mediu **na Yazalaque**, cuja L-Coin naquela hora era `9.790` — cinco
+caracteres, curta o bastante para terminar antes de `x=1500`. Não era segurança, era o mesmo
+tipo de sorte que o M-E flagrou na banda de largura 1.
+
+Na Faerlina de 09h30, com L-Coin `14.465`, o mesmo recorte pega a **cauda da L-Coin, depois o
+ícone da moeda de ouro, e só então a adena** — produzindo uma corrida larga **no meio**
+(`[2, 7, 6, 5, 18, 5, 5, 2, 5, 5, 7, ...]`, o `18` é o ícone). A regra 3 da peneira recusa forma
+com corrida larga no meio, então `adena_da_barra` recusaria **sempre**, em todas as fixtures
+dessa hora — exatamente o modo de falha que o B1 existia para consertar, reintroduzido com
+outro número.
+
+## M-O — O retângulo que sobrevive às QUATRO fixtures: `1540, 1358, 160x34`
+
+Busca sobre 4 esquerdas × 3 direitas × 4 pisos, com a regra de forma
+(*uma corrida larga em cada ponta, e no meio só larguras de dígito e de vírgula*):
+
+| recorte | 00h45 faer | 00h45 yaza | 09h30 faer | 09h30 yaza |
+|---|---|---|---|---|
+| 1540..1700 | 180, 190 | 170–200 | 180–200 | 180–200 |
+| 1500..1700 (do B1) | — | — | **recusa** | **recusa** |
+| 1548/1556/1564..* | — | — | — | — |
+
+**`x = 1540..1700`, `y = 1358..1392`, com piso na banda 180–190**, é o único que passa nas
+quatro. E a contagem bate com a verdade de campo, dígito por dígito:
+
+| fixture | pontas | meio | n | verdade |
+|---|---|---|---|---|
+| 00h45 faerlina | (15, 16) | `5 5 2 5 5 5 2 5 5 7` | 10 | `13,160,684` → 10 caracteres |
+| 00h45 yazalaque | (15, 16) | `5 2 5 5 5 2 5 5 5` | 9 | `1,696,020` → 9 |
+| 09h30 faerlina | (15, 16) | `5 5 2 5 5 7 2 6 6 6` | 10 | `15,134,779` → 10 |
+| 09h30 yazalaque | (15, 16) | `7 2 7 5 5 2 5 5 5` | 9 | — |
+
+## Duas coisas que isto obriga
+
+1. **O retângulo do `01-01` vira `1540, 1358, 160x34`**, e o piso de partida da adena vira
+   **185** (centro da banda 180–190, que é comum às quatro). O `1500,1360 200x32` fica escrito
+   como refutado, com o motivo — ele era o retângulo de UMA fixture.
+
+2. **A peneira aceita dígito de largura 5, 6 OU 7 — não só 5.** Medido: o `4` e o `7` e o `9`
+   saem com 6 e 7 px. Uma peneira que exigisse exatamente 5 recusaria `15,134,779` inteiro. A
+   vírgula continua 2. Os ícones das pontas são 15 e 16, estáveis nas quatro.
+
+A altura da faixa continua saindo **17** porque os ícones estão dentro do recorte — e isso está
+correto e previsto: a regra 1 descarta as pontas por largura e **só então** a faixa é
+recomputada, que é o que o `01-05` já especifica.
