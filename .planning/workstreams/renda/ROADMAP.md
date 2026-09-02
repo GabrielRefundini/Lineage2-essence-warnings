@@ -134,7 +134,17 @@ não constante do produto.** Mover a janela não pode custar um commit — é a 
   são do personagem, e sem mira o scanner lê a instância errada. `vigiar-mercado.bat` já resolve
   o título pela chave `[jogo] personagem` do `config.toml`; esta fase herda esse caminho inteiro.
 
-**Plans**: TBD
+**Plans**: 4 planos escritos
+
+- [ ] `01-01-PLAN.md` — o traçador: de um PNG resgatado ao EXP com quatro casas, atravessando
+      calibração, recorte com guarda, máscara, duas escalas e recusa nomeada (onda 1)
+- [ ] `01-02-PLAN.md` — a bancada de medição: as bandas úteis de piso por região, o censo de
+      discordância e a caça ao nível, com procedência (onda 2)
+- [ ] `01-03-PLAN.md` — o calibrador `calibrar-renda.bat`, a não-destruição provada, o critério 4
+      como teste executável e a ida e volta da janela movida (onda 3)
+- [ ] `01-04-PLAN.md` — a adena e o nível no comando de leitura única, os três campos impressos
+      na grafia do jogo, e as recusas que só existem sobre um par: EXP para trás sem mudança de
+      nível e adena saltando ordem de grandeza (onda 4)
 
 ---
 
