@@ -4016,3 +4016,83 @@ class TestAMedicaoDasVinteEOitoEstaNoModulo:
         assert "grama" in fonte, "o cenario em que a medicao foi feita"
         assert "pedra" in fonte, "o cenario em que ela nao vale"
         assert "nao generaliza" in fonte, "dito com todas as letras"
+
+
+class TestOTetoNaoConsertaADuplicacao:
+    """A metade do defeito que o teto NAO resolve, presa no lugar.
+
+    A conclusao errada e a comoda: "poe o teto e as 28 viram 5". Nao viram. As
+    copias LIMPAS do PIRULITO tem 107, 120 e 125 px, todas muito abaixo do teto
+    de 220, e cada uma virou uma entrada nova.
+
+    Sem esta classe, a proxima pessoa a ler o teto conclui que a duplicacao foi
+    resolvida, nao investiga o deslocamento horizontal, e o acervo do usuario
+    continua ganhando uma entrada por sessao para quem ele ja conhece.
+    """
+
+    def test_as_copias_limpas_do_PIRULITO_cabem_no_teto(self):
+        """Se elas coubessem no teto por acaso, esta classe nao provaria nada."""
+        teto = teto_do_recorte_real()
+        for pixels in (107, 120, 125):
+            assert pixels < teto, (
+                f"{pixels} px e uma copia LIMPA do PIRULITO: o teto nao a "
+                "recusa, e mesmo assim ela nasceu como entrada separada"
+            )
+
+    def test_o_modulo_registra_por_que_as_copias_nao_casaram(self):
+        """A medida do triangulo 28x28, e o que ela derruba.
+
+        Correlacionando as 28 duas a duas no alinhamento calibrado, o maior
+        valor e 0.72: nenhum par chega ao LIMIAR_DE_CASAMENTO. D-02 nunca teve
+        nada para vetar, e a causa nao e contaminacao, e deslocamento.
+        """
+        fonte = _docstring_do_aprendiz()
+
+        assert "0.72" in fonte, "o maior par medido no triangulo das 28"
+        assert "DESLOCAMENTO HORIZONTAL" in fonte, "a causa, dita com o nome"
+        assert "0.918" in fonte and "0.980" in fonte, (
+            "os mesmos pares casam com folga quando deslizados: sem estes "
+            "numeros a causa e uma hipotese, e nao uma medida"
+        )
+
+    def test_o_modulo_registra_que_a_ancora_ingenua_FALHA(self):
+        """O resultado NEGATIVO, que e o mais facil de perder.
+
+        "Ancorar na primeira coluna com texto" e a primeira ideia de qualquer
+        um. Ela foi medida e leva os pares CERTOS a 0.15 ate 0.36. Sem isto
+        escrito, ela e reimplementada, os testes de reconhecimento continuam
+        verdes, e o aprendizado piora em campo.
+        """
+        fonte = _docstring_do_aprendiz()
+
+        assert "primeira coluna com texto" in fonte
+        assert "0.15 ate 0.36" in fonte, "o resultado medido da ideia ingenua"
+        assert "e nao omissao" in fonte, (
+            "a diferenca entre 'ninguem tentou' e 'foi medido e falhou'"
+        )
+
+    def test_o_modulo_diz_qual_dado_falta_para_decidir(self):
+        """Uma proposta sem o numero que falta e um palpite com data."""
+        fonte = _docstring_do_aprendiz()
+
+        assert "0.753" in fonte and "0.483" in fonte, (
+            "pior par certo e pior par errado sob deslizamento livre"
+        )
+        assert "multi-frame" in fonte, "o dado que falta tem nome"
+        assert "0.586" in fonte, (
+            "a razao pela qual o deslizamento foi removido continua citada: "
+            "desfazer aquilo com 28 mascaras de uma sessao nao e medir"
+        )
+
+    def test_a_coroa_ja_foi_consertada_e_isso_esta_escrito(self):
+        """Duas das oito ja caem pelo segundo passe do ornamento.
+
+        `COLUNAS_DE_LACUNA_DO_ORNAMENTO` baixou de 4 para 3 em 2026-09-01, e as
+        duas copias coroadas do TITANDER passaram a pontuar 0.980 e 0.967. Elas
+        contam como duplicacao JA RESOLVIDA, e misturar as duas metades faria a
+        proxima medicao do defeito comecar de um numero errado.
+        """
+        fonte = _docstring_do_aprendiz()
+
+        assert "COLUNAS_DE_LACUNA_DO_ORNAMENTO" in fonte
+        assert "0.967" in fonte

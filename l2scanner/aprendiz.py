@@ -98,6 +98,62 @@ claro, porque em Silent Valley os dois SAO claros. O que separa e o TAMANHO da
 mascara, que e a mesma leitura que `identidade.FATOR_MAXIMO_DE_CONTAMINACAO` ja
 fazia no casamento. Ver `TETO_DE_OCUPACAO_DO_NOME`.
 
+O TETO NAO CONSERTA A DUPLICACAO, E ISSO TAMBEM FOI MEDIDO
+
+Fica escrito em voz alta porque a conclusao errada e a comoda: o teto pega as 11
+piores entradas e ainda assim o PIRULITO apareceu 8 vezes. As copias LIMPAS dele
+tem 107, 120 e 125 px, todas muito abaixo de qualquer teto, e mesmo assim nasceu
+uma entrada nova para cada uma.
+
+A razao nao e contaminacao. Correlacionando as 28 entradas do acervo real DUAS A
+DUAS, no alinhamento calibrado, o maior valor do triangulo inteiro e 0.72:
+NENHUM par chega ao `LIMIAR_DE_CASAMENTO` de 0.75. D-02 nunca teve nada para
+vetar, porque nenhuma copia parecia com nenhuma outra.
+
+O que separa as copias e DESLOCAMENTO HORIZONTAL. As mesmas mascaras, deslizadas
+de alguns pixels, casam com folga:
+
+    par                          alinhado   melhor   deslocamento
+    PIRULITO 107 x calibrada       0.220     0.918      -2 px
+    Mostarda 108 x calibrada       0.431     0.905      -6 px
+    Welazkez 175 x calibrada       0.236     0.891      -6 px
+    TITANDER 171 x calibrada       0.258     0.980     +13 px
+    PIRULITO 107 x PIRULITO 125    0.374     0.880      +4 px
+
+Isso e coerente com o que `_correlacionar` ja diz de si mesmo: ele pontua em UMA
+posicao so, e 1 px de erro derruba 1.000 para 0.24.
+
+DUAS DAS OITO JA ESTAO CONSERTADAS, e o conserto e de 2026-09-01. Os
+deslocamentos de +13 e +19 px sao a COROA do lider, e baixar
+`COLUNAS_DE_LACUNA_DO_ORNAMENTO` de 4 para 3 fez o segundo passe alcanca-las:
+rodando `identificar_linhas` hoje, as duas copias coroadas do TITANDER pontuam
+0.980 e 0.967 contra a calibrada e D-02 as vetaria. Os deslocamentos de -2 a
+-6 px NAO sao coroa; sao a origem da coluna do nome andando entre sessoes.
+
+E O CONSERTO OBVIO FOI MEDIDO E NAO FUNCIONA. "Ancorar as duas mascaras na
+primeira coluna com texto antes de correlacionar" e a primeira ideia de todo
+mundo, inclusive a minha. Medida sobre estas mesmas mascaras, ela leva os pares
+CERTOS a 0.15 ate 0.36, quando o deslizamento livre acha 0.80 a 0.98 nos mesmos
+pares. A primeira coluna acesa nao e ancora estavel: uma celula de serrilhado ou
+uma sujeira solta na frente do nome muda a ancora e joga a correlacao fora. Nao
+implementar essa ideia e resultado, e nao omissao.
+
+O QUE SOBRA COMO PROPOSTA, com o numero que falta para decidir. Deslizando livre
+de -25 a +25 px sobre o acervo real:
+
+    pior par CERTO    0.753
+    pior par ERRADO   0.483
+
+O limiar de 0.75 cai entre os dois, mas o pior par certo o passa por 0.003, e
+isso nao e margem. O `.max()` sobre 25 deslocamentos foi REMOVIDO deste projeto
+justamente por levar o pior casamento errado de 0.213 a 0.586, e 28 mascaras de
+uma sessao nao sao base para desfazer aquilo. O dado que falta tem nome: gravacao
+multi-frame de campo com a party se movendo, para medir a distribuicao dos pares
+errados sob deslizamento em vez de estima-la em 28 pontos. Ate la, o acervo do
+usuario continua ganhando uma entrada por sessao para quem ele ja conhece, e o
+`acervo.carregar_identidades` explica por que a resposta NAO e um segundo
+criterio de igualdade posto no olho.
+
 A OUTRA COISA QUE A MEDIDA SEPAROU: DOIS REGIMES, E SO UM DELES E CONFIGURAVEL
 
 As medianas em regime estavel ficam entre 0 e 8 celulas. A mediana de 298.5
