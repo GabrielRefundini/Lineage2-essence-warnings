@@ -43,9 +43,23 @@ from .notificador import ConfigChatwoot
 # `config`, entao o ciclo nao existe.
 from .respawn import JANELA_DO_EPISODIO
 
+# RE-EXPORTACAO DELIBERADA, e nao um import de conveniencia. Ate esta fase,
+# `RAIZ` era DEFINIDA nesta linha. Ela mudou de casa para `l2scanner/raiz.py`,
+# um modulo FOLHA, para que `mercado_catalogo` possa pegar a raiz sem arrastar
+# `config -> notificador -> rastreador -> visao -> cv2` atras dela; a medicao
+# inteira do que isso custava esta na docstring de `raiz.py`.
+#
+# A re-exportacao FICA, e ela e o ponto: todo consumidor existente que faz
+# `from .config import RAIZ` continua funcionando IDENTICO, e recebe o MESMO
+# objeto, nao um `Path` equivalente. E ela que mantem o DASH-06 como
+# "comportamento identico" em vez de uma quebra — nenhum chamador mudou.
+from .raiz import RAIZ
+
 log = logging.getLogger(__name__)
 
-RAIZ = Path(__file__).resolve().parent.parent
+# Os tres caminhos que a RAIZ resolve neste modulo — este, e `ARQUIVO_CONFIG` e
+# `ARQUIVO_CONFIG_LOCAL` mais abaixo — continuam intocados: o que mudou foi de
+# onde a raiz VEM, e nao quanto ela vale.
 ARQUIVO_ENV = RAIZ / ".env"
 
 

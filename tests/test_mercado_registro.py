@@ -316,6 +316,19 @@ class TestOModuloNaoArrastaAMetadeDeVisao:
 
     O que ficou e o que mede a mesma coisa e da para afirmar: este modulo nao
     acrescenta peso NENHUM por conta propria.
+
+    E A FORMA FORTE FOI COBRADA DE VOLTA, na Fase 1 do workstream `dashboard`
+    (2026-09-01). O `l2scanner/raiz.py` — modulo FOLHA — tirou `RAIZ` de
+    `config`, e `mercado_catalogo.py` passou a importar dali. A contradicao que
+    o paragrafo acima descreve DEIXOU DE EXISTIR: importar o catalogo nao
+    arrasta mais `.config`, entao `cv2` e `numpy` podem ser cobrados ausentes
+    sem ferir o contrato de importar `PASTA_DO_MERCADO` e `SEPARADOR` do
+    catalogo em vez de redefinir.
+
+    O teste abaixo foi VIRADO, e nao apagado: ele afirmava a PRESENCA dos dois
+    pesados e agora afirma a AUSENCIA. Foi exatamente o que a docstring dele
+    mandava fazer no dia em que ficasse vermelho. Medido na virada: `import
+    l2scanner.mercado_catalogo` caiu de 341 para 108 modulos em `sys.modules`.
     """
 
     def test_importar_o_registro_acrescenta_UM_modulo_so_ao_que_o_catalogo_ja_traz(
@@ -354,11 +367,27 @@ class TestOModuloNaoArrastaAMetadeDeVisao:
         )
         assert saida.stdout.strip() == "False"
 
-    def test_o_catalogo_JA_traz_cv2_e_numpy_e_por_isso_o_criterio_original_caiu(self):
-        """A medicao que derrubou o criterio, presa para nao se perder.
+    def test_o_catalogo_NAO_traz_MAIS_cv2_nem_numpy_a_forma_forte_de_volta(self):
+        """A FORMA FORTE, cobrada de volta depois do corte de `RAIZ`.
 
-        Se um dia alguem aliviar a cadeia de `config` e este teste ficar
-        vermelho, e boa noticia — e a hora de cobrar de volta a forma forte.
+        ESTE TESTE JA FOI O OPOSTO DELE MESMO, e isso e deliberado. Ate a Fase 1
+        do `dashboard` ele se chamava
+        `test_o_catalogo_JA_traz_cv2_e_numpy_e_por_isso_o_criterio_original_caiu`,
+        afirmava `"True True"` e carregava a instrucao escrita de que ficar
+        vermelho seria BOA NOTICIA — "a hora de cobrar de volta a forma forte".
+        Ele ficou vermelho no commit do corte, e esta e a cobranca de volta que
+        ele mesmo mandava fazer. Virar um tripwire que avisou e o uso correto
+        dele; apaga-lo teria jogado fora a unica prova de que o corte pegou.
+
+        O QUE MUDOU NO FONTE: `mercado_catalogo.py` importa `RAIZ` de
+        `l2scanner/raiz.py` (modulo folha) em vez de `l2scanner/config.py`, o
+        que corta `config -> notificador -> rastreador -> visao -> cv2`.
+
+        O QUE ELE NAO AFIRMA, e precisa estar escrito para nao virar folclore
+        pela segunda vez: o PROCESSO do dashboard continua carregando `cv2`, por
+        uma SEGUNDA aresta (`mercado_console -> console -> rastreador`) que
+        aquela fase nao estava autorizada a tocar. Este teste fala do CATALOGO,
+        e so dele.
         """
         codigo = (
             "import sys\n"
@@ -372,7 +401,7 @@ class TestOModuloNaoArrastaAMetadeDeVisao:
             check=True,
             cwd=Path(__file__).resolve().parent.parent,
         )
-        assert saida.stdout.strip() == "True True"
+        assert saida.stdout.strip() == "False False"
 
 
 # ===========================================================================
