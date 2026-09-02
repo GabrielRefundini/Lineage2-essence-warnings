@@ -218,3 +218,62 @@ larga, ao contrário da banda de largura 1 do OCR.
    ter um sósia gramatical ao lado, e o EXP não tem.
 5. **A varredura de piso do calibrador anda de 5 em 5, não de 10 em 10.** O M-E concluiu
    "a Yazalaque não lê" porque pulou o 155. Um passo grosso não erra para o lado seguro.
+
+---
+
+# Correção ao adendo — o dígito da barra é 5x10, e o "17" era o ícone junto
+
+## M-K — A altura 17 do M-I estava contaminada
+
+O M-I mediu `faixa=(9,25)`, altura 17, sobre um recorte da adena que **incluía os ícones de
+moeda das duas pontas**. `segmentar_glifos` devolve UMA faixa para o retângulo inteiro — é
+decisão de projeto dela, documentada — então o ícone, que é mais alto, empurrou o topo e a base.
+
+Recorte da **L-Coin sem ícone nenhum** (`1440,1355 90x40` na Faerlina), `vmin=180` e `190`:
+
+    faixa = (17, 26)   ALTURA = 10   larguras = [5, 5, 2, 5, 5, 5]   →  1 3 , 0 9 1
+
+E na Yazalaque, `[5, 2, 5, 5, 5]` → `9 , 7 9 0`. Contagem exata, nas duas.
+
+**O dígito da barra é 5 de largura por 10 de altura.** A vírgula é 2 de largura.
+
+Compare com `mercado_templates_de_digito`: `altura: 9, largura: 4`.
+
+## O que muda em relação ao adendo
+
+1. **A conclusão do M-I sobrevive, o número não.** Os moldes do mercado continuam sem servir —
+   4x9 contra 5x10 —, mas a diferença é de **um pixel em cada eixo**, não de 9 contra 17. Quem
+   escrever a guarda de altura do cortador tem que compará-la contra **10**. Uma guarda escrita
+   contra 17 recusaria todo molde legítimo desta barra, e o modo de falha seria um cortador que
+   nunca corta nada.
+2. **O recorte da adena precisa terminar antes do ícone seguinte.** Em `1560:1690` ainda entra
+   um run de largura 9 no fim, e é ele que estica a faixa de 10 para 17. Isso não invalida o
+   descarte por largura (o run de 9 é descartável), mas mostra que a faixa compartilhada é
+   sensível ao ícone mesmo quando o dígito não é.
+
+## M-L — Os dígitos 5 e 7 JÁ ESTÃO nas duas fixtures, e o bloqueio não é o tempo
+
+O adendo disse que faltam `5` e `7` e que eles "aparecem sozinhos com o tempo". Medido, eles
+estão na tela agora, em outros campos **da mesma barra**:
+
+| campo | personagem | valor | dígitos que ele entrega |
+|---|---|---|---|
+| bônus | Faerlina | `592%` | **5**, 9, 2 |
+| EXP | Yazalaque | `76.6646%` | **7**, 6, 4 |
+| bônus | Yazalaque | `612%` | 6, 1, 2 |
+| L-Coin | Faerlina | `13.091` | 1, 3, 0, 9 |
+| adena | Faerlina | `13.160.684` | 1, 3, 6, 0, 8, 4 |
+
+Largura 5 confirmada por segmentação em **todos** eles (bônus da Faerlina em `vmin=180`:
+`[2, 11, 2, 5, 5]`; bônus da Yazalaque: `[2, 11, 2, 5, 5, 5]`; EXP da Yazalaque:
+`[5, 5, 2, 5, ...]`). É uma fonte só na barra inteira.
+
+**Consequência:** o conjunto 0–9 fecha com as duas fixtures que já existem, se o cortador puder
+colher de **qualquer campo da barra**, não só da região da adena. O bloqueio que o plano
+registrou como "esperar o farm produzir um 5 e um 7" não existe — ele era um artefato de
+restringir a colheita a uma região.
+
+**Ressalva medida, e ela é real:** a região do EXP da Yazalaque, em `vmin` alto e recorte largo,
+cola tudo num run único de 141 px, porque a **barra verde de progresso** atrás do texto entra na
+máscara. Colher dali exige recorte vertical apertado (`1366:1386` funcionou) ou piso mais alto.
+O bônus não tem esse problema e sozinho já entrega o `5`.
