@@ -1304,3 +1304,174 @@ def ler_a_renda(
         adena=campos.adena.valor,
         carimbo=carimbo,
     )
+
+
+# ---------------------------------------------------------------------------
+# AS TRES RECUSAS QUE SO EXISTEM QUANDO HA UM PAR
+# ---------------------------------------------------------------------------
+#
+# ELAS SAO A ULTIMA DEFESA DA FASE CONTRA UM NUMERO VALIDO, PLAUSIVEL E ERRADO,
+# e nada mais na Fase 1 enxerga esse modo. A docstring de `numero_valido` ja
+# escreve o buraco com todas as letras: a gramatica pega glifo perdido e glifo
+# a mais, e NAO pega SUBSTITUICAO; para esse modo servem a margem calibrada, o
+# ACORDO ENTRE DOIS FRAMES e a guarda de cruzamento. Estas tres funcoes sao o
+# acordo entre dois frames da renda.
+#
+# OS TRES CASOS DE HONRA, MEDIDOS E NAO INVENTADOS:
+#
+#   M19    a extracao do ultimo grupo valido sobre `Special 8,786` -- o recorte
+#          cru em que a adena NAO aparece -- devolve `8786`, com a gramatica
+#          inteira satisfeita. Errado por tres ordens de grandeza.
+#   M-G a  a Yazalaque lida como `106.020` contra a verdade `1.696.020` do mesmo
+#          frame. E o mais PERIGOSO dos tres, porque `106.020` parece uma adena.
+#   M-G b  a Faerlina lida como `91` contra `13.160.684`. E o mais DURO: cinco
+#          ordens de grandeza.
+#
+# E A TROCA DO LEITOR DA ADENA PARA O CAMINHO DE GLIFO NAO OS TORNOU
+# REDUNDANTES. A guarda de forma pega recorte que PERDEU o numero; ela nao pega
+# recorte deslocado para o CAMPO DO LADO, porque o vizinho tem os proprios
+# icones nas proprias pontas e passa na forma exatamente como o campo certo. O
+# M-H mediu o quanto isso e provavel: quando o recorte encosta, as duas escalas
+# concordaram na L-Coin 173 vezes em 173. Ninguem remove estes testes por
+# parecerem historicos.
+#
+# A FASE 1 CONTINUA SEM ESTADO (CTX-9). As tres sao funcoes PURAS sobre um par
+# passado por parametro, e NENHUM caminho de producao desta fase as chama --
+# porque uma fase sem memoria nao tem a leitura anterior. Quem as chama e a
+# Fase 2. No dia em que alguem ligar um cache dentro do leitor para "fazer elas
+# funcionarem", a fase deixou de ser o que o `<domain>` do `CONTEXT.md` fechou.
+#
+# A ARITMETICA E INTEIRA, no precedente de `centesimos_de_moeda`: nada aqui usa
+# `float`, nem para razao.
+
+
+def o_exp_andou_para_tras(anterior, atual) -> RecusaDaRenda | None:
+    """O EXP caiu com o nivel PARADO? Recusa nomeada. Senao, nada.
+
+    ELA SE ABSTEM QUANDO O NIVEL MUDOU, para cima ou para baixo, e a razao vai
+    escrita: SUBIR DE NIVEL ZERA O EXP. Com nivel diferente os dois numeros nao
+    sao comparaveis, e uma recusa aqui seria ruido em cima do evento mais normal
+    do jogo — o par de campo `nivel 66, EXP 68,5632%` -> `nivel 67, EXP 8,0012%`
+    e um level up de verdade, gravado nas duas pontas.
+
+    E O CUSTO ASSUMIDO VAI ESCRITO JUNTO: se o jogo tirar EXP na morte DENTRO do
+    mesmo nivel, esta regra recusa uma amostra legitima. A troca esta feita de
+    proposito — uma recusa custa UMA amostra, e um digito trocado gravado custa
+    a taxa inteira dali para a frente. O motivo e nomeado justamente para que a
+    Fase 2 possa decidir diferente COM A EVIDENCIA NA MAO, em vez de descobrir
+    que nao da para distinguir.
+
+    Ela e PURA sobre o par, e nenhum caminho de producao desta fase a chama
+    (CTX-9). Quem a chama e a Fase 2, que e quem tem duas leituras.
+    """
+    if int(anterior.nivel) != int(atual.nivel):
+        return None
+    if int(atual.exp) >= int(anterior.exp):
+        return None
+    return _recusar(
+        CAMPO_DO_EXP,
+        MOTIVO_DO_EXP_PARA_TRAS,
+        f"o EXP caiu de {anterior.exp} para {atual.exp} decimos de milesimo "
+        f"com o nivel PARADO em {atual.nivel}. Subir de nivel zera o EXP e a "
+        "regra se abstem nesse caso; com o nivel parado, EXP para tras e "
+        "leitura duvidosa e nao evento do jogo",
+    )
+
+
+def o_nivel_andou_para_tras(anterior, atual) -> RecusaDaRenda | None:
+    """O nivel desceu? Recusa nomeada. Senao, nada.
+
+    A RAZAO VAI COM A MESMA HONESTIDADE DA IRMA: o caminho comum para um nivel
+    que desce NAO e o jogo — e uma SUBSTITUICAO DE DIGITO, e substituicao e
+    exatamente o que a docstring de `numero_valido` documenta nao pegar. `67`
+    virando `57` passa em toda validacao de forma que existe nesta arvore.
+
+    Se o jogo permitir perder nivel, a recusa custa uma amostra e o usuario ve o
+    motivo escrito na tela — que e melhor que a alternativa, um nivel errado
+    gravado e indistinguivel de um certo.
+
+    ELA SO OLHA PARA BAIXO. Nivel subindo e o evento mais normal do jogo, e o
+    par de campo com o level up verdadeiro prova que ela se cala nele.
+    """
+    if int(atual.nivel) >= int(anterior.nivel):
+        return None
+    return _recusar(
+        CAMPO_DO_NIVEL,
+        MOTIVO_DO_NIVEL_PARA_TRAS,
+        f"o nivel caiu de {anterior.nivel} para {atual.nivel}. O caminho comum "
+        "para isso nao e o jogo: e um digito trocado, que passa em "
+        "`numero_valido` inteiro",
+    )
+
+
+def a_adena_saltou_ordem_de_grandeza(
+    anterior, atual, *, fator_de_salto: int
+) -> RecusaDaRenda | None:
+    """A razao entre as duas adenas passou do fator, EM QUALQUER DIRECAO?
+
+    A DIRECAO NAO E CRITERIO, e isso e o desenho e nao um esquecimento. Gastar
+    adena e normal — e a Fase 2 ja trata renda negativa —, e ganhar adena de
+    loot tambem. O que NAO e normal e a RAZAO entre duas leituras saltar uma
+    ordem de grandeza, porque isso e um digito ganho ou perdido e nao uma
+    compra. Os tres casos medidos moram exatamente ai: `8786` contra
+    `10.673.628` (M19), `106.020` contra `1.696.020` e `91` contra `13.160.684`
+    (M-G).
+
+    ARITMETICA INTEIRA, POR MULTIPLICACAO E NUNCA POR DIVISAO, na disciplina do
+    CTX-5: uma divisao inteira truncaria e faria o limiar significar coisas
+    diferentes em ordens de grandeza diferentes; uma divisao de ponto flutuante
+    traria erro binario para dentro de uma comparacao de limiar.
+
+    QUANDO UM DOS LADOS E ZERO A REGRA SE ABSTEM, e a docstring diz por que: nao
+    existe ordem de grandeza em relacao a zero — toda razao contra zero e
+    infinita, e a regra recusaria SEMPRE. O caso do zero pertence a recusa de
+    campo vazio e a de gramatica, que ja existem e apontam para o conserto
+    certo.
+
+    `fator_de_salto` E SOMENTE-NOMEADO E SEM DEFAULT, pela regra do charter: um
+    default aqui seria um LIMIAR entrando por omissao, e limiar por omissao e a
+    definicao de constante magica. Quem tem duas leituras e a Fase 2, e e la que
+    o fator vem de cima — do `config.toml` do usuario, e nao deste fonte.
+    """
+    velha = int(anterior.adena)
+    nova = int(atual.adena)
+    if velha == 0 or nova == 0:
+        return None
+    maior, menor = (velha, nova) if velha >= nova else (nova, velha)
+    if maior <= menor * int(fator_de_salto):
+        return None
+    return _recusar(
+        CAMPO_DA_ADENA,
+        MOTIVO_DO_SALTO_DA_ADENA,
+        f"a adena foi de {velha} para {nova}, e a razao entre as duas passa do "
+        f"fator {fator_de_salto}. Um salto assim e um digito ganho ou perdido, "
+        "e nao uma compra: gastar e ganhar adena sao normais, saltar uma ordem "
+        "de grandeza nao e",
+    )
+
+
+def conferir_o_par(
+    anterior, atual, *, fator_de_salto: int
+) -> tuple[RecusaDaRenda, ...]:
+    """As TRES regras sobre o par, e a tupla de TODAS as recusas encontradas.
+
+    DEVOLVER TODAS, E NAO A PRIMEIRA, e o que permite ao chamador dizer "dois
+    campos discordam do par anterior" em vez de esconder o segundo problema
+    atras do primeiro. Um par em que o nivel desceu E a adena saltou e um caso
+    diferente de um par em que so o nivel desceu, e a diferenca importa para
+    quem for decidir se aquela sessao inteira e confiavel.
+
+    Tupla VAZIA e o par coerente. Ela e o desfecho do par de campo com o level
+    up verdadeiro — o EXP caiu, mas o nivel mudou; o nivel subiu, e a regra so
+    olha para baixo; e a adena cresceu bem abaixo de qualquer fator razoavel.
+
+    PURA sobre o par, e sem chamador de producao nesta fase (CTX-9).
+    """
+    achados = (
+        o_exp_andou_para_tras(anterior, atual),
+        o_nivel_andou_para_tras(anterior, atual),
+        a_adena_saltou_ordem_de_grandeza(
+            anterior, atual, fator_de_salto=fator_de_salto
+        ),
+    )
+    return tuple(recusa for recusa in achados if recusa is not None)
