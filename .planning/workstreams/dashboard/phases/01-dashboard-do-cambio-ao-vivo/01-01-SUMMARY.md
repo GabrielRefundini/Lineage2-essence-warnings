@@ -244,6 +244,19 @@ None — nenhuma configuracao de servico externo. O servidor sobe em `127.0.0.1`
 - `payload` recebe o cambio por PARAMETRO quando o 01-03 chegar — nao importando `dashboard_cambio`. Quem junta os dois e o servidor, e e isso que mantem `dashboard_dados` testavel sem disco.
 - A frase de piso de evidencia esta duplicada em `payload` (o texto `"sem evidencia - N de M ofertas distintas"`, hoje montado ali). Se o 01-02 precisar dela em mais de um lugar, ela deve virar um ponto de decisao unico antes de ganhar o segundo chamador.
 
+## Self-Check: PASSED
+
+- **Arquivos criados:** os 7 artefatos e o proprio SUMMARY conferidos no disco — todos presentes.
+- **Commits:** `5ac2219`, `9b0d266`, `5db7e85`, `435083d` e `79bc8b9` conferidos no `git log`.
+- **Arvore limpa:** `git status --short` vazio depois do commit do SUMMARY.
+- **Suite:** `python -m pytest tests/ -q` → **4.517 passed, 25 skipped**, 0 falhas.
+- **Cerca de escopo:** `git diff --stat` contra a base mostra **um unico arquivo de fonte do workstream `mercado`** alterado (`l2scanner/mercado_catalogo.py`), com uma linha de import trocada. `rastreador.py`, `visao.py`, `console.py`, `mercado_registro.py`, `mercado_analise.py` e `mercado_console.py` intocados.
+- **`requirements.txt`:** sem diferenca — nenhuma dependencia nova.
+
+## Known Stubs
+
+Nenhum stub. As duas regioes `#serie` e `#procedencia` do `index.html` trazem texto que descreve o que vao mostrar — **conteudo declarado, e nao placeholder**: nao ha componente recebendo dado vazio, nem numero fabricado, nem `0,00` de espaco reservado. O `payload` cobre so o destaque em XM porque essa e a fatia do tracer, e o campo `estado` ja existe para a tabela de precedencia do plano 01-02.
+
 ---
 *Phase: 01-dashboard-do-cambio-ao-vivo*
 *Completed: 2026-09-01*
