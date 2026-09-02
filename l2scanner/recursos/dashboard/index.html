@@ -7,43 +7,229 @@
   <!--
     SEM <style> E SEM <script> INLINE, e não é preferência: a CSP servida em
     toda resposta traz `style-src 'self'` e `script-src 'self'`, que proíbem as
-    duas formas embutidas. O navegador bloquearia calado — por isso há teste em
-    Python (`test_o_index_so_carrega_script_e_estilo_por_ARQUIVO`) afirmando que
-    todo script tem `src` e que a contagem de estilos embutidos é zero.
+    duas formas embutidas — e também os atributos de evento em elemento, que são
+    a terceira forma. O navegador bloquearia calado, que é o pior lugar para
+    descobrir; por isso há teste em Python sobre o AST do HTML afirmando que
+    todo script tem `src`, que a contagem de estilos embutidos é zero e que a de
+    atributos `on*` é zero.
+
+    A FOLHA DA BIBLIOTECA VEM ANTES DA NOSSA, e a ordem é a afirmação: quem vem
+    depois vence a especificidade empatada, então o bloco de sobreposições de
+    tema no fim do `dashboard.css` só consegue retematizar o gráfico se o
+    `uPlot.min.css` já tiver sido lido. Inverter as duas linhas quebraria o tema
+    sem quebrar nenhum teste de conteúdo — daí haver um teste da ORDEM.
   -->
+  <link rel="stylesheet" href="vendor/uPlot.min.css">
   <link rel="stylesheet" href="dashboard.css">
   <script src="dashboard.js" defer></script>
 </head>
-<body>
+
+<!--
+  OS ESTADOS MORAM EM ATRIBUTOS NO <body>, e o desenho de cada um mora no CSS.
+  O JS só troca o valor do atributo: nenhuma decisão visual mora nele.
+
+  `data-estado`   — a precedência FECHADA de cinco do UI-SPEC, mais a primeira
+                    pintura. Os cinco nomes são os mesmos do `dashboard_dados`
+                    (`erro_de_contrato`, `arquivo_ausente`, `sem_leitura`,
+                    `abaixo_do_piso`, `serie_presente`): um vocabulário só dos
+                    dois lados, porque dois vocabulários divergem em silêncio.
+  `data-cambio`   — ortogonal: sem câmbio informado, o cartão de R$ SAI da tela.
+  `data-velho`    — ortogonal: a recência esfria; o número CONTINUA.
+  `data-servidor` — ortogonal: faixa no topo, valores mantidos e marcados.
+-->
+<body data-estado="primeira_pintura" data-cambio="ausente" data-velho="nao" data-servidor="ok">
+
+  <!--
+    A FAIXA DO SERVIDOR MUDO. O texto é nosso e não do Python — o servidor mudo
+    é, por definição, o estado em que o Python não respondeu — então ele mora
+    aqui inteiro, com um vão para o tempo decorrido que o JS preenche.
+  -->
+  <p class="faixa faixa--mudo" id="faixa-servidor">
+    Sem contato com o servidor local há <span id="servidor-mudo-ha"></span>. A tela mostra a última resposta recebida, não o agora.
+  </p>
+
   <main class="pagina">
 
+    <!--
+      A faixa de erro cobre a precedência 1 (cabeçalho quebrado) e 2 (arquivo
+      ausente). Ela é um bloco e NÃO uma quarta região: sob esses dois estados o
+      CSS retira as três regiões da tela, que é o "sem destaque, sem gráfico, só
+      a mensagem" do UI-SPEC. A frase vem pronta do Python, em `avisos`.
+    -->
+    <p class="faixa faixa--erro" id="faixa-erro"></p>
+
+    <!-- ================================================================= -->
+    <!-- REGIÃO 1 — O DESTAQUE                                             -->
+    <!-- ================================================================= -->
     <section id="destaque" class="painel">
       <h1 class="painel__titulo">Quanto vale 1 milhão de adena</h1>
+
+      <!--
+        A frase de dado velho, vinda pronta do Python (`MOLDE_DO_DADO_VELHO`).
+        Ela fica ACIMA do destaque porque o que ela retira é a afirmação de
+        "agora", e não o número — o número continua logo abaixo dela.
+      -->
+      <p class="destaque__aviso-velho" id="aviso-dado-velho"></p>
+
       <div class="destaque__cartoes">
+
+        <!--
+          O CARTÃO DE XM leva o acento dourado porque é derivado SÓ do que o
+          scanner leu na tela. A justificativa completa está no `dashboard.css`,
+          ao lado da regra que pinta a cor.
+        -->
         <article class="cartao" id="cartao-xm">
-          <p class="cartao__valor" id="xm-texto">Carregando a leitura…</p>
+          <p class="cartao__valor cartao__valor--xm" id="xm-texto">Lendo o arquivo…</p>
+          <p class="cartao__unidade" id="xm-unidade"></p>
           <p class="cartao__procedencia">
-            <span id="xm-n"></span>
-            <span id="xm-recencia"></span>
+            <span class="cartao__n" id="xm-n"></span>
+            <span class="cartao__recencia" id="xm-recencia"></span>
           </p>
         </article>
+
+        <!--
+          O CARTÃO DE R$ NASCE NA MARCAÇÃO e é retirado da tela pelo atributo de
+          estado `data-cambio="ausente"` no <body>. Ele NÃO fica cinza e NÃO
+          fica zerado: um câmbio chutado vira decisão de dinheiro real errada, e
+          um zero com vírgula zero zero como espaço reservado é frase proibida
+          do contrato — há teste sobre este arquivo prendendo a literal, e é por
+          isso que nem este comentário a escreve. Ausência se escreve com
+          palavra, e a palavra fica no rodapé.
+        -->
+        <article class="cartao" id="cartao-reais">
+          <p class="cartao__valor cartao__valor--reais" id="reais-texto">Lendo o arquivo…</p>
+          <p class="cartao__unidade" id="reais-unidade"></p>
+          <p class="cartao__procedencia">
+            <span class="cartao__n" id="reais-n"></span>
+            <span class="cartao__recencia" id="reais-recencia"></span>
+          </p>
+        </article>
+
       </div>
     </section>
 
+    <!-- ================================================================= -->
+    <!-- REGIÃO 2 — A SÉRIE                                                -->
+    <!-- ================================================================= -->
     <section id="serie" class="painel">
-      <h2 class="painel__titulo">Histórico da taxa</h2>
-      <p class="painel__vazio">
-        O gráfico da taxa ao longo do tempo entra aqui — duas linhas, o menor
-        pedido visível e a mediana, com zoom de horas a dias.
-      </p>
+      <div class="serie__cabecalho">
+        <h2 class="painel__titulo">Histórico da taxa</h2>
+        <!--
+          Sem este botão o usuário fica PRESO no zoom que ele mesmo deu. O texto
+          é `Ver todo o período` e não `Ver tudo`: verbo sem objeto ao lado de um
+          gráfico que já dá zoom e pan é ambíguo.
+        -->
+        <button class="botao botao--secundario" id="ver-todo-o-periodo" type="button">Ver todo o período</button>
+      </div>
+
+      <!--
+        O título da série vem do `nome_exibido`, que atravessa o OCR e oscila.
+        Uma linha com reticência e o texto completo no atributo de título: ele
+        nunca invade a área do número. O JS escreve por `textContent`, nunca por
+        marcação — o CSV não tem o direito de escrever HTML na página que o julga.
+      -->
+      <p class="serie__titulo" id="serie-titulo" title=""></p>
+
+      <div class="serie__area">
+        <div class="serie__grafico" id="serie-grafico"></div>
+
+        <!--
+          A PLACA DE ESTADO VAZIO ESTÁ NA MARCAÇÃO, SEMPRE. O JS só alterna a
+          visibilidade pelo atributo de estado; ele não a cria. Gráfico vazio
+          mudo está PROIBIDO: um retângulo em branco é indistinguível de "o
+          dashboard quebrou", e hoje — medido — o CSV tem zero linhas da série
+          da Adena, então este é o PRIMEIRO estado que o usuário vai ver, e não
+          um caso de borda.
+        -->
+        <div class="serie__vazio" id="serie-vazio">
+          <h3 class="serie__vazio-titulo">Nenhuma leitura da Adena ainda</h3>
+          <p class="serie__vazio-corpo">O painel de Adena nunca foi lido nesta máquina. Para começar: deixe o vigiar-mercado.bat rodando e abra a aba Adena da World Exchange no cliente. Cada página lida vira um ponto aqui sozinha, sem recarregar.</p>
+          <!--
+            A LINHA DE PROVA, com os dois números REAIS do arquivo. É ela que
+            separa "não há o que mostrar" de "o dashboard não conseguiu abrir o
+            arquivo". Vem pronta do Python (`MOLDE_DA_PROVA_DA_LEITURA`), então
+            o lugar está reservado aqui e o texto entra no polling.
+          -->
+          <p class="serie__vazio-prova" id="serie-vazio-prova"></p>
+        </div>
+      </div>
+
+      <!--
+        A LEGENDA FICA NA MARCAÇÃO DESDE O INÍCIO, inclusive no estado vazio: é
+        assim que o usuário sabe o que vai aparecer ali. Sólido × tracejado, e
+        não só cor — traço sobrevive a daltonismo, a monitor mal calibrado e ao
+        `Gamma=1.16` do cliente; cor sozinha não sobreviveria.
+      -->
+      <ul class="serie__legenda">
+        <li class="serie__legenda-item">
+          <span class="serie__amostra serie__amostra--principal" aria-hidden="true"></span>
+          <span class="serie__legenda-rotulo serie__legenda-rotulo--principal">menor pedido visível</span>
+        </li>
+        <li class="serie__legenda-item">
+          <span class="serie__amostra serie__amostra--tipica" aria-hidden="true"></span>
+          <span class="serie__legenda-rotulo serie__legenda-rotulo--tipica">mediana</span>
+        </li>
+      </ul>
     </section>
 
+    <!-- ================================================================= -->
+    <!-- REGIÃO 3 — A PROCEDÊNCIA                                          -->
+    <!-- ================================================================= -->
     <section id="procedencia" class="painel">
       <h2 class="painel__titulo">Procedência</h2>
-      <p class="painel__vazio">
-        Aqui ficam o câmbio informado por você, o arquivo de onde os números
-        saíram e a confirmação de que ele é aberto somente para leitura.
+
+      <!--
+        UM FORMULÁRIO DE VERDADE, e não um campo solto ao lado de um botão: a
+        tecla de confirmação submete, que é o que a mão do usuário já espera.
+
+        ELE NÃO TEM DESTINO, e isso é deliberado. A CSP traz `form-action 'none'`,
+        então um envio que escapasse do JS seria BARRADO pelo navegador em vez de
+        vazar o câmbio para fora. É a falha fechada certa: o caminho normal é o
+        JS interceptar e fazer o POST; o caminho anômalo não vai a lugar nenhum.
+      -->
+      <form class="cambio" id="form-cambio">
+        <label class="cambio__rotulo" for="campo-cambio">1 XM = R$</label>
+        <!--
+          `value` VAZIO e `0,50` só como placeholder: o exemplo nunca pode ser
+          submetido como valor. `inputmode="decimal"` porque a entrada é em
+          reais com vírgula; `maxlength` porque um número absurdamente longo tem
+          de ser recusado antes de virar layout.
+        -->
+        <input class="cambio__campo" id="campo-cambio" name="cambio" type="text"
+               inputmode="decimal" maxlength="12" placeholder="0,50" value=""
+               autocomplete="off" spellcheck="false">
+        <!--
+          OS DOIS RÓTULOS DO BOTÃO MORAM NA MARCAÇÃO, e o CSS escolhe qual
+          aparece pelo atributo `data-salvando`. Assim a cópia continua sendo
+          conferível por teste sobre o HTML, e o JS só troca um atributo — ele
+          não escreve texto de interface. O botão NÃO vira indicador giratório.
+        -->
+        <button class="botao botao--primario" id="botao-salvar" type="submit" data-salvando="nao">
+          <span class="botao__rotulo botao__rotulo--parado">Salvar câmbio</span>
+          <span class="botao__rotulo botao__rotulo--salvando">Salvando…</span>
+        </button>
+        <span class="cambio__carimbo" id="cambio-carimbo"></span>
+      </form>
+
+      <p class="cambio__erro" id="cambio-erro" role="alert"></p>
+
+      <p class="procedencia__linha procedencia__linha--reais" id="aviso-reais-indisponivel">R$ indisponível — nenhum câmbio informado.</p>
+
+      <p class="procedencia__linha procedencia__linha--fonte">
+        fonte: <span class="procedencia__arquivo" id="fonte-arquivo" title=""></span>
+        <span class="procedencia__marca">somente leitura</span>
       </p>
+
+      <p class="procedencia__linha procedencia__linha--evidencia">
+        <span id="fonte-n"></span>
+        <span id="fonte-recencia"></span>
+      </p>
+
+      <p class="procedencia__linha procedencia__linha--historico" id="aviso-cambio-historico">R$ calculado com o câmbio informado hoje, aplicado a toda a série.</p>
+
+      <!-- A nota de DASH-01, quando a última linha do CSV foi descartada por
+           incompleta. Vem pronta do Python (`NOTA_DE_LINHA_PARCIAL`). -->
+      <p class="procedencia__linha procedencia__linha--parcial" id="nota-linha-parcial"></p>
     </section>
 
   </main>
