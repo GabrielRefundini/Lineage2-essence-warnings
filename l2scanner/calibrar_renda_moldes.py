@@ -146,7 +146,6 @@ from .calibrar_mercado import (
 from .frames import Regiao
 from .mercado_leitura import (
     conjunto_descreve_numeros,
-    limite_de_glifo_unico,
     mascara_de_numero,
     segmentar_glifos_no_brilho,
 )
@@ -156,6 +155,7 @@ from .renda_leitura import (
     RecusaDeForma,
     _glifos_do_numero,
     recortar,
+    resolver_o_limite_de_glifo,
 )
 
 #: Os quatro campos da barra inferior. A colheita e de qualquer um deles, e nao
@@ -260,34 +260,15 @@ def conserto_do_run_colado() -> str:
     )
 
 
-def limite_de_arranque(runs) -> int | None:
-    """O limite de glifo unico da PRIMEIRA rodada, quando nao ha molde nenhum.
-
-    POR QUE ELE PRECISA EXISTIR. `limite_de_glifo_unico({})` devolve `None` — e
-    esta certo, porque sem molde nao ha geometria gravada. Mas a primeira rodada
-    tambem precisa fatiar, e e justamente ela que faz o primeiro molde nascer.
-    Sem um limite de arranque a ferramenta nunca sairia do zero: um cortador que
-    exige moldes para cortar moldes.
-
-    DE ONDE ELE VEM, E ELE E ANUNCIADO. Medido nas quatro fixturas: os icones
-    sao as duas corridas das PONTAS, e sao as mais largas do recorte. Entao o
-    arranque e a maior largura que NAO esta numa ponta. Nas quatro fixturas isso
-    da 6, 4, 6 e 6 — e em todas as quatro o descarte posicional sai igual.
-
-    E O PONTO CEGO DELE VAI ESCRITO, porque ele e real: num recorte que tenha um
-    icone NO MEIO (o caso do M-N), o arranque adotaria a largura DAQUELE icone e
-    a peneira o aceitaria como digito. Isso nao passa em silencio — o rotulo
-    daquele recorte vai para o olho humano ampliado, e o que ele veria e lixo.
-    Assim que o primeiro molde existir, o limite passa a sair dos moldes e este
-    caminho nunca mais e usado.
-    """
-    corridas = list(runs or [])
-    if len(corridas) < 3:
-        return None
-    do_meio = [int(fim) - int(inicio) for inicio, fim in corridas[1:-1]]
-    if not do_meio:
-        return None
-    return max(do_meio)
+# `limite_de_arranque` MUDOU DE CASA e continua sendo UMA funcao so. Ela
+# nasceu aqui, quando este cortador era o unico consumidor da peneira; o
+# calibrador de PISOS (`calibrar_renda`, do `01-03`) passou a classificar a
+# barra pela mesma forma e precisa do mesmo arranque pela mesma razao. Copia-la
+# para la teria criado DUAS regras de arranque para uma so fonte, e importar um
+# calibrador do outro esta proibido por desenho. Entao ela desceu para
+# `renda_leitura`, ao lado da peneira que consome o `limite` -- e este modulo
+# continua expondo o nome, porque quem ja o importava daqui nao tem por que
+# saber que a casa mudou.
 
 
 def altura_dominante(moldes: dict[str, np.ndarray]) -> int | None:
@@ -338,11 +319,13 @@ def glifos_do_recorte(
 
     O limite sai de `limite_de_glifo_unico(moldes)` quando ha moldes, e de
     `limite_de_arranque(runs)` quando nao ha. Nenhuma geometria desta fonte
-    entra aqui como constante.
+    entra aqui como constante. As duas regras moram numa funcao so do modulo
+    puro (`resolver_o_limite_de_glifo`), que devolve tambem DE ONDE o limite
+    veio -- o discriminador do M-U.
     """
     mascara = mascara_de_numero(pixels, int(piso_de_brilho))
     _faixa_bruta, runs = segmentar_glifos_no_brilho(pixels, int(piso_de_brilho))
-    limite = limite_de_glifo_unico(moldes) or limite_de_arranque(runs)
+    limite, _origem = resolver_o_limite_de_glifo(moldes, runs)
     peneirado = _glifos_do_numero(mascara, _faixa_bruta, runs, limite=limite)
     if isinstance(peneirado, RecusaDeForma):
         return peneirado

@@ -52,7 +52,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .frames import Regiao
-from .mercado_leitura import mascara_de_numero
+from .mercado_leitura import limite_de_glifo_unico, mascara_de_numero
 from .ocr import ler_texto, ler_texto_ampliado
 
 log = logging.getLogger(__name__)
@@ -325,8 +325,45 @@ def _cruzar_as_escalas(
       CAMPO. Por isso a adena saiu do OCR, e nao por isso a regra saiu do
       projeto.
 
-    Quem for afrouxa-la ou aperta-la de novo tem de responder ao M-G e ao M-H,
-    e nao apenas ao M-D.
+    E AQUI ESTA A CORRECAO QUE O `01-03` MEDIU, PORQUE O PARAGRAFO ACIMA
+    ATRIBUIA O MODO DE FALHA SO A UM CAMPO E SO A UMA CAUSA. Ele dizia que a
+    regra "continua CORRETA E OBRIGATORIA para o EXP", e que o que quebrou na
+    adena foi ter um sosia ADJACENTE. As duas metades estao certas de menos:
+    **o EXP tem o mesmo modo de falha, e o sosia nao precisa estar ao lado —
+    basta o CORTE fabricar um.**
+
+    A medicao, sobre `tests/fixtures/renda/montagem_da_janela.png`, retangulo
+    do EXP `0,1368 520x24`, piso 160, verdade de campo `8,0012%` (`80012`),
+    deslocando a borda ESQUERDA do recorte para dentro:
+
+        ate +82   `80012`  certo,  1-2 escalas
+        +83       recusa por discordancia entre escalas
+        +84       `30012`  ERRADO, 1 escala
+        +85       `10012`  ERRADO, 1 escala
+        +86       `10012`  ERRADO, **2 escalas -- AS DUAS CONCORDAM**
+        +87 e alem  recusa por gramatica
+
+    Ha uma janela de TRES PIXELS em que a leitura fabrica um EXP
+    gramaticalmente perfeito e errado, e no `+86` o cruzamento NAO PEGA:
+    cortar o primeiro digito transformou `8` em `3` e depois em `1`, e as duas
+    escalas leram o mesmo caractere mutilado. O cruzamento e a ultima guarda
+    depois da gramatica, e ali ele concorda no erro.
+
+    O QUE ISSO MUDA, E O QUE ISSO NAO MUDA. Nao muda a regra: exigir
+    concordancia tambem nao pegaria o `+86`, e recusaria o nivel da Faerlina
+    para sempre. Muda ONDE a guarda mora — ela e do RECORTE e nao da leitura.
+    O retangulo vem do calibrador, o calibrador desenha a imagem de
+    conferencia, e o olho do usuario e quem ve que o `8` esta cortado. A
+    janela e estreita (3 px de 520), mas ela cai exatamente onde uma janela
+    levemente movida cairia.
+
+    O LIMITE DESTA MEDICAO VAI JUNTO, para ninguem generalizar dela o que ela
+    nao mediu: um campo (o EXP), uma fixtura, um piso, e deslocamento so da
+    borda ESQUERDA. Nao mede a borda direita, nem o deslocamento vertical, nem
+    os outros dois campos.
+
+    Quem for afrouxa-la ou aperta-la de novo tem de responder ao M-G, ao M-H e
+    a esta tabela, e nao apenas ao M-D.
 
     OS QUATRO DESFECHOS:
 
@@ -705,3 +742,98 @@ def _glifos_do_numero(
         faixa=(int(linhas[0]), int(linhas[-1]) + 1),
         runs=tuple(miolo),
     )
+
+
+# ---------------------------------------------------------------------------
+# DE ONDE SAI O `limite` DA PENEIRA -- E ELE NUNCA E UM NUMERO ESCRITO AQUI
+# ---------------------------------------------------------------------------
+#
+# POR QUE ESTAS DUAS FUNCOES MORAM NO MODULO PURO, AO LADO DA PENEIRA. Elas
+# nasceram dentro do cortador de moldes (`calibrar_renda_moldes`, do `01-05`),
+# que era o unico consumidor da peneira. Ele deixou de ser: o calibrador de
+# PISOS (`calibrar_renda`, do `01-03`) tambem classifica a barra pela forma, e
+# precisa exatamente do mesmo limite pela mesma razao.
+#
+# Copiar `limite_de_arranque` para o segundo calibrador teria criado DUAS
+# regras de arranque para uma so fonte -- a mesma familia de defeito que
+# `_glifos_do_numero` existe para nao ter, uma peca abaixo. E importar um
+# calibrador do outro esta proibido por desenho: os dois nao se conhecem, nao
+# dividem arquivo, e a ligacao entre eles passa pelo disco. A saida que
+# respeita as duas coisas e a que esta feita aqui: a regra desce para o modulo
+# PURO, que os dois ja importam, e continua existindo UMA VEZ. As setas
+# continuam ferramenta -> puro.
+
+#: O limite veio dos moldes que um humano ja confirmou. E o caso maduro.
+LIMITE_VEIO_DOS_MOLDES = "moldes"
+
+#: O limite foi medido no proprio recorte, porque nao ha molde nenhum ainda.
+LIMITE_VEIO_DO_ARRANQUE = "arranque"
+
+
+def limite_de_arranque(runs) -> int | None:
+    """O limite de glifo unico da PRIMEIRA rodada, quando nao ha molde nenhum.
+
+    POR QUE ELE PRECISA EXISTIR. `limite_de_glifo_unico({})` devolve `None` -- e
+    esta certo, porque sem molde nao ha geometria gravada. Mas a primeira
+    rodada tambem precisa fatiar, e e justamente ela que faz o primeiro molde
+    nascer. Sem um limite de arranque a ferramenta nunca sairia do zero: um
+    cortador que exige moldes para cortar moldes. E o calibrador de PISOS tem a
+    mesma necessidade pelo mesmo motivo -- a primeira rodada de todo usuario e
+    sem moldes, e uma banda vazia ali o faria concluir que a adena nao tem piso
+    nenhum.
+
+    DE ONDE ELE VEM, E ELE E ANUNCIADO. Medido nas quatro fixturas: os icones
+    sao as duas corridas das PONTAS, e sao as mais largas do recorte. Entao o
+    arranque e a maior largura que NAO esta numa ponta. Nas quatro fixturas
+    isso da 6, 4, 6 e 6 -- e em todas as quatro o descarte posicional sai igual.
+
+    E O PONTO CEGO DELE VAI ESCRITO, porque ele e real: num recorte que tenha
+    um icone NO MEIO (o caso do M-N), o arranque adotaria a largura DAQUELE
+    icone e a peneira o aceitaria como digito. Isso nao passa em silencio -- o
+    rotulo daquele recorte vai para o olho humano ampliado, e o que ele veria e
+    lixo. Assim que o primeiro molde existir, o limite passa a sair dos moldes.
+
+    MEDIDO DE NOVO NO `01-03`, E O PONTO CEGO TEM UM SEGUNDO ROSTO: num piso
+    BAIXO demais, glifos vizinhos colam e o arranque adota a largura do PAR
+    colado. Sobre as cinco fixturas de `barra_direita`, varridas de 5 em 5, os
+    pisos abaixo de 176 sao aceitos pela forma com arranque 10, 11 ou 12 e com
+    uma corrida A MENOS do que o numero tem caracteres. O centro da banda
+    contigua e o que salva a escolha -- nas cinco fixturas ele caiu em 181 ou
+    186, dentro da banda de glifo medida em campo (180-190, M-J).
+    """
+    corridas = list(runs or [])
+    if len(corridas) < CORRIDAS_MINIMAS_DE_UM_NUMERO:
+        return None
+    do_meio = [int(fim) - int(inicio) for inicio, fim in corridas[1:-1]]
+    if not do_meio:
+        return None
+    return max(do_meio)
+
+
+def resolver_o_limite_de_glifo(moldes, runs) -> tuple[int | None, str]:
+    """`(limite, de onde ele veio)`. Os moldes mandam; o arranque destrava.
+
+    A ORIGEM SAI JUNTO, E ISSO E O ACHADO M-U VIRADO ASSINATURA. O limite dos
+    moldes e DERIVADO do conjunto ja cortado, entao um conjunto incompleto
+    produz um limite ESTREITO -- e a peneira recusa o recorte CERTO com uma
+    mensagem que culpa o RETANGULO ("o recorte pegou o campo vizinho junto").
+
+    Medido na rodada de moldes de 2026-09-02 (M-U): em ordem alfabetica o
+    primeiro recorte e `2.207.577`, cujos digitos sao todos de largura 4
+    (convencao exclusiva). O limite trava em 4 e os tres recortes seguintes sao
+    recusados, porque `4`, `8` e `9` medem 5 e 6 -- cinco rotulos de onze.
+    Reconferido pelo `01-03` do outro lado, com o limite preso em 4 sobre as
+    CINCO fixturas de `barra_direita`: duas delas ficam com a banda de forma
+    INTEIRAMENTE VAZIA, e as recusas dos pisos 181, 186 e 191 mandam remarcar
+    um retangulo que esta correto.
+
+    Quem receber esta tupla e responsavel por NAO repetir a atribuicao errada:
+    quando a origem e `LIMITE_VEIO_DOS_MOLDES` e o arranque medido no proprio
+    recorte e MAIOR que ela, o retangulo nao e o suspeito -- o limite herdado
+    e. Essa comparacao e o discriminador, e ela e derivada dos dois lados:
+    nenhum numero desta fonte precisa ser escrito para faze-la.
+    """
+    dos_moldes = limite_de_glifo_unico(moldes or {})
+    if dos_moldes is not None:
+        return int(dos_moldes), LIMITE_VEIO_DOS_MOLDES
+    return limite_de_arranque(runs), LIMITE_VEIO_DO_ARRANQUE

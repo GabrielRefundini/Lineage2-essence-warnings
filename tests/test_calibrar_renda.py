@@ -25,15 +25,21 @@ isso possivel e o parametro `ler_escalas` de `varrer_o_piso`: ele nao e um
 atalho de teste, e a separacao entre o laco que faz OCR e as funcoes puras que
 decidem.
 
-O QUE ESTE ARQUIVO AINDA NAO COBRE, dito aqui e nao numa nota de rodape: a
-varredura da `barra_direita`. Aquele campo e classificado pelo veredicto de
-GLIFO, pela peneira `renda_leitura._glifos_do_numero`, que e escrita pelo plano
-`01-05` -- a MESMA onda que este. Enquanto ela nao existir, nem a varredura nem
-os casos dela existem aqui, e NENHUMA peneira propria foi escrita para
-destravar: duas peneiras seriam duas formas, e o modo de falha seria silencioso
+A VARREDURA DA `barra_direita` TEM O SEU PROPRIO CONJUNTO DE CASOS, no fim
+deste arquivo, e ela nao e a mesma varredura. Aquele campo e classificado pelo
+veredicto de GLIFO -- a FORMA das corridas, pela peneira
+`renda_leitura._glifos_do_numero`, que este calibrador IMPORTA e nunca
+redefine. Duas peneiras seriam duas formas, e o modo de falha seria silencioso
 nos dois sentidos por causa da divergencia de convencao de largura do M-P
 (`larguras_de_molde` mede `fim - inicio`, o documento de campo mede
 `fim - inicio + 1`).
+
+E POR ISSO AS LARGURAS DOS CASOS DE FORMA DESTE ARQUIVO ESTAO TRADUZIDAS. O
+criterio de aceitacao do plano cita a sequencia
+`[15, 5, 2, 5, 5, 5, 2, 5, 5, 5, 16]`, que esta na convencao INCLUSIVA; na
+convencao do CODIGO -- a que a peneira roda -- ela vale
+`[14, 4, 1, 4, 4, 4, 1, 4, 4, 4, 15]`. Escrever a primeira aqui teria produzido
+uma suite verde medindo uma barra que nao existe.
 """
 
 from __future__ import annotations
@@ -841,3 +847,507 @@ class TestOModuloCarregaAntesDeMutar:
             linha for linha in fonte.splitlines() if not linha.strip().startswith("#")
         )
         assert codigo.count("cal.renda_por_personagem =") == 1
+
+
+# ===========================================================================
+# A VARREDURA DA `barra_direita`: FORMA DE GLIFO, E NAO CRUZAMENTO DE OCR
+# ===========================================================================
+#
+# AS LARGURAS DAQUI ESTAO NA CONVENCAO EXCLUSIVA (`fim - inicio`), que e a do
+# codigo. A verdade de campo da Faerlina de 00h45 (`13.160.684`, dez
+# caracteres) mede, nesta convencao, `[14, 4, 4, 1, 4, 4, 4, 1, 4, 4, 6, 15]`:
+# icone, dez caracteres no meio, icone. Na convencao INCLUSIVA do
+# `01-MEDICOES-DE-CAMPO.md` cada numero desses vale um a mais.
+
+#: A forma canonica de um numero desta barra, medida em campo e traduzida.
+FORMA_DE_UM_NUMERO = (14, 4, 1, 4, 4, 4, 1, 4, 4, 4, 15)
+
+#: A altura da FONTE da barra, na convencao exclusiva (M-K reconferido pelo
+#: `01-05`: 9 exclusiva, 10 inclusiva). Ela e o que a faixa PENEIRADA devolve.
+ALTURA_DA_FONTE = 9
+
+#: A altura do ICONE de moeda. Ela e maior que a da fonte, e e por isso que a
+#: faixa BRUTA vale 16 e a peneirada vale 9 sobre os mesmos pixels.
+ALTURA_DO_ICONE = 16
+
+
+def _forma(larguras, *, altura_do_glifo: int = ALTURA_DA_FONTE):
+    """`(mascara, faixa bruta, corridas)` para uma sequencia de larguras.
+
+    Os icones das PONTAS sao desenhados mais ALTOS que os glifos do meio, de
+    proposito: e essa diferenca que faz a faixa bruta valer `ALTURA_DO_ICONE` e
+    a peneirada valer `altura_do_glifo`, que e o achado M-K inteiro. Uma
+    mascara com tudo da mesma altura passaria nos casos de forma e nao provaria
+    nada sobre a altura.
+
+    Uma coluna vazia separa cada corrida da seguinte, que e exatamente a regra
+    de `segmentar_glifos_no_brilho`: qualquer coluna vazia separa, sem
+    tolerancia de lacuna.
+    """
+    corridas = []
+    coluna = 1
+    for largura in larguras:
+        corridas.append((coluna, coluna + int(largura)))
+        coluna += int(largura) + 1
+    mascara = np.zeros((ALTURA_DO_ICONE + 4, coluna + 1), dtype=np.uint8)
+    ultimo = len(corridas) - 1
+    topo_do_glifo = (ALTURA_DO_ICONE - int(altura_do_glifo)) // 2
+    for indice, (inicio, fim) in enumerate(corridas):
+        if indice in (0, ultimo):
+            mascara[0:ALTURA_DO_ICONE, inicio:fim] = 1
+        else:
+            mascara[topo_do_glifo : topo_do_glifo + int(altura_do_glifo), inicio:fim] = 1
+    return mascara, (0, ALTURA_DO_ICONE), corridas
+
+
+def _varrer_forma(curva, *, moldes_da_barra=None, ler_valor=None):
+    """`{piso: larguras exclusivas}` -> as linhas da varredura de forma.
+
+    O recorte vai `None` de proposito, pelo mesmo motivo de `_varrer`: se algum
+    caminho desta varredura passasse a olhar pixel por fora do `medir`
+    injetado, ele estouraria aqui em vez de passar medindo outra coisa.
+    """
+    formas = {piso: _forma(larguras) for piso, larguras in curva.items()}
+    return cr.varrer_a_forma(
+        None,
+        sorted(curva),
+        moldes_da_barra=moldes_da_barra,
+        medir=lambda _recorte, piso: formas[piso],
+        ler_valor=ler_valor,
+    )
+
+
+def _conjunto_de_moldes(larguras, *, altura: int = ALTURA_DA_FONTE) -> dict:
+    """Um `renda_moldes_da_barra` de verdade, pela ida e volta de producao.
+
+    Os moldes passam por `glifos_para_calibracao` e voltam por
+    `glifos_de_calibracao` -- os mesmos dois lados que o cortador usa. Um dict
+    falso aqui mediria o teste e nao o produto, e o limite derivado deles e
+    justamente o numero que o achado M-U poe em duvida.
+    """
+    from l2scanner.mercado_visao import glifos_para_calibracao
+
+    moldes = {
+        str(rotulo): np.ones((int(altura), int(largura)), dtype=np.uint8)
+        for rotulo, largura in larguras.items()
+    }
+    return {
+        "moldes": glifos_para_calibracao(moldes),
+        "piso_de_leitura": 0.8,
+        "margem_de_leitura": 0.1,
+        "folga_de_cola": None,
+    }
+
+
+class TestAAdenaEClassificadaPelaFORMAEnaoPeloValor:
+    """A forma e a primeira peneira, e neste calibrador ela e a UNICA.
+
+    Um piso em que a segmentacao devolve uma contagem de corridas diferente da
+    esperada fica FORA da banda mesmo que a leitura devolva uma string -- sem
+    esse controle, uma varredura que so olhasse o texto aceitaria de bom grado
+    uma segmentacao quebrada, e o piso gravado descreveria outra coisa.
+    """
+
+    def test_A_FORMA_MEDIDA_EM_CAMPO_FICA_DENTRO_DA_BANDA(self):
+        linhas = _varrer_forma({185: FORMA_DE_UM_NUMERO})
+        assert linhas[0].aceito, linhas[0].desfecho
+        assert cr.resumir_a_banda_util(linhas).pisos == (185,)
+
+    def test_O_MIOLO_ACEITO_TEM_OS_CARACTERES_E_NAO_OS_ICONES(self):
+        """Nove caracteres no meio de onze corridas: os dois icones sairam."""
+        linha = _varrer_forma({185: FORMA_DE_UM_NUMERO})[0]
+        assert linha.corridas_do_numero == len(FORMA_DE_UM_NUMERO) - 2
+
+    def test_CONTROLE_UMA_CONTAGEM_DIFERENTE_FICA_FORA_MESMO_COM_TEXTO_LIDO(
+        self,
+    ):
+        """O CONTROLE que a acceptance exige: valor lido NAO salva a forma.
+
+        Um icone no MEIO (largura de icone entre os digitos) e a forma medida
+        do retangulo refutado pelo M-N. A leitura injetada devolve uma string
+        perfeitamente plausivel, e mesmo assim o piso fica FORA: quem decide e
+        a forma.
+        """
+        quebrada = (14, 4, 1, 4, 14, 4, 1, 4, 4, 4, 15)
+        linhas = _varrer_forma(
+            {185: quebrada},
+            moldes_da_barra=_conjunto_de_moldes({"4": 6, "1": 1}),
+            ler_valor=lambda *_a, **_k: "13,160,684",
+        )
+        assert not linhas[0].aceito
+        assert cr.resumir_a_banda_util(linhas).vazia
+        assert linhas[0].valor is None, (
+            "a leitura foi feita sobre um recorte que a forma RECUSOU: a ordem "
+            "e o contrato, e o valor so existe depois do veredicto"
+        )
+
+    def test_A_SAIDA_NOMEIA_O_METODO_COMO_GLIFO_E_NAO_COMO_OCR(self):
+        linhas = _varrer_forma({185: FORMA_DE_UM_NUMERO})
+        texto = "\n".join(cr.descrever_a_forma("ADENA", linhas))
+        assert cr.METODO_POR_GLIFO in texto
+        assert cr.METODO_POR_OCR in texto, (
+            "o metodo do OUTRO caminho tem de aparecer NEGADO: sem isso o "
+            "usuario compara o piso de glifo com o de OCR, e medido (M-E) as "
+            "duas bandas nem se tocam"
+        )
+
+    def test_A_ADENA_NAO_ESTA_NA_VARREDURA_DE_OCR(self):
+        assert cr.REGIAO_VARRIDA_POR_GLIFO not in cr.REGIOES_VARRIDAS_POR_OCR
+
+    def test_A_VARREDURA_DE_FORMA_NAO_CHAMA_O_CRUZAMENTO_DE_ESCALAS(self):
+        """Nenhum caminho varre a `barra_direita` pelos quatro desfechos.
+
+        Verificado na ARVORE DE SINTAXE das funcoes de forma, e nao por leitura:
+        `_cruzar_as_escalas` continua sendo chamada neste arquivo -- pelas OUTRAS
+        duas regioes --, entao uma busca crua nao discriminaria nada.
+        """
+        arvore = ast.parse(FONTE_DO_CALIBRADOR.read_text(encoding="utf-8"))
+        de_forma = {"varrer_a_forma", "descrever_a_forma", "_medir_as_corridas"}
+        for no in ast.walk(arvore):
+            if not isinstance(no, ast.FunctionDef) or no.name not in de_forma:
+                continue
+            chamados = {
+                filho.attr if isinstance(filho, ast.Attribute) else filho.id
+                for filho in ast.walk(no)
+                if isinstance(filho, (ast.Name, ast.Attribute))
+            }
+            assert "_cruzar_as_escalas" not in chamados, (
+                f"`{no.name}` cruza escalas de OCR num campo lido por GLIFO: o "
+                f"piso calibrado assim nao e o que a producao usa"
+            )
+
+
+class TestAAlturaDeFaixaSaiComACONVENCAODeclarada:
+    """Dois numeros, duas convencoes, e a fase ja pagou por confundi-las.
+
+    A faixa BRUTA carrega os icones e vale 16 exclusiva (17 inclusiva) -- e o
+    `17` do M-I. A faixa PENEIRADA, depois de os icones sairem, vale 9 exclusiva
+    (10 inclusiva) -- e o `10` do M-K. Uma guarda calibrada contra 10 rodando na
+    convencao do codigo recusaria TODO molde legitimo desta barra, e o modo de
+    falha seria um cortador que roda, sai com codigo 0 e nunca corta nada.
+    """
+
+    def test_A_ALTURA_DEVOLVIDA_E_A_PENEIRADA_E_VALE_9_NA_CONVENCAO_DO_CODIGO(
+        self,
+    ):
+        linha = _varrer_forma({185: FORMA_DE_UM_NUMERO})[0]
+        assert linha.altura_da_faixa == ALTURA_DA_FONTE, (
+            "a altura devolvida e a BRUTA e nao a peneirada: medir antes do "
+            "descarte dos icones e reproduzir o M-I por dentro da ferramenta "
+            "que existe para nao repeti-lo"
+        )
+
+    def test_A_FAIXA_BRUTA_DA_MESMA_MASCARA_E_MAIOR_QUE_A_PENEIRADA(self):
+        """O controle que prova que os dois numeros sao dos MESMOS pixels."""
+        _mascara, bruta, _corridas = _forma(FORMA_DE_UM_NUMERO)
+        assert bruta[1] - bruta[0] == ALTURA_DO_ICONE > ALTURA_DA_FONTE
+
+    def test_A_CONVENCAO_VAI_DECLARADA_NA_SAIDA_COM_OS_DOIS_NUMEROS(self):
+        linhas = _varrer_forma({185: FORMA_DE_UM_NUMERO})
+        texto = "\n".join(cr.descrever_a_forma("ADENA", linhas))
+        assert "EXCLUSIVA" in texto
+        assert str(ALTURA_DA_FONTE) in texto
+        assert str(ALTURA_DA_FONTE + 1) in texto, (
+            "a saida da so um dos dois numeros: quem ler vai comparar com o "
+            "documento de campo, que esta na outra convencao"
+        )
+        assert "M-K" in texto
+
+
+class TestOCasoSemMoldesQueEAPrimeiraRodadaDeTodoUsuario:
+    """O buraco de ordem que a suite sintetica nao pegaria sozinha.
+
+    `ler_glifos` sem moldes nao le nada, e os moldes so nascem na rodada humana
+    do cortador. Uma varredura acoplada ao VALOR devolveria banda vazia em todos
+    os pisos na estreia -- e o usuario concluiria que a adena nao tem piso
+    nenhum, enquanto os casos montados a mao continuariam verdes.
+    """
+
+    def test_SEM_MOLDES_A_BANDA_NAO_SAI_VAZIA(self):
+        linhas = _varrer_forma(
+            {piso: FORMA_DE_UM_NUMERO for piso in (180, 185, 190)},
+            moldes_da_barra=None,
+        )
+        banda = cr.resumir_a_banda_util(linhas)
+        assert not banda.vazia, (
+            "a banda saiu vazia sem moldes: e a primeira rodada de TODO "
+            "usuario, e ele concluiria que a adena nao tem piso nenhum"
+        )
+        assert banda.pisos == (180, 185, 190)
+
+    def test_SEM_MOLDES_A_LEITURA_POR_GLIFO_NAO_E_CHAMADA(self, monkeypatch):
+        """Espionando o `ler_glifos` DE VERDADE, e nao o injetavel.
+
+        Com o `ler_valor` injetado o caso nao provaria nada: ele mediria o
+        proprio teste. O que se afirma aqui e que o caminho de producao nao
+        chega na leitura quando nao ha molde.
+        """
+        chamadas = []
+        monkeypatch.setattr(
+            cr, "ler_glifos", lambda *a, **k: chamadas.append(a) or "x"
+        )
+        _varrer_forma({185: FORMA_DE_UM_NUMERO}, moldes_da_barra=None)
+        assert chamadas == []
+
+    def test_SEM_MOLDES_A_SAIDA_TRAZ_A_ORDEM_DE_OPERACAO(self, capsys):
+        """A informacao que o usuario NAO tem como adivinhar, no terminal dele.
+
+        Ele ve tres retangulos, uma curva e um numero. Sem esta saida ele nao
+        tem como saber que falta um passo entre esta rodada e a leitura da
+        adena funcionando, e concluiria que a ferramenta esta quebrada.
+        """
+        cv2 = pytest.importorskip("cv2")
+        caminho = (
+            RAIZ
+            / "tests"
+            / "fixtures"
+            / "renda"
+            / "campo_faerlina_f000__barra_direita.png"
+        )
+        imagem = cv2.imread(str(caminho))
+        bloco = {
+            "regiao": {
+                "esquerda": 0,
+                "topo": 0,
+                "largura": int(imagem.shape[1]),
+                "altura": int(imagem.shape[0]),
+            },
+            "piso_de_brilho": 185,
+        }
+        cal = Calibracao.carregar(
+            RAIZ / "tests" / "fixtures" / "renda" / "calibracao_de_fixture.json"
+        )
+        assert cal.renda_moldes_da_barra is None
+        cr._imprimir_a_varredura_da_adena(
+            cal, imagem, bloco, cr.grade_de_pisos(1, 254)
+        )
+        saida = capsys.readouterr().out
+        assert "calibrar-renda-moldes.bat" in saida
+        assert "--so-medir" in saida
+        assert "O VALOR NAO FOI LIDO" in saida
+        assert "NENHUM gravado ainda" in saida
+
+    def test_CONTROLE_COM_MOLDES_O_VALOR_APARECE_E_A_BANDA_NAO_MUDA(self):
+        """O par que a acceptance exige: o valor entra, o dentro/fora nao muda.
+
+        Os moldes deste caso tem a MESMA largura maxima que o arranque mediria
+        no recorte, de proposito: assim a UNICA coisa que muda entre as duas
+        varreduras e a coluna de valor. Se a banda mudasse aqui, o piso gravado
+        passaria a depender de o conjunto de moldes estar completo ou nao -- e a
+        calibracao dependeria de um artefato que ela mesma nao produz.
+        """
+        curva = {piso: FORMA_DE_UM_NUMERO for piso in (180, 185, 190)}
+        sem = _varrer_forma(curva, moldes_da_barra=None)
+        com = _varrer_forma(
+            curva,
+            moldes_da_barra=_conjunto_de_moldes({"4": 4, "1": 1}),
+            ler_valor=lambda *_a, **_k: "13,160,684",
+        )
+        assert cr.resumir_a_banda_util(sem).pisos == cr.resumir_a_banda_util(com).pisos
+        assert all(linha.valor is None for linha in sem)
+        assert all(linha.valor == "13,160,684" for linha in com)
+
+    def test_O_VALOR_E_INFORMATIVO_E_NAO_DECIDE_NADA(self):
+        """Leitura `None` com moldes presentes NAO derruba o piso."""
+        linhas = _varrer_forma(
+            {185: FORMA_DE_UM_NUMERO},
+            moldes_da_barra=_conjunto_de_moldes({"4": 4, "1": 1}),
+            ler_valor=lambda *_a, **_k: None,
+        )
+        assert linhas[0].aceito
+        assert linhas[0].valor is None
+
+
+class TestAPeneiraEUmaSoNestaFase:
+    """Duas peneiras seriam duas formas, e o desalinhamento seria calado.
+
+    O par de portoes e o mesmo que o cortador de moldes aplica, pela mesma
+    razao: os moldes seriam cortados de um conjunto de corridas e lidos de
+    outro, e ninguem veria a diferenca ate a leitura de producao errar.
+    """
+
+    def test_O_CALIBRADOR_NAO_REDEFINE_A_PENEIRA(self):
+        """Por ARVORE DE SINTAXE e tambem por texto cru.
+
+        Pela arvore porque e o que de fato se proibe -- uma definicao. E por
+        texto cru tambem porque o criterio de aceitacao do plano e um `grep`, e
+        um `grep` nao distingue codigo de prosa: uma frase de comentario com a
+        assinatura dentro faria o portao do plano nascer vermelho e alguem
+        "consertaria" apagando a explicacao.
+        """
+        arvore = ast.parse(FONTE_DO_CALIBRADOR.read_text(encoding="utf-8"))
+        definidas = {
+            no.name for no in ast.walk(arvore) if isinstance(no, ast.FunctionDef)
+        }
+        assert "_glifos_do_numero" not in definidas
+        assert FONTE_DO_CALIBRADOR.read_text(encoding="utf-8").count(
+            "def _glifos_do_numero"
+        ) == 0
+
+    def test_O_CALIBRADOR_IMPORTA_E_USA_A_PENEIRA(self):
+        assert "_glifos_do_numero" in _identificadores_do_calibrador()
+
+    def test_A_PENEIRA_USADA_E_A_DO_MODULO_PURO(self):
+        from l2scanner.renda_leitura import _glifos_do_numero
+
+        assert cr._glifos_do_numero is _glifos_do_numero
+
+
+class TestOLimiteHerdadoNaoPodeCulparORetanguloInocente:
+    """M-U: a recusa da peneira culpa o retangulo, e o retangulo esta certo.
+
+    Medido na rodada de moldes de 2026-09-02: cortando em ordem alfabetica, o
+    primeiro recorte e `2.207.577`, so com digitos de largura 4; o limite trava
+    em 4 e os tres recortes seguintes sao RECUSADOS, porque `4`, `8` e `9`
+    medem 5 e 6. A mensagem dizia "o recorte pegou o campo vizinho junto" -- e o
+    que estava estreito era o LIMITE HERDADO.
+
+    Reconferido deste lado, com o limite preso em 4 sobre as CINCO fixturas de
+    `barra_direita`: duas ficam com a banda inteiramente vazia, e as recusas dos
+    pisos 181, 186 e 191 mandariam remarcar um retangulo correto.
+    """
+
+    def _com_limite_estreito(self):
+        return _varrer_forma(
+            {185: FORMA_DE_UM_NUMERO[:-2] + (6, FORMA_DE_UM_NUMERO[-1])},
+            moldes_da_barra=_conjunto_de_moldes({"2": 4, "0": 4, "1": 1}),
+        )
+
+    def test_A_RECUSA_POR_LIMITE_ESTREITO_E_MARCADA_COMO_ATRIBUICAO_ERRADA(
+        self,
+    ):
+        linhas = self._com_limite_estreito()
+        assert not linhas[0].aceito
+        assert linhas[0].origem_do_limite == "moldes"
+        assert linhas[0].culpa_o_retangulo_sem_razao, (
+            "a recusa passou sem marca: o limite veio dos moldes e o arranque "
+            "medido NESTE recorte e maior que ele, o que quer dizer que falta "
+            "molde e nao que o retangulo esta errado (M-U)"
+        )
+
+    def test_O_AVISO_DIZ_PARA_NAO_REMARCAR_O_RETANGULO(self):
+        texto = "\n".join(cr.avisar_sobre_o_limite_herdado(self._com_limite_estreito()))
+        assert "M-U" in texto
+        assert "FALTA MOLDE" in texto
+        assert "Nao remarque o retangulo" in texto
+        assert "MAIS" in texto and "LARGO" in texto, (
+            "o aviso nao diz a ordem que conserta: cortar do recorte mais "
+            "largo para o mais estreito e o que fez os onze rotulos fecharem"
+        )
+
+    def test_CONTROLE_SEM_MOLDES_NAO_HA_ATRIBUICAO_ERRADA_A_DESFAZER(self):
+        """O limite de ARRANQUE e medido no proprio recorte.
+
+        Ele nao pode ser estreito demais por culpa de um conjunto incompleto,
+        entao o aviso do M-U nao se aplica -- e um aviso que aparecesse aqui
+        seria ruido no unico caminho que nao tem o defeito.
+        """
+        linhas = _varrer_forma(
+            {185: (14, 4, 14, 4, 15)}, moldes_da_barra=None
+        )
+        assert not linhas[0].aceito
+        assert linhas[0].origem_do_limite == "arranque"
+        assert cr.avisar_sobre_o_limite_herdado(linhas) == []
+
+    def test_CONTROLE_UM_CONJUNTO_LARGO_O_BASTANTE_NAO_DISPARA_O_AVISO(self):
+        """Sem o controle, uma implementacao que avisasse SEMPRE passaria."""
+        linhas = _varrer_forma(
+            {185: (14, 4, 14, 4, 15)},
+            moldes_da_barra=_conjunto_de_moldes({"4": 6, "1": 1}),
+        )
+        assert not linhas[0].aceito
+        assert linhas[0].origem_do_limite == "moldes"
+        assert cr.avisar_sobre_o_limite_herdado(linhas) == [], (
+            "o aviso disparou num caso em que o arranque NAO e maior que o "
+            "limite: ali a forma esta mesmo errada, e culpar os moldes mandaria "
+            "o usuario para o lugar errado"
+        )
+
+    def test_O_AVISO_NAO_APARECE_QUANDO_NAO_HA_RECUSA_NENHUMA(self):
+        linhas = _varrer_forma(
+            {185: FORMA_DE_UM_NUMERO},
+            moldes_da_barra=_conjunto_de_moldes({"4": 4, "1": 1}),
+        )
+        assert cr.avisar_sobre_o_limite_herdado(linhas) == []
+
+
+@pytest.fixture(scope="module")
+def fixturas():
+    """As CINCO fixturas versionadas da `barra_direita`, abertas uma vez so.
+
+    Elas sao o unico pixel de campo que esta suite toca, e nao precisam de OCR:
+    `mascara_de_numero` e `segmentar_glifos_no_brilho` sao so cv2. A contagem
+    e afirmada aqui e nao la embaixo -- uma fixtura que sumisse faria os casos
+    passarem medindo menos tela.
+    """
+    cv2 = pytest.importorskip("cv2")
+    caminhos = sorted(
+        (RAIZ / "tests" / "fixtures" / "renda").glob("*__barra_direita.png")
+    )
+    assert len(caminhos) == 5, caminhos
+    return {caminho.name: cv2.imread(str(caminho)) for caminho in caminhos}
+
+
+class TestAVarreduraDeFormaContraAsFixturasDeCAMPO:
+    """As cinco fixturas versionadas da barra, sem OCR e sem `recordings/`.
+
+    Os casos acima sao montados a mao e provam a REGRA; estes provam que a
+    regra descreve a tela. Sem eles, uma peneira coerente com uma barra
+    imaginaria passaria em tudo.
+    """
+
+    def test_AS_CINCO_TEM_BANDA_E_O_CENTRO_CAI_NA_BANDA_DE_GLIFO_MEDIDA(
+        self, fixturas
+    ):
+        """Medido: o piso escolhido cai em 181 ou 186 nas cinco.
+
+        A banda de glifo medida em campo (M-J) e 180-190 nas duas instancias.
+        Este caso e o que liga a regra de CENTRO ao numero de campo: as bandas
+        de forma comecam antes de 180 -- em piso baixo glifos vizinhos colam e
+        o arranque adota a largura do par --, e e o centro que salva a escolha.
+        """
+        pisos = cr.grade_de_pisos(1, 254)
+        escolhidos = {}
+        for nome, imagem in fixturas.items():
+            banda = cr.resumir_a_banda_util(cr.varrer_a_forma(imagem, pisos))
+            assert not banda.vazia, nome
+            escolhidos[nome] = cr.escolher_o_piso(banda)
+        assert all(181 <= piso <= 186 for piso in escolhidos.values()), escolhidos
+
+    def test_A_FAIXA_PENEIRADA_VALE_9_NOS_PISOS_DA_BANDA_DE_CAMPO(
+        self, fixturas
+    ):
+        """9 exclusiva, 10 inclusiva -- nas cinco fixturas e nos tres pisos.
+
+        E o numero que a guarda de altura do cortador compara. O plano escreveu
+        `10`, que e o INCLUSIVO; uma guarda escrita contra ele na convencao do
+        codigo recusaria todo molde legitimo desta barra.
+        """
+        medidas = {}
+        for nome, imagem in fixturas.items():
+            linhas = cr.varrer_a_forma(imagem, (181, 186, 191))
+            medidas[nome] = [linha.altura_da_faixa for linha in linhas]
+        assert all(
+            alturas == [ALTURA_DA_FONTE] * 3 for alturas in medidas.values()
+        ), medidas
+
+    def test_UM_LIMITE_HERDADO_ESTREITO_ESVAZIA_A_BANDA_DE_FIXTURA_CORRETA(
+        self, fixturas
+    ):
+        """O M-U medido sobre pixel de campo, e nao sobre forma montada.
+
+        Com o conjunto de moldes travado nas larguras estreitas -- o que a
+        ordem alfabetica produz --, a fixtura da Faerlina de 09h30 fica com a
+        banda INTEIRAMENTE VAZIA. O retangulo dela e o mesmo que funciona no
+        caso acima.
+        """
+        imagem = fixturas["segundo_cenario_faerlina__barra_direita.png"]
+        estreito = _conjunto_de_moldes({"2": 4, "0": 4, "7": 4, "5": 4, "1": 1})
+        linhas = cr.varrer_a_forma(
+            imagem, cr.grade_de_pisos(1, 254), moldes_da_barra=estreito
+        )
+        assert cr.resumir_a_banda_util(linhas).vazia
+        assert any(linha.culpa_o_retangulo_sem_razao for linha in linhas), (
+            "a banda esvaziou e NENHUMA linha ficou marcada: o usuario levaria "
+            "a recusa ao pe da letra e remarcaria um retangulo correto"
+        )

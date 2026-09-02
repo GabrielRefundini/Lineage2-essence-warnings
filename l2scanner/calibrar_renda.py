@@ -53,23 +53,24 @@ calibrador que le de um arquivo e escreve em outro fabrica uma calibracao que o
 scanner nunca ve, e o sintoma e "calibrei e o scanner nao ve" — que o usuario
 nao tem como ligar na causa.
 
-ESTA RODADA NAO FECHA A VARREDURA DA `barra_direita`, E ISSO ESTA ESCRITO E NAO
-ESCONDIDO
-==============================================================================
+A `barra_direita` E VARRIDA POR FORMA, E A PENEIRA E IMPORTADA
+===============================================================
 A adena trocou de leitor (LEIT-09): ela e classificada pelo veredicto de GLIFO,
-pela peneira de forma `renda_leitura._glifos_do_numero`, que e escrita pelo
-plano `01-05` — a MESMA onda que este. Enquanto ela nao existir, este modulo
-NAO escreve uma segunda peneira para se destravar: duas peneiras seriam duas
-formas, e os moldes do `01-05` seriam cortados de um conjunto de corridas e
-lidos de outro. Pior: as larguras deste projeto vivem em DUAS convencoes (M-P)
-— `larguras_de_molde` mede `fim - inicio` (digito 4/5/6, virgula 1, icones
-14/15) e o `01-MEDICOES-DE-CAMPO.md` relata `fim - inicio + 1` (5/6/7, 2,
-15/16) —, e uma peneira escrita as pressas contra a convencao errada recusa o
-digito mais largo e aceita icone estreito, calada nos dois sentidos.
+pela peneira de forma `renda_leitura._glifos_do_numero`, e nao pelos quatro
+desfechos do cruzamento de escalas. Este modulo IMPORTA aquela peneira e nunca
+escreve uma segunda: duas peneiras seriam duas formas, e os moldes do cortador
+seriam cortados de um conjunto de corridas e lidos de outro. Pior: as larguras
+deste projeto vivem em DUAS convencoes (M-P) — `larguras_de_molde` mede
+`fim - inicio` (digito 4/5/6, virgula 1, icones 14/15) e o
+`01-MEDICOES-DE-CAMPO.md` relata `fim - inicio + 1` (5/6/7, 2, 15/16) —, e uma
+peneira escrita contra a convencao errada recusa o digito mais largo e aceita
+icone estreito, calada nos dois sentidos.
 
-Enquanto a peneira nao chega, o piso da `barra_direita` e o que ja esta em
-disco para aquele personagem, e a ORDEM DE OPERACAO e impressa no terminal —
-ver `ordem_de_operacao`.
+A varredura da adena roda INTEIRA SEM MOLDE NENHUM, que e o estado da primeira
+rodada de todo usuario: sem moldes a forma decide sozinha, `ler_glifos` nao e
+chamada, e a ORDEM DE OPERACAO sai no terminal — ver `ordem_de_operacao`. Com
+moldes, o valor lido aparece como coluna INFORMATIVA e o dentro/fora da banda
+nao muda.
 """
 
 from __future__ import annotations
@@ -99,16 +100,28 @@ from .calibrar import (
 )
 from .cliente import nome_do_personagem
 from .frames import Regiao
-from .mercado_leitura import mascara_de_numero, numero_valido
+from .mercado_leitura import (
+    ler_glifos,
+    mascara_de_numero,
+    numero_valido,
+    segmentar_glifos_no_brilho,
+)
+from .mercado_visao import glifos_de_calibracao
 from .ocr import ler_texto, ler_texto_ampliado
 from .renda_leitura import (
+    CORRIDAS_MINIMAS_DE_UM_NUMERO,
+    LIMITE_VEIO_DOS_MOLDES,
     MOTIVO_DA_DISCORDANCIA,
     MOTIVO_DA_GRAMATICA,
     MOTIVO_DO_CAMPO_VAZIO,
+    GlifosDoNumero,
     RecusaDaRenda,
     ValorDaRenda,
     _cruzar_as_escalas,
+    _glifos_do_numero,
     entre_delimitadores,
+    limite_de_arranque,
+    resolver_o_limite_de_glifo,
 )
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -548,7 +561,9 @@ def ordem_de_operacao() -> list[str]:
     return [
         "A ORDEM DE OPERACAO desta fase, e ela tem TRES passos:",
         "  1) calibrar-renda.bat            marca os tres retangulos e grava",
-        "                                   os pisos do EXP e do nivel (agora)",
+        "                                   os tres pisos -- o do EXP e o do",
+        "                                   nivel por OCR, o da adena por FORMA",
+        "                                   de glifo, que roda sem molde (agora)",
         "  2) calibrar-renda-moldes.bat     corta os moldes da fonte da barra,",
         "                                   colhendo de --campo adena, --campo",
         "                                   bonus e --campo lcoin ate os onze",
@@ -563,22 +578,311 @@ def ordem_de_operacao() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# A VARREDURA DA `barra_direita` NAO ESTA NESTA RODADA, E O MOTIVO E ESTRUTURAL
+# A `barra_direita` E VARRIDA POR FORMA DE GLIFO, E NAO POR CRUZAMENTO DE OCR
 # ---------------------------------------------------------------------------
 #
-# A adena e classificada pelo veredicto de GLIFO — a FORMA das corridas, por
-# `renda_leitura._glifos_do_numero` — e nao pelos quatro desfechos do
-# cruzamento de escalas, porque aquele campo trocou de leitor (LEIT-09).
-# Varrer OCR num campo lido por glifo calibraria um piso que a producao nao
-# usa: medido, os dois nem se tocam (150 no OCR, 180-190 no glifo).
+# A adena trocou de leitor (LEIT-09): ela e classificada pela FORMA das
+# corridas, pela peneira `renda_leitura._glifos_do_numero`, e nao pelos quatro
+# desfechos do cruzamento de escalas. Varrer OCR num campo lido por glifo
+# calibraria um piso que a producao nao usa — medido, os dois nem se tocam:
+# 150 no OCR contra 180-190 no glifo.
 #
-# A peneira e escrita pelo plano `01-05`, que roda na MESMA onda que este. Este
-# modulo NAO escreve uma segunda: ver o charter no topo do arquivo para os dois
-# motivos, e sobretudo para a armadilha de convencao do M-P. Enquanto ela nao
-# chega, o piso da `barra_direita` e o que ja esta em disco para aquele
-# personagem, e a ordem de operacao e impressa.
+# A PENEIRA E UMA SO NESTA FASE E ELA E IMPORTADA. Este arquivo nao a define
+# em lugar nenhum, e ha um portao de teste sobre isso -- por ARVORE DE SINTAXE
+# e por texto cru, porque o criterio do plano e um `grep`. Duas peneiras
+# seriam duas formas, e os moldes do cortador seriam cortados de um conjunto de
+# corridas e lidos de outro. Pior: as larguras deste projeto vivem em DUAS
+# convencoes (M-P) — `larguras_de_molde` mede `fim - inicio` (EXCLUSIVA: digito
+# 4/5/6, virgula 1, icones 14/15) e o `01-MEDICOES-DE-CAMPO.md` relata
+# `fim - inicio + 1` (INCLUSIVA: 5/6/7, 2, 15/16) —, e uma peneira escrita
+# contra a convencao errada recusa o digito mais largo e aceita icone estreito,
+# calada nos dois sentidos.
 REGIOES_VARRIDAS_POR_OCR = ("barra_esquerda", "nivel")
 REGIAO_VARRIDA_POR_GLIFO = "barra_direita"
+
+#: O metodo de cada regiao, escrito para SAIR NA TELA. Ele nao e enfeite: um
+#: usuario que veja duas curvas parecidas e uma so palavra "piso" conclui que
+#: os dois numeros sao comparaveis, e eles nao sao — um e de OCR e outro e de
+#: glifo, e as bandas nem se tocam.
+METODO_POR_GLIFO = "FORMA DAS CORRIDAS (glifo)"
+METODO_POR_OCR = "cruzamento das escalas de OCR"
+
+
+@dataclass(frozen=True)
+class LinhaDaForma:
+    """Uma linha da curva de GLIFO: um piso, a forma que saiu, e o veredicto.
+
+    ELA NAO E `LinhaDaVarredura` COM OUTROS CAMPOS, E ISSO E DE PROPOSITO. As
+    duas curvas medem coisas diferentes por caminhos diferentes: aquela cruza
+    duas leituras de OCR, esta olha corridas. Fundi-las numa classe so obrigaria
+    a inventar um "texto" para a forma e um "veredicto de forma" para o OCR, e o
+    primeiro leitor a mexer nisso ia acabar comparando piso de OCR com piso de
+    glifo — que e exatamente o erro que os dois pisos separados existem para
+    impedir (M-E: as bandas nem se tocam).
+    """
+
+    piso: int
+    aceito: bool
+    desfecho: str
+    larguras: tuple[int, ...]
+    altura_da_faixa: int | None
+    corridas_do_numero: int | None
+    limite: int | None
+    origem_do_limite: str
+    arranque: int | None
+    valor: str | None
+
+    @property
+    def escalas_que_sustentaram(self) -> tuple[str, ...]:
+        """SEMPRE VAZIA, e a propriedade existe para dizer isso EM CODIGO.
+
+        `resumir_a_banda_util` e a definicao unica de "banda contigua" desta
+        casa, e ela e reusada aqui de proposito: duas definicoes de banda seriam
+        duas regras de centro, e o piso gravado de um campo deixaria de ser
+        comparavel com o do outro. O que ela le de cada linha e `aceito`, `piso`
+        e as escalas que sustentaram — e nesta curva NAO HA ESCALA NENHUMA: quem
+        aceita e a forma, sozinha.
+
+        Devolver a tupla vazia nao e um buraco tapado: e a afirmacao de que o
+        aviso "a banda inteira foi sustentada por uma escala so" NAO se aplica a
+        este campo, porque aqui nao existe segunda opiniao a perder.
+        """
+        return ()
+
+    @property
+    def culpa_o_retangulo_sem_razao(self) -> bool:
+        """A recusa acusa o retangulo, e o retangulo NAO e o culpado (M-U).
+
+        SAO DUAS PERGUNTAS, E O CASO SO E DO M-U QUANDO AS DUAS RESPONDEM SIM.
+
+        1. **O limite e ESTREITO DEMAIS para este recorte?** O limite dos
+           moldes e a maior largura do conjunto JA CORTADO; o arranque e a maior
+           largura do MIOLO DESTE recorte. O arranque maior que o limite quer
+           dizer que ha aqui um glifo mais largo que qualquer molde gravado.
+        2. **A corrida que sobra ainda PODE ser um digito?** Se ela tem largura
+           de ICONE, o recorte pegou mesmo o campo vizinho — e ai a peneira esta
+           certa e o conserto E o retangulo. E o caso do M-N, e ele nao pode ser
+           confundido com este.
+
+        A segunda pergunta usa `FRACAO_DO_ICONE_QUE_AINDA_E_DIGITO`, a mesma que
+        o aviso de recorte contaminado usa, pela mesma medicao: os icones de
+        ponta valem 14 e 15 na convencao exclusiva e o digito mais largo desta
+        fonte vale 6, entao metade do icone (7,0-7,5) separa as duas populacoes
+        com folga de um pixel. Sem esta segunda pergunta o aviso dispararia no
+        caso M-N e mandaria o usuario deixar quieto um retangulo errado — que e
+        o mesmo dano do M-U, virado do avesso.
+        """
+        if self.aceito or self.origem_do_limite != LIMITE_VEIO_DOS_MOLDES:
+            return False
+        if self.limite is None or self.arranque is None:
+            return False
+        if self.arranque <= self.limite:
+            return False
+        if len(self.larguras) < CORRIDAS_MINIMAS_DE_UM_NUMERO:
+            return False
+        icone = max(self.larguras[0], self.larguras[-1])
+        return self.arranque <= icone * FRACAO_DO_ICONE_QUE_AINDA_E_DIGITO
+
+    def como_texto(self) -> str:
+        altura = "-" if self.altura_da_faixa is None else str(self.altura_da_faixa)
+        corridas = (
+            "-" if self.corridas_do_numero is None else str(self.corridas_do_numero)
+        )
+        valor = "(sem moldes)" if self.valor is None else self.valor
+        return (
+            f"  piso {self.piso:>3}  {'ACEITO' if self.aceito else 'fora  '}  "
+            f"faixa={altura:<3} glifos={corridas:<3} limite="
+            f"{self.limite}({self.origem_do_limite})  valor={valor:<12} "
+            f"{self.desfecho}"
+        )
+
+
+def _medir_as_corridas(recorte: np.ndarray, piso: int):
+    """`(mascara, faixa bruta, corridas)` naquele piso. So cv2, sem veredicto.
+
+    A mascara e `mercado_leitura.mascara_de_numero` e a segmentacao e
+    `segmentar_glifos_no_brilho` — as MESMAS que o cortador de moldes aplica.
+    Se fossem duas, o piso calibrado aqui descreveria uma segmentacao e os
+    moldes seriam cortados de outra.
+    """
+    return (
+        mascara_de_numero(recorte, int(piso)),
+        *segmentar_glifos_no_brilho(recorte, int(piso)),
+    )
+
+
+def _ler_o_valor_com_moldes(mascara, peneirado, conjunto: dict, limite: int):
+    """A coluna INFORMATIVA: o que os moldes leem naquele piso. Ou `None`.
+
+    Ela nao decide nada. O dentro/fora da banda ja foi decidido pela FORMA
+    quando esta funcao e chamada, e tem de continuar assim: se a banda passasse
+    a depender do valor, o piso gravado mudaria conforme o conjunto de moldes
+    estivesse completo ou nao, e a calibracao dependeria de um artefato que ela
+    mesma nao produz.
+    """
+    moldes = glifos_de_calibracao((conjunto or {}).get("moldes"))
+    if not moldes:
+        return None
+    return ler_glifos(
+        mascara,
+        peneirado.faixa,
+        list(peneirado.runs),
+        moldes,
+        float(conjunto["piso_de_leitura"]),
+        float(conjunto["margem_de_leitura"]),
+        largura_maxima_de_glifo=int(limite),
+        folga_de_cola=conjunto.get("folga_de_cola"),
+    )
+
+
+def varrer_a_forma(
+    recorte: np.ndarray,
+    pisos,
+    *,
+    moldes_da_barra: dict | None = None,
+    medir=None,
+    ler_valor=None,
+) -> list[LinhaDaForma]:
+    """Uma linha por piso, classificada pela FORMA, com a peneira IMPORTADA.
+
+    O QUE ESTA VARREDURA AFIRMA E O QUE ELA NAO AFIRMA. Ela afirma que aquele
+    piso faz a barra SEGMENTAR como um numero: um run largo em cada ponta,
+    nada largo no meio, e o miolo em larguras de digito e de virgula. Ela NAO
+    afirma que o numero lido esta certo — ler o valor exige moldes, e a
+    conferencia final e do olho do usuario contra a tela do jogo.
+
+    E ELA RODA INTEIRA SEM MOLDE NENHUM, que e o estado da PRIMEIRA rodada de
+    todo usuario. Este e o buraco de ordem que a suite sintetica nao pegaria:
+    `ler_glifos` sem moldes nao le nada, e uma varredura acoplada ao VALOR
+    devolveria banda vazia em todos os pisos na estreia — o usuario concluiria
+    que a adena nao tem piso nenhum, enquanto os testes montados a mao
+    continuariam verdes. Sem moldes, `ler_glifos` NAO E CHAMADA e a coluna de
+    valor sai vazia; a forma decide sozinha.
+
+    `medir` e `ler_valor` existem para que os testes puros rodem sem pixel e
+    sem disco, no mesmo idioma de `ler_escalas` em `varrer_o_piso`. Eles nao
+    sao atalhos de teste: sao a fronteira entre o laco que olha pixel e as
+    funcoes que decidem, e e ela que faz este arquivo rodar em qualquer clone.
+    """
+    if medir is None:
+        medir = _medir_as_corridas
+    if ler_valor is None:
+        ler_valor = _ler_o_valor_com_moldes
+
+    conjunto = moldes_da_barra or None
+    moldes = glifos_de_calibracao((conjunto or {}).get("moldes")) if conjunto else {}
+
+    linhas: list[LinhaDaForma] = []
+    for piso in pisos:
+        mascara, faixa_bruta, corridas = medir(recorte, int(piso))
+        corridas = [(int(inicio), int(fim)) for inicio, fim in (corridas or [])]
+        larguras = tuple(fim - inicio for inicio, fim in corridas)
+        limite, origem = resolver_o_limite_de_glifo(moldes, corridas)
+        peneirado = _glifos_do_numero(mascara, faixa_bruta, corridas, limite=limite)
+
+        if not isinstance(peneirado, GlifosDoNumero):
+            linhas.append(
+                LinhaDaForma(
+                    piso=int(piso),
+                    aceito=False,
+                    desfecho=f"{peneirado.motivo}: {peneirado.detalhe}",
+                    larguras=larguras,
+                    altura_da_faixa=None,
+                    corridas_do_numero=None,
+                    limite=limite,
+                    origem_do_limite=origem,
+                    arranque=limite_de_arranque(corridas),
+                    valor=None,
+                )
+            )
+            continue
+
+        # A LEITURA VEM DEPOIS DO VEREDICTO, E A ORDEM E O CONTRATO. A linha ja
+        # esta ACEITA quando o valor e lido; nenhum ramo abaixo pode voltar
+        # atras disso.
+        valor = None
+        if conjunto and moldes and limite is not None:
+            valor = ler_valor(mascara, peneirado, conjunto, limite)
+
+        linhas.append(
+            LinhaDaForma(
+                piso=int(piso),
+                aceito=True,
+                desfecho="segmenta como um numero",
+                larguras=larguras,
+                altura_da_faixa=peneirado.faixa[1] - peneirado.faixa[0],
+                corridas_do_numero=len(peneirado.runs),
+                limite=limite,
+                origem_do_limite=origem,
+                arranque=limite_de_arranque(corridas),
+                valor=valor,
+            )
+        )
+    return linhas
+
+
+def avisar_sobre_o_limite_herdado(linhas) -> list[str]:
+    """O achado M-U dito na tela, para a recusa nao culpar o inocente.
+
+    A MENSAGEM DA PENEIRA CULPA O RETANGULO, e em campo o retangulo estava
+    certo. Medido na rodada de moldes de 2026-09-02: cortando em ordem
+    alfabetica, o primeiro recorte e `2.207.577`, so com digitos de largura 4;
+    o limite trava em 4 e os tres recortes seguintes sao RECUSADOS porque `4`,
+    `8` e `9` medem 5 e 6. A recusa dizia "o recorte pegou o campo vizinho
+    junto" — e o que estava estreito era o limite herdado, nao o retangulo.
+
+    Reconferido deste lado, com o limite preso em 4 sobre as CINCO fixturas de
+    `barra_direita`: DUAS ficam com a banda inteiramente vazia, e as recusas
+    dos pisos 181, 186 e 191 mandariam o usuario remarcar um retangulo correto.
+
+    Um aviso que so repetisse a recusa da peneira seria pior que silencio: ele
+    daria autoridade a atribuicao errada.
+    """
+    culpadas = [linha for linha in linhas if linha.culpa_o_retangulo_sem_razao]
+    if not culpadas:
+        return []
+    primeira = culpadas[0]
+    return [
+        "  ATENCAO -- A RECUSA ACIMA PROVAVELMENTE CULPA O RETANGULO SEM RAZAO.",
+        f"  O limite {primeira.limite} nao foi medido neste recorte: ele e a",
+        "  MAIOR largura entre os moldes JA GRAVADOS. Neste recorte ha corrida",
+        f"  de ate {primeira.arranque} colunas no meio -- mais larga que "
+        f"qualquer molde",
+        "  do conjunto. Isso quer dizer que FALTA MOLDE, e nao que o retangulo",
+        "  esta errado (M-U, medido em 2026-09-02).",
+        "  O conserto e cortar os moldes que faltam, COMECANDO PELO RECORTE MAIS",
+        "  LARGO -- `calibrar-renda-moldes.bat`. Nao remarque o retangulo por",
+        "  causa desta linha.",
+    ]
+
+
+def descrever_a_forma(campo: str, linhas) -> list[str]:
+    """O que o usuario le sobre a curva de glifo, alem da banda.
+
+    A ALTURA DE FAIXA SAI COM A CONVENCAO DECLARADA, e ela ja custou duas
+    refutacoes a esta fase. A altura impressa e a PENEIRADA — a que sobra
+    depois de os icones sairem —, medida como `fim - inicio` (EXCLUSIVA, a
+    mesma de `larguras_de_molde`). Medida nas CINCO fixturas de campo, nos
+    pisos da banda, ela vale **9** e nao muda; a INCLUSIVA (`+1`) vale 10, e e
+    esse o "10" do M-K. A faixa BRUTA, com os dois icones dentro, vale 16
+    exclusiva e 17 inclusiva — e esse e o "17" do M-I.
+
+    Quem escrever guarda contra qualquer um desses quatro numeros tem de dizer
+    em qual convencao esta: uma guarda calibrada contra 10 rodando na convencao
+    do codigo recusaria TODO molde legitimo desta barra, e o modo de falha
+    seria um cortador que roda, sai com codigo 0 e nunca corta nada.
+    """
+    alturas = sorted({linha.altura_da_faixa for linha in linhas if linha.aceito})
+    if not alturas:
+        return []
+    return [
+        f"  altura de faixa PENEIRADA nos pisos aceitos: {alturas} "
+        f"(convencao EXCLUSIVA, `fim - inicio`;",
+        f"  inclusive vale {[altura + 1 for altura in alturas]} -- e o `10` do "
+        f"M-K esta nesta segunda).",
+        f"  {campo} e classificado por {METODO_POR_GLIFO}, e nao por "
+        f"{METODO_POR_OCR}.",
+    ]
 
 
 def _gramatica_da_regiao(regiao: str):
@@ -796,7 +1100,6 @@ def medir_a_forma_da_adena(frame, bloco: dict | None) -> list[str]:
     """
     if not bloco or "regiao" not in bloco or "piso_de_brilho" not in bloco:
         return []
-    from .mercado_leitura import segmentar_glifos_no_brilho
     from .renda_leitura import recortar
 
     recorte = recortar(
@@ -834,32 +1137,91 @@ def medir_a_forma_da_adena(frame, bloco: dict | None) -> list[str]:
     return linhas
 
 
-def _imprimir_o_estado_da_adena(cal: Calibracao, frame=None, bloco=None) -> None:
-    """O que a adena esta esperando, dito no terminal do usuario.
+def _varrer_a_adena(frame, bloco: dict | None, pisos, cal: Calibracao):
+    """A varredura de FORMA da `barra_direita`. `None` sem retangulo.
 
-    Este bloco sai SEMPRE nesta rodada, e nao so quando `renda_moldes_da_barra`
-    e `None`: enquanto a peneira de forma do `01-05` nao existir, a varredura de
-    piso da adena nao roda nem com moldes presentes. Dizer "a banda esta
-    confirmada" aqui seria a mesma mentira que o `.bat` do mercado ja pagou em
-    campo — anunciar uma conferencia que nao aconteceu.
+    Ela e separada de `_varrer_as_regioes_de_ocr` e nao um ramo dentro dela: as
+    duas classificam por metodos diferentes, e um `if` no meio de um laco
+    comum seria o convite para alguem "unificar" as duas curvas e comparar
+    pisos que nao sao comparaveis.
+    """
+    if not bloco or "regiao" not in bloco:
+        return None
+    from .renda_leitura import recortar
+
+    recorte = recortar(
+        frame, Regiao.de_dict(bloco["regiao"]), campo=REGIAO_VARRIDA_POR_GLIFO
+    )
+    if isinstance(recorte, RecusaDaRenda):
+        return recorte
+    return varrer_a_forma(
+        recorte, pisos, moldes_da_barra=cal.renda_moldes_da_barra
+    )
+
+
+def _imprimir_a_varredura_da_adena(
+    cal: Calibracao, frame=None, bloco=None, pisos=()
+) -> BandaUtil | None:
+    """A curva de glifo na tela, e a banda util dela. Ou o motivo de nao haver.
+
+    O QUE ELA DIZ EM VOZ ALTA QUANDO NAO HA MOLDES: que a banda acima e de
+    FORMA e nao de VALOR, e a ORDEM DE OPERACAO — a informacao que o usuario
+    nao tem como adivinhar e que precisa aparecer no terminal dele, e nao so
+    num plano. Sem os moldes o valor nao foi lido, e dizer "confirmado" aqui
+    seria a mesma mentira que o `.bat` do mercado ja pagou em campo: anunciar
+    uma conferencia que nao aconteceu.
     """
     print()
     print(f"--- {ROTULO_DA_REGIAO[REGIAO_VARRIDA_POR_GLIFO]} ---")
+    print(f"  metodo: {METODO_POR_GLIFO} -- nao ha {METODO_POR_OCR} neste campo.")
     if frame is not None:
         for texto in medir_a_forma_da_adena(frame, bloco):
             print(texto)
-    print("  A varredura de piso deste campo NAO rodou nesta rodada.")
-    print("  Ele e classificado pela FORMA das corridas de glifo, e a peneira")
-    print("  de forma (`renda_leitura._glifos_do_numero`) e escrita pelo passo")
-    print("  2 abaixo. Ate la o piso deste campo e o que ja esta gravado.")
-    if cal.renda_moldes_da_barra is None:
+
+    conjunto = cal.renda_moldes_da_barra
+    if conjunto is None:
         print("  Moldes da fonte da barra: NENHUM gravado ainda.")
     else:
-        moldes = (cal.renda_moldes_da_barra or {}).get("moldes") or []
-        print(f"  Moldes da fonte da barra: {len(moldes)} gravado(s).")
+        print(
+            f"  Moldes da fonte da barra: "
+            f"{len((conjunto or {}).get('moldes') or [])} gravado(s)."
+        )
+
+    linhas = _varrer_a_adena(frame, bloco, pisos, cal) if frame is not None else None
+    if isinstance(linhas, RecusaDaRenda):
+        print(f"  RECUSADO ({linhas.motivo}): {linhas.detalhe}")
+        return None
+    if linhas is None:
+        print("  Sem retangulo para este campo, nao ha o que varrer.")
+        print()
+        for texto in ordem_de_operacao():
+            print(texto)
+        return None
+
     print()
-    for texto in ordem_de_operacao():
+    for linha in linhas:
+        print(linha.como_texto())
+    for texto in avisar_sobre_o_limite_herdado(linhas):
         print(texto)
+
+    banda = resumir_a_banda_util(linhas)
+    print()
+    for texto in descrever_a_banda(ROTULO_DA_REGIAO[REGIAO_VARRIDA_POR_GLIFO], banda):
+        print(texto)
+    for texto in descrever_a_forma(ROTULO_DA_REGIAO[REGIAO_VARRIDA_POR_GLIFO], linhas):
+        print(texto)
+
+    print()
+    print("  ESTA BANDA AFIRMA QUE O PISO SEGMENTA COMO UM NUMERO, e nada alem")
+    print("  disso. Que o numero lido esta CERTO e o seu olho que confirma, na")
+    print("  imagem de conferencia contra a tela do jogo.")
+    if conjunto is None:
+        print("  O VALOR NAO FOI LIDO nesta rodada: ler exige moldes, e nao ha")
+        print("  molde nenhum gravado. A banda acima e de FORMA, e ela vale.")
+        print()
+        for texto in ordem_de_operacao():
+            print(texto)
+    return banda
 
 
 def _mutar_a_entrada_do_personagem(
@@ -1033,10 +1395,11 @@ def calibrar_renda(args) -> int:
         _imprimir_a_varredura(
             _varrer_as_regioes_de_ocr(frame, entrada_em_disco, pisos_da_grade)
         )
-        _imprimir_o_estado_da_adena(
+        _imprimir_a_varredura_da_adena(
             cal,
             frame,
             _bloco_da_regiao(entrada_em_disco, REGIAO_VARRIDA_POR_GLIFO),
+            pisos_da_grade,
         )
         print()
         print("--so-medir: NADA foi escrito no disco.")
@@ -1081,9 +1444,16 @@ def calibrar_renda(args) -> int:
     bandas = _imprimir_a_varredura(
         _varrer_as_regioes_de_ocr(frame, efetiva, pisos_da_grade)
     )
-    _imprimir_o_estado_da_adena(
-        cal, frame, efetiva.get(REGIAO_VARRIDA_POR_GLIFO)
+    # A ADENA ENTRA NO MESMO DICIONARIO DE BANDAS, E SO AQUI OS DOIS METODOS SE
+    # ENCONTRAM: cada regiao ja tem a SUA banda, medida do SEU jeito, e o que
+    # este dicionario faz e gravar cada uma no seu lugar. Nenhuma funcao
+    # combina bandas de regioes diferentes -- medido (M-E), a banda do nivel e
+    # a da adena nao tem intersecao nenhuma.
+    banda_da_adena = _imprimir_a_varredura_da_adena(
+        cal, frame, efetiva.get(REGIAO_VARRIDA_POR_GLIFO), pisos_da_grade
     )
+    if banda_da_adena is not None:
+        bandas[REGIAO_VARRIDA_POR_GLIFO] = banda_da_adena
 
     pisos = {
         regiao: (escolher_o_piso(banda), banda.largura)

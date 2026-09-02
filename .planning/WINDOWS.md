@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 39
+open_count: 41
 waived_count: 1
 fixed_count: 10
-total_count: 50
-last_updated: 2026-09-02T16:53:27.025Z
+total_count: 52
+last_updated: 2026-09-02T20:43:25.630Z
 ---
 
 # Broken Windows Ledger
@@ -65,6 +65,8 @@ last_updated: 2026-09-02T16:53:27.025Z
 | 48 | 01 | unrun-verify | l2scanner/recursos/dashboard/dashboard.js |  | O roteiro humano da Tarefa 3 do plano 01-07 (roda do mouse aproxima em torno do cursor, arrasto desloca, botao restaura o periodo, cambio salva sem recarregar, texto recusado preserva o cambio antigo, dado velho esfria) nao pode rodar nesta arvore: nao ha navegador. | open |  | 2026-09-02T03:44:41.028Z |  |
 | 49 | 01 | deviation | l2scanner/recursos/dashboard/dashboard.js |  | A dica sob o cursor traz instante e as duas strings de valor; o n de cada instante viaja junto do instante na resolucao crua e NAO existe nas resolucoes de balde (somar contagens de instantes distintos nao qualificaria o valor exibido). O UI-SPEC pede n na dica em toda resolucao. | open |  | 2026-09-02T03:44:52.498Z |  |
 | 50 | quick-260902-i4o | deviation | tests/test_manutencao.py |  | Residuo aceito e medido: o replay de campo produz 6 avisos do segundo tipo (era 3 em campo com o limiar de 5 minutos); a janela dobrou e mais deslizes da ancora caem dentro dela | open |  | 2026-09-02T16:53:27.025Z |  |
+| 51 | 01 | deviation | l2scanner/calibrar_renda_moldes.py |  | M-U: o cortador propoe em ordem alfabetica e o limite de glifo unico trava na primeira largura, fechando 5 rotulos de 11 com recusas que culpam o retangulo. Ordenar por largura maxima decrescente conserta. Nao aplicado no 01-03. | open |  | 2026-09-02T17:45:21.316Z |  |
+| 52 | 01 | deviation | tests/test_janela_de_selecao.py |  | test_dreno_por_tempo_e_nao_por_numero_de_sondagens e instavel sob carga: assercao contador>20 presa a 50ms de relogio de parede com espera ocupada de 1ms por sondagem. Vermelho numa passada da suite completa, verde sozinho e na passada seguinte. Pre-existente, de outro plano. | open |  | 2026-09-02T20:43:25.630Z |  |
 
 ````json
 [
@@ -666,6 +668,30 @@ last_updated: 2026-09-02T16:53:27.025Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-02T16:53:27.025Z",
+    "resolved_at": null
+  },
+  {
+    "id": 51,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "l2scanner/calibrar_renda_moldes.py",
+    "line": null,
+    "description": "M-U: o cortador propoe em ordem alfabetica e o limite de glifo unico trava na primeira largura, fechando 5 rotulos de 11 com recusas que culpam o retangulo. Ordenar por largura maxima decrescente conserta. Nao aplicado no 01-03.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-02T17:45:21.316Z",
+    "resolved_at": null
+  },
+  {
+    "id": 52,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "tests/test_janela_de_selecao.py",
+    "line": null,
+    "description": "test_dreno_por_tempo_e_nao_por_numero_de_sondagens e instavel sob carga: assercao contador>20 presa a 50ms de relogio de parede com espera ocupada de 1ms por sondagem. Vermelho numa passada da suite completa, verde sozinho e na passada seguinte. Pre-existente, de outro plano.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-02T20:43:25.630Z",
     "resolved_at": null
   }
 ]
