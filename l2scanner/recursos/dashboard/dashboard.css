@@ -3,9 +3,10 @@
 
   ESTE BLOCO DE TOKENS É A ÚNICA DECLARAÇÃO DE COR DO PROJETO. Fora dele não
   existe literal hexadecimal — nem no resto deste arquivo, nem no
-  `dashboard.js`, nem na configuração do gráfico que vem nos planos seguintes.
-  Há teste prendendo o lado do JS (`test_o_js_nao_carrega_paleta_PROPRIA`), com
-  controle negativo sobre ESTE arquivo para provar que a busca funciona.
+  `dashboard.js`, nem na configuração do gráfico. Há teste prendendo os dois
+  lados: `test_o_js_nao_carrega_paleta_PROPRIA` no JS, e
+  `test_nenhum_hexadecimal_vive_FORA_do_bloco_de_tokens` neste arquivo, ambos
+  com controle negativo para provar que a busca funciona.
 
   A regra não é estética. O `dashboard.js` é obrigado a pedir cor por
   `getComputedStyle(...).getPropertyValue('--cor-x')`, e uma cor sem nome de
@@ -13,16 +14,17 @@
   mediana ganhou `--cor-serie-tipica` em vez de continuar sendo um hexadecimal
   solto: o que não tem nome não atravessa.
 
-  Os tokens nascem INTEIROS aqui, incluindo os que só os planos 01-05 a 01-07
-  vão usar, exatamente para que nenhum plano seguinte precise introduzir um
-  hexadecimal novo. O tema completo (tipografia do gráfico, estados, foco) é do
-  plano 01-05; o que está abaixo é o mínimo do tracer mais a paleta fechada.
+  CONTRASTE RECALCULADO, E NÃO COPIADO. `TestOContrasteFoiRecalculado` lê os
+  valores DESTE bloco, calcula a razão com a fórmula da WCAG e cobra o piso de
+  cada par. Trocar um token aqui refaz a conta lá — que é o que o `01-UI-SPEC.md`
+  exige por extenso quando diz que a razão "tem que ser recalculada, não
+  estimada no olho". É isto que "o tema nunca custa legibilidade" significa em
+  número, em vez de em promessa.
 
-  CONTRASTE MEDIDO, e é isto que "o tema nunca custa legibilidade" significa em
-  número: texto sobre fundo 14,34:1 · texto sobre painel 13,16:1 · série típica
-  9,46:1 · ouro sobre painel 8,89:1 · frio 7,80:1 · texto fraco 6,12:1 · alerta
-  5,25:1. Nada na tela fica abaixo de 4,5:1. Trocar um valor obriga a
-  RECALCULAR a razão, não a estimá-la no olho.
+  ZERO BYTE DE REDE. Três famílias, todas do sistema; nenhum webfont, nenhuma
+  imagem, nenhuma regra de importação e nenhuma origem externa. Há teste, e ele
+  é uma busca LITERAL sobre este arquivo — por isso nem este comentário escreve
+  as palavras que ele procura.
 */
 
 :root {
@@ -41,7 +43,13 @@
   --cor-frio:          #9FB0C4;  /* dado velho: recência estourada */
   --cor-grade:         #2A231A;  /* linhas de grade do gráfico */
 
-  /* Escala de 4 pontos. Nenhum valor de espaçamento fora dela. */
+  /* Escala de 4 pontos. Nenhum valor de espaçamento fora dela.
+     As TRÊS EXCEÇÕES DECLARADAS não são espaço, são traço, e por isso não
+     entram na escala: larguras de borda (1px e 2px, do relevo das placas),
+     espessura de linha do gráfico (2px e 1.5px, que são parâmetros da
+     biblioteca e não CSS de layout) e o anel de foco (2px de traço com 2px de
+     deslocamento). Declarar isto aqui é o que impede o teste de escala de ler
+     uma borda como violação de espaçamento. */
   --sp-xs:  4px;
   --sp-sm:  8px;
   --sp-md:  16px;
@@ -61,6 +69,16 @@
   --font-num:     Consolas, "Cascadia Mono", "SF Mono", "DejaVu Sans Mono", monospace;
 }
 
+/* ========================================================================= */
+/* BASE                                                                      */
+/* ========================================================================= */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   padding: var(--sp-2xl) var(--sp-md);
@@ -68,6 +86,7 @@ body {
   color: var(--cor-texto);
   font-family: var(--font-ui);
   font-size: 16px;
+  font-weight: 400;
   line-height: 1.5;
 }
 
@@ -80,8 +99,36 @@ body {
 }
 
 /*
-  A RECEITA DO RELEVO — CSS puro, sem uma única imagem. Nenhuma textura, nenhum
-  print do jogo, nenhum asset que não exista no repositório.
+  O ANEL DE FOCO, e NUNCA `outline: none` cru. Uma das seis posições da lista
+  fechada onde o acento pode aparecer. `:focus-visible` e não `:focus`: o anel
+  serve a quem navega por teclado, e aparecer no clique do mouse é ruído.
+*/
+:focus-visible {
+  outline: 2px solid var(--cor-ouro);
+  outline-offset: 2px;
+}
+
+/* ========================================================================= */
+/* A ESCALA TIPOGRÁFICA — quatro tamanhos, dois pesos, e nada além disso      */
+/* ========================================================================= */
+/*
+  Body     16px / 400 / 1.5  — `--font-ui`
+  Label    14px / 400 / 1.4  — `--font-ui`
+  Heading  24px / 700 / 1.2  — `--font-display`, maiúsculas, letter-spacing
+  Display  clamp(32px, 6vw, 48px) / 700 / 1.1 — `--font-num`
+
+  O PISO E O TETO DO DISPLAY SÃO EXTREMOS DO MESMO PAPEL, e não um quinto
+  tamanho: o papel continua sendo um, ele apenas respira entre dois limites
+  declarados. Que `32px` coincida com `--sp-xl` é aritmética, não parentesco —
+  um é tipografia, o outro é espaço, e eles não se referenciam.
+*/
+
+/* ========================================================================= */
+/* A RECEITA DO RELEVO — CSS puro, sem uma única imagem                      */
+/* ========================================================================= */
+/*
+  Nenhuma textura, nenhum print do jogo, nenhum asset que não exista no
+  repositório. O relevo do painel do L2 é gradiente + borda + três sombras.
 */
 .painel {
   background: linear-gradient(180deg,
@@ -97,10 +144,15 @@ body {
   padding: var(--sp-md);
 }
 
+/*
+  O título de cada painel: Heading, maiúsculas, com o FILETE DOURADO de 1px
+  abaixo. O filete é entalhe e não texto — a opacidade baixa o tira da disputa
+  de contraste com o número que vem logo depois dele.
+*/
 .painel__titulo {
   margin: 0 0 var(--sp-md);
   padding-bottom: var(--sp-sm);
-  border-bottom: 1px solid var(--cor-ouro);
+  border-bottom: 1px solid color-mix(in srgb, var(--cor-ouro) 45%, transparent);
   font-family: var(--font-display);
   font-size: 24px;
   font-weight: 700;
@@ -108,17 +160,35 @@ body {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--cor-ouro);
-  /* O filete dourado do título é entalhe, não texto: a opacidade baixa o tira
-     da disputa de contraste com o número que vem logo abaixo. */
-  border-bottom-color: color-mix(in srgb, var(--cor-ouro) 45%, transparent);
 }
 
-.painel__vazio {
-  margin: 0;
-  color: var(--cor-texto-fraco);
-  font-size: 14px;
-  line-height: 1.4;
+/* ========================================================================= */
+/* AS FAIXAS — servidor mudo e erro de contrato                              */
+/* ========================================================================= */
+
+.faixa {
+  margin: 0 auto var(--sp-md);
+  padding: var(--sp-sm) var(--sp-md);
+  max-width: 960px;
+  border: 1px solid var(--cor-relevo-alto);
+  border-radius: 2px;
+  background: var(--cor-painel);
+  font-size: 16px;
+  line-height: 1.5;
 }
+
+.faixa--mudo {
+  color: var(--cor-frio);
+}
+
+.faixa--erro {
+  color: var(--cor-alerta);
+  border-color: color-mix(in srgb, var(--cor-alerta) 45%, transparent);
+}
+
+/* ========================================================================= */
+/* REGIÃO 1 — O DESTAQUE                                                     */
+/* ========================================================================= */
 
 .destaque__cartoes {
   display: flex;
@@ -126,21 +196,30 @@ body {
   gap: var(--sp-lg);
 }
 
+/*
+  `min-width: 0` NÃO É DECORAÇÃO: sem ele, um item de flex recusa encolher
+  abaixo do conteúdo, e a reticência do rótulo de unidade nunca aparece — o
+  cartão é que estoura. É a linha que faz a guarda de texto longo funcionar.
+*/
 .cartao {
   display: flex;
+  flex: 1 1 0;
+  min-width: 0;
   flex-direction: column;
   gap: var(--sp-xs);
 }
 
 /*
-  O papel Display: `--font-num` e NÃO `--font-display`. A fonte de fantasia é
+  O PAPEL DISPLAY: `--font-num`, e NÃO `--font-display`. A fonte de fantasia é
   para o título da placa; o valor que decide dinheiro é lido em monoespaçada
-  tabular. Se as duas disputarem, o ornamento sai.
+  tabular. Se as duas disputarem, o ornamento sai — é a regra do usuário
+  aplicada à tipografia.
 
   `tabular-nums` porque o número se atualiza a cada 2 s: sem largura tabular ele
-  "dança" horizontalmente, e isso é ruído puro ao lado do jogo.
+  DANÇA horizontalmente, e isso é ruído puro ao lado do jogo.
 
-  `clamp` para o número encolher em vez de quebrar linha ou vazar do painel.
+  `clamp` para o número ENCOLHER em vez de quebrar linha ou vazar do painel —
+  a guarda de estouro da linha `overflow | #destaque` das UI Considerations.
 */
 .cartao__valor {
   margin: 0;
@@ -149,16 +228,621 @@ body {
   font-weight: 700;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
+}
+
+/*
+  A HIERARQUIA DE COR ENTRE OS DOIS NÚMEROS CARREGA SIGNIFICADO.
+
+  XM leva o acento dourado porque é derivado SÓ do que o scanner leu na tela.
+  R$ leva a cor de corpo porque é derivado da leitura VEZES uma taxa que o
+  usuário digitou.
+
+  A diferença de cor entre os dois é a DIFERENÇA EPISTÊMICA entre eles: quem
+  olha a tela de relance vê qual metade o jogo sustenta e qual metade depende
+  dele. Não é decoração — é o D-02 do projeto virado em pixel. Inverter as duas
+  cores não deixaria a tela feia; deixaria a tela mentirosa.
+*/
+.cartao__valor--xm {
   color: var(--cor-ouro);
 }
 
+.cartao__valor--reais {
+  color: var(--cor-texto);
+}
+
+/*
+  `long-text | #destaque` das UI Considerations: o rótulo de unidade vem
+  INTEIRO do Python, já formatado, e é longo — a unidade por extenso mais a
+  marca de derivado. Ele
+  quebra em até duas linhas DENTRO do cartão e nunca empurra o número — o cartão
+  cresce em ALTURA, nunca em largura. Encurtar a string no navegador está
+  proibido: seria o segundo formatador que o DASH-03 recusa.
+*/
+.cartao__unidade {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-family: var(--font-num);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--cor-texto-fraco);
+}
+
+/*
+  `n` E RECÊNCIA COLADOS NO NÚMERO, sempre. Estatística sem `n` é adivinhação
+  com cara de número — a disciplina do console de mercado, aplicada à tela.
+*/
 .cartao__procedencia {
   margin: 0;
   display: flex;
+  flex-wrap: wrap;
   gap: var(--sp-sm);
   font-family: var(--font-num);
   font-size: 14px;
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
   color: var(--cor-texto-fraco);
+}
+
+.destaque__aviso-velho {
+  margin: 0 0 var(--sp-md);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--cor-frio);
+}
+
+/* ========================================================================= */
+/* REGIÃO 2 — A SÉRIE                                                        */
+/* ========================================================================= */
+/*
+  NENHUM SELETOR DESTE ARQUIVO NOMEIA UMA SÉRIE (DASH-05) — e o teste que
+  prende isso é uma busca literal pelo nome da série no arquivo inteiro, então
+  nem os comentários o escrevem. O componente é genérico: qual série ele
+  desenha é escolha de quem o instancia, e a paleta é do tema, não do
+  componente. Instanciar uma segunda série não exige seletor novo.
+*/
+
+.serie__cabecalho {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-md);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+/*
+  `long-text | #serie` das UI Considerations: o título vem do `nome_exibido`,
+  que atravessa o OCR e OSCILA. Uma linha, reticência, e o texto completo no
+  atributo de título — ele nunca invade a área do número.
+*/
+.serie__titulo {
+  margin: 0 0 var(--sp-sm);
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--cor-texto);
+}
+
+.serie__area {
+  position: relative;
+  min-height: calc(var(--sp-3xl) * 4);
+}
+
+.serie__grafico {
+  width: 100%;
+  height: 100%;
+  min-height: calc(var(--sp-3xl) * 4);
+}
+
+/* ========================================================================= */
+/* A LEGENDA — sólido × tracejado, e não só cor                              */
+/* ========================================================================= */
+/*
+  Traço sobrevive a daltonismo, a monitor mal calibrado e ao `Gamma=1.16` do
+  cliente. Cor sozinha não sobreviveria. A legenda fica visível SEMPRE,
+  inclusive no estado vazio, para o usuário saber o que vai aparecer ali.
+*/
+.serie__legenda {
+  margin: var(--sp-md) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-lg);
+}
+
+.serie__legenda-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.serie__amostra {
+  display: inline-block;
+  width: var(--sp-xl);
+  height: 0;
+}
+
+.serie__amostra--principal {
+  border-top: 2px solid var(--cor-ouro);
+}
+
+.serie__amostra--tipica {
+  border-top: 2px dashed var(--cor-serie-tipica);
+}
+
+.serie__legenda-rotulo--principal {
+  color: var(--cor-ouro);
+}
+
+/*
+  `--cor-serie-tipica` PINTA TEXTO, e não só traço: é este rótulo. Foi por isso
+  que ela entrou na tabela de contraste e foi medida também sobre o extremo mais
+  claro do gradiente da placa. Uma cor medida apenas como linha de gráfico teria
+  passado sem nunca ser cobrada como texto.
+*/
+.serie__legenda-rotulo--tipica {
+  color: var(--cor-serie-tipica);
+}
+
+/* ========================================================================= */
+/* A PLACA DE ESTADO VAZIO                                                   */
+/* ========================================================================= */
+/*
+  GRÁFICO VAZIO MUDO ESTÁ PROIBIDO. Um retângulo em branco é indistinguível de
+  "o dashboard quebrou" — e, medido em 2026-09-01, o CSV de campo tem 93 linhas
+  e ZERO da série vigiada, então este é o PRIMEIRO estado que o usuário vai ver,
+  e não um caso de borda. Ele recebe o mesmo cuidado do estado povoado.
+*/
+.serie__vazio {
+  display: none;
+  position: absolute;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-sm);
+  padding: var(--sp-lg);
+  text-align: center;
+}
+
+.serie__vazio-titulo {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cor-ouro);
+}
+
+.serie__vazio-corpo {
+  margin: 0;
+  max-width: 480px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--cor-texto);
+}
+
+/*
+  A LINHA DE PROVA, com os dois números reais do arquivo. É ela que separa "não
+  há o que mostrar" de "o dashboard não conseguiu abrir o arquivo" — sem ela, um
+  estado vazio é indistinguível de um defeito e o usuário procura bug onde não
+  há.
+*/
+.serie__vazio-prova {
+  margin: 0;
+  font-family: var(--font-num);
+  font-size: 14px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  color: var(--cor-texto-fraco);
+}
+
+/* ========================================================================= */
+/* REGIÃO 3 — A PROCEDÊNCIA                                                  */
+/* ========================================================================= */
+
+.cambio {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-sm);
+  margin: 0 0 var(--sp-md);
+}
+
+.cambio__rotulo {
+  font-family: var(--font-num);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--cor-texto);
+}
+
+/*
+  `overflow | #procedencia`: LARGURA FIXA EM UNIDADES DE CARACTERE. O campo não
+  cresce com o que se digita, e o `maxlength` da marcação recusa o absurdo antes
+  de ele virar layout. Altura mínima de 32px — o alvo clicável, que está na
+  escala (`--sp-xl`) e por isso não é exceção.
+*/
+.cambio__campo {
+  width: 12ch;
+  min-height: var(--sp-xl);
+  padding: var(--sp-xs) var(--sp-sm);
+  border: 1px solid var(--cor-relevo-alto);
+  border-radius: 2px;
+  background: var(--cor-relevo-base);
+  color: var(--cor-texto);
+  font-family: var(--font-num);
+  font-size: 16px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.cambio__campo::placeholder {
+  color: var(--cor-texto-fraco);
+}
+
+.botao {
+  min-height: var(--sp-xl);
+  padding: var(--sp-xs) var(--sp-md);
+  border: 1px solid var(--cor-relevo-alto);
+  border-radius: 2px;
+  background: var(--cor-relevo-topo);
+  color: var(--cor-texto);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+
+/*
+  O PREENCHIMENTO DO BOTÃO PRIMÁRIO é uma das seis posições da lista fechada
+  onde o acento pode aparecer. O texto sobre ele é o fundo da página, e não a
+  cor de corpo: ouro sobre pergaminho não teria contraste nenhum.
+*/
+.botao--primario {
+  background: var(--cor-ouro);
+  border-color: var(--cor-ouro);
+  color: var(--cor-fundo);
+  font-weight: 700;
+}
+
+.botao--secundario {
+  color: var(--cor-texto-fraco);
+}
+
+.cambio__carimbo {
+  font-family: var(--font-num);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--cor-texto-fraco);
+}
+
+.cambio__erro {
+  margin: 0 0 var(--sp-md);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--cor-alerta);
+}
+
+/*
+  `partial | #procedencia`: o rodapé mostra cada peça de procedência que existe
+  e NOMEIA a que falta, em vez de sumir com a linha. Rodapé com buraco
+  silencioso seria pior que rodapé feio.
+
+  `long-text | #procedencia`: a frase de recência e a de piso de evidência vêm
+  do Python com comprimento que varia com o estado. Elas ENVOLVEM em várias
+  linhas (sem `nowrap`, sem altura fixa) e por isso não empurram o formulário
+  para fora do painel.
+*/
+.procedencia__linha {
+  margin: 0 0 var(--sp-sm);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-sm);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--cor-texto-fraco);
+}
+
+/*
+  `overflow | #procedencia`: o caminho do arquivo pode ser longo. Reticência,
+  com o caminho completo no atributo de título — a linha nunca estoura o painel,
+  e quem precisa do caminho inteiro o alcança.
+*/
+.procedencia__arquivo {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-num);
+}
+
+.procedencia__marca {
+  color: var(--cor-texto-fraco);
+}
+
+/* ========================================================================= */
+/* O PULSO DE VALOR MUDADO                                                   */
+/* ========================================================================= */
+/*
+  Polling NÃO É CARREGAMENTO: girar um indicador a cada 2 s ao lado do jogo é
+  ruído, e por isso não existe spinner nesta tela. O que existe é um pulso de
+  fundo de 200 ms quando o valor MUDOU. Nada se move, nada pisca.
+*/
+@keyframes pulso-de-valor {
+  from { background-color: var(--cor-relevo-alto); }
+  to   { background-color: transparent; }
+}
+
+.cartao[data-pulso="sim"] {
+  animation: pulso-de-valor 200ms ease-out;
+}
+
+/*
+  MOVIMENTO REDUZIDO: todo pulso e toda transição viram `none`. SEM EXCEÇÃO —
+  é o que o contrato diz, e um `0.01ms` "porque é praticamente nada" seria uma
+  exceção disfarçada de número.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ========================================================================= */
+/* OS ESTADOS, DESENHADOS                                                    */
+/* ========================================================================= */
+/*
+  CADA ESTADO TEM DESENHO PRÓPRIO AQUI, e o JS só troca o valor de um atributo.
+  NENHUMA DECISÃO VISUAL MORA NO JS: uma condição de tela escrita em JavaScript
+  é uma condição que não aparece na folha de estilo, e as duas versões da
+  verdade divergem no primeiro ajuste — sem que nada quebre em voz alta.
+
+  A precedência dos cinco estados é FECHADA e mora no `dashboard_dados`, num
+  lugar só. Os três ortogonais (`data-cambio`, `data-velho`, `data-servidor`)
+  MODIFICAM a tela sem tomar a precedência, e é por isso que são atributos
+  separados em vez de valores do mesmo atributo: vários podem ser verdade ao
+  mesmo tempo.
+*/
+
+/*
+  O que só aparece quando o estado pede. As linhas alimentadas pelo servidor
+  usam `:empty` para que o JS só precise ESCREVER O TEXTO — decidir se a linha
+  aparece continua sendo do CSS.
+*/
+.faixa,
+.destaque__aviso-velho,
+.cambio__carimbo,
+#aviso-reais-indisponivel,
+#aviso-cambio-historico {
+  display: none;
+}
+
+.cambio__erro:empty,
+#nota-linha-parcial:empty,
+#serie-titulo:empty {
+  display: none;
+}
+
+/* --- ESTADO 1 e 2: erro de contrato e arquivo ausente -------------------- */
+/*
+  FALHA FECHADA: sem destaque, sem gráfico, só a mensagem. Um painel meio
+  desenhado ao lado de um erro convida a ler o número que sobrou — e o número
+  que sobrou saiu de um arquivo que o programa acabou de dizer que não entende.
+*/
+body[data-estado="erro_de_contrato"] .painel,
+body[data-estado="arquivo_ausente"] .painel {
+  display: none;
+}
+
+body[data-estado="erro_de_contrato"] #faixa-erro,
+body[data-estado="arquivo_ausente"] #faixa-erro {
+  display: block;
+}
+
+/* --- ESTADO 3: sem leitura da série — O ESTADO VAZIO --------------------- */
+/*
+  ELE É A PRIMEIRA TELA, e não um caso de borda. Três coisas aparecem, e as três
+  são deliberadas:
+
+  1. A GRADE E OS EIXOS, desenhados. São a prova de que a área existe e está
+     viva. Sem eles o quadro fica em branco, e branco é indistinguível de
+     quebrado.
+  2. A PLACA centralizada, com título, corpo e a linha de prova com os números
+     reais do arquivo.
+  3. A LEGENDA das duas linhas, já visível em cor de texto fraco, para o usuário
+     saber o que vai aparecer ali.
+
+  A grade usa a própria escala de espaçamento como passo, para não inventar uma
+  segunda métrica só para ela.
+*/
+body[data-estado="sem_leitura"] .serie__vazio {
+  display: flex;
+}
+
+body[data-estado="sem_leitura"] .serie__grafico {
+  border-left: 1px solid var(--cor-grade);
+  border-bottom: 1px solid var(--cor-grade);
+  background-image:
+    repeating-linear-gradient(to right,
+      var(--cor-grade) 0 1px, transparent 1px var(--sp-3xl)),
+    repeating-linear-gradient(to bottom,
+      var(--cor-grade) 0 1px, transparent 1px var(--sp-2xl));
+}
+
+body[data-estado="sem_leitura"] .serie__legenda-rotulo--principal,
+body[data-estado="sem_leitura"] .serie__legenda-rotulo--tipica {
+  color: var(--cor-texto-fraco);
+}
+
+/* --- ORTOGONAL: sem câmbio informado ------------------------------------- */
+/*
+  O cartão de R$ SAI DA TELA. Ele não fica cinza e não fica zerado: um valor
+  apagado ainda é um valor, e um zero é uma posição no eixo. A ausência migra
+  para o rodapé, escrita com palavra, logo acima do campo que a resolve.
+*/
+body[data-cambio="ausente"] #cartao-reais {
+  display: none;
+}
+
+body[data-cambio="ausente"] #cartao-xm {
+  flex-basis: 100%;
+}
+
+body[data-cambio="ausente"] #aviso-reais-indisponivel {
+  display: flex;
+}
+
+body[data-cambio="informado"] #aviso-cambio-historico {
+  display: flex;
+}
+
+body[data-cambio="informado"] .cambio__carimbo {
+  display: inline;
+}
+
+/* --- ORTOGONAL: dado velho ----------------------------------------------- */
+/*
+  O NÚMERO CONTINUA NA TELA. O que sai é a AFIRMAÇÃO de "agora", e não o valor:
+  esconder o número transformaria "não posso garantir que é de agora" em "não
+  sei de nada", que é uma perda de informação que ninguém pediu.
+
+  A recência esfria, e a frase que RECUSA "agora" aparece acima do destaque. Ela
+  vem pronta do Python — remontá-la aqui seria o segundo formatador de tempo.
+*/
+body[data-velho="sim"] .cartao__recencia {
+  color: var(--cor-frio);
+}
+
+body[data-velho="sim"] .destaque__aviso-velho {
+  display: block;
+}
+
+/* --- ORTOGONAL: servidor mudo -------------------------------------------- */
+/*
+  Faixa no topo, VALORES MANTIDOS e marcados como sendo da última resposta
+  recebida. Limpar a tela quando o servidor cala seria trocar um dado velho
+  honesto por nenhum dado — e o usuário está olhando para isto ao lado do jogo,
+  onde o último valor conhecido ainda vale alguma coisa.
+*/
+body[data-servidor="mudo"] #faixa-servidor {
+  display: block;
+}
+
+body[data-servidor="mudo"] .cartao__procedencia {
+  color: var(--cor-frio);
+}
+
+/* --- ESTADO DE PRIMEIRA PINTURA ------------------------------------------ */
+/*
+  Os cartões nascem com o rótulo de leitura em curso NO LUGAR do número — uma
+  palavra, na cor de texto fraco e no tamanho de corpo, e não um número falso
+  vestido de Display.
+
+  NUNCA UM ZERO COM VÍRGULA COMO ESPAÇO RESERVADO. Ausência se escreve com
+  palavra: um zero na tela é indistinguível de uma leitura real de zero, e essa
+  é a mentira plausível que o projeto inteiro combate. A frase está na lista de
+  proibidas do contrato, com teste sobre estes arquivos.
+
+  `n` e recência ficam fora enquanto não há o que qualificar: um `n` sem número
+  ao lado não qualifica nada.
+*/
+body[data-estado="primeira_pintura"] .cartao__valor {
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--cor-texto-fraco);
+}
+
+body[data-estado="primeira_pintura"] .cartao__procedencia,
+body[data-estado="primeira_pintura"] .cartao__unidade {
+  display: none;
+}
+
+/* --- O BOTÃO DURANTE O ENVIO DO CÂMBIO ----------------------------------- */
+/*
+  Desabilitado, com o rótulo de salvamento em curso — e ELE NÃO VIRA INDICADOR
+  GIRATÓRIO. Os dois rótulos moram na marcação e o CSS escolhe qual aparece, de
+  modo que a cópia continua conferível por teste e o JS só troca um atributo.
+
+  O CAMPO PRESERVA O VALOR DIGITADO: nenhuma regra aqui o limpa. Se a resposta
+  demorar ou falhar, o usuário não redigita o que já digitou.
+*/
+#botao-salvar[data-salvando="nao"] .botao__rotulo--salvando {
+  display: none;
+}
+
+#botao-salvar[data-salvando="sim"] .botao__rotulo--parado {
+  display: none;
+}
+
+#botao-salvar[data-salvando="sim"] {
+  opacity: .7;
+}
+
+.botao:disabled {
+  cursor: not-allowed;
+}
+
+/* ========================================================================= */
+/* SOBREPOSIÇÕES DA FOLHA DA BIBLIOTECA VENDORIZADA                          */
+/* ========================================================================= */
+/*
+  ESTE BLOCO SÓ FUNCIONA PORQUE `vendor/uPlot.min.css` É CARREGADO ANTES DELE.
+  Há teste da ordem no `index.html`, porque inverter as duas linhas quebraria o
+  tema sem quebrar nenhum teste de conteúdo.
+
+  A biblioteca traz paleta e tipografia próprias — hexadecimais, `system-ui`,
+  peso 600. Nada disso é cobrado dela: ela é artefato de terceiro e não assinou
+  este contrato. O que se faz aqui é RETEMATIZAR o que ela desenha, para a tela
+  final ter uma paleta só, quatro tamanhos e dois pesos.
+*/
+
+.uplot {
+  width: 100%;
+  font-family: var(--font-num);
+}
+
+/* O título é NOSSO (`.serie__titulo`), com reticência e o texto completo no
+   atributo de título. O da biblioteca traria um quinto tamanho para a tela. */
+.u-title {
+  display: none;
+}
+
+.u-legend {
+  font-size: 14px;
+  color: var(--cor-texto-fraco);
+}
+
+/* A biblioteca pede peso 600 aqui, que seria um TERCEIRO peso na tela. */
+.u-legend th {
+  font-weight: 400;
+}
+
+/* O cursor da biblioteca vem com cor própria; ele passa a ser da grade. */
+.u-hz .u-cursor-x,
+.u-vt .u-cursor-y {
+  border-right-color: var(--cor-grade);
+}
+
+.u-hz .u-cursor-y,
+.u-vt .u-cursor-x {
+  border-bottom-color: var(--cor-grade);
+}
+
+.u-select {
+  background: color-mix(in srgb, var(--cor-ouro) 18%, transparent);
 }
