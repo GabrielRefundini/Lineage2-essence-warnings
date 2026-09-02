@@ -105,6 +105,28 @@ class FonteRecuperavel:
         self._tentativas_gastas = 0
         self._instante_da_ultima_tentativa: float | None = None
         self._ja_avisou_que_desistiu = False
+        # A ultima regiao que o `Reancorador` adotou EM MEMORIA, para reaplicar
+        # na fonte reconstruida. Sem ela, um congelamento depois de um
+        # reancoramento devolveria o scanner a ler o lugar antigo — ler um lugar
+        # com a regua de outro, que `reancoragem.py` chama de pior do que nao
+        # reancorar.
+        self._regiao_reancorada = None
+
+    # A DELEGACAO E DE DOIS TIPOS, E A DIFERENCA IMPORTA.
+    #
+    # Declarados aqui: `capturar`, `capturar_completo`, `completo_do_frame_atual`,
+    # `apontar_para` e `fechar` — exatamente os metodos cujos donos guardam a
+    # REFERENCIA (ou o metodo LIGADO) atravessando a religacao. `Gravador` colhe
+    # `fonte.completo_do_frame_atual` na propria construcao; declara-lo aqui e o
+    # que faz aquele metodo ligado apontar para o interior CORRENTE no momento
+    # da chamada, e nao para o cadaver de onde foi colhido.
+    #
+    # Todo o resto vai por `__getattr__`. E OBRIGATORIO QUE SEJA ASSIM:
+    # `sessao.py` decide se pede o estado do cliente com
+    # `hasattr(fonte, "estado_do_cliente")`, e `MssSource` NAO tem esse metodo.
+    # Um `def estado_do_cliente` declarado no envelope faria o caminho de
+    # desktop prometer um estado de cliente que nao existe, e a promessa
+    # estouraria dentro do `try` de analise do tick.
 
     def capturar(self) -> Frame:
         frame = self._interior.capturar()
@@ -127,6 +149,32 @@ class FonteRecuperavel:
         # debaixo dele, e o `CONGELADO` deste tick continua caindo no portao
         # `PortaoGlobal.CEGO` que ja imprime "SEM VISAO".
         return frame
+
+    def capturar_completo(self):
+        return self._interior.capturar_completo()
+
+    def completo_do_frame_atual(self):
+        return self._interior.completo_do_frame_atual()
+
+    def apontar_para(self, regiao) -> None:
+        # A recusa do interior PROPAGA aqui, de proposito: quem chama e o
+        # `Reancorador`, e ele precisa ver o `ValueError` de uma fonte de
+        # coordenadas de desktop igual a hoje. So guardamos a regiao DEPOIS de
+        # o interior aceitar — guardar antes marcaria para reaplicacao um
+        # retangulo que a fonte ja rejeitou.
+        self._interior.apontar_para(regiao)
+        self._regiao_reancorada = regiao
+
+    def fechar(self) -> None:
+        self._interior.fechar()
+
+    def __getattr__(self, nome: str):
+        # So o que nao esta declarado chega aqui. O prefixo `_` e barrado para
+        # o proprio `_interior` nunca cair nesta funcao antes de existir — seria
+        # recursao infinita no meio do `__init__`.
+        if nome.startswith("_"):
+            raise AttributeError(nome)
+        return getattr(object.__getattribute__(self, "_interior"), nome)
 
     def _devolver_o_orcamento(self) -> None:
         self._tentativas_gastas = 0
@@ -185,7 +233,28 @@ class FonteRecuperavel:
             )
 
         self._interior = nova
+        self._reaplicar_a_regiao_reancorada()
         log.info("Fonte de captura reconstruida — voltando a ler a tela")
+
+    def _reaplicar_a_regiao_reancorada(self) -> None:
+        """A fonte nova nasce apontada para a regiao do ARRANQUE.
+
+        Se o `Reancorador` ja adotou outra em memoria, e para ELA que a fonte
+        reconstruida tem de olhar. A reaplicacao falha FECHADA: `apontar_para`
+        recusa fonte de coordenadas de desktop com `ValueError`, e essa recusa
+        nao pode virar crash de religacao — a fonte nova ja foi adotada e ler o
+        retangulo do arranque e melhor do que nao ler nada.
+        """
+        if self._regiao_reancorada is None:
+            return
+        try:
+            self._interior.apontar_para(self._regiao_reancorada)
+        except Exception:
+            log.warning(
+                "A fonte reconstruida nao aceitou a regiao reancorada — "
+                "seguindo com o retangulo do arranque",
+                exc_info=True,
+            )
 
     def _avisar_que_desistiu(self) -> None:
         """UMA vez, alto, e o laco segue rodando cego.
