@@ -1,0 +1,21 @@
+# POR QUE ESTE ARQUIVO EXISTE, E O QUE ELE IMPEDE
+# ===============================================
+# Os arquivos desta pasta sao de TERCEIRO e o SHA-256 de cada um esta
+# registrado no README.md ao lado (VEND-1). O guarda que confere esse hash e o
+# que detecta uma troca silenciosa do arquivo vendorizado (T-01-14) — ele so
+# vale enquanto o byte em disco for o byte que foi baixado.
+#
+# Medido nesta maquina: `git config core.autocrlf` -> `true`. Sem a linha
+# abaixo, o git converteria LF -> CRLF no checkout de um clone novo. O
+# `uPlot.iife.min.js` tem 2 LF; o `uPlot.LICENSE` tem 20. Cada conversao muda
+# o byte, muda o hash, e o
+# `test_o_sha256_do_README_bate_com_o_arquivo_EM_DISCO` ficaria VERMELHO numa
+# arvore em que nada de errado aconteceu.
+#
+# O custo real nao e o falso positivo: e que uma troca DE VERDADE ficaria
+# indistinguivel do ruido de fim de linha, e o primeiro reflexo de quem visse
+# o vermelho seria "e o CRLF de novo" — que e como um guarda morre.
+#
+# `-text` desliga toda conversao nos dois sentidos: o byte que entrou e o byte
+# que sai.
+* -text
