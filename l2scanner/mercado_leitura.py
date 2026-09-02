@@ -1221,8 +1221,10 @@ def ler_celula_de_quantidade(
 # registro que se reescreve para caber na conclusao de hoje deixa de ser
 # registro. O que caiu foi a CONCLUSAO, e ela diz que caiu, com data e numero.
 #
-# A PROVA LIMPA: o vigia foi parado, `.mercado/observacoes.csv` foi truncado no
-# cabecalho, as DEZ linhas da tela foram escritas a mao ANTES de o scanner rodar,
+# A PROVA LIMPA: o vigia foi parado, o registro da Fase 3 foi truncado no
+# cabecalho (esta fase nao nomeia aquele arquivo — ver a fronteira presa por
+# `TestAFronteiraComAFase3`), as DEZ linhas da tela foram escritas a mao ANTES
+# de o scanner rodar,
 # a pagina nao mudou durante a leitura (grid diff 8.463 sobre um recorte de
 # 450.000 pixels) e o leitor acertou 10 de 10 em nome, quantidade e total. Sobre
 # essa MESMA pagina verificada:
@@ -1241,8 +1243,78 @@ def ler_celula_de_quantidade(
 # pagina que se sabe CERTA. Um fechamento medido contra uma regua curta nao mede
 # a leitura; mede a regua.
 #
-# A REMEDICAO com o portao de LAYOUT dentro da varredura esta na Tarefa 3 deste
-# mesmo plano, e os numeros dela entram logo abaixo.
+# A REMEDICAO FOI RODADA NO MESMO DIA, e ela esta aqui inteira.
+#
+# `tools/medir_leitura_de_glifo.py` rodou de novo (DRY-RUN, sem `--gravar`) sobre
+# as MESMAS 8 gravacoes do censo, agora com o limite derivado em 1,0/unidade e
+# com o portao de layout de PRODUCAO (`LeitorDePagina._casamento_do_layout`)
+# chamado uma vez por frame com painel aberto. A saida integral esta preservada
+# em `.planning/quick/260902-ca4-.../260902-ca4-DRY-RUN.txt`.
+#
+#     478 frames com painel aberto, 55.342 glifos — os MESMOS numeros do 02-02,
+#     porque o portao filtra a populacao do CRUZAMENTO e nao a de glifo.
+#
+#     o portao respondeu:  negociacao 347 | adena 25 | NENHUM 106 frames
+#     linhas completas:    negociacao 1172 | NENHUM 71 | adena 0
+#
+# O FECHAMENTO NO LIMITE DERIVADO SUBIU DE 0,6525 PARA 0,9377, e quase tudo isso
+# veio da CONSTANTE e nao do portao: o portao tirou 71 linhas de 1.243, e as 71
+# vieram de frames em que ele NAO OPINOU (nenhum layout passou o proprio limiar,
+# ou houve empate) — nao de frames de Adena.
+#
+# E ISSO DESMONTA A HIPOTESE DE CONTAMINACAO PELA ABA ADENA, que era a explicacao
+# escrita acima. As linhas de Adena nunca estiveram na populacao: naquela aba a
+# coluna `Quantity` de negociacao cai sobre VAZIO e devolve `None`, entao aquelas
+# linhas nunca foram COMPLETAS e nunca chegaram ao cruzamento. ZERO linhas de
+# `adena` foram tiradas — a contaminacao que se supunha nao existia, e o que
+# existia era o limite valendo metade. Um numero que sai ZERO tambem e resposta.
+#
+# O VEREDITO NAO MUDOU, E O CRITERIO QUE CAIU E O MESMO:
+#
+#     GUARDA REPROVADA por tolerancia, 1273.0000 centesimos por unidade
+#     (maximo 1.0)
+#
+#     criterio      exigido                          medido (2026-09-02)
+#     fechamento    >= 0,99                          0,9991 — so com tol. 1273
+#     tolerancia    <= 1,0 centesimo por unidade     1273,0    CAIU
+#     deteccao      >= 0,90                          0,0178    tambem cairia
+#                                                    (sobre 1.741 injetadas)
+#
+# O TETO CONTRA O QUAL ELE CAIU E O MESMO 1,0 DE ANTES, de proposito: a constante
+# dobrou e `FATOR_MAXIMO_SOBRE_O_LIMITE_DERIVADO` caiu de 2,0 para 1,0 no mesmo
+# commit, e o produto continua valendo um centesimo por unidade. Se o fator
+# tivesse ficado em 2,0, o teto teria virado 2,0 e esta reprovacao teria mudado de
+# regua sem ninguem decidir isso.
+#
+# ENTAO A GUARDA CONTINUA DESLIGADA, E POR MEDICAO E NAO POR OMISSAO. O 0,9377
+# ainda esta abaixo do 0,99 exigido, e a deteccao de 0,0178 esta a duas ordens de
+# grandeza do 0,90 — uma tolerancia de 1273 aprovaria justamente a substituicao
+# `0`<->`8` que a guarda existe para pegar. `mercado_tolerancia_do_cruzamento`
+# continua `None` no disco por construcao: a ferramenta so escreve com `--gravar`
+# e esta medicao rodou sem ele.
+#
+# NADA FOI GRAVADO. O par (piso, margem) que a ferramenta PROPORIA saiu
+# 0,469831 e 0,036984 — IDENTICO ao que ja esta no `calibration.json`, entao a
+# remedicao nao afrouxa nem aperta o piso de leitura. Ele e apenas relatado.
+#
+# E A `pagina-cheia` DESMENTE A OUTRA METADE DA FRASE REFUTADA. O paragrafo do
+# 02-02 usou justamente ela — negociacao pura, sem Adena para culpar — como
+# prova de que a queda nao era so de layout: `para em 84,2%`. Contra a regua
+# certa ela fecha 33 de 34, 97,1%. Nao era a leitura; era o limite.
+#
+#     fechamento no limite derivado, por gravacao (so negociacao, 2026-09-02):
+#       053105-mercado-aberto        847 de 917   92,4%
+#       055323-mercado-scroll        102 de 103   99,0%
+#       060622-mercado-pagina-cheia   33 de  34   97,1%   (era 84,2%)
+#       063409-mercado-scroll-transicao 117 de 118  99,2%
+#     as outras quatro do censo nao deixaram linha completa de negociacao.
+#
+# O QUE AINDA FALTA, e agora e a pergunta certa: sobram 6,2% de linhas de
+# negociacao que nao fecham nem com um centesimo por unidade, e a `053105`
+# sozinha responde por quase todas (847 de 917 contra 97-99% das outras tres).
+# A proxima remedicao comeca por olhar aquela gravacao, e nao por mexer no
+# limite de novo — um limite que se mexe ate o numero fechar nao e derivacao,
+# e ajuste de curva.
 
 # UM centesimo por unidade — a DERIVACAO, e nunca a tolerancia de producao.
 #
