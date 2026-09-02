@@ -46,7 +46,7 @@
       A ferramenta de fusão não as junta de propósito — só funde com `nome_exibido`
       idêntico.
 
-- [ ] **DEBT-06**: A guarda de paridade do ciano avisa TARDE, e DUAS frases no
+- [x] **DEBT-06**: A guarda de paridade do ciano avisa TARDE, e DUAS frases no
       repositorio afirmam o contrario. Medido pelo verificador: `cortar_glifos`
       (os treze arrastos) roda em `calibrar_mercado.py:2586`;
       `conferir_a_paridade_do_ciano` so em 2491, dentro de `_gravar_os_glifos`,
@@ -56,14 +56,14 @@
       FALSAS hoje, e custaram ao usuario TRES rodadas completas em 2026-09-01.
       **Pela regra da casa, ou as frases se corrigem ou a guarda sobe.** O
       conserto barato existe: `anel_do_zero_esta_partido` ja e pura sobre UM
-      molde, entao da para conferir no primeiro `0` cortado, dentro do laco.
-- [ ] **DEBT-07**: `tests/test_mercado_adena_pagina.py:350` — `_vencedor_medido`
+      molde, entao da para conferir no primeiro `0` cortado, dentro do laco. **FECHADA em 2026-09-01 (quick 260901-p2r):** a guarda subiu para dentro do laco de `cortar_glifos` e recusa no PRIMEIRO arrasto — medido pelo numero de chamadas a `_selecionar_regiao` (1 contra os 13 de antes). A guarda da ESCRITA continua como rede final, com teste que a exercita por um caminho que pula a do laco. As duas frases falsas viraram verdadeiras, com o registro de que eram falsas.
+- [x] **DEBT-07**: `tests/test_mercado_adena_pagina.py:350` — `_vencedor_medido`
       REIMPLEMENTA `_casamento_do_layout` dentro do teste (limiar, `max`, empate,
       `None`). `test_o_vencedor_por_banda` mede a copia, nao a producao. Contido
       (a funcao real e chamada em `TestOPortaoESCOLHEEmVezDeSoRecusar` e no ponta
       a ponta), por isso e aviso e nao lacuna. Conserto de uma linha: trocar o
       corpo por `leitor._casamento_do_layout(...)`. **E a decima aparicao do
-      padrao desta sessao, numa variante nova: o teste que mede a propria copia.**
+      padrao desta sessao, numa variante nova: o teste que mede a propria copia.** **FECHADA em 2026-09-01 (quick 260901-p2r):** `_vencedor_medido` chama `leitor._casamento_do_layout` de verdade. Mutacao medida: a copia dava `4 passed` (cega); a producao da `1 failed, 3 passed`.
 - [ ] **DEBT-08**: O `13588` na NEGOCIACAO. Mesmo defeito de digito do ciano, no
       caminho principal — e la `mercado_tolerancia_do_cruzamento` e `None`, entao
       o cruzamento so OBSERVA. Com quantidade 1 o total e o unitario erram IGUAL,
@@ -98,6 +98,6 @@
 | DEBT-03 | TBD | Pending |
 | DEBT-04 | TBD | Pending |
 | DEBT-05 | TBD | Pending |
-| DEBT-06 | TBD | Pending |
-| DEBT-07 | TBD | Pending |
+| DEBT-06 | quick 260901-p2r | Complete |
+| DEBT-07 | quick 260901-p2r | Complete |
 | DEBT-08 | TBD | Pending |
