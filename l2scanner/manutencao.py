@@ -37,7 +37,7 @@ A DISCIPLINA DESTE MODULO, com o mesmo peso do proposito
 
 Tempo por PARAMETRO, sem relogio proprio. Sem disco. Sem OCR. Sem pixels.
 E a mesma disciplina de `agenda.py` e `loot.py`, e pela mesma razao: testar
-"faltam 5 minutos" nao pode exigir esperar 35 minutos, e testar "o aviso sai
+"faltam 10 minutos" nao pode exigir esperar 30 minutos, e testar "o aviso sai
 mesmo com o OCR cego" nao pode exigir uma manutencao real.
 
 IMPORTS PROIBIDOS AQUI: `winrt`, `cv2` e `l2scanner.ocr`. Nao e preferencia —
@@ -70,7 +70,18 @@ SEGUNDOS_ENTRE_LEITURAS = 5.0
 TOLERANCIA_DO_CONSENSO = timedelta(seconds=60)
 
 # Quando sai o SEGUNDO aviso (GOAL-02).
-ANTECEDENCIA = timedelta(minutes=5)
+#
+# DEZ e nao cinco desde 2026-09-02, a pedido do usuario, com o pedido literal:
+# "avise apenas quando aparece o anuncio e quando faltar 10m". Cinco minutos numa
+# manutencao anunciada com quarenta nao dao tempo de nada — nem de sair da
+# instance, nem de recolher o loot do chao, que sao as duas coisas que o proprio
+# aviso manda fazer.
+#
+# O MESMO NUMERO decide DUAS coisas, e e por isso que ele mora aqui sozinho:
+# quando o segundo aviso VENCE (`_avisos_devidos`) e quando ele volta a ficar
+# ARMADO depois de uma remarcacao (`_registrar`). Um numero so evita que uma
+# manutencao adiada para 7 minutos re-arme um aviso que jamais venceria.
+ANTECEDENCIA = timedelta(minutes=10)
 
 # Quanto tempo a ancora sobrevive ao proprio momento antes de ser esquecida.
 # Sem a expiracao o vigia carregaria para sempre um horario que ja passou, e a
@@ -575,10 +586,32 @@ class TipoDeAvisoDeManutencao(Enum):
     Mudar um valor faz um aviso ja enviado voltar a parecer novo, e a party
     recebe em dobro. E a mesma razao de `Aviso.chave` da agenda ser
     estruturada e nunca o texto da mensagem.
+
+    O DESCASAMENTO ENTRE O NOME `ANTES` E O VALOR `faltam5` E DELIBERADO
+    ====================================================================
+    Ate 2026-09-02 o membro se chamava com o numero cinco dentro, e o numero era
+    o `ANTECEDENCIA` daquela epoca. O limiar virou DEZ e o nome passou a MENTIR.
+    Ele agora se chama `ANTES` — o mesmo vocabulario que
+    `agenda.TipoDeAviso.ANTES` ja usa para o aviso de antecedencia —, porque um
+    nome que carrega um numero dentro envelhece toda vez que o numero muda, e
+    este ja mudou uma vez.
+
+    O `.value` NAO ACOMPANHOU, e a escolha esta paga por escrito nos dois lados:
+
+    - Trocar o valor custa UMA MENSAGEM DUPLICADA no grupo por manutencao ja em
+      andamento, para todo scanner reiniciado com o codigo novo: o marcador
+      gravado em `.agenda/` deixaria de casar com a chave nova, e o aviso ja
+      enviado voltaria a parecer novo.
+    - Mante-lo custa um nome de arquivo em `.agenda/` que so faz sentido com
+      esta docstring ao lado.
+
+    A decisao e por MANTER, que e a lei que este modulo e o `agenda.py` ja
+    tinham escrito — ver `TipoDeAviso.CHAMADA` la. O valor e IDENTIDADE
+    DURAVEL, nunca descricao. `tests/test_manutencao.py` trava a string.
     """
 
     ANUNCIADA = "anunciada"
-    FALTAM5 = "faltam5"
+    ANTES = "faltam5"
 
 
 def chave_do_marcador(momento: datetime, tipo: TipoDeAvisoDeManutencao) -> str:
@@ -641,13 +674,17 @@ def texto_de_anuncio(momento: datetime, duracao: timedelta) -> str:
     )
 
 
-def texto_de_5_minutos(momento: datetime, restante: timedelta) -> str:
+def texto_de_antecedencia(momento: datetime, restante: timedelta) -> str:
     """Diz os minutos REAIS que faltam, calculados da ancora.
 
-    POR QUE ELE NAO PODE DIZER "5" FIXO: quando o scanner sobe no meio de uma
-    contagem de 3 minutos, os dois avisos saem juntos e atrasados. Cravar "5"
-    ali seria mentir sobre o unico numero que importa — e o grupo se
-    programaria para dois minutos que nao existem.
+    POR QUE ELE NAO PODE CRAVAR O NUMERO DO LIMIAR: quando o scanner sobe no
+    meio de uma contagem de 3 minutos, os dois avisos saem juntos e atrasados.
+    Cravar o limiar ali seria mentir sobre o unico numero que importa — e o
+    grupo se programaria para minutos que nao existem.
+
+    O NOME PERDEU O NUMERO em 2026-09-02, junto com o do membro do enum: a
+    funcao carregava o cinco no nome e nunca imprimiu um cinco fixo na vida,
+    entao o numero ali ja era falso antes mesmo de o limiar mudar.
     """
     return (
         f"MANUTENCAO DO SERVIDOR em {descrever_duracao(restante)} "
@@ -660,7 +697,7 @@ class VigiaDeManutencao:
 
     A ANCORA (D-04) e o link central deste recurso. Numa leitura bem sucedida,
     `momento_da_manutencao = agora + tempo_lido`. Dai em diante os avisos saem
-    do relogio, NUNCA da tela. E o que faz o aviso de 5 minutos sobreviver ao
+    do relogio, NUNCA da tela. E o que faz o aviso de antecedencia sobreviver ao
     banner sumir, ao jogo ficar coberto e ao OCR passar a devolver None.
 
     O CONSENSO (D-05) e o que impede a ancora de nascer errada: sao precisas
@@ -739,7 +776,7 @@ class VigiaDeManutencao:
 
         A ORDEM E DELIBERADA: expirar, ler, registrar, montar. Montar por
         ultimo e a partir da ANCORA — nunca da leitura — e o que faz o aviso de
-        5 minutos sair num tick em que o OCR nao leu nada.
+        antecedencia sair num tick em que o OCR nao leu nada.
         """
         self._expirar(agora)
 
@@ -929,7 +966,7 @@ class VigiaDeManutencao:
                 self._duracao_confirmada = duracao
                 self._candidata = None
                 if duracao > ANTECEDENCIA:
-                    self._emitidos.discard(TipoDeAvisoDeManutencao.FALTAM5)
+                    self._emitidos.discard(TipoDeAvisoDeManutencao.ANTES)
                 return
             self._candidata = implicado
             return
@@ -971,14 +1008,16 @@ class VigiaDeManutencao:
         restante = self._ancora - agora
         if (
             restante <= ANTECEDENCIA
-            and TipoDeAvisoDeManutencao.FALTAM5 not in self._emitidos
+            and TipoDeAvisoDeManutencao.ANTES not in self._emitidos
         ):
-            self._emitidos.add(TipoDeAvisoDeManutencao.FALTAM5)
+            self._emitidos.add(TipoDeAvisoDeManutencao.ANTES)
             avisos.append(
                 AvisoDeManutencao(
-                    tipo=TipoDeAvisoDeManutencao.FALTAM5,
+                    tipo=TipoDeAvisoDeManutencao.ANTES,
                     momento=self._ancora,
-                    texto=texto_de_5_minutos(self._ancora, max(timedelta(0), restante)),
+                    texto=texto_de_antecedencia(
+                        self._ancora, max(timedelta(0), restante)
+                    ),
                 )
             )
 

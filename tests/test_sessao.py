@@ -1156,33 +1156,40 @@ class TestManutencaoNoTick:
         ]
         assert marcadores == ["2026-09-02_manutencao-1259_anunciada"]
 
-    def test_o_faltam5_tambem_atravessa_a_costura(
+    def test_o_segundo_aviso_tambem_atravessa_a_costura(
         self, calibracao, frame_real, tmp_path
     ):
         """Os DOIS avisos saem `SEMPRE` e moldurados — e o segundo sai cego.
 
         Depois das duas leituras o banner some (o leitor passa a devolver
-        None), e mesmo assim o aviso de 5 minutos sai: ele vem da ancora, nao
-        da tela (D-10).
+        None), e mesmo assim o aviso de antecedencia sai: ele vem da ancora, e
+        nao da tela (D-10).
+
+        A DURACAO SUBIU DE 6 PARA 15 MINUTOS quando `ANTECEDENCIA` virou dez
+        (2026-09-02): com 6 minutos o restante ja nasceria ABAIXO do limiar
+        novo, os dois avisos sairiam no MESMO tick da ancoragem e o "sai cego"
+        deixaria de ser exercitado. A ancora nasce na segunda leitura, em
+        12:00:06, e cai em 12:15:06; o restante toca 10 minutos em 12:05:06 —
+        o tick 306 —, e por isso o laco vai ate 311.
         """
         from l2scanner.manutencao import TipoDeAvisoDeManutencao
 
         vigia = _vigia_das_duas_escalas(
-            LeitorDoBanner("Server Maintence 6 minutes")
+            LeitorDoBanner("Server Maintence 15 minutes")
         )
         s = nova_sessao(calibracao, tmp_path, manutencao=vigia)
         frame = self._frame_com_banner(frame_real)
 
         base = em(12, 0)
         tipos, despachos = [], []
-        for segundos in [0, 6] + list(range(7, 131)):
+        for segundos in [0, 6] + list(range(7, 311)):
             r = s.tick(frame, momento=base + segundos)
             tipos += r.avisos_de_manutencao
             despachos += [d for d in r.despachos if "manuten" in d[0].lower()]
 
         assert tipos == [
             TipoDeAvisoDeManutencao.ANUNCIADA,
-            TipoDeAvisoDeManutencao.FALTAM5,
+            TipoDeAvisoDeManutencao.ANTES,
         ]
         assert len(despachos) == 2
         for texto, categoria, _ in despachos:
