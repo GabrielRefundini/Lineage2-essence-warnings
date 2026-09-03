@@ -194,6 +194,27 @@
       viraria 1,80 — a adena teria de cair em quase o dobro dos abates existentes, que é
       impossível. É isso que sustenta que o degrau unitário é um abate, e não dois.
 
+      **Refinamento a 55 Hz, 2026-09-02 — e ele valida a Fase 1 de quebra.** A conta acima
+      agrupava aglomerados de degraus a 0,8 s de amostragem. Refeita a **0,018 s** (8.555 leituras
+      de EXP em 2,5 min), o censo ficou COMPLETO e exato:
+
+      - **zero leituras negativas** em 8.555 — o leitor de EXP da Fase 1 não oscila;
+      - **a soma dos 188 degraus é 1903 unidades, e a barra andou exatamente 1903.** Nenhum
+        evento escapou. Isto é um censo, não uma amostra.
+
+      Com o censo, o aglomerado do abate isola-se sozinho: **114 eventos de ~10 unidades, média
+      9,956**, o que dá `387 ÷ 0,0009956 = 388.700 XP por ponto percentual` e **38,87 milhões no
+      nível** — 1,5% acima da primeira conta, que portanto se sustenta.
+
+      **E apareceu um segundo aglomerado que eu não sei explicar:** 50 eventos de ~3 unidades, a
+      20 por minuto, somando 7,9% do XP da janela. Eles não são erro de leitura (não há degrau
+      negativo nenhum) e não são abate (o chat mostra XP por abate entre 363 e 439, um intervalo
+      de 1,2× — não de 3×). Que o abate é o aglomerado de ~10 está estabelecido pelo RITMO: 45,6
+      por minuto nesta janela, que rodou a 4,57 pp/h; corrigido para os 6,29 pp/h da janela de 6
+      minutos dá 62,8/min, contra os ~58/min que o chat indicou. O aglomerado de ~3 continua sem
+      identificação, e **isso não afeta a constante** — ela converte pontos percentuais em XP do
+      nível, seja qual for a origem do ganho.
+
       **A constante é POR NÍVEL** e tem de ser recalibrada a cada level up, porque o custo do
       nível muda. Enquanto ela não existir para o nível atual, o painel mostra pontos percentuais
       e **diz que o XP absoluto está indisponível** — nunca converte com a constante do nível
