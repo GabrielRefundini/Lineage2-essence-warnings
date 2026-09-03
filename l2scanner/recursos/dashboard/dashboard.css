@@ -394,6 +394,54 @@ body {
 }
 
 /* ========================================================================= */
+/* A DICA SOB O CURSOR                                                       */
+/* ========================================================================= */
+/*
+  Posicionada por `left`/`top` que o JS escreve em pixel, com a MESMA técnica
+  de `getBoundingClientRect` que o arrasto do zoom já usa — não uma segunda. As
+  cores do texto reaproveitam `.serie__legenda-rotulo--*`: a mesma régua que já
+  diferencia as duas linhas por traço (sólido × tracejado) e não só por cor.
+
+  `pointer-events: none` porque a dica fica por cima da área de arrasto e roda
+  do gráfico — sem isso, o próprio texto bloquearia o zoom por baixo dela.
+*/
+.serie__dica {
+  position: absolute;
+  z-index: 1;
+  padding: var(--sp-sm);
+  border: 1px solid var(--cor-relevo-alto);
+  border-radius: var(--sp-xs);
+  background: var(--cor-painel);
+  pointer-events: none;
+  transform: translate(var(--sp-md), calc(-1 * var(--sp-md)));
+}
+
+.serie__dica[hidden] {
+  display: none;
+}
+
+.serie__dica-tempo {
+  margin: 0 0 var(--sp-xs);
+  font-family: var(--font-num);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--cor-texto-fraco);
+}
+
+.serie__dica-linha {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  margin: 0;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.serie__dica-linha + .serie__dica-linha {
+  margin-top: var(--sp-xs);
+}
+
+/* ========================================================================= */
 /* A PLACA DE ESTADO VAZIO                                                   */
 /* ========================================================================= */
 /*
@@ -438,11 +486,17 @@ body {
   há o que mostrar" de "o dashboard não conseguiu abrir o arquivo" — sem ela, um
   estado vazio é indistinguível de um defeito e o usuário procura bug onde não
   há.
+
+  ESTE ELEMENTO TAMBÉM É O MODELO DE FONTE DOS RÓTULOS DO EIXO (ver
+  `fonteDosRotulos` no JS) — 16px em vez dos 14px de antes (2026-09-03), porque
+  o usuário mediu o eixo como pouco legível na tela real. Trocar o tamanho aqui
+  troca o dos dois lugares de uma vez só, e é essa a razão de ser um modelo em
+  vez de um número duplicado.
 */
 .serie__vazio-prova {
   margin: 0;
   font-family: var(--font-num);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
   color: var(--cor-texto-fraco);

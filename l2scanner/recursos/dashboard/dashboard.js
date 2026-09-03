@@ -562,7 +562,12 @@ function paletaDoTema() {
     principal: raiz.getPropertyValue("--cor-ouro").trim(),
     tipica: raiz.getPropertyValue("--cor-serie-tipica").trim(),
     grade: raiz.getPropertyValue("--cor-grade").trim(),
-    rotulo: raiz.getPropertyValue("--cor-texto-fraco").trim(),
+
+    // ERA `--cor-texto-fraco` (6,12:1 sobre a placa). O usuário mediu o eixo
+    // como pouco legível na tela real (2026-09-03), e `--cor-texto` é o mesmo
+    // par já cobrado em `TestOContrasteFoiRecalculado` a 13,16:1 — sem token
+    // novo, sem recontar contraste.
+    rotulo: raiz.getPropertyValue("--cor-texto").trim(),
   };
 }
 
@@ -791,6 +796,17 @@ function opcoesDoGrafico(serie, area) {
           }
         },
       ],
+
+      // A DICA SOB O CURSOR reage aqui, e não a um `mousemove` próprio: este
+      // gancho já traz o `idx` do ponto mais perto resolvido pela biblioteca
+      // (roda, arrasto, teclado, toque — os mesmos caminhos que mudam a janela
+      // acima), então não há um segundo cálculo de "qual ponto é este" a
+      // divergir do que a legenda nativa já mostra.
+      setCursor: [
+        function (instancia) {
+          atualizarADica(instancia);
+        },
+      ],
     },
     axes: [
       Object.assign({}, eixo),
@@ -991,6 +1007,63 @@ function ligarOZoomEODeslocamento(instancia) {
   });
 }
 
+/**
+ * A DICA SOB O CURSOR: mínimo e mediana do instante apontado, perto do
+ * ponteiro. Chamada uma vez por instância, no mesmo lugar que já liga o zoom.
+ *
+ * `mouseleave` É NECESSÁRIO ALÉM DO `setCursor`: a biblioteca zera o `idx` ao
+ * sair, mas o navegador entrega os dois eventos em ordens que não são a mesma
+ * em todo motor — sem este ouvinte próprio, a dica ficaria presa na tela em
+ * alguns navegadores até o próximo movimento do mouse sobre o gráfico.
+ */
+function ligarADica(instancia) {
+  instancia.over.addEventListener("mouseleave", function () {
+    const dica = document.getElementById("serie-dica");
+    if (dica !== null) {
+      dica.hidden = true;
+    }
+  });
+}
+
+/**
+ * Escreve e posiciona a dica para o ponto sob o cursor de agora.
+ *
+ * A POSIÇÃO USA `getBoundingClientRect`, A MESMA TÉCNICA DO ARRASTO ACIMA — e
+ * não `instancia.over` como pai direto da dica: destruir o gráfico
+ * (`apagarOGrafico`, no caminho em que a série fica sem ponto nenhum) apagaria
+ * a dica junto, e nenhum código a recriaria depois. A dica mora na marcação,
+ * sempre; só a posição dela é calculada aqui.
+ *
+ * O TEXTO É SEMPRE A STRING QUE `textosDoGrafico` JÁ GUARDA — a mesma fonte da
+ * legenda nativa (`textoSobOCursor`), nunca um número recalculado (DASH-03).
+ */
+function atualizarADica(instancia) {
+  const dica = document.getElementById("serie-dica");
+  const area = document.getElementById("serie-area");
+  if (dica === null || area === null) {
+    return;
+  }
+
+  const indice = instancia.cursor.idx;
+  if (indice === null || indice === undefined) {
+    dica.hidden = true;
+    return;
+  }
+
+  const caixaDaArea = area.getBoundingClientRect();
+  const caixaDaSobreposicao = instancia.over.getBoundingClientRect();
+
+  escrever("serie-dica-tempo", textosDoGrafico.instantes[indice] || "");
+  escrever("serie-dica-principal", textosDoGrafico.principal[indice] || "");
+  escrever("serie-dica-tipica", textosDoGrafico.tipica[indice] || "");
+
+  dica.hidden = false;
+  dica.style.left =
+    caixaDaSobreposicao.left - caixaDaArea.left + instancia.cursor.left + "px";
+  dica.style.top =
+    caixaDaSobreposicao.top - caixaDaArea.top + instancia.cursor.top + "px";
+}
+
 function apagarOGrafico() {
   if (grafico !== null) {
     grafico.destroy();
@@ -999,6 +1072,15 @@ function apagarOGrafico() {
   serieDesenhada = null;
   resolucaoAtual = null;
   alcanceTotal = null;
+
+  // A dica sobrevive à destruição do gráfico (ela mora na marcação, não em
+  // `instancia.over`) — sem esconder aqui, ela ficaria presa na tela por cima
+  // da placa de estado vazio, mostrando o último ponto de um gráfico que já
+  // não existe.
+  const dica = document.getElementById("serie-dica");
+  if (dica !== null) {
+    dica.hidden = true;
+  }
 }
 
 /**
@@ -1056,6 +1138,7 @@ function desenharUmaSerie(serie) {
     textosDoGrafico = cru.textos;
     grafico = new biblioteca(opcoesDoGrafico(serie, area), cru.dados, area);
     ligarOZoomEODeslocamento(grafico);
+    ligarADica(grafico);
     return;
   }
 

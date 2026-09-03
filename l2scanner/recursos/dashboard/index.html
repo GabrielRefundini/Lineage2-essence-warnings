@@ -147,8 +147,26 @@
       -->
       <p class="serie__titulo" id="serie-titulo" title=""></p>
 
-      <div class="serie__area">
+      <div class="serie__area" id="serie-area">
         <div class="serie__grafico" id="serie-grafico"></div>
+
+        <!--
+          A DICA SOB O CURSOR: o mínimo e a mediana do instante apontado, perto
+          do ponteiro em vez de só na legenda abaixo do gráfico. Nasce escondida
+          (`hidden`) e o JS só troca `hidden` e o `left`/`top`; o texto de dentro
+          é sempre a STRING que o Python formatou, nunca recalculada aqui.
+        -->
+        <div class="serie__dica" id="serie-dica" hidden>
+          <p class="serie__dica-tempo" id="serie-dica-tempo"></p>
+          <p class="serie__dica-linha">
+            <span class="serie__amostra serie__amostra--principal" aria-hidden="true"></span>
+            <span class="serie__legenda-rotulo serie__legenda-rotulo--principal" id="serie-dica-principal"></span>
+          </p>
+          <p class="serie__dica-linha">
+            <span class="serie__amostra serie__amostra--tipica" aria-hidden="true"></span>
+            <span class="serie__legenda-rotulo serie__legenda-rotulo--tipica" id="serie-dica-tipica"></span>
+          </p>
+        </div>
 
         <!--
           A PLACA DE ESTADO VAZIO ESTÁ NA MARCAÇÃO, SEMPRE. O JS só alterna a
