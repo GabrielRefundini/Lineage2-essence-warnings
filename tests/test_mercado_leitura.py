@@ -2206,6 +2206,36 @@ class TestATravaDaObservacaoDoCruzamento:
         assert "OBSERVACAO do cruzamento" in primeiro
         assert trava.anunciar(2, 1880, 600, 3, 80) is None
 
+    def test_a_observacao_diz_a_POSICAO_NA_TELA_junto_do_indice(self) -> None:
+        """A frase carrega OS DOIS NUMEROS, e o teste MEDE a string emitida.
+
+        E O MESMO DEFEITO DA IRMA `TravaDaRecusa`, consertado no mesmo dia
+        (2026-09-02) e com o mesmo formato: o indice e base 0
+        (`mercado_pagina.py:1049-1050`: `for indice in range(...)` e
+        `topo = gy + indice * altura`), entao `linha {indice}` sozinho apontava
+        sempre uma linha ACIMA da linha real da tela.
+
+        AQUI ELE CUSTA MAIS QUE NA RECUSA, E ESTE TESTE EXISTE POR ISSO: na aba
+        de NEGOCIACAO `mercado_tolerancia_do_cruzamento` e `None` e a guarda so
+        OBSERVA — nada e descartado. Esta e a UNICA mensagem que avisa que uma
+        linha nao fecha, e apontar para a linha errada e apontar errado onde
+        nao ha segunda chance.
+
+        O INDICE 0 ENTRA JUNTO DE PROPOSITO: e onde a distancia relativa entre
+        os dois numeros e maior (`linha 1` contra `indice 0`), e onde um `+ 1`
+        esquecido produziria a frase mais absurda de todas — `linha 0`, que nao
+        existe em tela nenhuma.
+        """
+        from l2scanner.mercado_leitura import TravaDaObservacao
+
+        setima = TravaDaObservacao().anunciar(7, 1880, 600, 3, 80)
+        assert isinstance(setima, str)
+        assert "linha 8 (indice 7)" in setima, setima
+
+        primeira = TravaDaObservacao().anunciar(0, 1880, 600, 3, 80)
+        assert isinstance(primeira, str)
+        assert "linha 1 (indice 0)" in primeira, primeira
+
     def test_cada_SESSAO_comeca_com_a_trava_limpa(self) -> None:
         """Duas travas nao compartilham memoria.
 
