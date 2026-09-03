@@ -201,26 +201,35 @@ def importados_por(caminho: Path) -> set[str]:
     `memoria_de_modulo` em `tests/test_renda_par.py`: um controle que chamasse
     outra funcao provaria outra coisa.
 
-    ELA ENUMERA `ast.Import` **E** `ast.ImportFrom`, e normaliza o import
-    relativo (`from . import calibracao` / `from .calibracao import X`) para o
-    nome do modulo. Um portao que so olhasse `ast.Import` deixaria passar
-    exatamente as tres formas por que o OpenCV entraria sem ninguem ver.
+    ELA ENUMERA `ast.Import` **E** `ast.ImportFrom`, e devolve **todos os
+    segmentos** de cada caminho pontuado, e nao so o primeiro.
+
+    O SEGUNDO PONTO CAIU PELO CONTROLE POSITIVO, E FICA ESCRITO PORQUE E O
+    RESULTADO. A primeira versao desta funcao guardava so o primeiro segmento e
+    o caminho inteiro — e com isso `import l2scanner.calibracao` virava
+    `{"l2scanner", "l2scanner.calibracao"}`, sem `calibracao` em lugar nenhum, e
+    passava direto pelo portao. Dois dos seis controles ficaram vermelhos na
+    primeira rodada e derrubaram a funcao. **Um portao que so o autor testa e um
+    portao que so o autor acredita.**
     """
     nomes: set[str] = set()
+
+    def _guardar(caminho_pontuado: str) -> None:
+        nomes.add(caminho_pontuado)
+        nomes.update(caminho_pontuado.split("."))
+
     arvore = ast.parse(Path(caminho).read_text(encoding="utf-8"))
     for no in ast.walk(arvore):
         if isinstance(no, ast.Import):
             for alias in no.names:
-                nomes.add(alias.name.split(".")[0])
-                nomes.add(alias.name)
+                _guardar(alias.name)
         elif isinstance(no, ast.ImportFrom):
             if no.module:
-                nomes.add(no.module.split(".")[0])
-                nomes.add(no.module)
-            if no.level and not no.module:
-                # `from . import calibracao` -- o modulo esta nos ALIASES.
-                for alias in no.names:
-                    nomes.add(alias.name)
+                _guardar(no.module)
+            # `from . import calibracao` -- o modulo esta nos ALIASES, e sem
+            # esta linha o import relativo por nome entraria sem ser visto.
+            for alias in no.names:
+                _guardar(alias.name)
     return nomes
 
 
