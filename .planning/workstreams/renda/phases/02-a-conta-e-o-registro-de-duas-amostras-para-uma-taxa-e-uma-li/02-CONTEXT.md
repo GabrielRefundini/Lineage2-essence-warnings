@@ -164,3 +164,60 @@ milissegundos, e uma noite inteira de farm cabe num teste.
 - Avisar no WhatsApp quando a renda cair (ALER-01, já em v2).
 
 </deferred>
+
+<corrections>
+## Resposta às oito contradições da pesquisa (2026-09-02)
+
+Sete são aceitas e vão para o plano. Uma é leitura equivocada e está resolvida aqui.
+
+### C-6 — RESOLVIDA, não é decisão do usuário
+
+A pesquisa leu `01-MEDICOES-DE-CAMPO.md:401` — *"adena 5/10 (50%) aceitas e erradas"* — e
+concluiu que as regras de par deixam de ser rede secundária e viram o produto.
+
+**Aquela tabela mede o leitor de OCR, que foi ABANDONADO.** A coluna vizinha diz "quantas por
+concordância de 2 escalas": as duas escalas são as duas escalas do **OCR**. É o número que
+MATOU o OCR para a adena e virou o LEIT-09 — a adena passou a ser lida por **glifo**. O próprio
+`01-02-SUMMARY.md` diz que manteve a adena no censo *"rotulada como caminho abandonado, porque é
+o único lugar onde o número que a matou ganha denominador"*.
+
+O leitor que a Fase 2 vai consumir é o de glifo, e ele foi medido separado: **5/5 correto** nas
+cinco fixtures pelo caminho de produção, e **11 aceitas de 14 com zero erradas** na amostragem ao
+vivo (as 3 restantes foram recusa nomeada). Os 21% do CONTEXT são taxa de RECUSA, não de erro, e
+continuam certos.
+
+**O que sobrevive da C-6, e é importante:** o `nível` continua sendo lido por OCR mascarado, e é
+nele que 3 das 4 leituras erradas passaram **por concordância** das duas escalas. Isso é atual, é
+o LEIT-11, e é exatamente por isso que a Área 2 já decidiu que **um EXP que cai com o nível
+recusado não vira level up adivinhado**. O peso das regras de par sobe para o nível — não para a
+adena.
+
+### C-1, C-3, C-4, C-5, C-7, C-8 — ACEITAS, e cada uma vira obrigação do plano
+
+- **C-1** — `tests/test_renda_par.py:591-623` varre `l2scanner/*.py` e **proíbe** chamar as regras
+  de par. Era a guarda correta enquanto a Fase 1 tinha de provar que não tinha estado. A Fase 2 é
+  o chamador legítimo, então **inverter esse teste é a primeira tarefa**, com a razão escrita —
+  não apagá-lo: ele passa a exigir que o chamador exista e seja só um.
+- **C-3** — a dedup do `mercado_registro` **não é dialeto, é regra de negócio do mercado**, e
+  copiá-la apagaria linhas repetidas que aqui são o denominador da taxa. Copiar
+  `conferir_o_terminador` (que não conhece coluna nenhuma); **não** copiar `conferir_o_cabecalho`
+  (fecha sobre o `COLUNAS` global) nem a dedup.
+- **C-4** — `.renda/` **não está no `.gitignore`**. Acrescentar é tarefa, não detalhe: sem isso a
+  primeira noite de farm entra num commit.
+- **C-5** — "um arquivo por dia como o `.mercado/` e o `.loot/` já fazem" era suposição minha e
+  **nenhum dos dois faz isso**. O plano decide a forma pelo que existe, e escreve o motivo.
+- **C-7** — REG-02 ("reiniciar não inventa nem apaga renda") não vem do índice em memória; vem da
+  conta tratar a primeira amostra pós-reinício como **âncora**. Não há peça de disco a copiar.
+- **C-8** — `renda_ponte_de_xp` terminaria a fase **vazia**, e o caminho "XP absoluto disponível"
+  nunca seria exercido com dado real. O plano **semeia a constante medida** (Faerlina, nível 67,
+  388.700 XP/pp, com a procedência: 55 Hz, censo completo, 114 abates, 240 linhas de chat) como
+  o primeiro registro, e testa os dois caminhos — com e sem constante.
+
+### C-2 — ACEITA, e ela já tinha sido corrigida uma vez
+
+"O dashboard acrescenta uma lista de colunas, não um parser" é falso, e a pesquisa foi mais longe
+que a correção que já estava no REG-03: seguiu a cadeia até `dashboard_dados.py:454`, que chama o
+parser do mercado **pelo nome** e confere contra o `COLUNAS` global. O plano escreve a refutação
+no fonte e **não promete** ao `dashboard` nada além de um arquivo em disco no mesmo dialeto.
+
+</corrections>
