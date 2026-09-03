@@ -62,12 +62,17 @@ from l2scanner.renda_conta import (
     GRANDEZA_DA_ADENA,
     GRANDEZA_DO_EXP,
     SEM_DESCONTINUIDADE,
+    MOTIVO_DA_TAXA_DE_EXP_NEGATIVA,
+    MOTIVO_DA_TAXA_DE_EXP_ZERADA,
     UNIDADE_DA_JANELA,
+    ContagemDaRenda,
     as_duas_taxas,
+    contar_o_passo,
     passo_entre,
     passo_entre_campos,
     passos_da_janela,
     taxa_por_hora,
+    tempo_ate_o_nivel,
 )
 from l2scanner.renda_leitura import (
     CAMPO_DA_ADENA,
@@ -973,6 +978,7 @@ class TestOPortaoDaDistincaoDosMotivosDaConta:
         assert definicoes.count("motivos_do_modulo") == 1
         assert definicoes.count("chamadas_de") == 1
         assert definicoes.count("literais_de_um_milhao") == 1
+        assert definicoes.count("nomes_de") == 1
 
 
 # ===========================================================================
@@ -1640,3 +1646,342 @@ class TestODenominadorEPorGrandeza:
         assert da_adena.por_hora is not None
         assert da_adena.evidencia.n == 39
         assert do_exp.evidencia.n == 39 - 10
+
+
+# ===========================================================================
+# TAREFA 3: O TEMPO ATE O NIVEL, E A CONTAGEM QUE EXPLICA CADA `n`
+# ===========================================================================
+
+
+def taxa_de_exp(passos):
+    """A taxa de EXP de uma sequencia de passos, com os pisos reais."""
+    return taxa_por_hora(
+        passos,
+        grandeza=GRANDEZA_DO_EXP,
+        piso_de_amostras=PISO_DE_AMOSTRAS,
+        piso_da_janela_em_segundos=PISO_DA_JANELA,
+    )
+
+
+def taxa_positiva_de_exp():
+    """`120_000` decimos por hora: 1.000 decimos a cada 30 s."""
+    return taxa_de_exp(passos_da_sequencia(sequencia_regular(n=21, passo_em_segundos=30.0)))
+
+
+def taxa_zerada_de_exp():
+    """EXP PARADO com o nivel recusado: ganho zero em todo passo.
+
+    Ela sai de uma sequencia de verdade e nao de um objeto montado a mao — o
+    caso e o do usuario parado no vilarejo com o scanner ligado.
+    """
+    return taxa_de_exp(
+        passos_dos_campos(
+            [
+                (campos(nivel=None, exp=800_000, adena=10_000_000 + i * 5_000), i * 30.0)
+                for i in range(21)
+            ]
+        )
+    )
+
+
+def taxa_negativa_de_exp():
+    """EXP CAINDO num passo que o denominador aceita, e ele existe.
+
+    O caminho e o do campo parcial: com a ADENA recusada nos dois lados,
+    `LeituraDaRenda` nao existe, `conferir_o_par` nao roda, e junto com ela nao
+    roda `o_exp_andou_para_tras` — que e a guarda da Fase 1 para exatamente este
+    caso. A limitacao esta escrita na docstring de `passo_entre_campos` e
+    registrada em `deferred-items.md` (D-2); o que este teste prova e que o
+    tempo ate o nivel NAO transforma o buraco numa previsao.
+    """
+    return taxa_de_exp(
+        passos_dos_campos(
+            [
+                (campos(nivel=67, exp=500_000 - i * 1_000, adena=None), i * 30.0)
+                for i in range(21)
+            ]
+        )
+    )
+
+
+class TestOTempoAteOProximoNivel:
+    """REND-05: "quanto tempo vai levar" tem resposta OU tem motivo.
+
+    E a barra entrega isso SEM TABELA DE XP POR NIVEL — que seria dependencia
+    externa, especifica de servidor e desatualizavel a cada patch. E a razao de a
+    milestone inteira ler a barra em vez do chat.
+    """
+
+    def test_COM_TAXA_POSITIVA_O_TEMPO_SAI_EM_SEGUNDOS(self):
+        taxa = taxa_positiva_de_exp()
+        assert taxa.por_hora == 120_000
+
+        previsao = tempo_ate_o_nivel(exp_atual_em_decimos=80_012, taxa=taxa)
+
+        # A conta feita a mao, com os dois numeros a vista: faltam
+        # (1_000_000 - 80_012) = 919_988 decimos, a 120_000 decimos por hora.
+        a_mao = Fraction(919_988 * 3_600, 120_000)
+
+        assert previsao.motivo_da_ausencia is None
+        assert previsao.segundos == a_mao, (
+            "as duas contas lado a lado: o modulo devolveu "
+            f"{previsao.segundos} e a conta a mao da {a_mao} segundos "
+            f"(= (1_000_000 - 80_012) decimos x 3600 / 120_000 por hora, ou "
+            "~7h40 de farm). Se elas divergem, ou a unidade mudou ou os cem "
+            "pontos percentuais deixaram de sair da constante da Fase 1"
+        )
+        assert isinstance(previsao.segundos, Fraction)
+
+    def test_QUASE_NO_NIVEL_O_TEMPO_E_PEQUENO_E_POSITIVO(self):
+        """Sem ele, uma implementacao com o SINAL TROCADO passaria nos outros."""
+        previsao = tempo_ate_o_nivel(
+            exp_atual_em_decimos=999_999, taxa=taxa_positiva_de_exp()
+        )
+
+        assert previsao.segundos is not None
+        assert previsao.segundos > 0, (
+            "faltando um decimo de milesimo para o nivel, o tempo restante e "
+            f"pequeno e POSITIVO. Saiu {previsao.segundos}"
+        )
+        assert previsao.segundos == Fraction(1 * 3_600, 120_000)
+
+    def test_COM_A_TAXA_ZERADA_O_MOTIVO_E_NOMEADO_E_NAO_HA_DIVISAO(self):
+        taxa = taxa_zerada_de_exp()
+        assert taxa.por_hora == 0
+
+        previsao = tempo_ate_o_nivel(exp_atual_em_decimos=80_012, taxa=taxa)
+
+        assert previsao.segundos is None, (
+            "com taxa zero o painel diz 'nao esta ganhando EXP', e nunca "
+            f"'faltam infinitas horas'. Saiu {previsao.segundos}"
+        )
+        assert previsao.motivo_da_ausencia == MOTIVO_DA_TAXA_DE_EXP_ZERADA
+
+    def test_COM_A_TAXA_NEGATIVA_O_MOTIVO_E_OUTRO(self):
+        taxa = taxa_negativa_de_exp()
+        assert taxa.por_hora is not None and taxa.por_hora < 0
+
+        previsao = tempo_ate_o_nivel(exp_atual_em_decimos=80_012, taxa=taxa)
+
+        assert previsao.segundos is None, (
+            "perdendo EXP nao ha previsao a dar, e um numero NEGATIVO com cara "
+            f"de previsao seria a pior das saidas. Saiu {previsao.segundos}"
+        )
+        assert previsao.motivo_da_ausencia == MOTIVO_DA_TAXA_DE_EXP_NEGATIVA
+
+    def test_COM_EVIDENCIA_INSUFICIENTE_O_MOTIVO_HERDA_O_DA_TAXA(self):
+        """A previsao nao pode ser mais confiante que o numero de que ela sai."""
+        taxa = taxa_de_exp(
+            passos_da_sequencia(sequencia_regular(n=3, passo_em_segundos=50.0))
+        )
+        assert taxa.por_hora is None
+
+        previsao = tempo_ate_o_nivel(exp_atual_em_decimos=80_012, taxa=taxa)
+
+        assert previsao.segundos is None
+        assert previsao.motivo_da_ausencia == taxa.motivo_da_ausencia
+        assert "amostras_minimas_para_taxa" in previsao.motivo_da_ausencia
+
+    def test_OS_TRES_MOTIVOS_DE_AUSENCIA_SAO_TEXTOS_DIFERENTES(self):
+        """Um teste que afirme so "motivo nao vazio" nos tres nao vale nada.
+
+        Os tres pedem consertos DIFERENTES do usuario: taxa zero e "va farmar",
+        taxa negativa e "pare de morrer", evidencia insuficiente e "espere mais
+        um pouco". Fundi-los faria tres consertos virarem a mesma mensagem.
+        """
+        zerada = tempo_ate_o_nivel(
+            exp_atual_em_decimos=80_012, taxa=taxa_zerada_de_exp()
+        )
+        negativa = tempo_ate_o_nivel(
+            exp_atual_em_decimos=80_012, taxa=taxa_negativa_de_exp()
+        )
+        magra = tempo_ate_o_nivel(
+            exp_atual_em_decimos=80_012,
+            taxa=taxa_de_exp(
+                passos_da_sequencia(sequencia_regular(n=3, passo_em_segundos=50.0))
+            ),
+        )
+
+        motivos = {
+            zerada.motivo_da_ausencia,
+            negativa.motivo_da_ausencia,
+            magra.motivo_da_ausencia,
+        }
+        assert len(motivos) == 3, motivos
+        assert None not in motivos
+
+    def test_NENHUM_INFINITO_E_NENHUMA_CAPTURA_DE_DIVISAO_POR_ZERO(self):
+        """O caso do zero e tratado ANTES da divisao, e nao capturado depois.
+
+        E a mesma disciplina que `mercado_analise` aplica ao `intercept == 0`:
+        quem sabe que a divisao nao pode ser feita nao a faz, em vez de faze-la
+        e limpar o estrago.
+        """
+        assert nomes_de(FONTE_DA_CONTA, {"inf", "ZeroDivisionError"}) == [], (
+            "`math.inf` ou uma captura de `ZeroDivisionError` apareceram no "
+            "modulo. Deixar a divisao acontecer e consertar o resultado e "
+            "exatamente o desenho que esta fase recusa"
+        )
+
+    def test_CONTROLE_POSITIVO_O_PORTAO_ACUSA_UM_INF_SINTETICO(self, tmp_path):
+        alvo = tmp_path / "com_inf.py"
+        alvo.write_text(
+            "import math\n"
+            "\n"
+            "def previsao(a, b):\n"
+            "    try:\n"
+            "        return a / b\n"
+            "    except ZeroDivisionError:\n"
+            "        return math.inf\n",
+            encoding="utf-8",
+        )
+
+        assert nomes_de(alvo, {"inf", "ZeroDivisionError"}) == [
+            "ZeroDivisionError",
+            "inf",
+        ]
+
+
+def nomes_de(fonte, nomes) -> list[str]:
+    """Os nomes de `nomes` MENCIONADOS no fonte, por arvore. Nome nu e atributo.
+
+    Compartilhada pelo portao e pelo controle positivo. Ela olha `Name` e
+    `Attribute` — e nao `Call` — porque `math.inf` nunca e chamado e
+    `ZeroDivisionError` aparece como alvo de `except`, que tambem nao e chamada.
+    """
+    arvore = ast.parse(Path(fonte).read_text(encoding="utf-8"))
+    return sorted(
+        {
+            achado
+            for achado in (
+                getattr(no, "attr", None) or getattr(no, "id", None)
+                for no in ast.walk(arvore)
+                if isinstance(no, (ast.Attribute, ast.Name))
+            )
+            if achado in nomes
+        }
+    )
+
+
+class TestAContagemDaRenda:
+    """A resposta a "por que a taxa desta hora tem `n=12` se o scanner rodou
+    quarenta minutos" (`02-CONTEXT.md:90-93`).
+
+    Sem ela, a taxa de recusa vira ruido invisivel — e a Fase 1 ja mediu que ela
+    e alta e DESIGUAL entre os campos: o nivel recusa muito mais que a adena, e
+    muito mais que o EXP.
+    """
+
+    def par_bom(self, comeco: float):
+        return passo_entre(
+            leitura(nivel=67, exp=100_000, adena=10_000_000, carimbo=comeco),
+            leitura(nivel=67, exp=101_000, adena=10_005_000, carimbo=comeco + 30.0),
+            fator_de_salto=FATOR,
+            limiar_de_lacuna_em_segundos=LIMIAR,
+        )
+
+    def par_com_nivel_descendo(self, comeco: float):
+        return passo_entre(
+            leitura(nivel=67, exp=100_000, adena=10_000_000, carimbo=comeco),
+            leitura(nivel=66, exp=101_000, adena=10_005_000, carimbo=comeco + 30.0),
+            fator_de_salto=FATOR,
+            limiar_de_lacuna_em_segundos=LIMIAR,
+        )
+
+    def par_com_lacuna(self, comeco: float):
+        return passo_entre(
+            leitura(nivel=67, exp=100_000, adena=10_000_000, carimbo=comeco),
+            leitura(nivel=67, exp=101_000, adena=10_005_000, carimbo=comeco + 900.0),
+            fator_de_salto=FATOR,
+            limiar_de_lacuna_em_segundos=LIMIAR,
+        )
+
+    def os_oito_passos(self):
+        return (
+            [self.par_bom(i * 100.0) for i in range(4)]
+            + [self.par_com_nivel_descendo(1_000.0 + i * 100.0) for i in range(3)]
+            + [self.par_com_lacuna(2_000.0)]
+        )
+
+    def test_QUATRO_ACEITAS_TRES_RECUSAS_E_UMA_LACUNA(self):
+        contagem = ContagemDaRenda()
+        for passo in self.os_oito_passos():
+            contar_o_passo(passo, contagem)
+
+        assert contagem.aceitas == 4
+        assert contagem.lacunas == 1
+        assert contagem.recusadas_por_motivo == {rl.MOTIVO_DO_NIVEL_PARA_TRAS: 3}, (
+            "o MOTIVO e a chave do dicionario, e nao um total mudo: "
+            "'tres recusas' nao diz onde mexer, e 'tres recusas de nivel "
+            "andando para tras' diz"
+        )
+        assert contagem.descontinuidades_por_motivo == {
+            DESCONTINUIDADE_DA_LACUNA: 1
+        }
+
+    def test_OS_CAMPOS_NAO_SE_SOMAM_E_O_TESTE_AFIRMA_ISSO(self):
+        """Sao QUATRO fatos diferentes, no molde de `mercado_modo.Contagem`.
+
+        Colapsar dois deles apaga a pergunta que o usuario tem: "o scanner nao
+        viu" e "o scanner viu e recusou" pedem consertos opostos.
+        """
+        contagem = ContagemDaRenda()
+        for passo in self.os_oito_passos():
+            contar_o_passo(passo, contagem)
+
+        recusadas = sum(contagem.recusadas_por_motivo.values())
+
+        assert contagem.aceitas + recusadas != contagem.lacunas + contagem.aceitas, (
+            "'aceitas + recusadas' e 'aceitas + lacunas' deram o mesmo numero: "
+            "dois dos campos foram colapsados num so"
+        )
+        assert contagem.aceitas + recusadas == 7
+        assert contagem.lacunas + contagem.aceitas == 5
+
+    def test_A_CONTAGEM_E_MUTADA_NO_LUGAR_E_ACUMULA(self):
+        """O molde e `mercado_modo.processar_a_pagina_aceita`: muta no lugar."""
+        contagem = ContagemDaRenda()
+        passos = self.os_oito_passos()
+
+        for _ in range(2):
+            for passo in passos:
+                assert contar_o_passo(passo, contagem) is None, (
+                    "ela MUTA no lugar e nao devolve uma contagem nova a cada "
+                    "passo — devolver uma nova convidaria quem chama a perder a "
+                    "anterior num `for` distraido"
+                )
+
+        assert contagem.aceitas == 8
+        assert contagem.lacunas == 2
+        assert contagem.recusadas_por_motivo == {rl.MOTIVO_DO_NIVEL_PARA_TRAS: 6}
+
+    def test_A_CONTAGEM_NASCE_DE_QUEM_CHAMA_E_NAO_E_ESTADO_DE_MODULO(self):
+        """Duas contagens independentes nao se enxergam.
+
+        O portao de ausencia de memoria (`tests/test_renda_par.py`) ja varre este
+        modulo procurando acumulador de nivel de modulo; este teste e a metade
+        COMPORTAMENTAL do mesmo fato.
+        """
+        uma = ContagemDaRenda()
+        outra = ContagemDaRenda()
+
+        for passo in self.os_oito_passos():
+            contar_o_passo(passo, uma)
+
+        assert uma.aceitas == 4
+        assert outra.aceitas == 0
+        assert outra.recusadas_por_motivo == {}
+        assert uma.recusadas_por_motivo is not outra.recusadas_por_motivo
+
+    def test_A_ANCORA_E_CONTADA_COMO_DESCONTINUIDADE_E_NAO_COMO_ACEITA(self):
+        contagem = ContagemDaRenda()
+        for passo in passos_da_sequencia(
+            sequencia_regular(n=5, passo_em_segundos=30.0)
+        ):
+            contar_o_passo(passo, contagem)
+
+        assert contagem.aceitas == 4
+        assert contagem.lacunas == 0
+        assert contagem.descontinuidades_por_motivo == {
+            DESCONTINUIDADE_DA_ANCORA: 1
+        }
