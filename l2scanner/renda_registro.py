@@ -74,6 +74,11 @@ uma lista de colunas, nao um parser": ele acrescenta um parser inteiro. Este
 modulo nao promete ao workstream `dashboard` nada alem de um arquivo em disco no
 mesmo dialeto.
 
+A CADEIA INTEIRA, com os quatro passos e o endereco de cada um, esta escrita
+UMA VEZ SO, no bloco imediatamente acima de `ArquivoRecortado` — que e onde a
+copia de seis linhas acontece e onde a proxima pessoa vai olhar. Duas versoes
+do mesmo argumento em dois lugares e como uma delas passa a estar errada.
+
 O RELOGIO ENTRA POR PARAMETRO (CTX-10)
 ======================================
 Nao ha `datetime.now()` aqui. O carimbo chega como `float` epoch e vira
@@ -613,6 +618,48 @@ def _inteiro_ou_nada(celula: str) -> int | None:
 # ---------------------------------------------------------------------------
 # A LEITURA: um parser so, e o corte de cauda antes do portao
 # ---------------------------------------------------------------------------
+#
+# A REFUTACAO DA C-2: "O DASHBOARD ACRESCENTA UMA LISTA DE COLUNAS, NAO UM
+# PARSER" E FALSO, E O CODIGO DIZ ONDE
+# =========================================================================
+# A frase esta em DOIS documentos desta arvore — `ROADMAP.md:290` e
+# `REQUIREMENTS.md:284` —, e nos dois ela promete demais. A cadeia de chamada
+# real tem QUATRO passos, e cada um deles e um lugar onde um CSV de renda para:
+#
+# 1. `dashboard_dados.observacoes_ao_vivo:454` chama
+#    `mercado_registro.observacoes_do_arquivo` **POR NOME**. Nao recebe o parser
+#    por parametro, nao ha registro de parsers, nao ha ponto de injecao nenhum.
+#    Nao ha onde encaixar uma segunda lista de colunas.
+# 2. Aquele parser chama `conferir_o_cabecalho`, que compara contra o `COLUNAS`
+#    **GLOBAL** daquele modulo (`mercado_registro.py:495`). Um CSV de renda
+#    **levanta na primeira linha** — e ha teste nesta arvore afirmando
+#    exatamente isso, apontando o parser do mercado para um `.renda/` recem
+#    escrito (`tests/test_renda_registro.py`,
+#    `TestARefutacaoDaC2::test_O_PARSER_DO_MERCADO_APONTADO_PARA_UM_CSV_DE_RENDA_LEVANTA`).
+# 3. Passado o cabecalho, o laco de tipagem monta `ObservacaoLida` com
+#    `COLUNAS.index("nome_exibido")`, `COLUNAS.index("primeira_vez")` e
+#    `residuo_dos_campos` — as tres sao mercado puro e nao significam nada aqui.
+# 4. Acima disso, `payload` constroi `ModeloDeMercado`, filtra por
+#    `CHAVE_DA_SERIE_DA_ADENA`, chama `menor_pedido_visivel`,
+#    `mediana_dos_unitarios` e `recencia_do_preco`, decide entre cinco estados e
+#    aplica cambio. Nada disso tem significado para uma amostra de renda.
+#
+# A PROMESSA QUE SOBREVIVE, E ELA E A QUE IMPORTA: nenhuma decisao de formato
+# nova, nenhuma armadilha nova, nenhuma medicao refeita. O que atravessa e o
+# **DIALETO** (`;`, `csv` da stdlib, cabecalho-contrato, append com `flush`) e a
+# **DISCIPLINA DE FALHA** (corte na ultima linha completa, portao depois do
+# corte, desligar alto sem migrar). Nao o parser.
+#
+# POR QUE ISTO E TESTE E NAO SO COMENTARIO: uma refutacao escrita so em prosa
+# envelhece em silencio. O teste executavel aponta o parser do mercado para um
+# CSV de renda e afirma que ele LEVANTA — e se um dia alguem parametrizar
+# `conferir_o_cabecalho` daquele lado, o teste cai e a prosa e reescrita, em vez
+# de continuar mentindo por anos.
+#
+# E O UNICO COMPROMISSO QUE ESTA FASE ASSUME COM O WORKSTREAM `dashboard` E UM
+# ARQUIVO EM DISCO. Nada alem disso. Nenhum arquivo do `dashboard` e tocado
+# aqui, e nenhum simbolo daquele modulo e importado — ha portao de arvore de
+# sintaxe afirmando os dois.
 
 
 @dataclass(frozen=True)
