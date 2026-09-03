@@ -64,6 +64,7 @@ from l2scanner.renda_registro import (
     ORIGEM_INDETERMINADA,
     ContratoDaRendaQuebrado,
     RegistroDaRenda,
+    amostras_ao_vivo,
     amostras_do_arquivo,
     arquivo_do_personagem,
     campos_da_linha,
@@ -846,3 +847,295 @@ class TestOAppendEAFalhaDeDisco:
             gravar(registro, campos(), carimbo=0.0)
 
         assert registro.ligado is True
+
+
+# ---------------------------------------------------------------------------
+# TAREFA 3 — o leitor tolerante, e a refutacao da C-2 presa por teste
+# ---------------------------------------------------------------------------
+
+
+class TestARefutacaoDaC2:
+    """"O dashboard acrescenta uma lista de colunas, nao um parser" e FALSO."""
+
+    def test_O_PARSER_DO_MERCADO_APONTADO_PARA_UM_CSV_DE_RENDA_LEVANTA(
+        self, tmp_path
+    ):
+        """A refutacao EXECUTAVEL, e ela e o ponto inteiro desta classe.
+
+        Uma refutacao escrita so em comentario envelhece em silencio. Esta
+        aponta o parser do mercado para um `.renda/` REAL, escrito pelo escritor
+        desta fase, e afirma que ele levanta a excecao DO MERCADO — porque
+        `mercado_registro.observacoes_do_arquivo` confere o cabecalho contra o
+        `COLUNAS` GLOBAL daquele modulo (`mercado_registro.py:495`), e
+        `dashboard_dados.observacoes_ao_vivo:454` o chama POR NOME, sem ponto de
+        injecao nenhum.
+
+        Se um dia alguem parametrizar o cabecalho do mercado, ESTE TESTE CAI — e
+        entao a prosa do fonte e reescrita, em vez de continuar mentindo por
+        anos.
+        """
+        from l2scanner import mercado_registro
+
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        gravar(registro, campos(), carimbo=0.0)
+
+        with pytest.raises(mercado_registro.ContratoDoArquivoQuebrado):
+            mercado_registro.observacoes_do_arquivo(registro.arquivo)
+
+        assert False is False, (
+            "se esta linha for alcancada o teste ja passou; a mensagem util "
+            "esta na docstring. As duas frases refutadas sao `ROADMAP.md:290` "
+            "e `REQUIREMENTS.md:284`."
+        )
+
+    def test_A_EXCECAO_DA_RENDA_E_PROPRIA_E_NAO_HERDA_A_DO_MERCADO(self):
+        """Herdar acoplaria dois workstreams numa hierarquia de excecao.
+
+        Quem capturasse a do mercado passaria a capturar a da renda sem ter
+        pedido. O contrato entre os dois e um arquivo em disco, e mais nada.
+        """
+        from l2scanner import mercado_registro
+
+        assert ContratoDaRendaQuebrado is not mercado_registro.ContratoDoArquivoQuebrado
+        assert not issubclass(
+            ContratoDaRendaQuebrado, mercado_registro.ContratoDoArquivoQuebrado
+        )
+
+    def test_A_REFUTACAO_ESTA_ESCRITA_NO_FONTE_COM_OS_ENDERECOS(self):
+        """A prosa e o teste dizem a MESMA coisa, e por isso os dois tem de existir.
+
+        O teste acima prova que o parser levanta; ele nao prova que alguem que
+        abra o arquivo daqui a um ano vai entender POR QUE. A cadeia de quatro
+        passos, com endereco em cada um, e o que faz a proxima pessoa nao
+        refazer a medicao — e as duas frases refutadas vao citadas pelo numero
+        da linha para que a correcao delas seja localizavel.
+        """
+        fonte = FONTE_DO_MODULO.read_text(encoding="utf-8")
+
+        assert fonte.count("lista de colunas") >= 1
+        for endereco in (
+            "ROADMAP.md:290",
+            "REQUIREMENTS.md:284",
+            "dashboard_dados.py:454",
+            "mercado_registro.py:495",
+        ):
+            assert endereco in fonte, (
+                f"a refutacao da C-2 nao cita `{endereco}`. Uma refutacao sem "
+                "endereco obriga a proxima pessoa a refazer a medicao inteira "
+                "para descobrir se ela ainda vale."
+            )
+
+    def test_A_CADEIA_DOS_QUATRO_PASSOS_ESTA_NO_FONTE(self):
+        """Os quatro passos, e nao so a conclusao.
+
+        1. `observacoes_ao_vivo` chama o parser do mercado POR NOME.
+        2. Aquele parser confere o cabecalho contra o `COLUNAS` GLOBAL.
+        3. O laco de tipagem monta `ObservacaoLida` — mercado puro.
+        4. Acima disso o `payload` e modelo de mercado, cambio e cinco estados.
+
+        Sem os quatro, "e falso" e uma afirmacao sem argumento, e a proxima
+        pessoa a ler nao consegue conferir nenhum dos passos.
+        """
+        fonte = FONTE_DO_MODULO.read_text(encoding="utf-8")
+
+        for marca in (
+            "observacoes_ao_vivo",
+            "COLUNAS",
+            "ObservacaoLida",
+            "ModeloDeMercado",
+        ):
+            assert marca in fonte, (
+                f"o passo que cita `{marca}` sumiu da cadeia da C-2. Os quatro "
+                "passos juntos sao o argumento; tres deles sao uma opiniao."
+            )
+
+
+class TestONaoImportarDoDashboard:
+    """350 modulos com `cv2` e `numpy` para pegar seis linhas de corte."""
+
+    def test_NENHUM_IMPORT_DE_DASHBOARD_CONFERIDO_POR_ARVORE(self):
+        """Por ARVORE e nao por texto, e a razao e a refutacao logo acima.
+
+        Este fonte TEM de citar `dashboard_dados.py:454` para explicar a C-2.
+        Um portao de `grep` acusaria a propria refutacao e se contradiria com o
+        criterio que a exige — a arvore de sintaxe ve import e nao prosa.
+        """
+        arvore = ast.parse(FONTE_DO_MODULO.read_text(encoding="utf-8"))
+        modulos: list[str] = []
+        for no in ast.walk(arvore):
+            if isinstance(no, (ast.Import, ast.ImportFrom)):
+                modulos.append(getattr(no, "module", None) or "")
+                modulos.extend(alias.name for alias in no.names)
+
+        assert [nome for nome in modulos if "dashboard" in nome] == []
+
+    def test_IMPORTAR_O_MODULO_NAO_TRAZ_CV2_NEM_NUMPY(self):
+        """O corte de cadeia do `raiz.py`, medido do lado de fora.
+
+        Um import de `dashboard_dados` no topo custaria `mercado_console` ->
+        `console` -> `rastreador` -> `visao` -> `cv2`, e a copia de seis linhas
+        e mais barata que isso.
+        """
+        import subprocess
+        import sys
+
+        codigo = (
+            "import sys; sys.path.insert(0, '.');"
+            "import l2scanner.renda_registro;"
+            "carregados = set(sys.modules);"
+            "print('cv2' in carregados, 'numpy' in carregados,"
+            " 'l2scanner.dashboard_dados' in carregados)"
+        )
+        saida = subprocess.run(
+            [sys.executable, "-c", codigo],
+            capture_output=True,
+            text=True,
+            cwd=str(FONTE_DO_MODULO.parents[1]),
+        )
+        assert saida.stdout.strip() == "False False False", saida.stderr
+
+
+class TestOLeitorTolerante:
+    """O corte na ultima linha completa, e os dois portoes DEPOIS dele."""
+
+    def test_UM_ARQUIVO_COMPLETO_E_LIDO_INTEIRO(self, tmp_path):
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        for carimbo in (0.0, 30.0, 60.0):
+            gravar(registro, campos(), carimbo=carimbo)
+
+        relido = amostras_ao_vivo(registro.arquivo)
+
+        assert len(relido.amostras) == 3
+        assert relido.cauda_incompleta is False
+
+    def test_A_CONTAGEM_DE_LINHAS_COMPLETAS_EXCLUI_O_CABECALHO(self, tmp_path):
+        """Tres gravacoes sao TRES linhas completas, e nunca quatro.
+
+        E o arquivo so com cabecalho e ZERO, e nao `-1`: a subtracao acontece so
+        quando ha o que subtrair, e nao dentro de um `max` que absorveria o
+        sinal de um defeito de verdade.
+        """
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        assert amostras_ao_vivo(registro.arquivo).linhas_completas == 0
+
+        for carimbo in (0.0, 30.0, 60.0):
+            gravar(registro, campos(), carimbo=carimbo)
+
+        assert amostras_ao_vivo(registro.arquivo).linhas_completas == 3
+
+    def test_UMA_CAUDA_PARCIAL_DEVOLVE_AS_COMPLETAS_E_SINALIZA_SEM_LEVANTAR(
+        self, tmp_path
+    ):
+        """A degradacao e REDE DE SEGURANCA, e nao o caminho normal.
+
+        Medido no `dashboard_dados`: ZERO leituras sem terminador em 22.970
+        sondagens durante 200.000 appends concorrentes — e o zero e resultado, e
+        nao cegueira da sonda, porque um controle positivo que escrevia a linha
+        em DUAS chamadas acusou 3.252 de 4.079.
+        """
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        for carimbo in (0.0, 30.0):
+            gravar(registro, campos(), carimbo=carimbo)
+        with registro.arquivo.open("a", encoding="utf-8", newline="") as destino:
+            destino.write("2026-09-02T00:01:00;Faerlina;67;2;;80")
+
+        relido = amostras_ao_vivo(registro.arquivo)
+
+        assert len(relido.amostras) == 2
+        assert relido.linhas_completas == 2
+        assert relido.cauda_incompleta is True
+
+    def test_CONTROLE_UM_ARQUIVO_SEM_NENHUMA_QUEBRA_DE_LINHA_NAO_INVENTA_LINHA(
+        self, tmp_path
+    ):
+        """Sem uma linha completa nao ha nem cabecalho: nao e este arquivo.
+
+        A DIVERGENCIA com `dashboard_dados.observacoes_ao_vivo` e deliberada e
+        esta escrita no fonte: la quem le e um painel de so-leitura que tem de
+        degradar para nao ficar mudo; aqui o mesmo arquivo e do ESCRITOR, e
+        apendar num arquivo cujo estado o programa nao consegue afirmar
+        produziria a linha parseavel e ERRADA que a fase existe para nao ter. O
+        que este CONTROLE prende e que NENHUMA amostra e inventada.
+        """
+        alvo = tmp_path / "faerlina.csv"
+        alvo.write_text("lixo sem quebra de linha nenhuma", encoding="utf-8")
+
+        with pytest.raises(ContratoDaRendaQuebrado) as erro:
+            amostras_ao_vivo(alvo)
+
+        assert "quebra de linha" in str(erro.value)
+
+    def test_O_PORTAO_DO_CABECALHO_CONTINUA_DESLIGANDO_ALTO_NA_ROTA_AO_VIVO(
+        self, tmp_path
+    ):
+        """O corte acontece ANTES do portao, e e por isso que o portao existe.
+
+        A tentacao de "pular os portoes na leitura ao vivo, que e so um
+        preview" e exatamente o que o `dashboard` recusou e mediu. Um cabecalho
+        divergente COM cauda parcial — o caso em que a tentacao seria mais forte
+        — continua levantando, e nao devolve linha nenhuma.
+        """
+        alvo = tmp_path / "faerlina.csv"
+        alvo.write_text(
+            "carimbo;personagem;alguma_coluna_inventada\n"
+            "2026-09-02T00:00:00;Faerlina;42\n"
+            "2026-09-02T00:00:30;Faerl",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ContratoDaRendaQuebrado) as erro:
+            amostras_ao_vivo(alvo)
+
+        assert "alguma_coluna_inventada" in str(erro.value)
+
+    def test_A_MENSAGEM_NOMEIA_O_ARQUIVO_REAL_E_NAO_O_TEXTO_RECORTADO(
+        self, tmp_path
+    ):
+        """A armadilha que o `dashboard` documentou em `:271-274`.
+
+        O adaptador entrega o TEXTO cortado no `open()` e o CAMINHO REAL no
+        `__str__`, precisamente para que a mensagem continue nomeando um arquivo
+        que o usuario consegue abrir. Uma mensagem que dissesse `<StringIO>`
+        seria inutil as 2h da manha.
+        """
+        alvo = tmp_path / "faerlina.csv"
+        alvo.write_text(
+            "carimbo;personagem;alguma_coluna_inventada\n"
+            "2026-09-02T00:00:00;Faerlina;42\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ContratoDaRendaQuebrado) as erro:
+            amostras_ao_vivo(alvo)
+
+        mensagem = str(erro.value)
+        assert "faerlina.csv" in mensagem
+        assert "StringIO" not in mensagem
+
+    def test_A_ROTA_DO_RECORTE_E_A_CHAMADA_DIRETA_DAO_O_MESMO_RESULTADO(
+        self, tmp_path
+    ):
+        """O ANTIDOTO do acoplamento de FORMA, e ele vai escrito junto.
+
+        `ArquivoRecortado` implementa `open`, `__str__` e `__fspath__` porque e
+        o que `amostras_do_arquivo` usa HOJE; se ela passar a chamar `.stat()`
+        ou `.exists()`, o adaptador quebra com `AttributeError`. Este teste de
+        equivalencia sobre um arquivo COMPLETO e o que faz essa quebra aparecer
+        na suite em vez de aparecer no farm do usuario.
+        """
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        for carimbo in (0.0, 30.0, 60.0):
+            gravar(registro, campos(), carimbo=carimbo)
+
+        pela_rota = list(amostras_ao_vivo(registro.arquivo).amostras)
+        direto = amostras_do_arquivo(registro.arquivo)
+
+        assert pela_rota == direto
+
+    def test_UM_ARQUIVO_AUSENTE_DIZ_AUSENTE_EM_VEZ_DE_EXPLODIR(self, tmp_path):
+        """A `.renda/` nasce vazia, e quem le tem de dizer "sem evidencia"."""
+        relido = amostras_ao_vivo(tmp_path / "nunca-existiu.csv")
+
+        assert relido.arquivo_ausente is True
+        assert relido.amostras == ()
+        assert relido.linhas_completas == 0
