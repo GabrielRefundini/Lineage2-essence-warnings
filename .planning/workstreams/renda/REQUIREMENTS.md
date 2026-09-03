@@ -164,6 +164,52 @@
       2**, e este requisito existe para que ninguém confie demais no cruzamento antes delas
       existirem.
 
+- [ ] **REND-08**: **O XP sai em NÚMERO ABSOLUTO, não só em porcentagem — por uma ponte
+      calibrada uma vez por nível, e nunca por somar o chat.** *(Acrescentado em 2026-09-02 a
+      pedido do usuário: "XP é isso que aparece no chat e sobe a porcentagem, mas preciso do
+      número do chat".)*
+
+      **Somar o chat não funciona, e está medido.** Amostrando a 0,8 s, o chat entregou **55,4%**
+      da adena que a barra viu no mesmo intervalo (25.766 contra 46.501); a 2,0 s entregou
+      **29,8%**. O chat tem **6 linhas visíveis** e o personagem abate ~104 mobs/min, então a
+      janela inteira vira em ~4 s. Somar linhas produziria um XP/h **45% abaixo da verdade, com
+      cara de medido** — que é o modo de falha que este workstream inteiro existe para impedir.
+
+      **A ponte é uma constante por nível:** `XP por ponto percentual = XP por abate ÷ pp por
+      abate`. Medida na Faerlina, nível 67, em 6 minutos:
+
+      | grandeza | valor | de onde veio |
+      |---|---|---|
+      | XP por abate | 387 (média de 240 linhas) | chat — **não precisa ser completo**, só representativo |
+      | pp por abate | 0,001011 | **barra** — degraus do EXP, 199 saltos de ~10 unidades, 101 de ~20, 33 de ~30 |
+      | **XP por ponto percentual** | **383.124** | a razão |
+      | **XP total do nível 67** | **38,3 milhões** | ×100 |
+
+      **A divisão de trabalho é o ponto:** o chat entrega o que NÃO exige completude (quanto vale
+      um abate); a barra entrega o que exige (quantos abates aconteceram). Invertido, não funciona.
+
+      **Cruzamento independente, e ele fecha:** 371 linhas de adena dão 83,1 por drop; a barra viu
+      +46.501 → **559 drops**. O degrau do EXP diz **622 abates**. Razão 0,90, coerente com "nem
+      todo abate dropa adena". Se o degrau de ~10 fosse **dois** abates, o EXP diria 311 e a razão
+      viraria 1,80 — a adena teria de cair em quase o dobro dos abates existentes, que é
+      impossível. É isso que sustenta que o degrau unitário é um abate, e não dois.
+
+      **A constante é POR NÍVEL** e tem de ser recalibrada a cada level up, porque o custo do
+      nível muda. Enquanto ela não existir para o nível atual, o painel mostra pontos percentuais
+      e **diz que o XP absoluto está indisponível** — nunca converte com a constante do nível
+      anterior.
+
+- [ ] **REND-09**: **A convenção do bônus está resolvida, e por medição.** *(Mesma origem. O
+      usuário perguntou se `363 XP (bonus: 299)` é 363 ou 662, e disse não saber.)* **É 363.** O
+      valor entre parênteses é a PARTE do total que veio de bônus, não um extra a somar.
+
+      A prova: para cada uma das 11 linhas distintas capturadas, `total ÷ (total − bonus)` cai
+      entre **562% e 567%** em dez delas (`363/64 = 5,67`; `388/69 = 5,62`; `405/72 = 5,62`;
+      `439/78 = 5,63`) — e a própria barra exibe **562%** ao lado do EXP, que é o multiplicador de
+      XP do personagem. Se o total fosse `363+299`, o multiplicador seria 10,3× e nada na tela
+      corresponderia a ele. Quem for parsear a linha do chat **não soma o parênteses**, e há teste
+      com o par medido prendendo isso.
+
 ## Fase 2 — a conta: de duas amostras para uma taxa
 
 > *No `ROADMAP.md` esta seção e a de baixo viraram uma fase só, a **Phase 2**. O motivo
