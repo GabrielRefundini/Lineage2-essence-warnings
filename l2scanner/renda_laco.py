@@ -56,19 +56,31 @@ import logging
 import sys
 import time
 
+from . import renda_console
 from .cliente import nome_do_personagem
 from .config import AgendaInvalida, ler_ajustes_da_renda
 from .frames import Regiao
 from .mercado_console import OrcamentoDoTick
 from .renda_conta import (
+    GRANDEZA_DA_ADENA,
+    GRANDEZA_DO_EXP,
     ContagemDaRenda,
+    TempoAteONivel,
+    as_duas_taxas,
     contar_o_passo,
     passo_entre_campos,
+    tempo_ate_o_nivel,
 )
 from .renda_console import linha_do_tique, resumo_da_sessao_da_renda
+from .renda_leitura import RecusaDaRenda
 from .renda_registro import ORIGEM_INDETERMINADA
 
 log = logging.getLogger("l2scanner")
+
+# `janela_movel_minutos` chega em MINUTOS do `config.toml` e `as_duas_taxas`
+# pede SEGUNDOS. A conversao mora aqui, na casca, exatamente como a docstring
+# daquela funcao manda: *"convertido a segundos por quem le o arquivo"*.
+SEGUNDOS_POR_MINUTO = 60
 
 
 # O codigo de recusa de configuracao do projeto. `__main__.main` ja devolve 2
@@ -261,6 +273,39 @@ def _montar_a_fonte(titulo: str, entrada):
     return fonte, None
 
 
+def _tempo_ate_o_nivel(campos, passos, ajustes):
+    """O ETA sobre a taxa da JANELA, ou a ausencia com o motivo dela.
+
+    A JANELA E NAO A SESSAO, e a escolha responde a pergunta que o usuario
+    esta fazendo: *"em quanto tempo eu subo, no ritmo de AGORA"*. A taxa da
+    sessao inteira responde outra ("o que a noite rendeu") e daria uma previsao
+    de uma noite que ja passou, com o tempo parado do jantar dentro dela.
+
+    SEM O EXP LIDO NAO HA O QUE PREVER, e a ausencia herda o motivo em vez de
+    inventar um novo: a previsao NAO PODE SER MAIS CONFIANTE QUE O NUMERO DE
+    QUE ELA SAI.
+    """
+    if isinstance(campos.exp, RecusaDaRenda):
+        return TempoAteONivel(
+            segundos=None,
+            motivo_da_ausencia=(
+                f"o EXP deste tique recusou ({campos.exp.motivo}), e sem o "
+                "ponto de partida nao ha o que subtrair"
+            ),
+        )
+
+    taxas = as_duas_taxas(
+        passos,
+        grandeza=GRANDEZA_DO_EXP,
+        janela_em_segundos=ajustes.janela_movel_minutos * SEGUNDOS_POR_MINUTO,
+        piso_de_amostras=ajustes.amostras_minimas_para_taxa,
+        piso_da_janela_em_segundos=ajustes.janela_minima_para_taxa_segundos,
+    )
+    return tempo_ate_o_nivel(
+        exp_atual_em_decimos=int(campos.exp.valor), taxa=taxas.janela
+    )
+
+
 def laco_da_renda(
     args,
     cal,
@@ -405,6 +450,26 @@ def laco_da_renda(
     passos = []
     contagem = ContagemDaRenda()
     orcamento = OrcamentoDoTick(limite=float(args.intervalo))
+    # AS RECUSAS POR CAMPO SAO CONTADAS AQUI, E NAO EM `ContagemDaRenda`.
+    #
+    # Aquele objeto tem `recusadas_por_motivo`, mas ele NAO carrega este fato:
+    # `contar_o_passo` o soma a partir de `passo.recusas`, que e *"A TUPLA QUE
+    # `conferir_o_par` DEVOLVEU"* (`renda_conta.py:342-347`) — as recusas das
+    # REGRAS DE PAR. A propria docstring diz que ela *"sai vazia no caminho de
+    # `CamposDaRenda` com um campo recusado"*. Ou seja: os 79% de recusa do
+    # nivel, 21% da adena e 0% do EXP medidos na Fase 1 nao passam por aquele
+    # dicionario em tique nenhum.
+    #
+    # ELAS SAO SOMADAS TODO TIQUE, e nao so nos aceitos — a mesma disciplina de
+    # `acumular_motivos` no mercado (`mercado_modo.py:710-712`): a leitura
+    # recusada e justamente a que carrega o motivo, e ler so as aceitas
+    # esconderia a metade perdida.
+    recusas_por_campo = {}
+    # O ARRANQUE DA SESSAO, para o "ha quanto tempo a sessao corre" do criterio
+    # 1. Ele e o carimbo do PRIMEIRO tique e nao um `time.monotonic()`: o outro
+    # numero da mesma linha (o tempo farmado) sai de epochs subtraidos, e
+    # misturar duas bases de tempo na mesma linha e como elas divergem.
+    desde = None
     # `registrar` devolve `bool` e nunca levanta; no primeiro `OSError` ele
     # desliga a gravacao para a sessao inteira. Somar as perdidas com as
     # aceitas apagaria a pergunta, pelo mesmo argumento de `Contagem` no
@@ -414,6 +479,20 @@ def laco_da_renda(
     erros_seguidos = 0
     ticks = 0
     saida = 0
+
+    # O BLOCO SAI POR INTERVALO E NUNCA POR TIQUE, pela razao escrita em
+    # `mercado_console.py:490-496`: *"Repintar um bloco de dezenas de linhas
+    # por segundo afogaria a linha ao vivo"*. A cadencia e `--status-a-cada`,
+    # que JA EXISTE (P-4) com default de 30 s e que o usuario ja sabe o que faz
+    # nos outros modos — nenhuma chave nova entra no `config.toml` (C-4).
+    #
+    # E ELE SAI JA NA PRIMEIRA VOLTA: `proxima` comeca no agora, entao o
+    # primeiro tique ja o dispara. Sem isso o usuario esperaria trinta segundos
+    # olhando para linhas de tique sem saber se o calculo esta vivo. Ele nao
+    # pode sair ANTES do primeiro tique porque nao ha `CamposDaRenda` ainda —
+    # o irmao do mercado consegue porque desenha a analise do DISCO, e a renda
+    # nao tem analise de historico nesta fase.
+    proximo_bloco = time.monotonic()
 
     # ------------------------------------------------------------------
     # 4. O TIQUE.
@@ -450,6 +529,14 @@ def laco_da_renda(
             # dentro deste laco: e o que torna `relogio-andou-para-tras`
             # atingivel em teste e o que impede a taxa de depender da maquina.
             agora = relogio.agora_epoch()
+            if desde is None:
+                desde = agora
+
+            for campo, resultado in campos.por_campo.items():
+                if isinstance(resultado, RecusaDaRenda):
+                    recusas_por_campo[campo] = (
+                        recusas_por_campo.get(campo, 0) + 1
+                    )
 
             # A UNICA PORTA PARA A CONTA (C-8). As quatro regras de par NAO sao
             # chamadas daqui — a decisao sobre o par mora em `renda_conta`.
@@ -482,6 +569,45 @@ def laco_da_renda(
             # DESTE tique, e nunca o do anterior.
             log.info("%s", linha_do_tique(campos, contagem))
 
+            if time.monotonic() >= proximo_bloco:
+                # AS TAXAS SAO CALCULADAS AQUI E NAO POR TIQUE: `as_duas_taxas`
+                # varre a sequencia inteira, e a resposta so muda quando ela
+                # ganha amostras. Calcular por tique seria trabalho puro sobre
+                # milhares de passos, para uma tela que sai a cada 30 s.
+                log.info(
+                    "\n%s",
+                    renda_console.bloco_da_renda(
+                        campos,
+                        as_duas_taxas(
+                            passos,
+                            grandeza=GRANDEZA_DO_EXP,
+                            janela_em_segundos=ajustes.janela_movel_minutos
+                            * SEGUNDOS_POR_MINUTO,
+                            piso_de_amostras=ajustes.amostras_minimas_para_taxa,
+                            piso_da_janela_em_segundos=(
+                                ajustes.janela_minima_para_taxa_segundos
+                            ),
+                        ),
+                        as_duas_taxas(
+                            passos,
+                            grandeza=GRANDEZA_DA_ADENA,
+                            janela_em_segundos=ajustes.janela_movel_minutos
+                            * SEGUNDOS_POR_MINUTO,
+                            piso_de_amostras=ajustes.amostras_minimas_para_taxa,
+                            piso_da_janela_em_segundos=(
+                                ajustes.janela_minima_para_taxa_segundos
+                            ),
+                        ),
+                        _tempo_ate_o_nivel(campos, passos, ajustes),
+                        contagem,
+                        desde=desde,
+                        agora=agora,
+                        recusas_por_campo=recusas_por_campo,
+                        tiques=ticks,
+                    ),
+                )
+                proximo_bloco = time.monotonic() + float(args.status_a_cada)
+
             # A MESMA CONTA SERVE A DUAS COISAS: compensar a deriva da cadencia
             # e alimentar o orcamento auto-medido. Medir por fora seria um
             # segundo relogio para envelhecer em desacordo com o primeiro.
@@ -503,7 +629,14 @@ def laco_da_renda(
         # O RESUMO SAI SEMPRE, inclusive numa sessao de zero linhas: o
         # `vigiar-renda.bat` do `03-04` nao tem bloco de encerramento nenhum.
         log.info(
-            "\n%s", resumo_da_sessao_da_renda(contagem, orcamento, registro)
+            "\n%s",
+            resumo_da_sessao_da_renda(
+                contagem,
+                orcamento,
+                registro,
+                recusas_por_campo=recusas_por_campo,
+                tiques=ticks,
+            ),
         )
         if perdidas:
             log.error(

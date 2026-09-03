@@ -495,6 +495,79 @@ class TestOConsole:
 
         assert str(arquivo_do_personagem(tmp_path, PERSONAGEM)) in caplog.text
 
+    def test_o_bloco_sai_UMA_VEZ_no_arranque_e_NAO_por_tique(
+        self, cal, tmp_path, caplog
+    ):
+        """A razao esta em `mercado_console.py:490-496`: repintar um bloco de
+        dezenas de linhas por segundo AFOGARIA a linha ao vivo.
+
+        E ele sai ja na primeira volta, e nao so depois de trinta segundos:
+        sem isso o usuario fica olhando para linhas de tique sem saber se o
+        calculo esta vivo.
+        """
+        with caplog.at_level(logging.INFO):
+            rodar(
+                cal,
+                tmp_path,
+                sequencia=[campos_de()],
+                carimbos=list(range(100, 120)),
+                ticks=10,
+                status_a_cada=10_000.0,
+            )
+
+        assert caplog.text.count("O QUE ISSO RENDE") == 1, (
+            "o bloco saiu por TIQUE e nao por intervalo"
+        )
+
+    def test_com_intervalo_zero_o_bloco_sai_a_CADA_tique(
+        self, cal, tmp_path, caplog
+    ):
+        """O controle do teste acima: sem ele, um bloco que nunca saisse
+        passaria por 'saiu uma vez' com a contagem em zero."""
+        with caplog.at_level(logging.INFO):
+            rodar(
+                cal,
+                tmp_path,
+                sequencia=[campos_de()],
+                carimbos=list(range(100, 110)),
+                ticks=3,
+                status_a_cada=0.0,
+            )
+
+        assert caplog.text.count("O QUE ISSO RENDE") == 3
+
+    def test_as_recusas_POR_CAMPO_sao_contadas_pelo_LACO_todo_tique(
+        self, cal, tmp_path, caplog
+    ):
+        """`ContagemDaRenda.recusadas_por_motivo` NAO carrega este numero.
+
+        Ela e somada em `contar_o_passo` a partir de `passo.recusas`, que e a
+        tupla que `conferir_o_par` devolveu — e a docstring de `PassoDaRenda`
+        diz que ela *"sai vazia no caminho de `CamposDaRenda` com um campo
+        recusado"*. Os 79% do nivel medidos na Fase 1 nao passam por ali em
+        tique nenhum: eles vem de `CamposDaRenda.por_campo`, e quem os conta e
+        este laco.
+        """
+        with caplog.at_level(logging.INFO):
+            rodar(
+                cal,
+                tmp_path,
+                sequencia=[campos_de(nivel=None)],
+                carimbos=[100, 101, 102, 103],
+                ticks=4,
+                status_a_cada=0.0,
+            )
+
+        bloco = caplog.text[caplog.text.rindex("POR QUE O `n` E ESSE") :]
+        linha = next(
+            l for l in bloco.splitlines() if "nivel" in l and "%" in l
+        )
+        assert "100%" in linha, (
+            f"o laco nao esta contando a recusa POR CAMPO:\n  {linha}"
+        )
+        exp = next(l for l in bloco.splitlines() if "EXP" in l and "%" in l)
+        assert "0%" in exp, "o campo que nunca recusou tem de sair como 0%"
+
     def test_o_resumo_sai_MESMO_numa_sessao_de_zero_linhas(
         self, cal, tmp_path, caplog
     ):

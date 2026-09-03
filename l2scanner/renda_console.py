@@ -40,9 +40,15 @@ LOGO A TELA E DUAS COISAS, E A DIVISAO E A DO `D-02`
 
 from __future__ import annotations
 
+import textwrap
 from datetime import datetime
 
 from . import console
+from .mercado_console import LARGURA_DO_AVISO
+from .renda_conta import (
+    MOTIVO_DA_TAXA_DE_EXP_NEGATIVA,
+    MOTIVO_DA_TAXA_DE_EXP_ZERADA,
+)
 from .renda_leitura import (
     CAMPO_DA_ADENA,
     CAMPO_DO_EXP,
@@ -238,7 +244,7 @@ def linha_do_tique(campos, contagem, *, estado: str | None = None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# O RESUMO DA SESSAO
+# O BLOCO POR INTERVALO -- o que o programa CALCULOU (CONS-01)
 # ---------------------------------------------------------------------------
 
 # A largura da coluna de rotulos dos blocos, copiada de `resumo_da_sessao`
@@ -246,8 +252,336 @@ def linha_do_tique(campos, contagem, *, estado: str | None = None) -> str:
 # sem empurrar nenhum rotulo desta fase para a linha seguinte.
 COLUNA_DO_ROTULO = 32
 
+# A largura do bloco e IMPORTADA e nao recopiada. `LARGURA_DO_AVISO = 76`
+# (`mercado_console.py:748`) diz por escrito *"a largura em que ela cabe num
+# console padrao de 80"*, e e o unico numero de largura de console que este
+# fonte cita com razao ao lado. Dois setenta-e-seis seriam dois numeros para
+# divergir no dia em que alguem mexesse num deles.
+LARGURA_DO_BLOCO = LARGURA_DO_AVISO
 
-def resumo_da_sessao_da_renda(contagem, orcamento, registro) -> str:
+# O recuo das linhas de continuacao de um motivo dobrado. Ele e MAIOR que o das
+# linhas normais para que a continuacao seja visivelmente subordinada ao rotulo
+# que a gerou, e nao pareca um item novo da lista.
+RECUO_DA_CONTINUACAO = 6
+
+# Os tres textos de ausencia do ETA, e sao TRES porque o CONSERTO DO USUARIO e
+# diferente em cada um — a razao ja escrita em `renda_conta.py:1128-1139`:
+#
+#   taxa zerada    -> "voce nao esta ganhando EXP" ... va farmar
+#   taxa negativa  -> "voce esta PERDENDO EXP" ...... pare de morrer
+#   sem evidencia  -> "ainda nao da para dizer" ..... espere mais um pouco
+#
+# Fundir dois deles faria dois consertos diferentes virarem a mesma mensagem.
+TEXTO_DA_TAXA_ZERADA = (
+    "sem previsao: voce nao esta ganhando EXP. Va farmar."
+)
+TEXTO_DA_TAXA_NEGATIVA = (
+    "sem previsao: voce esta PERDENDO EXP. Pare de morrer."
+)
+TEXTO_SEM_EVIDENCIA = "sem previsao: ainda nao da para dizer."
+
+
+def _duracao_curta(segundos: float) -> str:
+    """`17520.696` -> `4h52`. Inteiro, e a partir de EPOCHS SUBTRAIDOS.
+
+    O `int()` NA ENTRADA E O PONTO. `dashboard_dados.py:624-628` mediu
+    `total_seconds()` devolvendo `69713.696` onde o inteiro dizia `69713`; um
+    `timedelta` no meio deste caminho traz aquele erro de volta, e a casa
+    decimal pendurada aparece na tela como `4h52.0`. A aritmetica desta fase e
+    subtracao de epochs, que e exata.
+    """
+    segundos = int(abs(segundos))
+    horas, resto = divmod(segundos, 3600)
+    minutos, sobra = divmod(resto, 60)
+    if horas:
+        return f"{horas}h{minutos:02d}"
+    if minutos:
+        return f"{minutos}min"
+    return f"{sobra}s"
+
+
+def _grafia_curta(valor) -> str:
+    """`2410000` -> `2,41 M`; `466000` -> `466 mil`.
+
+    A CONVERSAO DE `Fraction` PARA TEXTO ACONTECE SO AQUI, NA BORDA. A
+    disciplina de `Fraction` que a Fase 2 imps existe para que a diferenca
+    entre duas leituras nao acumule erro de ponto flutuante; desfaze-la um
+    passo antes do fim, por um `float` de conveniencia, jogaria fora a conta
+    inteira. Entao a reducao de escala e feita em inteiros.
+
+    ELA TRUNCA E NAO ARREDONDA, e a direcao e deliberada: truncar nunca
+    SUPERESTIMA a renda. Um numero que o usuario usa para decidir se continua
+    farmando erra para o lado seguro.
+
+    A VIRGULA DECIMAL E A QUE O JOGO USA e a que o resto deste repositorio
+    escreve.
+    """
+    negativo = valor < 0
+    n = -valor if negativo else valor
+
+    if n >= 1_000_000_000:
+        escala, unidade, casas = 1_000_000_000, " bi", 2
+    elif n >= 1_000_000:
+        escala, unidade, casas = 1_000_000, " M", 2
+    elif n >= 1_000:
+        escala, unidade, casas = 1_000, " mil", 0
+    else:
+        escala, unidade, casas = 1, "", 0
+
+    if casas:
+        centesimos = int(n * 100 / escala)
+        inteiro, resto = divmod(centesimos, 100)
+        texto = f"{inteiro},{resto:02d}"
+    else:
+        texto = str(int(n / escala))
+
+    return ("-" if negativo else "") + texto + unidade
+
+
+def _grafia_da_porcentagem(parte: int, total: int) -> str:
+    """`79/100` -> `79%`; `1/1000` -> `0,1%`. Nunca `0%` sobre parte > 0.
+
+    ARREDONDAR UMA RECUSA RARA PARA ZERO APAGARIA A UNICA EVIDENCIA de que o
+    campo chegou a falhar. `0%` e uma AFIRMACAO ("este campo nunca recusou") e
+    tem de continuar significando isso.
+    """
+    if total <= 0:
+        return "0%"
+    porcentagem = 100.0 * parte / total
+    if porcentagem == int(porcentagem):
+        return f"{int(porcentagem)}%"
+    if parte > 0 and round(porcentagem, 1) == 0.0:
+        return "<0,1%"
+    return f"{porcentagem:.1f}%".replace(".", ",")
+
+
+def _linha(rotulo: str, valor: str) -> str:
+    return f"  {rotulo:<{COLUNA_DO_ROTULO}} {valor}"
+
+
+def _dobrar(texto: str) -> list[str]:
+    """O motivo INTEIRO, em linhas de continuacao. Nunca truncado.
+
+    O motivo de `taxa_por_hora` nomeia QUAL piso faltou e quantas amostras
+    faltam — `"amostras abaixo do piso: 3 passo(s) aceito(s) e o piso
+    'amostras_minimas_para_taxa' e 8. Faltam 5."`, uns 95 caracteres. Cortar
+    esse texto ao meio tiraria dele exatamente a parte que ensina o conserto.
+    Aqui ele dobra; na LINHA DO TIQUE, onde nao ha continuacao possivel, ele
+    trunca com marca — e sao dois lugares com restricoes diferentes.
+    """
+    recuo = " " * RECUO_DA_CONTINUACAO
+    return [
+        f"{recuo}{pedaco}"
+        for pedaco in textwrap.wrap(
+            texto, width=LARGURA_DO_BLOCO - RECUO_DA_CONTINUACAO
+        )
+    ]
+
+
+def _linhas_de_uma_taxa(rotulo_base: str, sufixo: str, taxa, agora) -> list[str]:
+    """Uma taxa: o numero COM `n` e recencia colados, ou o motivo DELA.
+
+    `n` E RECENCIA VAO COLADOS NO NUMERO E NUNCA EM RODAPE. E o que o CONS-01
+    pede com todas as letras — *"com `n` e recencia colados nos numeros como o
+    `--mercado` ja faz"* —, e a razao esta na docstring de `TaxaDaRenda`: um
+    numero bom de quarenta minutos atras continua bom; ele so nao e o de agora,
+    e quem le precisa poder dizer as duas coisas.
+
+    UMA TAXA SEM NUMERO SAI COMO O MOTIVO DELA, e nunca como `0` nem como `--`.
+    Zero seria uma afirmacao sobre o FARM ("voce nao ganhou nada"); ausencia e
+    uma afirmacao sobre a MEDICAO ("ainda nao da para dizer"), e os dois pedem
+    reacoes opostas do usuario.
+    """
+    rotulo = f"{rotulo_base} {sufixo}"
+    if taxa.por_hora is None:
+        return [_linha(rotulo, "").rstrip()] + _dobrar(
+            f"sem numero: {taxa.motivo_da_ausencia}"
+        )
+
+    recencia = "agora" if taxa.ate is None else f"ha {_duracao_curta(agora - taxa.ate)}"
+    numero = _grafia_curta(taxa.por_hora)
+    return [_linha(rotulo, f"{numero:<9} (n={taxa.evidencia.n}, {recencia})")]
+
+
+def _sufixo_da_janela(taxa) -> str:
+    return f"janela ({_duracao_curta(taxa.janela_farmada_em_segundos)})"
+
+
+def _sufixo_da_sessao(taxa) -> str:
+    return (
+        f"sessao ({_duracao_curta(taxa.janela_farmada_em_segundos)} farmadas)"
+    )
+
+
+def _linhas_do_eta(eta, campos, agora) -> list[str]:
+    """`falta 3h20`, ou UM DOS TRES motivos — e os tres tem textos diferentes."""
+    alvo = campos.nivel
+    rotulo = (
+        f"falta para o nivel {int(alvo.valor) + 1}"
+        if not isinstance(alvo, RecusaDaRenda)
+        else "falta para o proximo nivel"
+    )
+
+    if eta.segundos is not None:
+        return [_linha(rotulo, _duracao_curta(float(eta.segundos)))]
+
+    motivo = eta.motivo_da_ausencia or ""
+    if motivo == MOTIVO_DA_TAXA_DE_EXP_ZERADA:
+        return [_linha(rotulo, TEXTO_DA_TAXA_ZERADA)]
+    if motivo == MOTIVO_DA_TAXA_DE_EXP_NEGATIVA:
+        return [_linha(rotulo, TEXTO_DA_TAXA_NEGATIVA)]
+    # O TERCEIRO CASO HERDA O MOTIVO DA TAXA em vez de escrever um novo: a
+    # previsao NAO PODE SER MAIS CONFIANTE QUE O NUMERO DE QUE ELA SAI, e dois
+    # textos para a mesma causa divergiriam no dia em que um deles mudasse.
+    return [_linha(rotulo, TEXTO_SEM_EVIDENCIA)] + _dobrar(motivo)
+
+
+def bloco_da_renda(
+    campos,
+    taxas_de_exp,
+    taxas_de_adena,
+    eta,
+    contagem,
+    *,
+    desde: float,
+    agora: float,
+    recusas_por_campo: dict,
+    tiques: int,
+) -> str:
+    """O que o programa CALCULOU, por INTERVALO e nunca por tique.
+
+    A CADENCIA E `--status-a-cada` E A RAZAO ESTA ESCRITA em
+    `mercado_console.py:490-496`: *"Repintar um bloco de dezenas de linhas por
+    segundo afogaria a linha ao vivo"*. A linha do tique responde "o modo esta
+    vivo?"; este bloco responde "quanto isso rende?", e a segunda resposta so
+    muda quando a sequencia ganha amostras.
+
+    `recusas_por_campo` E `tiques` ENTRAM POR PARAMETRO, E ISSO E UMA CORRECAO
+    MEDIDA DO PLANO. Ele mandava tirar as taxas de recusa por campo de
+    `contagem.recusadas_por_motivo` — e elas NAO estao la. Aquele dicionario e
+    somado em `contar_o_passo` a partir de `passo.recusas`, que e *"A TUPLA QUE
+    `conferir_o_par` DEVOLVEU"* (`renda_conta.py:342-347`): sao as recusas das
+    REGRAS DE PAR, e a propria docstring diz que ela *"sai vazia no caminho de
+    `CamposDaRenda` com um campo recusado"*. Ou seja: os 79% do nivel, 21% da
+    adena e 0% do EXP medidos na Fase 1 nao passam por ali em nenhum tique.
+    Eles vem de `CamposDaRenda.por_campo`, e quem os conta e o laco.
+
+    `contagem` viaja para os dois numeros que SAO dela — passos aceitos e
+    lacunas — e para o `03-03`, que acrescenta o piso usado.
+    """
+    hora = datetime.fromtimestamp(agora).strftime("%H:%M")
+    linhas = [
+        console.moldurar(f"RENDA - {campos.personagem}", hora),
+        "",
+        "O QUE A TELA AFIRMA:",
+    ]
+    for campo, resultado in campos.por_campo.items():
+        rotulo = ROTULO_NA_LINHA[campo]
+        if isinstance(resultado, RecusaDaRenda):
+            linhas.append(
+                _linha(rotulo, f"{SEM_LEITURA} ({resultado.motivo})")
+            )
+        else:
+            linhas.append(
+                _linha(rotulo, GRAFIA_POR_CAMPO[campo](resultado.valor))
+            )
+
+    # OS DOIS TEMPOS, E ELES SAO DOIS E NUNCA UM.
+    #
+    # `de pe` e o que o criterio 1 do `ROADMAP.md` pede — "ha quanto tempo a
+    # sessao corre" — e conta do arranque ao agora. `farmadas` e o DENOMINADOR
+    # da taxa, com as lacunas ja subtraidas (`unidade_da_janela` diz "minutos
+    # farmados", e nao "minutos de relogio"). Numa noite com 40 minutos cegos
+    # eles divergem em 40 minutos, e mostrar so o farmado responde uma pergunta
+    # que o usuario nao fez enquanto cala a que ele fez.
+    #
+    # NUMA SESSAO SEM LACUNA OS DOIS SAO IGUAIS, E SAEM ASSIM MESMO: a
+    # igualdade e um fato sobre a noite (nao houve cegueira), e esconde-la
+    # faria o usuario adivinhar se o segundo numero sumiu ou coincidiu.
+    #
+    # O FARMADO SAI DO DENOMINADOR DO EXP, e a escolha tem numero atras: o EXP
+    # foi o campo com 0% de recusa nas 14 amostras medidas na Fase 1, entao o
+    # denominador dele e o mais proximo de "tempo realmente farmado". O da
+    # adena e menor por causa dos 21% de recusa DELA, que e um fato sobre a
+    # leitura da adena e nao sobre a noite — e ele continua visivel, colado na
+    # propria taxa da adena logo abaixo.
+    linhas += [
+        "",
+        "HA QUANTO TEMPO A SESSAO CORRE:",
+        "  sessao de pe "
+        f"{_duracao_curta(agora - desde)} "
+        f"({_duracao_curta(taxas_de_exp.sessao.janela_farmada_em_segundos)}"
+        " farmadas)",
+        "",
+        f"O QUE ISSO RENDE (denominador em {taxas_de_exp.sessao.unidade_da_janela}, "
+        "e nao de relogio):",
+    ]
+
+    # AS DUAS TAXAS DE CADA GRANDEZA SAEM JUNTAS (CTX-4). A janela responde "o
+    # que esta acontecendo agora" e a sessao responde "o que a noite rendeu";
+    # apresentar so uma MENTE POR OMISSAO, e o tamanho da mentira esta medido:
+    # 226 mil adena/h contra 466 mil/h, um fator de dois, e a diferenca inteira
+    # e TEMPO PARADO.
+    for rotulo_base, duas in (
+        ("XP/h", taxas_de_exp),
+        ("adena/h", taxas_de_adena),
+    ):
+        linhas += _linhas_de_uma_taxa(
+            rotulo_base, _sufixo_da_janela(duas.janela), duas.janela, agora
+        )
+        linhas += _linhas_de_uma_taxa(
+            rotulo_base, _sufixo_da_sessao(duas.sessao), duas.sessao, agora
+        )
+    linhas += _linhas_do_eta(eta, campos, agora)
+
+    # O QUE SAIU DO DENOMINADOR. Sem estes dois numeros, "a taxa caiu" e "o
+    # scanner nao viu" ficam indistinguiveis — e sao consertos opostos.
+    sessao = taxas_de_exp.sessao
+    linhas += [
+        "",
+        "O QUE SAIU DO DENOMINADOR:",
+        _linha(
+            "lacunas excluidas",
+            f"{sessao.lacunas_excluidas} "
+            f"({_duracao_curta(sessao.segundos_em_lacuna)} cegos)",
+        ),
+        _linha("passos aceitos na sessao", str(contagem.aceitas)),
+    ]
+
+    # POR QUE O `n` E ESSE. Medido em campo: nivel 79%, adena 21%, EXP 0%. Um
+    # painel que esconde estes numeros faz o usuario concluir que o scanner
+    # travou — e isso JA ACONTECEU EM PRODUCAO, em 2026-09-01, com o aviso de
+    # layout do mercado, e virou o comentario de `mercado_modo.py:748-751`.
+    #
+    # O CAMPO COM ZERO RECUSA SAI MESMO ASSIM: sumir com ele faria parecer que
+    # ele nao foi medido, que e outra coisa.
+    linhas += ["", "POR QUE O `n` E ESSE (recusa por campo, nesta sessao):"]
+    for campo in ROTULO_NA_LINHA:
+        linhas.append(
+            _linha(
+                ROTULO_NA_LINHA[campo],
+                _grafia_da_porcentagem(
+                    int(recusas_por_campo.get(campo, 0)), int(tiques)
+                ),
+            )
+        )
+
+    return "\n".join(linhas)
+
+
+# ---------------------------------------------------------------------------
+# O RESUMO DA SESSAO
+# ---------------------------------------------------------------------------
+
+
+def resumo_da_sessao_da_renda(
+    contagem,
+    orcamento,
+    registro,
+    *,
+    recusas_por_campo: dict,
+    tiques: int,
+) -> str:
     """O fim da sessao, contando o que foi ao DISCO e o que ele custou.
 
     ELE SAI SEMPRE, e inclusive numa sessao de zero linhas gravadas: o
@@ -259,6 +593,16 @@ def resumo_da_sessao_da_renda(contagem, orcamento, registro) -> str:
     OS QUATRO NUMEROS DE `ContagemDaRenda` NAO SE SOMAM, e por isso saem em
     linhas separadas: "o scanner nao viu" (lacuna) e "o scanner viu e recusou"
     (recusa) pedem consertos OPOSTOS do usuario.
+
+    AS DUAS SECOES DE RECUSA SAO DUAS, E OS TITULOS DIZEM O PORQUE. Uma conta
+    RECUSA POR CAMPO (o nivel nao virou numero neste tique) e sai de
+    `CamposDaRenda`; a outra conta RECUSA DE PAR (o EXP andou para tras entre
+    dois tiques) e sai de `contagem.recusadas_por_motivo`, que e alimentado por
+    `passo.recusas` — *"A TUPLA QUE `conferir_o_par` DEVOLVEU"*. Sao fatos
+    diferentes com consertos diferentes: a primeira e calibracao, a segunda e
+    leitura errada que a guarda pegou. As duas ja tiveram o MESMO titulo neste
+    arquivo por uma revisao, e o defeito apareceu na hora: um leitor que
+    procurasse o numero por titulo achava o outro.
     """
     linhas = [
         console.moldurar(
@@ -270,9 +614,23 @@ def resumo_da_sessao_da_renda(contagem, orcamento, registro) -> str:
         f"  {'lacunas (o scanner nao viu)':<{COLUNA_DO_ROTULO}} "
         f"{contagem.lacunas}",
         "",
-        "POR QUE O `n` E ESSE (recusa por campo, somada na sessao):",
+        "RECUSA POR CAMPO (o pixel nao virou numero), sobre "
+        f"{tiques} tique(s):",
     ]
+    for campo in ROTULO_NA_LINHA:
+        linhas.append(
+            _linha(
+                ROTULO_NA_LINHA[campo],
+                _grafia_da_porcentagem(
+                    int(recusas_por_campo.get(campo, 0)), int(tiques)
+                ),
+            )
+        )
 
+    linhas += [
+        "",
+        "RECUSA DE PAR (a guarda pegou um numero incrivel), somada na sessao:",
+    ]
     if contagem.recusadas_por_motivo:
         for motivo, quantas in sorted(
             contagem.recusadas_por_motivo.items(),
@@ -280,7 +638,7 @@ def resumo_da_sessao_da_renda(contagem, orcamento, registro) -> str:
         ):
             linhas.append(f"  {motivo:<{COLUNA_DO_ROTULO}} {quantas}")
     else:
-        linhas.append("  nenhum campo foi recusado nesta sessao")
+        linhas.append("  nenhum par foi recusado nesta sessao")
 
     linhas += [
         "",
