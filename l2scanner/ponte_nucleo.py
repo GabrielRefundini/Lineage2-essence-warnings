@@ -79,10 +79,14 @@ class Resultado:
     que o usuario efetivamente LE tenha teste. Decisao ignorada nao produz
     linha: imprimir o que foi recusado transformaria o console no servidor
     inteiro, e o console e a prova do criterio 2 da fase.
+
+    `suspeita_de_intent_desligada` e uma ANOTACAO, nunca uma decisao. Ela existe
+    para a beirada gritar; a mensagem segue ACEITA e a linha segue montada.
     """
 
     decisao: Decisao
     linha: str = ""
+    suspeita_de_intent_desligada: bool = False
 
 
 class NucleoDaPonte:
@@ -149,7 +153,15 @@ class NucleoDaPonte:
             return Resultado(Decisao.IGNORADA_PROPRIA)
 
         # PONTE-03: e acabou. Nao existe filtro de autor, de cargo ou de mencao.
-        return Resultado(Decisao.ACEITA, linha_do_console(mensagem))
+        #
+        # A heuristica entra DEPOIS de a mensagem ja estar aceita, e so anota.
+        # Ela nao e uma quarta trava: e um bilhete preso na mensagem que a
+        # beirada le para gritar. Ver `parece_intent_desligada`.
+        return Resultado(
+            Decisao.ACEITA,
+            linha_do_console(mensagem),
+            suspeita_de_intent_desligada=parece_intent_desligada(mensagem),
+        )
 
 
 def linha_do_console(mensagem: MensagemRecebida) -> str:
@@ -161,6 +173,161 @@ def linha_do_console(mensagem: MensagemRecebida) -> str:
     fase existe para fazer.
     """
     return f"[{mensagem.canal}] {mensagem.autor_nome}: {mensagem.texto}"
+
+
+# ---------------------------------------------------------------------------
+# O PRE-VOO DA INTENT MESSAGE CONTENT
+#
+# Mora aqui, e nao no `ponte_discord.py`, por um motivo pratico e nao estetico:
+# assim a DECISAO do arranque — e nao apenas o `or` de duas flags — fica
+# conferivel no Python global, sem `discord` instalado e sem um socket aberto.
+# A beirada le as flags; quem decide o que fazer com elas e este arquivo.
+
+
+class IntentDeConteudoDesligada(Exception):
+    """O painel do Discord esta com MESSAGE CONTENT desligada, e a ponte recusa.
+
+    Irma de `PonteInvalida`: capturada no `main`, virando `log.error` e codigo
+    de saida 2. Ela existe para que a mensagem que o usuario le seja a NOSSA, em
+    portugues, com os cliques — e nao um traceback em ingles da biblioteca.
+    """
+
+
+CONSERTO_DA_INTENT = """A intent MESSAGE CONTENT esta DESLIGADA no painel do Discord.
+
+Sem ela o bot conecta, aparece online e PARECE saudavel — mas recebe toda
+mensagem com o texto VAZIO. Por isso a ponte prefere nao subir: uma ponte que
+replica branco e pior do que uma ponte que nao sobe, porque ninguem percebe.
+
+Conserto, na ordem:
+
+  1. Abra https://discord.com/developers/applications
+  2. Escolha a sua aplicacao.
+  3. Clique em "Bot", no menu da esquerda.
+  4. Em "Privileged Gateway Intents", ligue MESSAGE CONTENT INTENT.
+  5. Clique em "Save Changes". O painel NAO salva sozinho.
+  6. Suba a ponte de novo — a intent so vale na proxima conexao.
+
+Os 4 passos completos do primeiro uso estao no PORTAO-DISCORD.txt."""
+
+
+SAIDA_SE_O_PRE_VOO_ESTIVER_ERRADO = """Se voce TEM CERTEZA de que MESSAGE CONTENT ja esta ligada e salva no painel,
+suba a ponte assim, uma vez:
+
+    ponte-discord.bat --ignorar-pre-voo
+
+Isso pula so esta conferencia. Se a intent estiver mesmo desligada, o proprio
+Discord vai fechar a conexao e voce vai ler este mesmo texto de novo — a saida
+existe para o caso de a conferencia estar errada, nao para esconder o problema."""
+
+
+class VereditoDoPreVoo(Enum):
+    """As TRES saidas do pre-voo. Tres, e nao duas, e essa e a decisao inteira.
+
+    `SEGUIR_COM_AVISO` existe porque "nao consegui ler as flags" nao e a mesma
+    coisa que "as flags dizem que esta desligada" — e tratar as duas igual e o
+    que trancaria a porta por fora.
+    """
+
+    SEGUIR = "seguir"
+    RECUSAR = "recusar"
+    SEGUIR_COM_AVISO = "seguir_com_aviso"
+
+
+def intent_ligada_no_painel(verificada: bool, limitada: bool) -> bool:
+    """As duas flags de conteudo de mensagem do gateway, com um `or`.
+
+    `gateway_message_content` (1<<18) e da aplicacao VERIFICADA — a que passou
+    de 100 servidores e pediu aprovacao a Discord. `gateway_message_content_limited`
+    (1<<19) e da aplicacao pequena, que e o caso desta ponte: um servidor so,
+    sem verificacao.
+
+    Ler so a primeira recusaria toda aplicacao pequena, ou seja, justamente
+    esta. Ler so a segunda quebraria no dia em que o bot crescesse. O `or` cobre
+    os dois estados e nao custa nada.
+    """
+    return bool(verificada or limitada)
+
+
+def veredito_do_pre_voo(
+    flags_lidas: bool, verificada: bool, limitada: bool, ignorar: bool
+) -> VereditoDoPreVoo:
+    """A PORTA do pre-voo. Funcao pura: entra o que se apurou, sai a decisao.
+
+    A ORDEM E O CONTRATO:
+
+      1. `ignorar` verdadeiro devolve `SEGUIR_COM_AVISO` antes de qualquer
+         coisa — a valvula de escape nao pode depender do que ela existe para
+         atropelar.
+      2. `flags_lidas` falso devolve `SEGUIR_COM_AVISO`.
+      3. So com as flags lidas o predicado decide entre `SEGUIR` e `RECUSAR`.
+
+    POR QUE "NAO CONSEGUI LER" NUNCA VIRA RECUSA. Se a leitura falhar — outra
+    versao da biblioteca, um soluco do `GET /applications/@me`, um formato de
+    aplicacao que a leitura de fonte nao cobriu — o inteiro chega 0 e os dois
+    bits leem falso. Um pre-voo de duas saidas RECUSARIA A SUBIDA COM A INTENT
+    LIGADA, e a unica coisa que a tela saberia dizer ao usuario seria: refaca os
+    quatro passos do portao que voce acabou de fazer. Sem saida nenhuma.
+
+    A ASSIMETRIA DECIDE, E ELA E ENORME. Recusar por engano custa o milestone
+    inteiro e nao tem conserto pela tela. Seguir por engano nao custa nada: a
+    `PrivilegedIntentsRequired` da biblioteca ainda aborta o laco quando o
+    gateway fechar em 4014, e a heuristica de runtime ainda grita na primeira
+    mensagem vazia. Um pre-voo que confunde AUSENCIA DE INFORMACAO com
+    INFORMACAO NEGATIVA e um pre-voo que um dia tranca a porta por fora.
+    """
+    if ignorar:
+        return VereditoDoPreVoo.SEGUIR_COM_AVISO
+
+    if not flags_lidas:
+        return VereditoDoPreVoo.SEGUIR_COM_AVISO
+
+    if intent_ligada_no_painel(verificada, limitada):
+        return VereditoDoPreVoo.SEGUIR
+
+    return VereditoDoPreVoo.RECUSAR
+
+
+def parece_intent_desligada(mensagem: MensagemRecebida) -> bool:
+    """A terceira linha: AVISA, E NAO DESCARTA. Nunca troque isso.
+
+    O fato que sustenta a heuristica: o Discord NAO deixa postar uma mensagem
+    sem nada dentro. Uma mensagem comum que chega com texto, anexo, embed,
+    figurinha, componente, enquete e encaminhamento todos vazios nao e uma
+    mensagem que alguem conseguiria escrever — e o retrato de uma censura de
+    conteudo no caminho, ou seja, da intent desligada.
+
+    ELA EXISTE PARA UM CASO SO: o botao ser desligado no painel com a ponte JA
+    RODANDO. O pre-voo roda uma vez, no arranque, e e deterministico; esta roda
+    sempre e e probabilistica. Por isso ela anota e a beirada grita.
+
+    OS FALSOS POSITIVOS CONHECIDOS, E O QUE OS CORTA:
+
+    - Mensagem de SISTEMA (entrou no servidor, fixou mensagem, criou thread,
+      deu boost) e vazia POR DIREITO e frequente. Ela sai antes de tudo. Sem
+      esta linha a ponte gritaria todo dia, e um aviso diario deixa de ser lido
+      exatamente quando importa.
+    - Post so-com-imagem, so-embed, so-figurinha, so-componente: vazios de texto
+      e legitimos. Sao a FORM-04 da Fase 2, e nao podem sumir nem virar alarme.
+
+    `enquete` e `encaminhamento` estao na lista SEM confirmacao de que a intent
+    os censura (Assumptions A1 e A2 da pesquisa). Mante-los custa, no pior caso,
+    um aviso a menos numa mensagem que ja estava estranha. Tira-los custaria, no
+    pior caso, um alarme falso recorrente. Essa assimetria decide, e ela esta
+    registrada aqui para que quem confirmar o fato um dia saiba o que mexer.
+    """
+    if mensagem.e_mensagem_de_sistema:
+        return False
+
+    return not (
+        mensagem.texto
+        or mensagem.tem_anexo
+        or mensagem.tem_embed
+        or mensagem.tem_figurinha
+        or mensagem.tem_componente
+        or mensagem.tem_enquete
+        or mensagem.e_encaminhamento
+    )
 
 
 class ClienteDiscordEmMemoria:
@@ -216,11 +383,18 @@ def mensagem_de_teste(**campos) -> MensagemRecebida:
 
 
 __all__ = [
+    "CONSERTO_DA_INTENT",
+    "SAIDA_SE_O_PRE_VOO_ESTIVER_ERRADO",
     "ClienteDiscordEmMemoria",
     "Decisao",
+    "IntentDeConteudoDesligada",
     "MensagemRecebida",
     "NucleoDaPonte",
     "Resultado",
+    "VereditoDoPreVoo",
+    "intent_ligada_no_painel",
     "linha_do_console",
     "mensagem_de_teste",
+    "parece_intent_desligada",
+    "veredito_do_pre_voo",
 ]
