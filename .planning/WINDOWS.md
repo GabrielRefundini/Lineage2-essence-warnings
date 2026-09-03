@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 45
+open_count: 48
 waived_count: 1
 fixed_count: 10
-total_count: 56
-last_updated: 2026-09-03T03:22:05.497Z
+total_count: 59
+last_updated: 2026-09-03T12:41:58.560Z
 ---
 
 # Broken Windows Ledger
@@ -69,8 +69,11 @@ last_updated: 2026-09-03T03:22:05.497Z
 | 52 | 01 | deviation | tests/test_janela_de_selecao.py |  | test_dreno_por_tempo_e_nao_por_numero_de_sondagens e instavel sob carga: assercao contador>20 presa a 50ms de relogio de parede com espera ocupada de 1ms por sondagem. Vermelho numa passada da suite completa, verde sozinho e na passada seguinte. Pre-existente, de outro plano. | open |  | 2026-09-02T20:43:25.630Z |  |
 | 53 | 02 | deviation | .planning/workstreams/renda/phases/02-a-conta-e-o-registro-de-duas-amostras-para-uma-taxa-e-uma-li/02-01-PLAN.md |  | Criterio do 02-01 pede 'passed >= 5355'; a linha de base real e 5331 passed + 24 skipped (5355 SELECIONADO). Executado com o piso conferido nas duas metades; 02-02/03/04 devem usar 5331 passed como piso. | open |  | 2026-09-03T02:21:58.774Z |  |
 | 54 | 02 | deviation | .planning/workstreams/renda/phases/02-a-conta-e-o-registro-de-duas-amostras-para-uma-taxa-e-uma-li/02-03-PLAN.md |  | 02-03: tres referentes errados no plano, corrigidos sem afrouxar portao. (1) Excecao e ContratoDaRendaQuebrado, nao ContratoDoArquivoDeRendaQuebrado (contrato do 02-01); semantica conferida, False False. (2) A frase da C-2 esta em ROADMAP.md:290, nao :274; o fonte cita o endereco medido. (3) O piso da suite 5532 do prompt e o total SELECIONADO — a linha de base real desta arvore e 5508 passed + 24 skipped; final 5561/24. | open |  | 2026-09-03T02:49:16.324Z |  |
-| 54 | 02 | deviation | tests/test_sessao.py |  | BOMBA-RELOGIO DE CALENDARIO (achado pelo 02-02): agenda.py:1004 usa date.today() e 15 testes de test_sessao.py, test_janela_no_relogio.py e test_respawn.py ancoram fixtures em 2026-08-30. Passavam em 2026-09-02 e falham desde 2026-09-03; o numero de falhas oscila com a hora de parede. PRE-EXISTENTE: provado rodando o commit base 9b90572 numa arvore limpa no mesmo instante (mesmo conjunto de falhas). Conserto: injetar hoje por parametro, e nao desselecionar mais arquivos. | open |  | 2026-09-03T03:21:54.955Z |  |
-| 55 | 02 | deviation | l2scanner/renda_conta.py |  | passo_entre_campos nao roda a_adena_saltou_ordem_de_grandeza quando um campo recusa: sem LeituraDaRenda nao ha conferir_o_par, e o portao C-1 proibe chamar as irmas soltas. Com o nivel recusado em 79% dos tiques, a guarda de salto da adena e a de EXP-para-tras ficam ausentes na maioria dos passos. Escrito na docstring e em deferred-items.md (D-2). Conserto: uma composicao para o par PARCIAL em renda_leitura.py. | open |  | 2026-09-03T03:22:05.497Z |  |
+| 55 | 02 | deviation | tests/test_sessao.py |  | BOMBA-RELOGIO DE CALENDARIO (achado pelo 02-02): agenda.py:1004 usa date.today() e 15 testes de test_sessao.py, test_janela_no_relogio.py e test_respawn.py ancoram fixtures em 2026-08-30. Passavam em 2026-09-02 e falham desde 2026-09-03; o numero de falhas oscila com a hora de parede. PRE-EXISTENTE: provado rodando o commit base 9b90572 numa arvore limpa no mesmo instante (mesmo conjunto de falhas). Conserto: injetar hoje por parametro, e nao desselecionar mais arquivos. | open |  | 2026-09-03T03:21:54.955Z |  |
+| 56 | 02 | deviation | l2scanner/renda_conta.py |  | passo_entre_campos nao roda a_adena_saltou_ordem_de_grandeza quando um campo recusa: sem LeituraDaRenda nao ha conferir_o_par, e o portao C-1 proibe chamar as irmas soltas. Com o nivel recusado em 79% dos tiques, a guarda de salto da adena e a de EXP-para-tras ficam ausentes na maioria dos passos. Escrito na docstring e em deferred-items.md (D-2). Conserto: uma composicao para o par PARCIAL em renda_leitura.py. | open |  | 2026-09-03T03:22:05.497Z |  |
+| 57 | 3 | stub | l2scanner/renda_console.py |  | linha_do_tique aceita estado= e ele ainda nao faz nada em producao: e o seam que o 03-02 usa para PAUSADO/PARADO | open |  | 2026-09-03T12:41:36.157Z |  |
+| 58 | 3 | stub | l2scanner/renda_laco.py |  | o laco captura com capturar() mas ainda NAO le frame.saude: a classificacao de cegueira e CEGO-01/02 e e do 03-02 | open |  | 2026-09-03T12:41:47.115Z |  |
+| 59 | 3 | deviation | .planning/workstreams/renda/phases/03-o-modo-renda-o-painel-ao-vivo-e-a-cegueira-declarada/03-01-PLAN.md |  | verificacao 4 do plano (grep -c capturar_completo <= 1) devolve 5 por causa da docstring; substituida por portao de AST que conta CHAMADAS e devolve 1 | open |  | 2026-09-03T12:41:58.560Z |  |
 
 ````json
 [
@@ -744,6 +747,42 @@ last_updated: 2026-09-03T03:22:05.497Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-03T03:22:05.497Z",
+    "resolved_at": null
+  },
+  {
+    "id": 57,
+    "kind": "stub",
+    "phase": "3",
+    "file": "l2scanner/renda_console.py",
+    "line": null,
+    "description": "linha_do_tique aceita estado= e ele ainda nao faz nada em producao: e o seam que o 03-02 usa para PAUSADO/PARADO",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-03T12:41:36.157Z",
+    "resolved_at": null
+  },
+  {
+    "id": 58,
+    "kind": "stub",
+    "phase": "3",
+    "file": "l2scanner/renda_laco.py",
+    "line": null,
+    "description": "o laco captura com capturar() mas ainda NAO le frame.saude: a classificacao de cegueira e CEGO-01/02 e e do 03-02",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-03T12:41:47.115Z",
+    "resolved_at": null
+  },
+  {
+    "id": 59,
+    "kind": "deviation",
+    "phase": "3",
+    "file": ".planning/workstreams/renda/phases/03-o-modo-renda-o-painel-ao-vivo-e-a-cegueira-declarada/03-01-PLAN.md",
+    "line": null,
+    "description": "verificacao 4 do plano (grep -c capturar_completo <= 1) devolve 5 por causa da docstring; substituida por portao de AST que conta CHAMADAS e devolve 1",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-03T12:41:58.560Z",
     "resolved_at": null
   }
 ]

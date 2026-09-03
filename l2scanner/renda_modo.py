@@ -174,43 +174,27 @@ def montar_analisador() -> argparse.ArgumentParser:
     return analisador
 
 
-def _grafia_do_exp(valor: int) -> str:
-    """`80012` -> `8,0012%`, na grafia que o olho compara com o monitor.
+# AS TRES GRAFIAS MUDARAM DE CASA PARA `renda_console.py`, E O IMPORT E DAQUI.
+#
+# Elas nasceram aqui no `01-04` e a Fase 3 precisa delas no LACO, que roda a
+# noite inteira e nao pode pagar o `argparse` e o `cv2` que ESTA ferramenta
+# importa no topo. Medido no mesmo processo: `import l2scanner.renda_modo`
+# custa 0,974 s e 344 modulos, com `cv2` carregado; `renda_conta` + `console`
+# custam 0,198 s e 279.
+#
+# E A VERDADE CONTINUA NUMA CASA SO. O criterio 1 da Fase 1 e uma COMPARACAO
+# entre o terminal e o monitor; duas grafias do mesmo numero fariam a
+# ferramenta escrever `13.160.684` e o laco `13160684`, e a comparacao morreria
+# exatamente na tela que roda a noite inteira. Quem mexer na grafia mexe em
+# `renda_console.py`, e os dois consumidores mudam juntos.
+from .renda_console import (  # noqa: E402 - o import fica ao lado do consumo
+    GRAFIA_POR_CAMPO,
+    _grafia_da_adena,
+    _grafia_do_exp,
+    _grafia_do_nivel,
+)
 
-    A grafia mora AQUI e o inteiro mora no modulo puro, e a divisao nao e
-    arbitraria: o inteiro e o que a Fase 2 vai consumir, e uma string formatada
-    atravessando a fronteira obrigaria quem consome a fazer o caminho de volta.
-    """
-    pontos, decimos = divmod(int(valor), 10_000)
-    return f"{pontos},{decimos:04d}%"
-
-
-def _grafia_da_adena(valor: int) -> str:
-    """`13160684` -> `13.160.684`, com o separador de milhar que o JOGO escreve.
-
-    O PONTO E O SEPARADOR DA TELA, e a virgula e o do OCR e dos glifos. Medido
-    (M21): `numero_valido("10.673.628")` e `False` — as funcoes do mercado
-    falam VIRGULA. Aqui a conversao vai no sentido contrario, do inteiro para a
-    tela, e ela e o que faz o criterio 1 ser conferivel: o usuario le
-    `13.160.684` no monitor e `13.160.684` no terminal, sem traduzir nada.
-
-    A separacao vem de `format`, e nao de uma aritmetica escrita a mao: um laco
-    de milhar aqui seria uma segunda gramatica de milhar nesta arvore, e o
-    `01-04` nao abre nenhuma.
-    """
-    return f"{int(valor):,}".replace(",", ".")
-
-
-def _grafia_do_nivel(valor: int) -> str:
-    """`67` -> `67`. Inteiro NU, porque e assim que a tela do jogo o escreve."""
-    return str(int(valor))
-
-
-GRAFIA_POR_CAMPO = {
-    CAMPO_DO_NIVEL: _grafia_do_nivel,
-    CAMPO_DO_EXP: _grafia_do_exp,
-    CAMPO_DA_ADENA: _grafia_da_adena,
-}
+__all__ = ["_grafia_da_adena", "_grafia_do_exp", "_grafia_do_nivel"]
 
 
 def _linha_do_campo(campo: str, resultado) -> str:
