@@ -70,6 +70,7 @@ from l2scanner.aprendiz import (
     Aprendiz,
     Candidata,
     ToleranciaAlemDoTeto,
+    _Vigia,
     distancia_de_hamming,
     resumo_da_contaminacao,
     resumo_das_recusas,
@@ -4096,3 +4097,133 @@ class TestOTetoNaoConsertaADuplicacao:
 
         assert "COLUNAS_DE_LACUNA_DO_ORNAMENTO" in fonte
         assert "0.967" in fonte
+
+
+class TestDoisVigiasNaMesaNaoQuebramOAprendizado:
+    """O crash de 02/09/2026 21:09, e a razao de ele ter atravessado a suite.
+
+    O traceback de campo, inteiro:
+
+        File "l2scanner/sessao.py", line 848, in _aprender
+          saida = self.aprendiz.observar(
+        File "l2scanner/aprendiz.py", line 1013, in observar
+          disponiveis.remove(vigia)
+        File "<string>", line 4, in __eq__
+        ValueError: The truth value of an array with more than one element is
+        ambiguous. Use a.any() or a.all()
+
+    `_Vigia` era um `@dataclass` com `ancora: np.ndarray`, e o `__eq__` gerado
+    compara os campos como tupla. Comparar dois ndarray devolve um ARRAY, e
+    `bool()` de um array com mais de um elemento levanta `ValueError`.
+
+    O ATALHO DE IDENTIDADE DO CPython E O QUE EXPLICA A INTERMITENCIA, e e o
+    que faz esta classe precisar de DOIS vigias. `list.remove` usa
+    `PyObject_RichCompareBool`, que devolve `True` sem chamar `__eq__` quando o
+    item da lista E o proprio objeto procurado. Com UM vigia so, ou com o alvo
+    na PRIMEIRA posicao, o atalho responde antes de qualquer comparacao de
+    array e nada quebra. Ele so estoura quando ha um vigia ANTES do alvo, que e
+    o unico que chega a ser comparado de verdade.
+
+    E esse detalhe, e nao a falta de teste, que deixou o defeito passar: a
+    suite de `Aprendiz` que existia observava UMA candidata por vez. Qualquer
+    caso com um vigia so fica verde sobre o codigo defeituoso e nao prova nada.
+
+    Em campo o estado era `Welazkez ok | Membro 2 ? | Mostarda ok | PIRULITO
+    ok`, virando DUAS linhas nao reconhecidas no tick seguinte. O `except` do
+    `sessao` segurou o scanner, e o aprendizado ficou morto pelo resto da
+    sessao: nenhuma assinatura nova entrou em disco.
+    """
+
+    @staticmethod
+    def _dois_vigias(aprendiz):
+        """Deixa a mesa com DOIS vigias, na ordem em que foram criados."""
+        primeira = mascara_cheia(40)
+        segunda = mascaras_com_distancia(primeira, 11)
+        aprendiz.observar(
+            (
+                Candidata(indice=1, mascara=primeira, confianca=0.1),
+                Candidata(indice=2, mascara=segunda, confianca=0.1),
+            )
+        )
+        assert len(aprendiz._vigias) == 2, (
+            "sem DOIS vigias na mesa o atalho de identidade do CPython "
+            "responde antes do __eq__ e o teste fica verde sem provar nada"
+        )
+        return primeira, segunda
+
+    def test_casar_o_SEGUNDO_vigia_nao_levanta_ValueError(self, tmp_path):
+        """O alvo FORA da primeira posicao, que e a condicao do defeito."""
+        aprendiz, _ = montar_aprendiz(tmp_path, leituras_para_aprender=5)
+        _, segunda = self._dois_vigias(aprendiz)
+
+        assert aprendiz._vigias[1].indice == 2, (
+            "o alvo desta leitura tem de ser o vigia de INDICE 1 da mesa: com "
+            "ele na posicao 0 o atalho de identidade esconde o defeito"
+        )
+
+        aprendiz.observar(
+            (Candidata(indice=2, mascara=segunda.copy(), confianca=0.1),)
+        )
+
+        assert [v.leituras for v in aprendiz._vigias] == [2], (
+            "so o vigia casado sobrevive, e ele avancou para a 2a leitura"
+        )
+
+    def test_a_linha_que_sobra_de_duas_chega_a_gravar(self, tmp_path):
+        """O desfecho que o usuario perdeu, na sequencia exata do campo.
+
+        DUAS candidatas num tick e UMA no seguinte e o que poe o alvo fora da
+        primeira posicao sem nenhum arranjo artificial: no tick 2 a mesa tem os
+        dois vigias do tick 1, e a unica candidata casa o SEGUNDO. `remove`
+        compara o primeiro pelo caminho e estoura.
+
+        Observar as duas candidatas SEMPRE juntas, que e o que a suite antiga
+        fazia, nunca chega a esse estado: cada candidata casa o vigia que ja
+        esta na frente da mesa e o atalho de identidade responde por todas.
+
+        Nao basta nao levantar. Com o defeito, `sessao._aprender` engolia o erro
+        e o aprendizado ficava morto pelo resto da sessao, entao a prova que
+        vale e a assinatura EM DISCO.
+        """
+        aprendiz, pasta = montar_aprendiz(tmp_path, leituras_para_aprender=3)
+        primeira = mascara_cheia(40)
+        segunda = mascaras_com_distancia(primeira, 11)
+
+        aprendiz.observar(
+            (
+                Candidata(indice=1, mascara=primeira, confianca=0.1),
+                Candidata(indice=2, mascara=segunda, confianca=0.1),
+            )
+        )
+        for _ in range(2):
+            aprendiz.observar(
+                (Candidata(indice=2, mascara=segunda.copy(), confianca=0.1),)
+            )
+
+        assert len(assinaturas_gravadas(pasta)) == 1, (
+            "a linha estavel por N leituras vira UMA assinatura em disco, "
+            "mesmo tendo dividido a mesa com outra desconhecida"
+        )
+
+    def test_dois_vigias_de_ancora_IGUAL_continuam_sendo_dois(self):
+        """A semantica correta de `_Vigia` e IDENTIDADE, e nao igualdade.
+
+        Duas sequencias em andamento sao duas coisas diferentes mesmo com a
+        ancora bit a bit igual: elas estao em linhas diferentes da party window
+        e contam leituras separadas. Se `__eq__` fosse estrutural, remover uma
+        poderia tirar a OUTRA da mesa e uma das duas perderia a contagem.
+        """
+        de_cima = _Vigia(ancora=mascara_cheia(40), leituras=1, indice=1)
+        de_baixo = _Vigia(ancora=mascara_cheia(40), leituras=1, indice=1)
+
+        assert de_cima != de_baixo, (
+            "vigias distintos com a mesma ancora nao podem ser iguais"
+        )
+        assert de_cima == de_cima, "e cada vigia continua igual a si mesmo"
+
+        mesa = [de_cima, de_baixo]
+        mesa.remove(de_baixo)
+        assert mesa == [de_cima], (
+            "remover o segundo tem de tirar o SEGUNDO, comparando o primeiro "
+            "pelo caminho sem levantar ValueError"
+        )

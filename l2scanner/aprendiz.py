@@ -461,7 +461,7 @@ class AjustesDoAprendiz:
             )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Candidata:
     """Uma linha que o scanner esta vendo e nao sabe de quem e.
 
@@ -471,6 +471,13 @@ class Candidata:
     pessoa daqui a um tick. O contador de estabilidade e por CONTEUDO (D-08), e
     um contador por indice somaria leituras de pessoas diferentes ate atingir N
     e gravaria uma assinatura de ninguem.
+
+    `eq=False` porque a classe carrega um ndarray. O `__eq__` de dataclass
+    compara os campos como tupla, `array == array` devolve um ARRAY, e `bool()`
+    dele levanta `ValueError`. O atalho de identidade de
+    `PyObject_RichCompareBool` esconde isso em quase todo teste, e foi assim que
+    o crash de 02/09/2026 chegou ao usuario por `_Vigia`. Ver a docstring de
+    `_Vigia` e o portao em `tests/test_dataclass_com_ndarray.py`.
     """
 
     indice: int
@@ -838,12 +845,49 @@ def distancia_de_hamming(a: np.ndarray, b: np.ndarray) -> int | None:
     return int(np.count_nonzero(a != b))
 
 
-@dataclass
+@dataclass(eq=False)
 class _Vigia:
     """Uma sequencia de leituras em andamento, chaveada pelo CONTEUDO.
 
     A `ancora` e a PRIMEIRA mascara da sequencia e nunca e atualizada. Ver
     `Aprendiz.observar` para a razao inteira.
+
+    `eq=False` E O CONSERTO DE 02/09/2026, E NAO UM DETALHE DE ESTILO. Com o
+    `__eq__` gerado, `disponiveis.remove(vigia)` derrubava o aprendizado da
+    sessao inteira:
+
+        File "l2scanner/aprendiz.py", line 1013, in observar
+          disponiveis.remove(vigia)
+        File "<string>", line 4, in __eq__
+        ValueError: The truth value of an array with more than one element is
+        ambiguous. Use a.any() or a.all()
+
+    O `__eq__` de dataclass compara os campos como TUPLA, e a comparacao de
+    tupla comeca no campo 0, que aqui e um ndarray. `array == array` devolve um
+    ARRAY, e `bool()` de um array de 2000 celulas nao existe.
+
+    O ATALHO DE IDENTIDADE DO CPython E O QUE EXPLICA A INTERMITENCIA. `remove`
+    (e `in`, e `index`, e `count`) usa `PyObject_RichCompareBool`, que devolve
+    `True` sem chamar `__eq__` quando o item da lista E o proprio objeto
+    procurado. Com UM vigia na mesa, ou com o alvo na primeira posicao, o
+    atalho responde e nada quebra. So estoura quando existe um vigia ANTES do
+    alvo, que e o unico que chega a ser comparado. Em campo isso apareceu com
+    DUAS linhas nao reconhecidas ao mesmo tempo (`Membro 2` e `Membro 4`), e a
+    suite ficou verde por anos porque exercitava um vigia de cada vez.
+
+    A SEMANTICA CORRETA DESTA CLASSE E IDENTIDADE, e nao igualdade estrutural.
+    Dois vigias sao DUAS sequencias em andamento, em linhas diferentes da party
+    window, contando leituras separadas. Se a ancora igual os tornasse iguais,
+    remover um poderia tirar o OUTRO da mesa e a contagem de alguem sumiria sem
+    erro nenhum. `eq=False` faz `__eq__` cair para `object.__eq__`, que e
+    identidade, que e a resposta certa.
+
+    POR QUE `eq=False` E NAO REMOVER POR INDICE. Trocar o `remove` por um
+    `del disponiveis[i]` consertaria aquela linha e deixaria a classe capaz do
+    mesmo defeito no proximo `in`, `index`, `count` ou `==` que alguem
+    escrevesse, com o atalho de identidade escondendo o erro na maioria dos
+    testes. `eq=False` mata a capacidade, e nao a ocorrencia. `tests/
+    test_dataclass_com_ndarray.py` estende isso a arvore inteira.
     """
 
     ancora: np.ndarray

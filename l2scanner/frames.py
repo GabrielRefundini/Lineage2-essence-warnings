@@ -42,9 +42,17 @@ class SaudeDoFrame(Enum):
     CONGELADO = "congelado"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Frame:
-    """Uma captura, com a informacao necessaria para julga-la."""
+    """Uma captura, com a informacao necessaria para julga-la.
+
+    `eq=False` porque a classe carrega ndarray. O `__eq__` de dataclass compara
+    os campos como tupla, `array == array` devolve um ARRAY, e `bool()` dele
+    levanta `ValueError`. O atalho de identidade de `PyObject_RichCompareBool`
+    esconde isso em quase todo teste, e foi assim que o crash de 02/09/2026
+    chegou ao usuario por `aprendiz._Vigia`. Ver a docstring de `_Vigia` e o
+    portao em `tests/test_dataclass_com_ndarray.py`.
+    """
 
     pixels: np.ndarray  # BGR, shape (altura, largura, 3)
     indice: int
