@@ -226,8 +226,24 @@ a leitura não recusar direito, gravar é gravar veneno.
 > adena que a barra viu; a 2,0 s, 29,8%. São 6 linhas visíveis a ~104 abates/min. A ponte é uma
 > constante por nível — `XP por ponto percentual = XP por abate ÷ pp por abate` — em que o
 > **chat** dá o numerador (não precisa ser completo, só representativo) e a **barra** dá o
-> denominador (precisa ser completo, e é). Medido na Faerlina no nível 67: 387 XP por abate,
-> 0,001011 pp por abate, **383.124 XP por ponto percentual, 38,3 milhões no nível inteiro**.
+> denominador (precisa ser completo, e é). Medido na Faerlina no nível 67: 387 XP por abate.
+>
+> **Há duas medições da mesma constante, e a precedência é esta — a de 55 Hz manda.**
+>
+> | medição | pp por abate | XP por ponto percentual | nível inteiro | status |
+> |---|---|---|---|---|
+> | 0,8 s de amostragem, 6 min | 0,001011 | 383.124 | 38,3 milhões | **superada** — agrupava aglomerados de degraus |
+> | **55 Hz (0,018 s), 2026-09-02, 2,5 min** | **0,0009956** | **388.700** | **38,87 milhões** | **VALE ESTA** — censo completo |
+>
+> A segunda manda porque ela é **censo e não amostra**: a soma dos 188 degraus dá 1903 unidades e
+> a barra andou exatamente 1903, com **zero leituras negativas em 8.555 amostras**, e com o censo
+> o aglomerado do abate isola-se sozinho (114 eventos, média 9,956). A primeira fica registrada
+> como cruzamento independente — ela cai 1,5% abaixo da segunda, e é isso que sustenta as duas.
+> A tabela inteira, com o aglomerado de ~3 unidades que ainda não tem explicação, está em
+> `REQUIREMENTS.md`, REND-08, que é o endereço versionado que os planos citam.
+>
+> **Um workstream não segura duas constantes para a mesma grandeza:** quem escrever código usa
+> **388.700**, e é ele que o `02-04` semeia no `calibration.json` com a procedência junto.
 >
 > E a convenção do parênteses ficou resolvida por medição, não por leitura de documentação:
 > `363 XP (bonus: 299)` é **363 no total**, porque `363/(363−299) = 5,67` e a barra exibe
@@ -316,7 +332,8 @@ registra `-68,5%` quando o usuário sobe de nível não erra num canto — erra 
 - [ ] `02-04-PLAN.md` — a ponte XP↔pp: `renda_ponte_de_xp` nos cinco lugares do
       `calibration.json`, o consumo com XP absoluto **ou** três ausências distinguíveis, a
       constante medida **semeada** com a procedência (Faerlina 67, 388.700 XP/pp, censo completo a
-      55 Hz), e a convenção do bônus de REND-09 como função testada (onda 1)
+      55 Hz) por `l2scanner/renda_semeadura.py`, com o `argparse` sozinho em `tools/`, e a
+      convenção do bônus de REND-09 como função testada (onda 2)
 
 > **A forma do arquivo foi decidida no planejamento, e a suposição que a originou caiu.** O
 > `02-CONTEXT.md:87` dizia "um arquivo por personagem por dia, na forma que o `.mercado/` e o
@@ -330,6 +347,15 @@ registra `-68,5%` quando o usuário sobe de nível não erra num canto — erra 
 
 > **REND-07 não entra nesta fase** — comparar renda entre locais de farm já está em v2, e o
 > `02-CONTEXT.md:163` o defere explicitamente. Os outros doze requisitos da fase têm dono.
+
+> **O `02-04` saiu da onda 1 para a onda 2, e o motivo é acoplamento temporal e não de arquivo.**
+> Os arquivos dele são disjuntos de todos os outros três. Mas ele afirma o piso da suite inteira
+> (`passed >= 5355`) em quatro pontos, e o `02-01` T1 inverte o portão de `tests/test_renda_par.py`
+> — entre a inversão e a criação de `renda_conta.py` a suíte está **vermelha por construção**.
+> Rodando em paralelo, o `02-04` leria aquela janela como falha própria. Declarar
+> `depends_on: ["02-01"]` custa **zero** de paralelismo real, porque a onda 2 já existe: ela passa
+> a correr `02-02`, `02-03` e `02-04` juntos, com `files_modified` sem nenhuma interseção. O
+> caminho crítico da fase continua sendo `02-01` seguido de uma onda de três.
 
 ---
 
