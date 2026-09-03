@@ -206,7 +206,7 @@ class RendaNaoCalibravel(RuntimeError):
     """
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class RecorteDaBarra:
     """Um recorte de UM campo, de UM frame, com o piso de brilho DAQUELE campo.
 
@@ -214,6 +214,13 @@ class RecorteDaBarra:
     nivel sai correto e 190-220 e a da adena por glifo e 180-190, e elas nao tem
     intersecao nenhuma (M-E). Um default aqui serviria a um campo e apagaria o
     outro em silencio.
+
+    `eq=False` porque a classe carrega ndarray. O `__eq__` de dataclass compara
+    os campos como tupla, `array == array` devolve um ARRAY, e `bool()` dele
+    levanta `ValueError`. O atalho de identidade de `PyObject_RichCompareBool`
+    esconde isso em quase todo teste, e foi assim que o crash de 02/09/2026
+    chegou ao usuario por `aprendiz._Vigia`. Ver a docstring de `_Vigia` e o
+    portao em `tests/test_dataclass_com_ndarray.py`.
     """
 
     frame: str
@@ -231,13 +238,20 @@ class Pulo:
     detalhe: str
 
 
-@dataclass
+@dataclass(eq=False)
 class RodadaDeCorte:
     """O que UMA rodada produziu. `cortados` e so o corte DESTA rodada.
 
     A fusao com o conjunto anterior nao acontece aqui, de proposito — mesmo
     desenho de `cortar_glifos`: assim o laco continua testavel sem calibracao
     nenhuma em disco.
+
+    `eq=False` porque `cortados` carrega ndarray. O `__eq__` de dataclass
+    compara os campos como tupla, `array == array` devolve um ARRAY, e `bool()`
+    dele levanta `ValueError`. O atalho de identidade de
+    `PyObject_RichCompareBool` esconde isso em quase todo teste, e foi assim que
+    o crash de 02/09/2026 chegou ao usuario por `aprendiz._Vigia`. Ver a
+    docstring de `_Vigia` e o portao em `tests/test_dataclass_com_ndarray.py`.
     """
 
     cortados: dict[str, np.ndarray] = field(default_factory=dict)

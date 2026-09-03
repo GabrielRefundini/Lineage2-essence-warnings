@@ -226,9 +226,20 @@ def mascara_de_texto(bgr: np.ndarray) -> np.ndarray:
     return (hsv[:, :, 2] > VALOR_MINIMO_DO_TEXTO).astype(np.uint8)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Assinatura:
-    """A impressao digital visual do nome de um membro."""
+    """A impressao digital visual do nome de um membro.
+
+    `eq=False` porque a classe carrega ndarray. O `__eq__` de dataclass compara
+    os campos como tupla, `array == array` devolve um ARRAY, e `bool()` dele
+    levanta `ValueError`. O atalho de identidade de `PyObject_RichCompareBool`
+    esconde isso em quase todo teste, e foi assim que o crash de 02/09/2026
+    chegou ao usuario por `aprendiz._Vigia`. Ver a docstring de `_Vigia` e o
+    portao em `tests/test_dataclass_com_ndarray.py`.
+
+    Quem quiser comparar duas assinaturas PELO CONTEUDO tem `chave_da_assinatura`,
+    que e o que o acervo ja usa para deduplicar em disco.
+    """
 
     nome: str
     mascara: np.ndarray  # 0/1, do recorte do nome
