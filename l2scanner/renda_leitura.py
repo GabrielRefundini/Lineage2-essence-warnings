@@ -48,6 +48,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from types import MappingProxyType
 
 import numpy as np
 
@@ -1319,6 +1320,192 @@ class LeituraDaRenda:
     carimbo: float
 
 
+# ---------------------------------------------------------------------------
+# A PORTA DE UM CAMPO COM UM PISO -- e ela e a razao de a varredura do LEIT-10
+# custar UMA leitura por tentativa, e nao tres
+# ---------------------------------------------------------------------------
+
+
+def _desempacotar_os_moldes(conjunto: dict) -> dict:
+    """Os moldes de glifo em memoria, ou o CONJUNTO VAZIO com a razao no log.
+
+    Um conjunto que nao desempacote vira conjunto VAZIO, e o vazio cai na
+    guarda de conjunto incompleto com a mensagem certa; levantar aqui trocaria
+    uma recusa nomeada por um traceback no meio do farm. Este comportamento e
+    o de `ler_os_tres_campos` desde o `01-04` e esta funcao so lhe da um nome
+    para que as duas portas o compartilhem em vez de o repetirem.
+    """
+    try:
+        return glifos_de_calibracao(conjunto.get("moldes"))
+    except ValueError as erro:
+        log.warning("renda: os moldes da barra nao desempacotaram: %s", erro)
+        return {}
+
+
+def _detalhe_do_personagem_sem_calibracao(calibracao, personagem) -> str:
+    """A frase da recusa por personagem, escrita UMA vez e usada pelas duas portas."""
+    conhecidos = sorted(getattr(calibracao, "renda_por_personagem", None) or {})
+    return (
+        f"nao ha calibracao de renda para {personagem!r} "
+        f"(calibrados: {', '.join(conhecidos) if conhecidos else '(nenhum)'}). "
+        "A leitura NAO cai na calibracao de outro personagem: o retangulo "
+        "do vizinho devolve um numero plausivel e errado em vez de um campo "
+        "vazio que alguem nota"
+    )
+
+
+#: A TABELA DE QUAIS CAMPOS EXISTEM, e ela e DECLARADA pelo mesmo motivo que
+#: `ORDEM_DOS_CAMPOS` e: um `if/elif` de tres ramos seria uma QUARTA verdade
+#: sobre os campos da renda, e a quarta e sempre a que esquece de ser
+#: atualizada. Cada entrada e `(sub-chave do calibration.json, leitor)`, e os
+#: tres leitores tem assinatura UNIFORME -- `(recorte, piso, moldes, conjunto)`
+#: -- mesmo que so a adena use os dois ultimos. Uniformizar aqui e o que
+#: permite despachar por tabela em vez de por ramo.
+#:
+#: `MappingProxyType` E NAO `dict` PORQUE O PORTAO DE MEMORIA DESTE ARQUIVO E
+#: DE VERDADE: `tests/test_renda_par.py` varre a arvore de sintaxe atras de
+#: literal mutavel de nivel de modulo, com controle positivo. Um `dict` nu aqui
+#: deixaria o portao vermelho -- e o portao esta certo, porque um mapa mutavel
+#: de modulo e memoria esperando para ser escrita.
+_PORTA_DO_CAMPO = MappingProxyType(
+    {
+        CAMPO_DO_NIVEL: (
+            SUBCHAVE_DO_NIVEL,
+            lambda recorte, piso, moldes, conjunto: nivel_da_regiao(
+                recorte, piso_de_brilho=piso
+            ),
+        ),
+        CAMPO_DO_EXP: (
+            SUBCHAVE_DO_EXP,
+            lambda recorte, piso, moldes, conjunto: exp_da_barra(
+                recorte, piso_de_brilho=piso
+            ),
+        ),
+        CAMPO_DA_ADENA: (
+            SUBCHAVE_DA_ADENA,
+            lambda recorte, piso, moldes, conjunto: adena_da_barra(
+                recorte,
+                piso_de_brilho=piso,
+                moldes=moldes,
+                piso_de_leitura=conjunto.get("piso_de_leitura"),
+                margem_de_leitura=conjunto.get("margem_de_leitura"),
+                folga_de_cola=conjunto.get("folga_de_cola"),
+            ),
+        ),
+    }
+)
+
+
+def ler_um_campo(
+    frame,
+    *,
+    personagem,
+    campo,
+    calibracao,
+    piso_de_brilho=None,
+    moldes=None,
+):
+    """UM campo, com UM piso: o valor, ou a recusa nomeada daquele campo.
+
+    ELA E O `_ler` DE `ler_os_tres_campos`, EXTRAIDO, e nao uma segunda
+    implementacao. `ler_os_tres_campos` DELEGA a ela desde o `03-03`, e e isso
+    que impede uma segunda verdade sobre como um campo e recortado, mascarado e
+    lido -- duas implementacoes do mesmo recorte sao como elas divergem, e a
+    divergencia produziria um numero plausivel e errado, que e o unico defeito
+    que este workstream trata como inaceitavel.
+
+    POR QUE ELA EXISTE (LEIT-10). A varredura de pisos vizinhos precisa
+    experimentar oito pisos NUM campo so. Sem esta porta, cada tentativa
+    custaria uma leitura dos TRES campos -- 24 leituras para descobrir um piso
+    -- e o requisito nao caberia no orcamento de um tique de 1 s.
+
+    `piso_de_brilho=None` NAO E CONSTANTE MAGICA: `None` e o sinal de "use o
+    gravado", e nao um numero por omissao. A distincao e a mesma que
+    `RecusaDaRenda` faz entre "recusou" e "nao mediu", e ela importa porque
+    MEDIDO nao existe um piso unico -- a banda do nivel (190-220) e a da adena
+    por OCR (150) nao tem intersecao nenhuma (M-E), e um default numerico
+    serviria a uma regiao e apagaria a outra em silencio.
+
+    `moldes=None` SIGNIFICA "DESEMPACOTE POR CONTA PROPRIA", e o
+    desempacotamento so acontece para o campo da ADENA -- os outros dois nao
+    tocam nos moldes, e pagar `glifos_de_calibracao` para ler o nivel seria
+    trabalho puro jogado fora dentro do caminho em que oito leituras se somam
+    num tique so.
+
+    E O CUSTO DESSE DESEMPACOTAMENTO ESTA MEDIDO, NAO ESTIMADO. Nesta arvore,
+    contra `tests/fixtures/renda/montagem_completa.png` e a calibracao de
+    fixtura (**11** moldes gravados), em 2026-09-03: `glifos_de_calibracao`
+    custa **0,017 ms**, contra **5,3 ms** de uma leitura completa da adena --
+    tres milesimos dela. Ou seja: desempacotar por campo NAO e o que
+    encareceria a delegacao, e a afirmacao de que "o desempacotamento por campo
+    triplicaria o custo do caminho de producao" **nao se sustenta nesta
+    medicao**. `ler_os_tres_campos` continua desempacotando uma vez mesmo
+    assim, porque 0,017 ms tres vezes continua sendo trabalho que ninguem pediu
+    e o parametro ja existe -- mas a razao e higiene, e nao orcamento.
+
+    A MEDICAO QUE DECIDE DE VERDADE E OUTRA, e ela vale para o `03-03`: as duas
+    formas de ler os tres campos custam **o mesmo dentro do ruido**. Medidas
+    intercaladas, 40 rodadas de cada: `ler_os_tres_campos` **36,1 ms** de
+    mediana e tres `ler_um_campo` **32,0 ms** (min 16-17, max 118-135 nas
+    duas). O OCR domina e varia por um fator de sete; a diferenca entre as duas
+    formas some dentro disso. E por isso que o laco pode ler campo a campo
+    quando ha piso lembrado sem pagar nada por isso.
+
+    ESTA FUNCAO NAO ACRESCENTA MEMORIA, CACHE NEM ESTADO A ESTE MODULO. A
+    Fase 1 definiu-se pura por escrito e ha portao de arvore de sintaxe com
+    controle positivo prendendo essa pureza (`tests/test_renda_par.py`). **A
+    memoria do piso que funcionou e estado do LACO** (`renda_laco.py`), e nunca
+    do leitor: um leitor com memoria mente sobre a tela atual usando a tela
+    passada.
+
+    CAMPO DESCONHECIDO LEVANTA `ValueError`, E NAO DEVOLVE RECUSA. E erro de
+    programacao do chamador e nao recusa de leitura; uma `RecusaDaRenda` aqui
+    esconderia um `typo` dentro dos 79% de recusa normal do nivel, que e
+    exatamente onde ninguem o veria. O molde e o de `ganho_do_passo`
+    (`renda_conta.py:900-903`): a mensagem nomeia os que existem.
+    """
+    if campo not in _PORTA_DO_CAMPO:
+        raise ValueError(
+            f"campo desconhecido: {campo!r}. Os que existem sao "
+            f"{ORDEM_DOS_CAMPOS!r}"
+        )
+    subchave, leitor = _PORTA_DO_CAMPO[campo]
+
+    # A RECUSA POR PERSONAGEM VEM ANTES DE QUALQUER OCR, e a proibicao de queda
+    # mora num lugar so (`Calibracao.renda_do_personagem`): nao se gasta o
+    # motor para descobrir que nao se sabia de quem era a tela.
+    entrada = calibracao.renda_do_personagem(personagem)
+    if entrada is None:
+        return _recusar(
+            campo,
+            MOTIVO_DO_PERSONAGEM,
+            _detalhe_do_personagem_sem_calibracao(calibracao, personagem),
+        )
+
+    bloco = entrada.get(subchave)
+    if not isinstance(bloco, dict):
+        return _recusar(
+            campo,
+            MOTIVO_DO_PERSONAGEM,
+            f"a entrada de {personagem!r} nao tem a sub-chave {subchave!r}. "
+            "Rode o calibrador da renda para este personagem",
+        )
+
+    recorte = recortar(frame, Regiao.de_dict(bloco["regiao"]), campo=campo)
+    if isinstance(recorte, RecusaDaRenda):
+        return recorte
+
+    piso = (
+        int(bloco["piso_de_brilho"])
+        if piso_de_brilho is None
+        else int(piso_de_brilho)
+    )
+    conjunto = getattr(calibracao, "renda_moldes_da_barra", None) or {}
+    if moldes is None and campo == CAMPO_DA_ADENA:
+        moldes = _desempacotar_os_moldes(conjunto)
+    return leitor(recorte, piso, moldes or {}, conjunto)
+
+
 def ler_os_tres_campos(frame, *, personagem, calibracao) -> CamposDaRenda:
     """Os tres campos de UM personagem nomeado, com os retangulos e pisos DELE.
 
@@ -1346,17 +1533,23 @@ def ler_os_tres_campos(frame, *, personagem, calibracao) -> CamposDaRenda:
     que nao desempacote vira conjunto VAZIO, e o vazio cai na guarda de conjunto
     incompleto com a mensagem certa; levantar aqui trocaria uma recusa nomeada
     por um traceback no meio do farm.
+
+    E ELES CONTINUAM SENDO DESEMPACOTADOS **UMA** VEZ, mesmo depois de esta
+    funcao passar a DELEGAR a `ler_um_campo` (`03-03`): o conjunto ja
+    desempacotado viaja como parametro para a chamada da adena. Se ela delegasse
+    sem passar os moldes adiante, o caminho de PRODUCAO -- o de 1 Hz -- pagaria o
+    desempacotamento por campo para servir a um caminho que roda em 4,7% dos
+    tiques. Ha teste contando as chamadas de `glifos_de_calibracao` numa leitura
+    completa e afirmando **1**.
+
+    O QUE ELA DEIXOU DE TER E A IMPLEMENTACAO DO RECORTE; o que ela mantem e a
+    ordem da tela, o desempacotamento unico e a recusa antecipada por
+    personagem -- que aqui vale para os TRES de uma vez e por isso continua
+    sendo feita neste nivel, e nao tres vezes la dentro.
     """
     entrada = calibracao.renda_do_personagem(personagem)
     if entrada is None:
-        conhecidos = sorted(getattr(calibracao, "renda_por_personagem", None) or {})
-        detalhe = (
-            f"nao ha calibracao de renda para {personagem!r} "
-            f"(calibrados: {', '.join(conhecidos) if conhecidos else '(nenhum)'}). "
-            "A leitura NAO cai na calibracao de outro personagem: o retangulo "
-            "do vizinho devolve um numero plausivel e errado em vez de um campo "
-            "vazio que alguem nota"
-        )
+        detalhe = _detalhe_do_personagem_sem_calibracao(calibracao, personagem)
         return CamposDaRenda(
             personagem=personagem or "",
             nivel=_recusar(CAMPO_DO_NIVEL, MOTIVO_DO_PERSONAGEM, detalhe),
@@ -1365,50 +1558,22 @@ def ler_os_tres_campos(frame, *, personagem, calibracao) -> CamposDaRenda:
         )
 
     conjunto = getattr(calibracao, "renda_moldes_da_barra", None) or {}
-    try:
-        moldes = glifos_de_calibracao(conjunto.get("moldes"))
-    except ValueError as erro:
-        moldes = {}
-        log.warning("renda: os moldes da barra nao desempacotaram: %s", erro)
+    moldes = _desempacotar_os_moldes(conjunto)
 
-    def _ler(campo, subchave, leitor):
-        bloco = entrada.get(subchave)
-        if not isinstance(bloco, dict):
-            return _recusar(
-                campo,
-                MOTIVO_DO_PERSONAGEM,
-                f"a entrada de {personagem!r} nao tem a sub-chave {subchave!r}. "
-                "Rode o calibrador da renda para este personagem",
-            )
-        recorte = recortar(frame, Regiao.de_dict(bloco["regiao"]), campo=campo)
-        if isinstance(recorte, RecusaDaRenda):
-            return recorte
-        return leitor(recorte, int(bloco["piso_de_brilho"]))
+    def _ler(campo):
+        return ler_um_campo(
+            frame,
+            personagem=personagem,
+            campo=campo,
+            calibracao=calibracao,
+            moldes=moldes,
+        )
 
     return CamposDaRenda(
         personagem=personagem,
-        nivel=_ler(
-            CAMPO_DO_NIVEL,
-            SUBCHAVE_DO_NIVEL,
-            lambda recorte, piso: nivel_da_regiao(recorte, piso_de_brilho=piso),
-        ),
-        exp=_ler(
-            CAMPO_DO_EXP,
-            SUBCHAVE_DO_EXP,
-            lambda recorte, piso: exp_da_barra(recorte, piso_de_brilho=piso),
-        ),
-        adena=_ler(
-            CAMPO_DA_ADENA,
-            SUBCHAVE_DA_ADENA,
-            lambda recorte, piso: adena_da_barra(
-                recorte,
-                piso_de_brilho=piso,
-                moldes=moldes,
-                piso_de_leitura=conjunto.get("piso_de_leitura"),
-                margem_de_leitura=conjunto.get("margem_de_leitura"),
-                folga_de_cola=conjunto.get("folga_de_cola"),
-            ),
-        ),
+        nivel=_ler(CAMPO_DO_NIVEL),
+        exp=_ler(CAMPO_DO_EXP),
+        adena=_ler(CAMPO_DA_ADENA),
     )
 
 

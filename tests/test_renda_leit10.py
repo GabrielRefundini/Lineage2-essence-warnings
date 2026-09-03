@@ -38,7 +38,6 @@ ser o RETANGULO, e manda o usuario ao `calibrar-renda.bat`.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import cv2
@@ -251,16 +250,26 @@ class TestAEquivalenciaDaExtracao:
             )
             assert _mesma_leitura(um, tres.por_campo[campo])
 
-    def test_A_SUBCHAVE_AUSENTE_MANDA_RODAR_O_CALIBRADOR(
-        self, montagem, tmp_path
-    ):
-        dados = json.loads(
-            CALIBRACAO_DE_FIXTURE.read_text(encoding="utf-8")
+    def test_A_SUBCHAVE_AUSENTE_MANDA_RODAR_O_CALIBRADOR(self, montagem):
+        """A entrada pela metade, e a mutilacao e EM MEMORIA por medicao.
+
+        MEDIDO ao escrever este teste: gravar a mesma entrada sem `nivel` num
+        arquivo e carrega-la **nao chega** nesta recusa —
+        `calibracao.py:1495-1505` levanta `CalibracaoInvalida` no proprio
+        carregamento, com a frase *"uma entrada pela metade e pior que uma
+        entrada ausente"*. Ou seja: o esquema ja fecha o caminho do disco, e a
+        guarda de `ler_um_campo` cobre o que sobra — um objeto `Calibracao`
+        montado ou alterado em memoria, que e exatamente o que a injecao de
+        dependencia desta casa permite. Mutilar em memoria e o unico jeito
+        HONESTO de chegar ao ramo; escrever o arquivo mediria a validacao do
+        esquema e chamaria isso de leitura.
+        """
+        mutilada = Calibracao.carregar(CALIBRACAO_DE_FIXTURE)
+        entrada = dict(mutilada.renda_por_personagem["Faerlina"])
+        del entrada["nivel"]
+        mutilada.renda_por_personagem = dict(
+            mutilada.renda_por_personagem, Faerlina=entrada
         )
-        del dados["renda_por_personagem"]["Faerlina"]["nivel"]
-        alvo = tmp_path / "sem_nivel.json"
-        alvo.write_text(json.dumps(dados), encoding="utf-8")
-        mutilada = Calibracao.carregar(alvo)
 
         um = rl.ler_um_campo(
             montagem,
