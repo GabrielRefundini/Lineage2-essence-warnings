@@ -281,8 +281,16 @@ TEXTO_DA_TAXA_NEGATIVA = (
 TEXTO_SEM_EVIDENCIA = "sem previsao: ainda nao da para dizer."
 
 
-def _duracao_curta(segundos: float) -> str:
+def duracao_curta(segundos: float) -> str:
     """`17520.696` -> `4h52`. Inteiro, e a partir de EPOCHS SUBTRAIDOS.
+
+    ELA NASCEU PRIVADA NO `03-01` E FICOU PUBLICA NO `03-02`, e a razao e uma
+    so: `renda_estado.texto_do_parado` escreve `PARADO ha 4min` na MESMA tela
+    em que este arquivo escreve `ha 4min` na recencia da taxa. Duas gramaticas
+    de duracao lado a lado fariam a mesma grandeza aparecer escrita de dois
+    jeitos -- e a alternativa (copiar as seis linhas para o modulo puro) e
+    exatamente a segunda verdade que a mudanca de casa das tres grafias, no
+    `03-01`, existiu para impedir.
 
     O `int()` NA ENTRADA E O PONTO. `dashboard_dados.py:624-628` mediu
     `total_seconds()` devolvendo `69713.696` onde o inteiro dizia `69713`; um
@@ -398,18 +406,18 @@ def _linhas_de_uma_taxa(rotulo_base: str, sufixo: str, taxa, agora) -> list[str]
             f"sem numero: {taxa.motivo_da_ausencia}"
         )
 
-    recencia = "agora" if taxa.ate is None else f"ha {_duracao_curta(agora - taxa.ate)}"
+    recencia = "agora" if taxa.ate is None else f"ha {duracao_curta(agora - taxa.ate)}"
     numero = _grafia_curta(taxa.por_hora)
     return [_linha(rotulo, f"{numero:<9} (n={taxa.evidencia.n}, {recencia})")]
 
 
 def _sufixo_da_janela(taxa) -> str:
-    return f"janela ({_duracao_curta(taxa.janela_farmada_em_segundos)})"
+    return f"janela ({duracao_curta(taxa.janela_farmada_em_segundos)})"
 
 
 def _sufixo_da_sessao(taxa) -> str:
     return (
-        f"sessao ({_duracao_curta(taxa.janela_farmada_em_segundos)} farmadas)"
+        f"sessao ({duracao_curta(taxa.janela_farmada_em_segundos)} farmadas)"
     )
 
 
@@ -423,7 +431,7 @@ def _linhas_do_eta(eta, campos, agora) -> list[str]:
     )
 
     if eta.segundos is not None:
-        return [_linha(rotulo, _duracao_curta(float(eta.segundos)))]
+        return [_linha(rotulo, duracao_curta(float(eta.segundos)))]
 
     motivo = eta.motivo_da_ausencia or ""
     if motivo == MOTIVO_DA_TAXA_DE_EXP_ZERADA:
@@ -509,8 +517,8 @@ def bloco_da_renda(
         "",
         "HA QUANTO TEMPO A SESSAO CORRE:",
         "  sessao de pe "
-        f"{_duracao_curta(agora - desde)} "
-        f"({_duracao_curta(taxas_de_exp.sessao.janela_farmada_em_segundos)}"
+        f"{duracao_curta(agora - desde)} "
+        f"({duracao_curta(taxas_de_exp.sessao.janela_farmada_em_segundos)}"
         " farmadas)",
         "",
         f"O QUE ISSO RENDE (denominador em {taxas_de_exp.sessao.unidade_da_janela}, "
@@ -543,7 +551,7 @@ def bloco_da_renda(
         _linha(
             "lacunas excluidas",
             f"{sessao.lacunas_excluidas} "
-            f"({_duracao_curta(sessao.segundos_em_lacuna)} cegos)",
+            f"({duracao_curta(sessao.segundos_em_lacuna)} cegos)",
         ),
         _linha("passos aceitos na sessao", str(contagem.aceitas)),
     ]
