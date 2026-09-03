@@ -145,7 +145,31 @@ ESTADO_LENDO = "LENDO"
 # ELE NAO E `console.LARGURA`. Aquele e 58 e e PISO de `moldurar`; a linha ao
 # vivo nunca passou por `moldurar`, nao trunca e nao quebra — a do mercado ja
 # roda 84 colunas normalmente e 255 com o aviso de layout colado (C-2).
-LARGURA_MAXIMA_DA_LINHA_DO_TIQUE = 72
+#
+# ELE SUBIU DE 72 PARA 76 NO `03-02`, E O NUMERO ANTIGO CAIU POR MEDICAO.
+# 72 era o teto medido do vocabulario de estados que existia no `03-01`: DOIS
+# (`LENDO` e a lista de recusas). O `03-02` traz CINCO, e os novos sao mais
+# longos. Medido com os valores reais do usuario de 2026-09-03 (`renda | nivel
+# 68 | EXP 48,0075% | adena 23.986.985 | `, que custa 53 colunas), com o teto
+# em 72:
+#
+#   PARADO ha 4min n=249        ->  73, truncava em `PARADO ha 4min n=2~`
+#   PARADO ha 59min n=3598      ->  75, truncava em `PARADO ha 59min n=~`
+#   PAUSADO: tela de login      ->  75, truncava em `PAUSADO: tela de l~`
+#   PAUSADO: desconectado       ->  74, truncava em `PAUSADO: desconect~`
+#
+# Ou seja: com o teto antigo, TODOS os estados novos perdiam o fim -- e o fim e
+# a contagem de amostras que o CEGO-02 pede pelo nome, e o motivo da pausa que
+# o CEGO-01 existe para dizer. Manter 72 teria sido preservar um numero medido
+# para OUTRO conjunto de linhas.
+#
+# 76 NAO E ESCOLHA NOVA: e `LARGURA_DO_AVISO`, o unico numero de largura de
+# console que este fonte cita com razao ao lado -- *"a largura em que ela cabe
+# num console padrao de 80"* (`mercado_console.py:748`) --, e ele ja e o teto
+# do bloco por intervalo deste mesmo arquivo. Com 76, as cinco linhas acima
+# cabem inteiras (73, 75, 75, 74) e a truncagem volta a ser o que ela era: a
+# rede para o caso patologico, e nao o caminho normal.
+LARGURA_MAXIMA_DA_LINHA_DO_TIQUE = LARGURA_DO_AVISO
 
 # O que fica no lugar do que foi cortado. Uma truncagem invisivel transformaria
 # `discordancia-entre-escalas` em `discordanci`, que parece um motivo inteiro e

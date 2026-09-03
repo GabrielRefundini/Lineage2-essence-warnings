@@ -41,7 +41,7 @@ from l2scanner.recaptura import (
     CONGELADOS_SEGUIDOS_PARA_RELIGAR,
     FonteRecuperavel,
 )
-from l2scanner.renda_conta import DESCONTINUIDADE_DA_LACUNA
+from l2scanner.renda_conta import DESCONTINUIDADE_DA_LACUNA, ContagemDaRenda
 from l2scanner.renda_laco import (
     SEGUNDOS_PARA_DECLARAR_PARADO,
     _montar_a_fonte,
@@ -57,6 +57,15 @@ from l2scanner.renda_leitura import (
     ValorDaAdena,
     ValorDaRenda,
 )
+from l2scanner.renda_console import (
+    ESTADOS_QUE_SOMAM,
+    PREFIXO_DA_LINHA,
+    LARGURA_MAXIMA_DA_LINHA_DO_TIQUE,
+    MARCA_POR_ESTADO,
+    RECORTE_DO_EXP_SEM_LEITURA,
+    linha_do_tique,
+)
+from l2scanner.renda_estado import EstadoDaRenda, RastreioDoValor, classificar_a_visao
 from l2scanner.renda_registro import arquivo_do_personagem
 
 FIXTURES = Path(__file__).parent / "fixtures" / "renda"
@@ -754,3 +763,442 @@ class TestOLimiarDaStaleness:
         antes = fonte.split("SEGUNDOS_PARA_DECLARAR_PARADO =")[0]
         bloco = antes.rsplit("\n\n", 1)[-1]
         assert "ESCOLHA E NAO MEDICAO" in bloco, bloco
+
+
+# ---------------------------------------------------------------------------
+# CEGO-02 -- PARADO GRAVA, E SO MUDA A TELA
+# ---------------------------------------------------------------------------
+
+
+def linhas_do_tique(caplog) -> list[str]:
+    """So as linhas do tique, entre todo o resto do log da sessao.
+
+    O `caplog.text` prefixa cada registro com nivel, logger e origem, entao a
+    linha e recortada a partir do `PREFIXO_DA_LINHA` -- que e o mesmo motivo de
+    ele existir: deixar a linha da renda reconhecivel no `scanner.log`
+    rotativo, onde ela divide o arquivo com as da party e as do mercado.
+    """
+    marca = f"{PREFIXO_DA_LINHA} | "
+    achadas = []
+    for linha in caplog.text.splitlines():
+        posicao = linha.find(marca)
+        if posicao >= 0:
+            achadas.append(linha[posicao:].strip())
+    return achadas
+
+
+class TestOParadoGrava:
+    """A metade do CEGO-02 que o `03-CONTEXT.md` decidiu e o CTX-3 cravou.
+
+    **"Parado" GRAVA normalmente e so muda a TELA. So a cegueira suspende a
+    gravacao.** As tres razoes, na ordem do peso:
+
+    1. Renda zero e um fato legitimo sobre o farm. Se "parado" virasse recusa, o
+       arquivo perderia justamente a evidencia de que o usuario ficou uma hora
+       parado -- que e a pergunta que ele mais quer de manha.
+    2. A taxa mentiria PARA CIMA. Sem as linhas do tempo parado o denominador
+       encolhe, e a diferenca medida entre a janela curta (466 mil adena/h) e a
+       media longa (226 mil/h) e EXATAMENTE tempo parado.
+    3. `renda_registro.py` diz por escrito que uma linha por tique **e o
+       produto**, e a Fase 2 ja grava a recusa com o motivo.
+    """
+
+    def test_TRINTA_TIQUES_BIT_IDENTICOS_DEIXAM_TRINTA_LINHAS(
+        self, cal, tmp_path
+    ) -> None:
+        rodar(
+            cal,
+            tmp_path,
+            sequencia=[campos_de(exp_em_decimos=480_075)],
+            carimbos=[float(n) * 10 for n in range(30)],
+            fonte=FonteComSaude([SaudeDoFrame.OK] * 30),
+            ticks=30,
+        )
+        arquivo = arquivo_do_personagem(tmp_path, PERSONAGEM)
+        assert len(linhas_de_dado(arquivo)) == 30, (
+            "PARADO deixou de gravar: a taxa da sessao passa a mentir para "
+            "cima, porque o denominador encolheu"
+        )
+
+    def test_a_linha_diz_PARADO_DEPOIS_do_limiar_e_nao_antes(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        """E ela mostra OS DOIS numeros: o tempo e a contagem de amostras."""
+        carimbos = [float(n) * 10 for n in range(30)]
+        with caplog.at_level(logging.INFO):
+            rodar(
+                cal,
+                tmp_path,
+                sequencia=[campos_de(exp_em_decimos=480_075)],
+                carimbos=carimbos,
+                fonte=FonteComSaude([SaudeDoFrame.OK] * 30),
+                ticks=30,
+            )
+
+        linhas = linhas_do_tique(caplog)
+        assert len(linhas) == 30
+
+        # Com um tique a cada 10 s, o limiar de 120 s vence no 13o tique
+        # (carimbo 120), e nunca antes.
+        vence = int(SEGUNDOS_PARA_DECLARAR_PARADO // 10) + 1
+        assert "PARADO" not in linhas[vence - 2], linhas[vence - 2]
+        assert "PARADO" in linhas[vence - 1], linhas[vence - 1]
+        assert "2min" in linhas[vence - 1], linhas[vence - 1]
+        assert "n=13" in linhas[vence - 1], linhas[vence - 1]
+
+    def test_RENDA_ZERO_E_CEGUEIRA_LADO_A_LADO_produzem_o_OPOSTO_no_disco(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        """A comparacao que o CEGO-01/CEGO-02 existe para garantir.
+
+        Uma metade sozinha ficaria verde com a outra invertida: um teste que so
+        provasse "cegueira nao grava" passaria com PARADO tambem nao gravando --
+        que e exatamente o defeito que apaga a evidencia do tempo parado.
+        """
+        parado = tmp_path / "parado"
+        cego = tmp_path / "cego"
+
+        with caplog.at_level(logging.INFO):
+            rodar(
+                cal,
+                parado,
+                sequencia=[campos_de(exp_em_decimos=480_075)],
+                carimbos=[float(n) * 10 for n in range(20)],
+                fonte=FonteComSaude([SaudeDoFrame.OK] * 20),
+                ticks=20,
+            )
+            linhas_do_parado = linhas_do_tique(caplog)
+            caplog.clear()
+            rodar(
+                cal,
+                cego,
+                sequencia=[campos_de(exp_em_decimos=480_075)],
+                carimbos=[float(n) * 10 for n in range(20)],
+                fonte=FonteComSaude([SaudeDoFrame.FALHA_DE_CAPTURA] * 20),
+                ticks=20,
+            )
+            linhas_do_cego = linhas_do_tique(caplog)
+
+        assert (
+            len(linhas_de_dado(arquivo_do_personagem(parado, PERSONAGEM))) == 20
+        ), "renda zero legitima TEM de deixar linha"
+        assert linhas_de_dado(arquivo_do_personagem(cego, PERSONAGEM)) == [], (
+            "cegueira NAO pode deixar linha"
+        )
+
+        # A COMPARACAO E SOBRE AS LINHAS DO TIQUE, e nao sobre o log inteiro:
+        # o resumo da sessao cita as duas palavras nos ROTULOS dos contadores,
+        # em toda sessao, e um teste sobre `caplog.text` estaria medindo o
+        # resumo em vez da tela do tique.
+        assert any("PARADO ha" in x for x in linhas_do_parado), linhas_do_parado
+        assert not any("PAUSADO" in x for x in linhas_do_parado)
+        assert all("PAUSADO" in x for x in linhas_do_cego), linhas_do_cego
+        assert not any("PARADO ha" in x for x in linhas_do_cego)
+
+    def test_o_EXP_recusado_com_a_adena_lida_GRAVA_e_diz_SEM_LEITURA_EXP(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        """O quinto caso, na fatia inteira: a linha vai ao disco E a tela nao
+        afirma nem PARADO nem LENDO sobre um numero que nao foi lido."""
+        with caplog.at_level(logging.INFO):
+            rodar(
+                cal,
+                tmp_path,
+                sequencia=[
+                    campos_de(exp_em_decimos=None, adena=23_986_985 + n)
+                    for n in range(6)
+                ],
+                carimbos=[float(n) * 10 for n in range(6)],
+                fonte=FonteComSaude([SaudeDoFrame.OK] * 6),
+                ticks=6,
+            )
+
+        arquivo = arquivo_do_personagem(tmp_path, PERSONAGEM)
+        assert len(linhas_de_dado(arquivo)) == 6, "SEM LEITURA (EXP) tem de gravar"
+
+        linhas = linhas_do_tique(caplog)
+        assert all("SEM LEITURA (EXP)" in linha for linha in linhas), linhas
+        assert not any("PARADO" in linha for linha in linhas)
+        assert not any(linha.endswith("LENDO") for linha in linhas)
+
+    def test_os_TRES_recusados_gravam_e_o_CSV_carrega_os_tres_motivos(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        """SEM LEITURA grava, e o motivo de cada campo viaja NA LINHA do CSV.
+
+        O texto da tela nomeia os CAMPOS e o CSV nomeia os MOTIVOS, e a divisao
+        e de largura: `SEM LEITURA (nivel, EXP, adena: campo-vazio)` custa 83
+        colunas com o prefixo, contra um teto de 76. O motivo nao se perde -- ele
+        esta no disco, na coluna propria de cada campo, e sai alto UMA vez no
+        bloco da transicao.
+        """
+        with caplog.at_level(logging.INFO):
+            rodar(
+                cal,
+                tmp_path,
+                sequencia=[campos_de(nivel=None, exp_em_decimos=None, adena=None)],
+                carimbos=[float(n) * 10 for n in range(4)],
+                fonte=FonteComSaude([SaudeDoFrame.OK] * 4),
+                ticks=4,
+            )
+
+        arquivo = arquivo_do_personagem(tmp_path, PERSONAGEM)
+        assert len(linhas_de_dado(arquivo)) == 4
+        for nome in ("motivo_do_nivel", "motivo_do_exp", "motivo_da_adena"):
+            assert set(coluna(arquivo, nome)) == {MOTIVO_DO_CAMPO_VAZIO}, nome
+
+        linhas = linhas_do_tique(caplog)
+        assert all("SEM LEITURA (nivel, EXP, adena)" in x for x in linhas), linhas
+
+    def test_o_nivel_recusado_com_o_EXP_SUBINDO_continua_LENDO_na_fatia(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        """O caso de 79% dos tiques, ponta a ponta.
+
+        E a linha continua mostrando o MOTIVO daquela recusa -- que e a unica
+        pista de conserto que o usuario tem na tela.
+        """
+        with caplog.at_level(logging.INFO):
+            rodar(
+                cal,
+                tmp_path,
+                sequencia=[
+                    campos_de(nivel=None, exp_em_decimos=480_000 + n * 10)
+                    for n in range(6)
+                ],
+                carimbos=[float(n) * 10 for n in range(6)],
+                fonte=FonteComSaude([SaudeDoFrame.OK] * 6),
+                ticks=6,
+            )
+
+        linhas = linhas_do_tique(caplog)
+        assert not any("PARADO" in x for x in linhas), linhas
+        assert not any("SEM LEITURA" in x for x in linhas), linhas
+        assert all(MOTIVO_DO_CAMPO_VAZIO in x for x in linhas[1:]), linhas
+
+
+class TestOsEstadosSaoDISTINGUIVEIS:
+    """As 4 da manha, num console rolando, e SEM cor."""
+
+    def test_os_cinco_textos_de_estado_sao_todos_DIFERENTES(self) -> None:
+        rastreio = RastreioDoValor()
+        classificar_a_visao(
+            saude=SaudeDoFrame.OK,
+            estado_do_cliente=EstadoDoCliente.EM_JOGO,
+            minimizada=False,
+            campos=campos_de(),
+            rastreio=rastreio,
+            carimbo=0.0,
+            segundos_para_parado=SEGUNDOS_PARA_DECLARAR_PARADO,
+        )
+        parado = classificar_a_visao(
+            saude=SaudeDoFrame.OK,
+            estado_do_cliente=EstadoDoCliente.EM_JOGO,
+            minimizada=False,
+            campos=campos_de(),
+            rastreio=rastreio,
+            carimbo=1000.0,
+            segundos_para_parado=SEGUNDOS_PARA_DECLARAR_PARADO,
+        )
+        so_exp = classificar_a_visao(
+            saude=SaudeDoFrame.OK,
+            estado_do_cliente=EstadoDoCliente.EM_JOGO,
+            minimizada=False,
+            campos=campos_de(exp_em_decimos=None),
+            rastreio=RastreioDoValor(),
+            carimbo=0.0,
+            segundos_para_parado=SEGUNDOS_PARA_DECLARAR_PARADO,
+        )
+        os_tres = classificar_a_visao(
+            saude=SaudeDoFrame.OK,
+            estado_do_cliente=EstadoDoCliente.EM_JOGO,
+            minimizada=False,
+            campos=campos_de(nivel=None, exp_em_decimos=None, adena=None),
+            rastreio=RastreioDoValor(),
+            carimbo=0.0,
+            segundos_para_parado=SEGUNDOS_PARA_DECLARAR_PARADO,
+        )
+        pausado = classificar_a_visao(
+            saude=SaudeDoFrame.FALHA_DE_CAPTURA,
+            estado_do_cliente=EstadoDoCliente.EM_JOGO,
+            minimizada=False,
+            campos=campos_de(),
+            rastreio=RastreioDoValor(),
+            carimbo=0.0,
+            segundos_para_parado=SEGUNDOS_PARA_DECLARAR_PARADO,
+        )
+
+        textos = [parado.texto, so_exp.texto, os_tres.texto, pausado.texto]
+        assert len(set(textos)) == 4, textos
+        assert parado.texto.startswith("PARADO")
+        assert so_exp.texto.startswith("SEM LEITURA")
+        assert pausado.texto.startswith("PAUSADO")
+
+    def test_a_LINHA_MAIS_LONGA_com_os_valores_reais_cabe_no_teto(self) -> None:
+        """MEDIDO, e nao afirmado, com `nivel 68  EXP 48,0075%  adena
+        23.986.985` -- os valores lidos ao vivo em 2026-09-03.
+
+        O teto e `LARGURA_DO_AVISO`, *"a largura em que ela cabe num console
+        padrao de 80"*. Nenhum dos cinco estados pode sair truncado: o que a
+        truncagem come e sempre o FIM, e o fim e a contagem de amostras que o
+        CEGO-02 pede pelo nome e o motivo da pausa que o CEGO-01 existe para
+        dizer.
+        """
+        contagem = ContagemDaRenda()
+        casos = []
+
+        rastreio = RastreioDoValor()
+        for carimbo in (0.0, 3599.0):
+            visao = classificar_a_visao(
+                saude=SaudeDoFrame.OK,
+                estado_do_cliente=EstadoDoCliente.EM_JOGO,
+                minimizada=False,
+                campos=campos_de(),
+                rastreio=rastreio,
+                carimbo=carimbo,
+                segundos_para_parado=SEGUNDOS_PARA_DECLARAR_PARADO,
+            )
+        casos.append((campos_de(), visao.texto))
+
+        for saude, estado, mini, campos in (
+            (SaudeDoFrame.OK, EstadoDoCliente.TELA_DE_LOGIN, False, campos_de()),
+            (SaudeDoFrame.OK, EstadoDoCliente.DESCONECTADO, False, campos_de()),
+            (SaudeDoFrame.OK, EstadoDoCliente.DESCONHECIDO, False, campos_de()),
+            (SaudeDoFrame.CONGELADO, EstadoDoCliente.EM_JOGO, False, campos_de()),
+            (
+                SaudeDoFrame.FALHA_DE_CAPTURA,
+                EstadoDoCliente.EM_JOGO,
+                False,
+                campos_de(),
+            ),
+            (SaudeDoFrame.OK, EstadoDoCliente.EM_JOGO, True, campos_de()),
+            (
+                SaudeDoFrame.OK,
+                EstadoDoCliente.EM_JOGO,
+                False,
+                campos_de(exp_em_decimos=None),
+            ),
+            (
+                SaudeDoFrame.OK,
+                EstadoDoCliente.EM_JOGO,
+                False,
+                campos_de(nivel=None, exp_em_decimos=None, adena=None),
+            ),
+        ):
+            visao = classificar_a_visao(
+                saude=saude,
+                estado_do_cliente=estado,
+                minimizada=mini,
+                campos=campos,
+                rastreio=RastreioDoValor(),
+                carimbo=0.0,
+                segundos_para_parado=SEGUNDOS_PARA_DECLARAR_PARADO,
+            )
+            casos.append((campos, visao.texto))
+
+        for campos, estado in casos:
+            linha = linha_do_tique(campos, contagem, estado=estado)
+            assert len(linha) <= LARGURA_MAXIMA_DA_LINHA_DO_TIQUE, (
+                f"{len(linha)} colunas, teto "
+                f"{LARGURA_MAXIMA_DA_LINHA_DO_TIQUE}:\n  {linha}"
+            )
+            assert "~" not in linha, (
+                f"o estado saiu TRUNCADO, e a truncagem come o fim:\n  {linha}"
+            )
+
+    def test_PARADO_e_PAUSADO_nao_usam_a_MESMA_MARCA_no_bloco_alto(self) -> None:
+        """A distincao tem de sobreviver SEM cor.
+
+        `console._pintar` desliga o ANSI quando `isatty()` e falso -- o caso do
+        `caplog`, de um pipe e do `scanner.log`, que e onde o usuario olha de
+        manha. Um estado que so se distinguisse por cor sumiria justamente ali.
+        """
+        marcas = {
+            MARCA_POR_ESTADO[estado.value] for estado in EstadoDaRenda
+        }
+        assert len(marcas) == len(list(EstadoDaRenda)), MARCA_POR_ESTADO
+        assert (
+            MARCA_POR_ESTADO["parado"] != MARCA_POR_ESTADO["pausado"]
+        )
+
+    def test_entrar_e_sair_de_PARADO_logam_UMA_VEZ_CADA(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        sequencia = (
+            [campos_de(exp_em_decimos=480_075)] * 20
+            + [campos_de(exp_em_decimos=480_085)] * 5
+        )
+        with caplog.at_level(logging.INFO):
+            rodar(
+                cal,
+                tmp_path,
+                sequencia=sequencia,
+                carimbos=[float(n) * 10 for n in range(25)],
+                fonte=FonteComSaude([SaudeDoFrame.OK] * 25),
+                ticks=25,
+            )
+
+        texto = caplog.text
+        assert texto.count("PARADO: o EXP esta bit-identico") == 1, (
+            "a entrada em PARADO tem de logar uma vez, e uma so"
+        )
+        assert texto.count("o EXP voltou a mudar") == 1, (
+            "a saida de PARADO tem de logar uma vez, e uma so"
+        )
+
+
+class TestOsQuatroContadoresDoResumo:
+    """Eles NAO se somam entre si -- sao perguntas com consertos diferentes.
+
+    E A SOMA PROVA POUCO, E ESTE ARQUIVO DIZ ISSO POR ESCRITO. A igualdade pega
+    o tique que se PERDEU na classificacao; ela NAO pega o tique que recebeu o
+    estado ERRADO, porque algum estado sempre sai e a soma fecha do mesmo jeito.
+    Foi exatamente assim que o quinto caso (`SEM LEITURA (EXP)`) passou
+    despercebido na versao anterior deste plano. Os portoes de classificacao
+    correta sao os testes NOMINAIS de `test_renda_estado.py`, um por par de
+    estados confundiveis; esta soma e a rede embaixo deles, e nao o portao.
+    """
+
+    def test_os_quatro_SOMAM_o_total_de_tiques(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        saudes = (
+            [SaudeDoFrame.OK] * 4
+            + [SaudeDoFrame.FALHA_DE_CAPTURA] * 3
+            + [SaudeDoFrame.OK] * 5
+        )
+        sequencia = (
+            [campos_de(exp_em_decimos=480_000 + n * 10) for n in range(4)]
+            + [campos_de(nivel=None, exp_em_decimos=None, adena=None)] * 3
+            + [campos_de(exp_em_decimos=None)] * 2
+            + [campos_de(exp_em_decimos=480_500)] * 3
+        )
+        with caplog.at_level(logging.INFO):
+            rodar(
+                cal,
+                tmp_path,
+                sequencia=sequencia,
+                carimbos=[float(n) * 10 for n in range(12)],
+                fonte=FonteComSaude(saudes),
+                ticks=12,
+            )
+
+        contadores = {}
+        for linha in caplog.text.splitlines():
+            for chave, rotulo in (
+                ("lendo", "tiques LENDO"),
+                ("parado", "tiques PARADO"),
+                ("sem_leitura", "tiques SEM LEITURA"),
+                (RECORTE_DO_EXP_SEM_LEITURA, "destes, SEM LEITURA (EXP)"),
+                ("pausado", "tiques PAUSADO"),
+            ):
+                if rotulo in linha:
+                    contadores[chave] = int(linha.strip().split()[-1])
+
+        assert set(contadores) >= set(ESTADOS_QUE_SOMAM), contadores
+        assert sum(contadores[c] for c in ESTADOS_QUE_SOMAM) == 12, contadores
+        assert contadores["pausado"] == 3
+        assert contadores[RECORTE_DO_EXP_SEM_LEITURA] == 2
+        assert (
+            contadores[RECORTE_DO_EXP_SEM_LEITURA] <= contadores["sem_leitura"]
+        ), "o recorte do EXP e PARTE do SEM LEITURA, e nao uma quinta parcela"
