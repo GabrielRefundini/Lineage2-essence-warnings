@@ -428,14 +428,19 @@ def montar_vigia_de_manutencao(regiao) -> VigiaDeManutencao | None:
         )
         return None
 
-    # A LINHA DE ARRANQUE CONTA O ORCAMENTO, e nao so que o recurso ligou.
-    # Quem le o log precisa saber o que este recurso vai custar de CPU antes de
-    # o farm comecar — e a passada cara so aparecer durante a contagem e
-    # justamente o que torna o custo aceitavel (D-e).
+    # O ORCAMENTO DE CPU SAIU DA LINHA EM 2026-09-02, e fica registrado aqui:
+    # sao duas escalas, cinza 2x a cada `SEGUNDOS_ENTRE_LEITURAS` (~23 ms
+    # medidos) e cinza 3x (~31 ms) so quando a primeira ve o banner, e as duas
+    # precisam concordar. A passada cara so acontecer durante a contagem e o
+    # que torna o custo aceitavel (D-e).
+    #
+    # POR QUE ELE PODIA SAIR: o custo nao e uma decisao do usuario. Ele nao
+    # regula a escala, nem o intervalo, nem a segunda passada, e o bloco de
+    # arranque e lido a cada lancamento. O que ele CONFERE ali e a regiao, que
+    # ficou, porque uma regiao errada e o defeito que este log pega.
     log.info(
-        "Aviso de manutencao ativo — lendo o banner em (%d,%d) %dx%d "
-        "em duas escalas: cinza 2x a cada %.0fs (~23 ms medidos) e cinza 3x "
-        "(~31 ms) so quando a primeira ve o banner. As duas precisam concordar.",
+        "Aviso de manutencao ativo: lendo o banner em (%d,%d) %dx%d, "
+        "a cada %.0fs.",
         regiao.esquerda, regiao.topo, regiao.largura, regiao.altura,
         SEGUNDOS_ENTRE_LEITURAS,
     )
