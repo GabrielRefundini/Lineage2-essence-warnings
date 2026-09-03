@@ -1165,27 +1165,23 @@ class Calibracao:
         diz por que o absoluto nao esta la. Quem transforma este `None` em
         recusa NOMEADA e `renda_ponte`.
 
-        A CHAVE DO NIVEL E TEXTO NO JSON, e a normalizacao mora aqui. JSON nao
-        tem chave inteira: uma entrada gravada com o inteiro `67` volta do
-        disco como `"67"`. Um `.get(nivel)` cru nao levantaria erro nenhum — so
-        devolveria nada, e o painel diria "indisponivel" para sempre. As duas
-        formas sao aceitas: a de texto, que e a que volta do disco, e a
-        inteira, que e a que existe em memoria antes do primeiro `salvar`.
+        A BUSCA MORA EM `renda_ponte.constante_do_nivel` E ESTE METODO DELEGA,
+        em vez de repeti-la. A chave do nivel e TEXTO no JSON — `{67: ...}`
+        gravado volta `{"67": ...}` — e uma segunda normalizacao escrita aqui
+        seria uma segunda verdade sobre a mesma forma: na primeira mudanca de
+        formato, uma das duas envelheceria calada. O import e barato: aquele
+        modulo e aritmetica pura e nao arrasta nada.
 
         `None` quando a ponte nao foi medida, quando o nome nao veio, quando o
         nivel nao veio, quando o personagem nao esta no arquivo e quando o
         NIVEL daquele personagem nao esta no arquivo. Os cinco sao "nao sei
-        converter esta tela", e o consumidor os separa por motivo.
+        converter esta tela"; quem precisa do motivo NOMEADO chama
+        `renda_ponte` direto, que devolve os dois.
         """
-        if not self.renda_ponte_de_xp or not nome or nivel is None:
-            return None
-        do_personagem = self.renda_ponte_de_xp.get(nome)
-        if not isinstance(do_personagem, dict):
-            return None
-        entrada = do_personagem.get(str(nivel))
-        if entrada is None:
-            entrada = do_personagem.get(nivel)
-        return entrada if isinstance(entrada, dict) else None
+        from .renda_ponte import constante_do_nivel
+
+        entrada, _motivo = constante_do_nivel(self.renda_ponte_de_xp, nome, nivel)
+        return entrada
 
     def conferir_geometria_do_mercado(self, largura: int, altura: int) -> None:
         """Recusa a leitura de mercado se a JANELA mudou de tamanho.
