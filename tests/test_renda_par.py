@@ -34,13 +34,37 @@ mediu o quanto isso e provavel: quando o recorte encosta, as duas escalas
 concordaram na L-Coin **173 vezes em 173**. Ninguem remove estes testes por
 parecerem historicos.
 
-A FASE 1 CONTINUA SEM ESTADO (CTX-9)
-====================================
-As tres sao funcoes puras sobre um par passado por parametro, e **nenhum
-caminho de producao desta fase as chama** — porque uma fase sem memoria nao tem
-a leitura anterior. Quem as chama e a Fase 2. Um portao de arvore de sintaxe no
-fim deste arquivo afirma que o modulo nao ganhou memoria, com controle
-positivo.
+A FASE 1 CONTINUA SEM ESTADO (CTX-9) — E O PORTAO DO CHAMADOR FOI INVERTIDO
+===========================================================================
+As tres continuam sendo funcoes puras sobre um par passado por parametro, e
+`renda_leitura.py` continua **sem memoria**: sem `global`, sem acumulador de
+nivel de modulo. Um portao de arvore de sintaxe no fim deste arquivo afirma
+isso, com controle positivo, e ele passou a varrer tambem os dois modulos da
+Fase 2 — que sao sem estado pela mesma razao.
+
+**O QUE MUDOU: ELAS AGORA TEM CHAMADOR, E ISSO E O PLANEJADO (C-1).** Ate a
+Fase 1, o portao do fim deste arquivo afirmava que NENHUM modulo de
+`l2scanner/` chamava as regras de par, e a mensagem de erro dele dizia, com
+todas as letras, "quem chama e a Fase 2". A Fase 2 chegou. O portao **nao foi
+apagado — foi INVERTIDO**, e agora afirma tres coisas, e as tres:
+
+1. que o chamador de producao **existe** (lista nao vazia);
+2. que ele e **UM SO**, e o modulo dele e `renda_conta.py`;
+3. que o que ele chama e `conferir_o_par` — a **composicao** — e nunca uma das
+   tres irmas soltas.
+
+A metade que continua valendo vale inteira: `renda_leitura.py` segue sem
+chamador dentro de si (as chamadas dentro de `conferir_o_par` sao a composicao
+dela), e o chamador de fora e UM. Se um segundo modulo de `l2scanner/` chamar as
+regras, ou se `renda_conta.py` passar a chamar `o_exp_andou_para_tras` solta, o
+portao cai — e e para cair: chamar as irmas uma a uma esconderia a segunda
+recusa atras da primeira, que e exatamente o que `conferir_o_par` existe para
+nao fazer.
+
+A varredura mora numa funcao de modulo, `chamadores_das_regras`, e nao dentro do
+teste, pela mesma regra que este arquivo ja se impos em `duplicados` e em
+`memoria_de_modulo`: **o controle positivo tem de chamar A MESMA funcao do
+portao**, senao ele prova outra coisa.
 
 ESTE ARQUIVO NAO PULA POR NADA
 ==============================
@@ -59,6 +83,22 @@ from l2scanner import renda_leitura as rl
 from l2scanner.renda_leitura import LeituraDaRenda
 
 FONTE_DO_MODULO_PURO = Path(__file__).parent.parent / "l2scanner" / "renda_leitura.py"
+
+# Os dois modulos que a Fase 2 acrescentou. Eles entram aqui porque o portao da
+# ausencia de memoria passou a varre-los tambem: a Fase 2 e sem estado pela
+# mesma razao que a Fase 1 era — ela e funcao pura sobre uma sequencia que chega
+# por parametro, e um acumulador escondido dentro de um dos dois faria a taxa
+# depender da ordem em que alguem chamou as funcoes.
+FONTE_DA_CONTA = Path(__file__).parent.parent / "l2scanner" / "renda_conta.py"
+FONTE_DO_REGISTRO = (
+    Path(__file__).parent.parent / "l2scanner" / "renda_registro.py"
+)
+
+# O nome que a PRODUCAO tem de chamar: a composicao, e nunca uma das tres irmas.
+A_COMPOSICAO = "conferir_o_par"
+
+# O modulo, e e UM SO, autorizado a chamar as regras de par em producao.
+O_UNICO_CHAMADOR = "renda_conta.py"
 
 # O prefixo dos motivos deste modulo. O portao da distincao DERIVA a lista do
 # modulo em vez de repeti-la: uma lista escrita a mao aqui envelheceria em
@@ -588,36 +628,188 @@ class TestOPortaoDaAusenciaDeMemoria:
         assert any("global" in a for a in achados)
         assert any("MUTAVEL" in a for a in achados)
 
-    def test_NENHUM_CAMINHO_DE_PRODUCAO_DESTA_FASE_CHAMA_AS_TRES_REGRAS(self):
-        """Elas nascem aqui e sao chamadas na Fase 2. E de proposito.
+    def test_OS_DOIS_MODULOS_DA_FASE_2_TAMBEM_NASCEM_SEM_MEMORIA(self):
+        """A conta e o registro sao sem estado pela mesma razao que o leitor.
 
-        Uma fase sem memoria nao tem a leitura anterior — nao existe segunda
-        leitura para passar. A varredura e sobre a arvore, e nao sobre `grep`,
-        para que a prosa que explica as regras atravesse.
+        A fase inteira e funcao pura sobre uma sequencia que chega por
+        parametro. Um acumulador de nivel de modulo em qualquer um dos dois
+        faria a taxa depender da ordem em que alguem chamou as funcoes — e um
+        teste que rodasse sozinho passaria enquanto a suite inteira falharia,
+        que e a pior forma de um defeito aparecer.
+
+        E POR ISSO QUE `__all__` NOS DOIS E TUPLA E NAO LISTA: uma lista de
+        nivel de modulo e um literal mutavel, e este portao a acusa. Nao e
+        pedantismo — e a regra valendo sem excecao de conveniencia.
         """
-        raiz = FONTE_DO_MODULO_PURO.parent
-        das_regras = {
-            "o_exp_andou_para_tras",
-            "o_nivel_andou_para_tras",
-            "a_adena_saltou_ordem_de_grandeza",
-            "conferir_o_par",
-        }
-        chamadas = []
-        for modulo in sorted(raiz.glob("*.py")):
-            arvore = ast.parse(modulo.read_text(encoding="utf-8"))
-            for no in ast.walk(arvore):
-                if not isinstance(no, ast.Call):
-                    continue
-                nome = getattr(no.func, "id", None) or getattr(
-                    no.func, "attr", None
-                )
-                if nome in das_regras:
-                    chamadas.append(f"{modulo.name}:{no.lineno} -> {nome}")
-        # As chamadas DENTRO de `conferir_o_par` sao a composicao dela, e nao
-        # producao: elas moram no proprio modulo puro e nao tem chamador.
-        de_fora = [c for c in chamadas if not c.startswith("renda_leitura.py")]
-        assert not de_fora, (
-            "uma das regras de par ganhou chamador de producao nesta fase:\n  "
-            + "\n  ".join(de_fora)
-            + "\nA Fase 1 nao tem a leitura anterior. Quem chama e a Fase 2"
+        for fonte in (FONTE_DA_CONTA, FONTE_DO_REGISTRO):
+            achados = memoria_de_modulo(fonte)
+            assert not achados, (
+                f"{fonte.name} ganhou memoria:\n  " + "\n  ".join(achados)
+            )
+
+
+def chamadores_das_regras(raiz: Path) -> list[str]:
+    """Quem chama as regras de par FORA de `renda_leitura.py`, por arvore.
+
+    Devolve uma lista de `arquivo:linha -> nome`. Compartilhada pelo portao e
+    pelos dois controles positivos, pela mesma razao de `duplicados` e de
+    `memoria_de_modulo`: um controle que chamasse outra funcao provaria outra
+    coisa. Ha teste afirmando que ela e definida UMA vez neste arquivo.
+
+    A VARREDURA E SOBRE A ARVORE E NAO SOBRE `grep`, para que a prosa que
+    explica as regras — e ela e longa, nos dois modulos — atravesse sem virar
+    falso positivo.
+
+    `renda_leitura.py` E PULADO DE PROPOSITO: as chamadas das tres irmas dentro
+    de `conferir_o_par` sao a COMPOSICAO dela, e nao producao. Um portao que as
+    contasse acusaria o proprio modulo puro para sempre.
+    """
+    das_regras = {
+        "o_exp_andou_para_tras",
+        "o_nivel_andou_para_tras",
+        "a_adena_saltou_ordem_de_grandeza",
+        A_COMPOSICAO,
+    }
+    chamadas: list[str] = []
+    for modulo in sorted(Path(raiz).glob("*.py")):
+        if modulo.name == FONTE_DO_MODULO_PURO.name:
+            continue
+        arvore = ast.parse(modulo.read_text(encoding="utf-8"))
+        for no in ast.walk(arvore):
+            if not isinstance(no, ast.Call):
+                continue
+            nome = getattr(no.func, "id", None) or getattr(no.func, "attr", None)
+            if nome in das_regras:
+                chamadas.append(f"{modulo.name}:{no.lineno} -> {nome}")
+    return chamadas
+
+
+class TestOPortaoDoChamadorDeProducao:
+    """O portao INVERTIDO da C-1: de "ninguem chama" para "um so chama, e a composicao".
+
+    ELE NAO E O PORTAO ANTIGO COM O SINAL TROCADO — ele afirma TRES coisas, e as
+    tres na mesma funcao, porque cada uma sozinha passaria com o desenho errado:
+
+    - so "existe chamador" passaria com cinco modulos chamando;
+    - so "o conjunto e {renda_conta.py}" passaria com a lista VAZIA, porque
+      conjunto vazio nao e conjunto errado — ele e conjunto nenhum;
+    - so "o nome e conferir_o_par" passaria tambem com a lista vazia, e pela
+      mesma razao.
+
+    O PORTAO ANTIGO NAO SOBREVIVEU AO LADO DESTE, e nao podia: os dois se
+    contradizem por construcao, e um deles ficaria vermelho para sempre. Ele
+    VIROU este, e a docstring do arquivo conta a transicao pelo nome.
+    """
+
+    def test_AS_REGRAS_TEM_CHAMADOR_DE_PRODUCAO_E_ELE_E_UM_SO_E_CHAMA_A_COMPOSICAO(
+        self,
+    ):
+        achados = chamadores_das_regras(FONTE_DO_MODULO_PURO.parent)
+
+        assert achados, (
+            "NENHUM modulo de producao chama as regras de par. Elas nasceram na "
+            "Fase 1 sem chamador de proposito, e a Fase 2 e o chamador legitimo "
+            f"que aquele portao ja anunciava: `{O_UNICO_CHAMADOR}` tem de "
+            f"chamar `{A_COMPOSICAO}`. Um leitor de renda que nao confere o par "
+            "nao tem defesa nenhuma contra um numero valido, plausivel e errado "
+            "— e o LEIT-11 mediu que 3 das 4 leituras erradas de nivel passaram "
+            "por concordancia das duas escalas."
         )
+
+        modulos = {achado.split(":")[0] for achado in achados}
+        assert modulos == {O_UNICO_CHAMADOR}, (
+            "as regras de par tem de ter EXATAMENTE UM chamador de producao, e "
+            f"ele e `{O_UNICO_CHAMADOR}`. Encontrei {sorted(modulos)}:\n  "
+            + "\n  ".join(achados)
+            + "\nDois chamadores sao duas politicas de recusa que divergem no "
+            "dia em que uma delas mudar."
+        )
+
+        nomes = {achado.split(" -> ")[1] for achado in achados}
+        assert nomes == {A_COMPOSICAO}, (
+            f"producao tem de chamar `{A_COMPOSICAO}` — a composicao —, e nunca "
+            f"uma das tres irmas solta. Encontrei {sorted(nomes)}:\n  "
+            + "\n  ".join(achados)
+            + f"\n`{A_COMPOSICAO}` devolve a tupla de TODAS as recusas do par; "
+            "chamar as irmas uma a uma esconde a segunda atras da primeira, e "
+            "um par em que o nivel desceu E a adena saltou e um caso diferente "
+            "de um par em que so o nivel desceu."
+        )
+
+    def test_CONTROLE_POSITIVO_DOIS_MODULOS_CHAMADORES_SAO_ACUSADOS_PELO_NOME(
+        self, tmp_path
+    ):
+        """Sem ele, um portao que devolvesse sempre o mesmo achado passaria."""
+        (tmp_path / "um_chamador.py").write_text(
+            "from .renda_leitura import conferir_o_par\n"
+            "\n"
+            "def passo(a, b):\n"
+            "    return conferir_o_par(a, b, fator_de_salto=10)\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "outro_chamador.py").write_text(
+            "from . import renda_leitura as rl\n"
+            "\n"
+            "def passo(a, b):\n"
+            "    return rl.o_nivel_andou_para_tras(a, b)\n",
+            encoding="utf-8",
+        )
+
+        achados = chamadores_das_regras(tmp_path)
+
+        assert len(achados) == 2, achados
+        assert {a.split(":")[0] for a in achados} == {
+            "um_chamador.py",
+            "outro_chamador.py",
+        }, achados
+        # Os DOIS estilos de chamada sao acusados: o nome nu (`conferir_o_par`)
+        # e o atributo (`rl.o_nivel_andou_para_tras`). Um portao que so visse um
+        # dos dois deixaria passar metade dos chamadores possiveis.
+        assert {a.split(" -> ")[1] for a in achados} == {
+            "conferir_o_par",
+            "o_nivel_andou_para_tras",
+        }, achados
+
+    def test_CONTROLE_POSITIVO_UMA_ARVORE_SEM_CHAMADOR_DEVOLVE_LISTA_VAZIA(
+        self, tmp_path
+    ):
+        """O estado que o portao novo RECUSA, e ele tem de ser alcancavel.
+
+        Sem este controle, uma funcao que devolvesse qualquer coisa nao vazia
+        faria o portao passar sempre — e ele deixaria de medir o que afirma
+        medir. Ele prova tambem que `renda_leitura.py` e pulado: o modulo
+        sintetico com esse nome chama uma das regras e nao aparece.
+        """
+        (tmp_path / "sem_chamador.py").write_text(
+            "def somar(a, b):\n    return a + b\n", encoding="utf-8"
+        )
+        (tmp_path / "renda_leitura.py").write_text(
+            "def conferir_o_par(a, b, *, fator_de_salto):\n"
+            "    return o_exp_andou_para_tras(a, b)\n",
+            encoding="utf-8",
+        )
+
+        assert chamadores_das_regras(tmp_path) == []
+
+    def test_O_CONTROLE_CHAMA_A_MESMA_FUNCAO_QUE_O_PORTAO(self):
+        arvore = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        definicoes = [
+            no.name for no in ast.walk(arvore) if isinstance(no, ast.FunctionDef)
+        ]
+        assert definicoes.count("chamadores_das_regras") == 1
+
+    def test_O_PORTAO_ANTIGO_NAO_SOBREVIVEU_AO_LADO_DO_NOVO(self):
+        """Os dois se contradizem, e um deles ficaria vermelho para sempre.
+
+        A conferencia e por ARVORE e nao por texto, para que a docstring do
+        arquivo possa contar a transicao citando o nome antigo — que e
+        exatamente o que ela faz.
+        """
+        arvore = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        sobreviventes = [
+            no.name
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.FunctionDef)
+            and "NENHUM_CAMINHO_DE_PRODUCAO" in no.name
+        ]
+        assert sobreviventes == [], sobreviventes

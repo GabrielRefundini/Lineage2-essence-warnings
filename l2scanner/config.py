@@ -1562,3 +1562,220 @@ def ler_ajustes_do_aprendiz(caminho: Path | None = None) -> AjustesDoAprendiz:
             secao, CHAVE_DE_CELULAS, caminho.name, padroes.celulas_toleradas
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# A SECAO `[renda]` — os cinco numeros que governam a conta da Fase 2
+#
+# O MOLDE E `ler_ajustes_do_aprendiz`, LITERALMENTE, e nao por simetria: aquela
+# secao o usuario NUNCA preencheu — ela esta comentada no `config.toml` ate
+# hoje —, e um leitor que a exigisse teria derrubado o scanner no dia em que
+# nasceu. Arquivo ausente nao e erro, secao ausente nao e erro, chave ausente
+# devolve o default DAQUELA chave, e TOML presente e mal formado E erro de
+# ARRANQUE com a linha pronta para copiar.
+#
+# `AjustesDaRenda` NASCE AQUI, E NAO NO MODULO PURO, e essa e a diferenca com o
+# `AjustesDoAprendiz` (que nasce em `aprendiz.py` e e importado). A seta desta
+# fase aponta CASCA -> PURO e nunca o contrario: `renda_conta.py` recebe os
+# cinco por parametro somente-nomeado e sem valor de fabrica, e nao sabe que o
+# `config.toml` existe. Declarar os ajustes la obrigaria o modulo puro a
+# importar `config`, e `config` importa `notificador` -> `rastreador` ->
+# `visao` -> `cv2`. Quem junta as duas metades e a Fase 3.
+#
+# A FAIXA E CONFERIDA AQUI, e nao num `__post_init__`, e a razao e o que a
+# faixa significa: "maior que zero" e pergunta de SINTAXE DE ARQUIVO — nao ha
+# medicao por tras dela, ao contrario do teto de 12 celulas do aprendiz, que e
+# uma propriedade MEDIDA do reconhecedor e por isso precisa valer para todo
+# caminho de construcao, inclusive um script que nunca encoste no `config.toml`.
+# ---------------------------------------------------------------------------
+
+SECAO_DA_RENDA = "renda"
+CHAVE_DA_JANELA_MOVEL = "janela_movel_minutos"
+CHAVE_DA_LACUNA = "lacuna_maxima_segundos"
+CHAVE_DO_FATOR_DE_SALTO = "fator_de_salto_da_adena"
+CHAVE_DO_PISO_DE_AMOSTRAS = "amostras_minimas_para_taxa"
+CHAVE_DO_PISO_DA_JANELA = "janela_minima_para_taxa_segundos"
+
+
+@dataclass(frozen=True)
+class AjustesDaRenda:
+    """Os cinco numeros da conta da renda, com o default e a razao DO default.
+
+    `janela_movel_minutos` = 10. **ESCOLHA, E NAO MEDICAO.** E o que o usuario
+    entende por "agora" numa farmada, e e a mesma ordem de grandeza da diferenca
+    medida entre a janela curta (466 mil adena/h) e a media longa (226 mil/h) —
+    a diferenca entre as duas e tempo parado, e dez minutos e o tamanho em que
+    isso ainda se enxerga. **ELE AINDA NAO TEM CONSUMIDOR**: quem seleciona a
+    janela movel e o `02-02`. Ele entra agora, com a chave lida e conferida, no
+    mesmo idioma das horas de respawn do `[[boss]]` — para o usuario nao ter que
+    editar este arquivo duas vezes.
+
+    `lacuna_maxima_segundos` = 60. **ESCOLHA, E NAO MEDICAO.** A Fase 3 captura
+    a ~1 Hz, entao sessenta segundos sao sessenta amostras perdidas seguidas: e
+    cegueira, e nao cadencia. Acima disto o intervalo SAI do denominador e e
+    contado a parte como lacuna (CTX-2).
+
+    `fator_de_salto_da_adena` = 10. **ESTE NAO E ESCOLHA NOSSA.** E a ordem de
+    grandeza que os tres casos de honra medidos na Fase 1 separam: `8.786`
+    contra `10.673.628` (tres ordens), `106.020` contra `1.696.020` (uma) e `91`
+    contra `13.160.684` (cinco). Ele e o `fator_de_salto` que
+    `a_adena_saltou_ordem_de_grandeza` exige sem valor de fabrica.
+
+    `amostras_minimas_para_taxa` = 8. **QUEM ESCOLHEU FOI O PRECEDENTE**, e ele
+    tem nome: `N_MINIMO_PARA_TENDENCIA = 8`. Uma taxa e uma tendencia, e a casa
+    ja escolheu oito para tendencia. Conferido contra a disponibilidade medida,
+    ele NAO e o que morde a ~1 Hz: o campo mais escasso — a adena, com 21% de
+    recusa, logo ~62% de passo aceito por par adjacente — chega a oito passos em
+    ~13 segundos, muito antes dos 120 s do outro piso. Ele so passa a morder
+    abaixo de um quadro a cada 15 s (`120 / 8`), que e o regime em que a Fase 3
+    entraria se o OCR degradasse muito.
+
+    `janela_minima_para_taxa_segundos` = 120. **QUEM ESCOLHEU FOI A
+    DISPONIBILIDADE DO CAMPO MAIS ESCASSO**, e a conta esta feita: 120 s de
+    janela FARMADA de adena custam ~192 s de relogio a 1 Hz (`120 / 0,62`) —
+    pouco mais de tres minutos, bem dentro de uma farmada e bem acima dos
+    quarenta segundos que o criterio 1 do roadmap manda anunciar como ruido. A
+    cadencia (~104 abates por minuto medidos) concorda, mas ela sozinha nao era
+    argumento: cadencia mede quantos eventos ACONTECEM, e nao quantos o scanner
+    CONSEGUE LER.
+
+    OS DOIS PISOS SAO DOIS PORQUE SAO DOIS FATOS DIFERENTES. Oito amostras em
+    quarenta segundos e oito amostras em duas horas nao valem o mesmo, e um piso
+    so deixaria passar exatamente o caso que o requisito nomeia. Quando um dos
+    dois falta, o `motivo_da_ausencia` da taxa diz QUAL — nunca um motivo
+    generico.
+
+    OS 79% DE RECUSA DO NIVEL VEM DE 14 AMOSTRAS, E ISSO VAI DITO EM VOZ ALTA.
+    Com `n=14` o intervalo e largo, e por isso o desenho NAO E SENSIVEL ao valor
+    exato: com o par de EXP livre do nivel, mover a recusa de 79% para 60% ou
+    para 90% nao muda se a taxa sai — muda so o `n` da adena. Um desenho que
+    dependesse do numero exato estaria apoiado numa medicao que ninguem refez.
+    """
+
+    janela_movel_minutos: int = 10
+    lacuna_maxima_segundos: int = 60
+    fator_de_salto_da_adena: int = 10
+    amostras_minimas_para_taxa: int = 8
+    janela_minima_para_taxa_segundos: int = 120
+
+
+# O exemplo que toda recusa desta secao mostra, escrito UMA vez. Uma mensagem
+# que diz "precisa ser um numero" faz o usuario adivinhar; uma que mostra a
+# secao pronta ele copia.
+_EXEMPLO_DA_RENDA = (
+    "  Exemplo:\n"
+    f"    [{SECAO_DA_RENDA}]\n"
+    f"    {CHAVE_DA_JANELA_MOVEL} = 10\n"
+    f"    {CHAVE_DA_LACUNA} = 60\n"
+    f"    {CHAVE_DO_FATOR_DE_SALTO} = 10\n"
+    f"    {CHAVE_DO_PISO_DE_AMOSTRAS} = 8\n"
+    f"    {CHAVE_DO_PISO_DA_JANELA} = 120"
+)
+
+
+def _inteiro_da_renda(
+    secao: dict, chave: str, nome_do_arquivo: str, padrao: int
+) -> int:
+    """Um inteiro MAIOR QUE ZERO da secao `[renda]`, ou o default DAQUELA chave.
+
+    UM BOOLEANO NAO PASSA POR INTEIRO, e a checagem vem ANTES do `isinstance` de
+    `int`: em Python `True` E um `int` de valor 1, e
+    `fator_de_salto_da_adena = true` viraria, em silencio, um fator de UM — que
+    recusaria toda amostra em que a adena mudou, ou seja toda amostra util de
+    uma noite de farm. O arquivo encheria de recusas, a taxa nunca sairia, e
+    ninguem ligaria uma coisa a outra. Quem escreveu `true` nao quis dizer isso.
+
+    O FRACIONARIO CAI JUNTO, INCLUSIVE O REDONDO: aceitar `10.0` e recusar
+    `10.5` seria uma regra que o usuario descobre por tentativa — a mesma razao
+    ja escrita em `_inteiro_positivo` da receita.
+
+    ZERO E NEGATIVO SAO RECUSADOS NOS CINCO porque nenhum dos cinco faz sentido
+    ali: janela de zero minuto, lacuna de zero segundo, fator zero e pisos zero
+    sao todos "desligue a conta em silencio", que e o contrario do que uma
+    secao de ajuste existe para permitir.
+    """
+    bruto = secao.get(chave)
+    if bruto is None:
+        return padrao
+    if isinstance(bruto, bool) or not isinstance(bruto, int):
+        raise AgendaInvalida(
+            f"{nome_do_arquivo}: [{SECAO_DA_RENDA}] {chave} precisa ser um "
+            f"numero INTEIRO maior que zero, veio {type(bruto).__name__} "
+            f"({bruto!r}).\n{_EXEMPLO_DA_RENDA}"
+        )
+    if bruto <= 0:
+        raise AgendaInvalida(
+            f"{nome_do_arquivo}: [{SECAO_DA_RENDA}] {chave} precisa ser MAIOR "
+            f"que zero (recebi {bruto}).\n{_EXEMPLO_DA_RENDA}"
+        )
+    return bruto
+
+
+def ler_ajustes_da_renda(caminho: Path | None = None) -> AjustesDaRenda:
+    """Os cinco numeros que governam a conta da renda. As tres regras valem.
+
+    ARQUIVO AUSENTE NAO E ERRO, E SECAO AUSENTE TAMBEM NAO. O `[renda]` do
+    `config.toml` entra COMENTADO, como o `[identidade]`, e o scanner tem de
+    contar com os defaults sem ele. Chave ausente devolve o default DAQUELA
+    chave, e nao o conjunto: quem escreveu so `lacuna_maxima_segundos` nao esta
+    pedindo para os outros quatro voltarem ao padrao.
+
+    ARQUIVO PRESENTE E MAL FORMADO E ERRO DE ARRANQUE, e reusa `AgendaInvalida`
+    pela razao ja escrita em `ler_membros` e em `ler_watchlist_do_mercado`: ela
+    JA e a excecao de "o config.toml nao faz sentido", ja e capturada onde o
+    arranque quer capturar, e uma classe nova duplicaria esse tratamento sem
+    ganhar nada.
+
+    ELA NAO IMPORTA `renda_conta` NEM `renda_registro`, E ELES NAO A IMPORTAM.
+    O que este arquivo entrega e o leitor e os defaults; quem passa os cinco por
+    parametro ao modulo puro e a Fase 3.
+    """
+    caminho = caminho or ARQUIVO_CONFIG
+    if not caminho.exists():
+        return AjustesDaRenda()
+
+    try:
+        with caminho.open("rb") as arquivo:
+            dados = tomllib.load(arquivo)
+    except tomllib.TOMLDecodeError as erro:
+        raise AgendaInvalida(
+            f"{caminho.name} nao e um TOML valido: {erro}"
+        ) from erro
+
+    secao = dados.get(SECAO_DA_RENDA, {})
+    if not isinstance(secao, dict):
+        raise AgendaInvalida(
+            f"{caminho.name}: [{SECAO_DA_RENDA}] precisa ser uma SECAO, veio "
+            f"{type(secao).__name__}.\n{_EXEMPLO_DA_RENDA}"
+        )
+
+    padroes = AjustesDaRenda()
+    return AjustesDaRenda(
+        janela_movel_minutos=_inteiro_da_renda(
+            secao,
+            CHAVE_DA_JANELA_MOVEL,
+            caminho.name,
+            padroes.janela_movel_minutos,
+        ),
+        lacuna_maxima_segundos=_inteiro_da_renda(
+            secao, CHAVE_DA_LACUNA, caminho.name, padroes.lacuna_maxima_segundos
+        ),
+        fator_de_salto_da_adena=_inteiro_da_renda(
+            secao,
+            CHAVE_DO_FATOR_DE_SALTO,
+            caminho.name,
+            padroes.fator_de_salto_da_adena,
+        ),
+        amostras_minimas_para_taxa=_inteiro_da_renda(
+            secao,
+            CHAVE_DO_PISO_DE_AMOSTRAS,
+            caminho.name,
+            padroes.amostras_minimas_para_taxa,
+        ),
+        janela_minima_para_taxa_segundos=_inteiro_da_renda(
+            secao,
+            CHAVE_DO_PISO_DA_JANELA,
+            caminho.name,
+            padroes.janela_minima_para_taxa_segundos,
+        ),
+    )
