@@ -14,9 +14,11 @@ estaria provando que nao houve queda para uma entrada que nunca existiu.
 from __future__ import annotations
 
 from fractions import Fraction
+from pathlib import Path
 
 import pytest
 
+from l2scanner.calibracao import Calibracao
 from l2scanner.renda_ponte import (
     LINHAS_MEDIDAS_DO_BONUS,
     MULTIPLICADOR_EXIBIDO_PELA_BARRA_EM_CENTESIMOS,
@@ -31,6 +33,11 @@ from l2scanner.renda_ponte import (
     xp_acumulado_no_nivel,
     xp_do_ganho,
     xp_por_hora,
+)
+from l2scanner.renda_semeadura import ENTRADA_MEDIDA, semear
+
+FIXTURA_DE_RENDA = (
+    Path(__file__).parent / "fixtures" / "renda" / "calibracao_de_fixture.json"
 )
 
 # A CONSTANTE MEDIDA, e ela e o numero versionado no REQUIREMENTS.md (REND-08).
@@ -337,3 +344,91 @@ class TestAFormaDoResultado:
         assert isinstance(resultado, XpAbsoluto)
         with pytest.raises(Exception):
             resultado.valor = 1
+
+
+class TestOsDoisCaminhosContraDadoReal:
+    """A C-8 fechada: com a constante SEMEADA, e sem constante nenhuma.
+
+    Sem a semeadura, `renda_ponte_de_xp` terminaria a fase VAZIA e o caminho
+    "XP absoluto disponivel" nunca teria rodado contra dado de verdade — ele
+    existiria so nos dicionarios montados a mao logo acima. Aqui a constante
+    atravessa a ida e volta REAL do `calibration.json` e desemboca no consumo.
+    """
+
+    def _semeado(self, tmp_path: Path) -> Calibracao:
+        origem = tmp_path / "calibration.json"
+        origem.write_text(
+            FIXTURA_DE_RENDA.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        resultado = semear(
+            Calibracao.carregar(origem), ENTRADA_MEDIDA, confirmar=False
+        )
+        resultado.calibracao.salvar(origem)
+        return Calibracao.carregar(origem)
+
+    def test_A_ENTRADA_MEDIDA_CARREGA_OS_CINCO_NUMEROS(self):
+        assert ENTRADA_MEDIDA.valores["xp_por_ponto"] == XP_POR_PONTO_NO_67
+        assert ENTRADA_MEDIDA.valores["medido_em"] == "2026-09-02"
+        assert ENTRADA_MEDIDA.valores["n_linhas_de_chat"] == 240
+        assert ENTRADA_MEDIDA.valores["n_abates"] == 114
+        assert ENTRADA_MEDIDA.valores["janela_em_segundos"] == 150
+
+    def test_COM_A_CONSTANTE_SEMEADA_O_XP_ABSOLUTO_SAI(self, tmp_path):
+        cal = self._semeado(tmp_path)
+
+        resultado = xp_do_ganho(
+            cal.renda_ponte_de_xp,
+            ENTRADA_MEDIDA.personagem,
+            ENTRADA_MEDIDA.nivel,
+            GANHO_DO_LEVEL_UP_EM_DECIMOS,
+        )
+
+        assert resultado.motivo_da_ausencia is None
+        assert resultado.valor == Fraction(
+            GANHO_DO_LEVEL_UP_EM_DECIMOS * XP_POR_PONTO_NO_67, 10_000
+        )
+        assert resultado.procedencia["n_abates"] == 114, (
+            "quem exibe precisa poder dizer que o numero veio de um censo com "
+            "114 abates, e nao de um chute"
+        )
+
+    def test_O_EXP_DE_CAMPO_DA_FAERLINA_ATRAVESSA_A_MESMA_PONTE(self, tmp_path):
+        cal = self._semeado(tmp_path)
+        resultado = xp_acumulado_no_nivel(
+            cal.renda_ponte_de_xp, "Faerlina", 67, EXP_DE_CAMPO_EM_DECIMOS
+        )
+        assert int(resultado.valor) == 3_110_066
+
+    def test_SEM_CONSTANTE_PARA_O_NIVEL_SEGUINTE_A_RECUSA_E_NOMEADA(self, tmp_path):
+        """O outro caminho, com o MESMO arquivo e a MESMA constante presente.
+
+        A entrada do 67 esta la — este teste acabou de semea-la —, e mesmo
+        assim o 68 sai indisponivel. E a CTX-8 exercitada contra dado real.
+        """
+        cal = self._semeado(tmp_path)
+
+        assert cal.ponte_do_nivel("Faerlina", 67) is not None, (
+            "a constante do nivel vizinho tem de EXISTIR, senao a assercao de "
+            "baixo e vacua"
+        )
+
+        resultado = xp_do_ganho(
+            cal.renda_ponte_de_xp, "Faerlina", 68, GANHO_DO_LEVEL_UP_EM_DECIMOS
+        )
+        assert resultado.valor is None
+        assert resultado.motivo_da_ausencia == SEM_PONTE_PARA_O_NIVEL
+
+    def test_SEM_A_CHAVE_NO_ARQUIVO_A_RECUSA_TAMBEM_E_NOMEADA(self, tmp_path):
+        """O arquivo do usuario ANTES da semeadura, que e o estado de partida."""
+        origem = tmp_path / "calibration.json"
+        origem.write_text(
+            FIXTURA_DE_RENDA.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        cal = Calibracao.carregar(origem)
+
+        assert cal.renda_ponte_de_xp is None
+        resultado = xp_do_ganho(
+            cal.renda_ponte_de_xp, "Faerlina", 67, GANHO_DO_LEVEL_UP_EM_DECIMOS
+        )
+        assert resultado.valor is None
+        assert resultado.motivo_da_ausencia == SEM_PONTE_NENHUMA
