@@ -447,7 +447,19 @@ portas para o mesmo arquivo é como um arquivo passa a ter duas verdades.
   `vigiar-mercado.bat` já resolve o título pela chave `[jogo] personagem`; copiar o caminho, não
   reinventar a resolução.
 
-**Plans**: TBD
+**Plans**: 4 planos escritos
+
+- [ ] `03-01-PLAN.md` — o traçador: de um frame ao vivo a uma linha em `.renda/` e uma linha no
+      console, mais `--renda` no `__main__`, `montar_registro_da_renda` e o painel por intervalo
+      com as quatro taxas, o ETA e as recusas medidas (onda 1)
+- [ ] `03-02-PLAN.md` — a cegueira declarada e o parado que grava: `renda_estado.py` com os
+      quatro estados, `FonteRecuperavel` no molde da party, e o primeiro chamador de
+      `esta_minimizada` em toda a árvore (onda 2)
+- [ ] `03-03-PLAN.md` — LEIT-10: `ler_um_campo` extraída, a varredura de pisos vizinhos com o
+      alcance de 4 passos **medido** (e não a meia-banda gravada), e a memória por campo que
+      **não** volta para o `calibration.json` (onda 3)
+- [ ] `03-04-PLAN.md` — o lançador `vigiar-renda.bat` com os onze testes da família, e a higiene
+      deste roadmap: `Progress`, `Coverage` e o LEIT-10 que faltava nela (onda 2)
 **UI hint**: yes
 
 ---
