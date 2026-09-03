@@ -392,13 +392,17 @@ class Reancorador:
         adotada = adotar_geometria(cal, nova)
         velha = cal.party_window_na_janela
         atual = adotada.party_window_na_janela
+        # O QUE SAIU DAQUI EM 2026-09-02: "entao reiniciar o scanner volta ao
+        # lugar antigo". E o desdobramento de "o calibration.json nao foi
+        # tocado", que ficou: quem le o nome do arquivo ja sabe o que um
+        # arquivo intocado significa, e a acao ("rode calibrar.bat") e a mesma
+        # com ou sem a frase. O NOME DO ARQUIVO NAO PODE SAIR - ele e a unica
+        # coisa aqui que diz ONDE a mudanca nao foi gravada.
         log.warning(
             "A party window MUDOU DE LUGAR dentro da janela do jogo: de "
-            "%dx%d em (%d,%d) para %dx%d em (%d,%d), um deslocamento de "
-            "(%+d,%+d) px. Passei a ler no lugar novo AGORA. Isto vale SO "
-            "para esta sessao: o calibration.json nao foi tocado, entao "
-            "reiniciar o scanner volta ao lugar antigo. Rode calibrar.bat "
-            "para tornar a mudanca permanente.",
+            "%dx%d em (%d,%d) para %dx%d em (%d,%d), deslocamento de "
+            "(%+d,%+d) px. Passei a ler no lugar novo, SO nesta sessao (o "
+            "calibration.json nao mudou). Rode calibrar.bat para fixar.",
             velha.largura, velha.altura, velha.esquerda, velha.topo,
             atual.largura, atual.altura, atual.esquerda, atual.topo,
             atual.esquerda - velha.esquerda, atual.topo - velha.topo,
@@ -456,8 +460,7 @@ class Reancorador:
             return
         self._ja_avisou_que_nao_adotou = True
         log.warning(
-            "Procurei a party window na janela do jogo e NAO adotei nada: %s. "
-            "Sigo cego, e cego eu nao alerto nada. Se a party window esta "
-            "visivel na tela, rode calibrar.bat.",
+            "Procurei a party window e NAO adotei nada: %s. Sigo cego. Se ela "
+            "esta visivel na tela, rode calibrar.bat.",
             motivo,
         )

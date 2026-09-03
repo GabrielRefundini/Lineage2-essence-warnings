@@ -638,23 +638,36 @@ def _recusa_de_nome_ocupado(nick: str, gravado: str, dono: str) -> str:
     WhatsApp.
     """
     curto = apelido_da_chave(dono)
+    # O ENCURTAMENTO DE 2026-09-02: 605 caracteres para 360, e NADA saiu de
+    # linha inteira. As quatro coisas que a resposta entrega continuam todas
+    # aqui, porque cada uma muda o que o usuario faz depois:
+    #
+    #   - qual nome esta ocupado e por qual assinatura (e o fato);
+    #   - que a caixa nao conta (sem isso ele le duas grafias diferentes e
+    #     conclui que o scanner esta quebrado);
+    #   - que a segunda ficar sem nome NAO FAZ MAL (sem isso ele fica
+    #     tentando batizar as duas, que e a divida T-02-18 virando armadilha);
+    #   - a saida, com o exemplo pronto para copiar.
+    #
+    # O QUE SAIU FOI A JUSTIFICATIVA DE CADA UMA: por que a comparacao ignora
+    # caixa ("dois alertas que so diferem na caixa ninguem consegue
+    # distinguir"), e o desdobramento de que assinatura sem nome continua
+    # sendo reconhecida. A primeira e o raciocinio da regra, e mora na
+    # docstring; a segunda esta dita, mais curto, na propria linha.
     linhas = [
         f"Nao batizei ninguem: o nome {gravado} ja e da assinatura {curto}. "
-        "Nada mudou, nem numa entrada nem na outra.",
+        "Nada mudou nas duas.",
     ]
     if nick != gravado:
         linhas.append(
-            f"Para mim {nick} e {gravado} sao o mesmo nome, a caixa nao conta: "
-            "dois alertas que so diferem na caixa ninguem consegue distinguir."
+            f"Para mim {nick} e {gravado} sao o mesmo nome, a caixa nao conta."
         )
     linhas += [
-        "Se as duas forem a mesma pessoa, eu aprendi o rosto dela duas vezes. "
-        "Nesse caso a segunda pode ficar sem nome sem problema nenhum: "
-        "assinatura sem nome continua sendo reconhecida e nunca vira sujeito "
-        "de alerta.",
-        f"Para o nome {gravado} ficar livre aqui, batize a {curto} com outro "
-        "nome. Essa e a unica saida: nao existe comando de esquecer uma "
-        "assinatura.",
+        "Se as duas forem a mesma pessoa, eu aprendi o rosto dela duas vezes: "
+        "a segunda pode ficar sem nome, continua reconhecida e nunca vira "
+        "sujeito de alerta.",
+        f"Para liberar {gravado}, batize a {curto} com outro nome: nao existe "
+        "comando de esquecer uma assinatura.",
         f"Exemplo: /batizar {curto} Fulano",
     ]
     return "\n".join(linhas)

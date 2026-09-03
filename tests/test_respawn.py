@@ -663,8 +663,9 @@ class TestAsQuatroFrases:
         o erro ser LEGIVEL. Esta e a linha onde ele fica legivel.
         """
         texto = texto_da_janela(aviso_de(TipoDeJanela.ABRE, OrigemDoAviso.ALVO))
-        assert "seu alvo virou Tiat North" in texto
-        assert "nao prova que ele tinha acabado de nascer" in texto
+        assert "seu alvo" in texto
+        assert "nao prova nascimento" in texto
+        assert "pode estar adiantado" in texto
         assert "servidor" not in texto
 
     def test_a_origem_dupla_cai_no_caminho_do_anuncio(self):
@@ -695,31 +696,54 @@ class TestAsQuatroFrases:
         assert "pode nascer a qualquer momento" in texto
         assert "limite otimista" in texto
 
-    def test_o_limite_do_anuncio_explica_por_que_o_aviso_sai_cedo(self):
-        texto = texto_da_janela(aviso_de(TipoDeJanela.LIMITE, OrigemDoAviso.CHAT))
-        assert "o tempo em que o boss ficou vivo ainda nao entrou nela" in texto
-
     @pytest.mark.parametrize("texto", as_quatro_frases())
     def test_toda_frase_comeca_pelo_boss_e_cita_o_nascimento(self, texto):
         assert texto.startswith("Tiat North:")
         assert "14:30 de 30/08" in texto
 
     @pytest.mark.parametrize("texto", as_quatro_frases())
-    def test_TODA_frase_diz_que_a_conta_parte_do_NASCIMENTO(self, texto):
-        """As QUATRO, e nao tres.
+    def test_TODA_frase_CARREGA_A_RESSALVA_DA_CONTA(self, texto):
+        """As QUATRO, e nao tres. O QUE MUDOU EM 2026-09-02: a forma, nao o dever.
 
-        A frase de `alvo` + `LIMITE` era a unica sem esta clausula, e era
-        justamente a que mais precisava dela: ela junta as DUAS fontes de
-        atraso da previsao. A ressalva do alvo cobre uma (o boss podia estar
-        de pe ha horas quando foi alvejado); a clausula da morte cobre a outra
-        (o tempo em que ele ficou vivo depois do nascimento nunca entrou na
-        conta). Sem a segunda, quem le atribui o adiantamento inteiro ao alvo
-        e conclui que um aviso ancorado no chat seria exato — e nao seria.
+        A garantia antiga era literal: toda frase tinha que conter "a conta
+        parte do nascimento e nao da morte". Essa clausula era a JUSTIFICATIVA
+        aritmetica de por que os dois avisos saem cedo, e o usuario pediu
+        mensagens curtas o bastante para uma olhada no celular. Ela mudou de
+        lugar, e nao de status: mora inteira na docstring de `texto_da_janela`,
+        onde quem for mexer na conta a encontra.
 
-        Este teste existe porque a uniformizacao sem guarda dura ate o
-        primeiro que achar a frase comprida.
+        O DEVER CONTINUA, e e este teste que o guarda: nenhuma das quatro pode
+        entregar um horario CRU, sem dizer ao leitor o que fazer com ele. O que
+        sobrevive e a CONSEQUENCIA, que e a parte acionavel: na abertura, que o
+        boss ainda pode demorar; no limite, que dali para a frente ele pode
+        nascer a qualquer momento. Sem uma das duas, a frase vira uma promessa
+        de horario, que e exatamente o que D-19 proibe.
+
+        A frase de `alvo` continua carregando a ressalva do alvo POR CIMA
+        desta, e nao no lugar dela: sao duas fontes de atraso diferentes, e
+        quem le so uma atribui o adiantamento inteiro a ela.
         """
-        assert "parte do nascimento e nao da morte" in texto
+        hedges = ("ainda pode demorar", "pode nascer a qualquer momento")
+        assert any(hedge in texto for hedge in hedges), (
+            f"a frase entrega horario sem dizer o que fazer com ele: {texto}"
+        )
+
+    @pytest.mark.parametrize("texto", as_quatro_frases())
+    def test_a_justificativa_aritmetica_NAO_voltou_para_a_frase(self, texto):
+        """O portao que impede o texto de crescer de volta.
+
+        Toda mensagem deste projeto ficou longa do mesmo jeito: uma frase de
+        justificativa acrescentada de cada vez, cada uma defensavel sozinha.
+        Sem uma guarda explicita, a proxima entra.
+        """
+        for justificativa in (
+            "parte do nascimento e nao da morte",
+            "o tempo em que o boss ficou vivo",
+            "Antes de agora ele nao nascia",
+        ):
+            assert justificativa not in texto, (
+                f"a justificativa voltou para a mensagem: {texto}"
+            )
 
 
 class TestOsNumerosVemDoConfigENaoDoCodigo:
@@ -750,7 +774,7 @@ class TestOsNumerosVemDoConfigENaoDoCodigo:
             aviso_de(TipoDeJanela.ABRE, OrigemDoAviso.ALVO, boss="Orfen")
         )
         assert texto.startswith("Orfen:")
-        assert "seu alvo virou Orfen" in texto
+        assert "seu alvo" in texto
 
 
 class TestAVozDaCasa:
@@ -938,38 +962,47 @@ class TestAsLinhasDePrevisaoDoConsole:
             for linha in linhas_de_previsao(ABRE_EM, [SOUTH, NORTH], so_north())
         ] == ["Tiat South", "Tiat North"]
 
-class TestARegraDaJanelaAleatoria:
-    """A linha diz a REGRA que produziu os dois horarios, e nao so os horarios.
+class TestARegraDaJanelaSaiuDaLinha:
+    """A regra do servidor NAO e repetida em cada linha (pedido de 2026-09-02).
 
-    O QUE FALTAVA, e o usuario pediu por escrito. A linha antiga dizia "a
-    janela abre em X e o limite otimista passa em Y" e deixava o leitor sem a
-    unica coisa que explica por que ha DOIS numeros em vez de um: o respawn e
-    uma parte fixa mais um sorteio. Sem a regra, quem le um intervalo inventa
-    sozinho a explicacao dele — e a explicacao mais natural ("o bot esta em
-    duvida entre dois horarios") e falsa.
+    O QUE ESTA CLASSE AFIRMAVA ATE HOJE, e por que mudou. A linha terminava
+    por "A regra sao 8h fixas mais ate 2h aleatorias, entao o nascimento cai
+    em algum ponto entre os dois horarios acima", e os quatro casos daqui
+    provavam que os dois numeros saiam do `[[boss]]` e nunca de um literal.
 
-    OS DOIS NUMEROS SAO CALCULADOS, NUNCA ESCRITOS. A parte fixa e
-    `respawn_horas_min` e a aleatoria e a DIFERENCA entre os dois campos do
-    `[[boss]]`. O servidor ja trocou a regra uma vez — era 6h+2h, virou 8h+2h —
-    e um literal no fonte transformaria a proxima troca numa mentira que passa
-    em todos os testes.
+    O usuario pediu, textualmente, mensagens mais curtas, e nomeou esta: a
+    linha tinha 349 caracteres POR BOSS e a resposta do `/tiat` com dois
+    bosses passava de 700, lida no celular no meio de um farm.
+
+    O ARGUMENTO QUE DERRUBOU A FRASE nao foi o tamanho sozinho. A regra
+    existia para explicar por que ha DOIS horarios em vez de um, mas a linha
+    ja diz "a janela abre em X e o limite passa em Y": um intervalo com dois
+    extremos JA E a resposta, e a segunda metade da frase ("o nascimento cai
+    em algum ponto entre os dois horarios acima") repetia com outras palavras
+    o que a palavra "janela" significa. A primeira metade era aritmetica de
+    servidor, que ninguem refaz no celular.
+
+    O QUE ESTA CLASSE AFIRMA AGORA. Que a frase nao voltou, e que o que ela
+    protegia continua protegido por outra via: os dois horarios continuam
+    saindo do `[[boss]]`, e isso e verificavel nos horarios em si (a classe
+    `TestAsLinhasDeJanelaNoArranque` ja compara `respawn_horas_min` e
+    `respawn_horas_max` contra a abertura e o limite calculados). A prova
+    ficou mais forte, e nao mais fraca: antes ela lia um texto sobre a regra,
+    agora ela le o RESULTADO da regra.
     """
 
-    def test_a_linha_com_ancora_diz_a_parte_fixa_e_a_parte_aleatoria(self):
+    def test_a_linha_nao_repete_a_regra_do_servidor(self):
         linha = linhas_de_previsao(ABRE_EM, [NORTH], so_north())[0]
 
-        assert "6h fixas" in linha, "a linha nao diz a parte fixa da regra"
-        assert "2h aleatorias" in linha, (
-            "a linha nao diz a parte aleatoria, que e o que explica por que ha "
-            "dois horarios em vez de um"
-        )
+        assert "fixas" not in linha
+        assert "aleatorias" not in linha
+        assert "entre os dois horarios" not in linha
 
-    def test_a_parte_aleatoria_e_a_DIFERENCA_e_nao_um_literal(self):
-        """Um boss com outra regra tem que produzir outros dois numeros.
+    def test_os_dois_horarios_continuam_saindo_do_bloco_boss(self):
+        """O que a frase da regra provava, provado pelo RESULTADO dela.
 
-        A prova nao e "o texto contem 2h": e "o texto contem o que ESTE bloco
-        `[[boss]]` manda". Escrita so com o Tiat, um `2` cravado no fonte
-        passaria.
+        Um boss com outra regra tem que produzir outros dois horarios. Escrita
+        so com o Tiat, uma conta cravada no fonte passaria.
         """
         outro = Boss(nome="Orfen", respawn_horas_min=5, respawn_horas_max=9)
         ancoras = ancoras_mais_recentes(
@@ -978,32 +1011,16 @@ class TestARegraDaJanelaAleatoria:
 
         linha = linhas_de_previsao(ABRE_EM, [outro], ancoras)[0]
 
-        assert "5h fixas" in linha
-        assert "4h aleatorias" in linha, "a diferenca 9-5 nao virou a faixa"
-        assert "2h aleatorias" not in linha
+        assert "30/08 19:30" in linha, "a abertura nao usou respawn_horas_min=5"
+        assert "30/08 23:30" in linha, "o limite nao usou respawn_horas_max=9"
 
-    def test_a_regra_do_config_de_hoje_sai_com_as_horas_de_hoje(self):
-        """O par que o `config.toml` do usuario tem HOJE: 8 e 10.
-
-        Escrito porque a regra do servidor mudou de 6h+2h para 8h+2h em campo,
-        e a parte FIXA e a que mudou. Uma prova so com 6/8 nao teria notado.
-        """
-        tiat = Boss(nome="Tiat South", respawn_horas_min=8, respawn_horas_max=10)
-        ancoras = ancoras_mais_recentes(
-            [chave_do_nascimento("Tiat South", NASCIMENTO, OrigemDoAviso.CHAT)]
-        )
-
-        linha = linhas_de_previsao(ABRE_EM, [tiat], ancoras)[0]
-
-        assert "8h fixas" in linha
-        assert "2h aleatorias" in linha
-
-    def test_um_boss_sem_faixa_NAO_inventa_sorteio(self):
+    def test_um_boss_sem_faixa_produz_os_dois_horarios_iguais(self):
         """`max == min` e legal: `ler_bosses` so recusa `max` MENOR que `min`.
 
-        A frase generica sairia como "mais ate 0h aleatorias", que e pior que
-        nao dizer nada: ela anuncia um sorteio que nao existe e manda o leitor
-        procurar uma faixa de largura zero.
+        A linha antiga precisava de uma redacao especial para nao anunciar um
+        sorteio de largura zero ("mais ate 0h aleatorias"). Sem a frase da
+        regra o caso deixa de ter redacao propria: os dois horarios saem
+        iguais, que e a verdade, e nao ha o que desambiguar.
         """
         cravado = Boss(nome="Orfen", respawn_horas_min=7, respawn_horas_max=7)
         ancoras = ancoras_mais_recentes(
@@ -1012,22 +1029,19 @@ class TestARegraDaJanelaAleatoria:
 
         linha = linhas_de_previsao(ABRE_EM, [cravado], ancoras)[0]
 
+        assert linha.count("30/08 21:30") == 2
         assert "aleatorias" not in linha
-        assert "0h" not in linha
-        assert "7h" in linha
 
-    def test_a_linha_SEM_ancora_continua_sem_a_regra(self):
-        """T-02-13 tem precedencia sobre a regra, pela razao de sempre.
+    def test_a_linha_SEM_ancora_continua_sem_numero_nenhum(self):
+        """T-02-13, e ela continua valendo palavra por palavra.
 
-        A linha de quem nao tem ancora nao pode conter numero nenhum. Poderia
-        parecer inofensivo dizer a regra ali — ela nao afirma horario —, mas o
-        teste que a protege le DIGITOS, e afrouxa-lo para a regra caber abriria
-        exatamente a porta pela qual um horario inventado entraria depois.
+        A linha de quem nao tem ancora nao pode conter numero NENHUM. Este
+        caso sobreviveu inteiro ao encurtamento porque a garantia sobreviveu
+        inteira: um horario inventado ali seria a mesma familia de defeito que
+        a poda de tres dias existe para impedir.
         """
         linha = linhas_de_previsao(ABRE_EM, [SOUTH], {})[0]
 
-        assert "fixas" not in linha
-        assert "aleatorias" not in linha
         assert not any(c.isdigit() for c in linha)
 
 

@@ -160,9 +160,19 @@ class TestTextoDoAviso:
         assert "removido" in texto.lower()
 
     def test_whatsapp_explica_a_consequencia(self):
-        """O usuario precisa saber que a cobertura da party acabou."""
+        """O usuario precisa saber que a cobertura da party acabou.
+
+        A GARANTIA E A MESMA DE SEMPRE; o que mudou em 2026-09-02 foi o
+        pedaco do texto que a carrega. A frase dizia "a party window sumiu da
+        tela, e a partir de agora so o proprio personagem esta sendo vigiado":
+        a primeira metade e o MECANISMO (como o scanner descobriu), e a
+        segunda e a CONSEQUENCIA (o que mudou para quem le). No encurtamento
+        pedido pelo usuario o mecanismo foi para a docstring de `formatar` e
+        ficou a consequencia, que e a unica das duas sobre a qual o leitor
+        decide alguma coisa.
+        """
         texto = formatar(self._evento())
-        assert "party window sumiu" in texto.lower()
+        assert "vigiando so o proprio personagem" in texto.lower()
 
     def test_console_e_direto(self):
         texto = formatar_console(self._evento())

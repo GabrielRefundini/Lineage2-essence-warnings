@@ -64,11 +64,37 @@ def formatar(evento: Evento) -> str:
 
     Horario local com data curta: quem le no celular precisa saber se aquilo
     aconteceu agora ou ha duas horas.
+
+    ESTES SAO OS TEXTOS MAIS RECORRENTES DO PROJETO, e por isso os de
+    orcamento mais apertado (2026-09-02, a pedido do usuario): eles chegam
+    durante o farm, um por evento, e sao lidos numa olhada. O corte esta em
+    `tests/test_mensagens_curtas.py`.
+
+    O QUE SAIU DE CADA UM FOI A LISTA DE CAUSAS POSSIVEIS, e a razao e sempre
+    a mesma: nao havia o que fazer com ela. A cegueira dizia "pode ser tela de
+    loading, jogo minimizado ou cliente fechado" e a queda dizia "pode ser
+    queda de conexao ou manutencao do servidor". Quem le esta longe do PC (e o
+    caso inteiro para o alerta existir) e nao pode agir sobre nenhuma delas. O
+    que ficou e a CONSEQUENCIA, que e o que muda o comportamento de quem le:
+    que nada esta sendo detectado agora, e que houve um intervalo cego.
+
+    QUEM ESTA NA FRENTE DO PC NAO PERDEU NADA: `formatar_console` continua com
+    a redacao propria dele, e o `scanner.log` guarda o diagnostico completo.
+
+    A REDACAO HEDGED SOBREVIVEU AO CORTE, e essa e a linha que nao se cruza.
+    "HP zerado, possivel morte" nao virou "morreu": encurtar nao pode virar
+    afirmar, porque o unico jeito de a party parar de confiar no scanner e ele
+    afirmar uma morte que nao houve.
+
+    O TRAVESSAO SAIU DE QUATRO DESTAS FRASES, e isso e conserto e nao estilo:
+    o caminho ate o WhatsApp passa por `cp1252`, e um travessao chega no
+    celular como caractere corrompido. As frases afetadas eram MORREU,
+    CEGUEIRA_LONGA, VISAO_RECUPERADA, VOCE_SEM_PARTY e JOGO_CAIU.
     """
     hora = datetime.fromtimestamp(evento.momento).strftime("%H:%M")
 
     if evento.tipo is TipoDeEvento.MORREU:
-        return f"[{hora}] {evento.membro}: HP zerado — possivel morte na PT."
+        return f"[{hora}] {evento.membro}: HP zerado, possivel morte na PT."
 
     if evento.tipo is TipoDeEvento.RESSUSCITOU:
         if evento.segundos_no_estado:
@@ -85,24 +111,22 @@ def formatar(evento: Evento) -> str:
     if evento.tipo is TipoDeEvento.CEGUEIRA_LONGA:
         tempo = _duracao_legivel(evento.segundos_no_estado or 0)
         return (
-            f"[{hora}] Scanner sem visao da party ha {tempo}. "
-            f"Pode ser tela de loading, jogo minimizado ou cliente fechado — "
-            f"eventos nesse periodo nao serao detectados."
+            f"[{hora}] Sem visao da party ha {tempo}. "
+            f"Eventos nesse periodo nao serao detectados."
         )
 
     if evento.tipo is TipoDeEvento.VISAO_RECUPERADA:
         tempo = _duracao_legivel(evento.segundos_no_estado or 0)
         return (
-            f"[{hora}] Scanner voltou a enxergar a party. "
-            f"Estive cego por {tempo} — posso ter perdido eventos nesse intervalo."
+            f"[{hora}] Voltei a enxergar a party. Estive cego {tempo}, "
+            f"posso ter perdido eventos."
         )
 
     if evento.tipo is TipoDeEvento.VOCE_SEM_PARTY:
         quem = evento.membro or "Voce"
         return (
-            f"[{hora}] {quem} nao esta mais na party — saiu ou foi removido. "
-            f"A party window sumiu da tela, e a partir de agora so o proprio "
-            f"personagem esta sendo vigiado."
+            f"[{hora}] {quem} saiu ou foi removido da party. "
+            f"Vigiando so o proprio personagem."
         )
 
     if evento.tipo is TipoDeEvento.VOCE_ENTROU_EM_PARTY:
@@ -118,8 +142,7 @@ def formatar(evento: Evento) -> str:
         )
         return (
             f"[{hora}] O cliente do {quem} {motivo}. "
-            f"Nao estou vigiando ninguem enquanto isso — pode ser queda de "
-            f"conexao ou manutencao do servidor."
+            f"Nao vigio ninguem ate ele voltar."
         )
 
     if evento.tipo is TipoDeEvento.JOGO_VOLTOU:

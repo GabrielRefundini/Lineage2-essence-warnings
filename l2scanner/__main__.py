@@ -428,14 +428,19 @@ def montar_vigia_de_manutencao(regiao) -> VigiaDeManutencao | None:
         )
         return None
 
-    # A LINHA DE ARRANQUE CONTA O ORCAMENTO, e nao so que o recurso ligou.
-    # Quem le o log precisa saber o que este recurso vai custar de CPU antes de
-    # o farm comecar — e a passada cara so aparecer durante a contagem e
-    # justamente o que torna o custo aceitavel (D-e).
+    # O ORCAMENTO DE CPU SAIU DA LINHA EM 2026-09-02, e fica registrado aqui:
+    # sao duas escalas, cinza 2x a cada `SEGUNDOS_ENTRE_LEITURAS` (~23 ms
+    # medidos) e cinza 3x (~31 ms) so quando a primeira ve o banner, e as duas
+    # precisam concordar. A passada cara so acontecer durante a contagem e o
+    # que torna o custo aceitavel (D-e).
+    #
+    # POR QUE ELE PODIA SAIR: o custo nao e uma decisao do usuario. Ele nao
+    # regula a escala, nem o intervalo, nem a segunda passada, e o bloco de
+    # arranque e lido a cada lancamento. O que ele CONFERE ali e a regiao, que
+    # ficou, porque uma regiao errada e o defeito que este log pega.
     log.info(
-        "Aviso de manutencao ativo — lendo o banner em (%d,%d) %dx%d "
-        "em duas escalas: cinza 2x a cada %.0fs (~23 ms medidos) e cinza 3x "
-        "(~31 ms) so quando a primeira ve o banner. As duas precisam concordar.",
+        "Aviso de manutencao ativo: lendo o banner em (%d,%d) %dx%d, "
+        "a cada %.0fs.",
         regiao.esquerda, regiao.topo, regiao.largura, regiao.altura,
         SEGUNDOS_ENTRE_LEITURAS,
     )
@@ -2807,9 +2812,7 @@ def laco_principal(
             if sessao.ticks_cego == TICKS_CEGO_PARA_SUGERIR_RECALIBRAR:
                 log.warning(
                     "Sem visao da party ha %d leituras seguidas. Se o jogo "
-                    "esta aberto e a party window visivel, ela pode ter "
-                    "sido ARRASTADA ou o jogo REDIMENSIONADO — nesse caso "
-                    "rode calibrar.bat de novo.",
+                    "esta aberto e a party window visivel, rode calibrar.bat.",
                     sessao.ticks_cego,
                 )
 
@@ -2851,13 +2854,21 @@ def laco_principal(
             # projeto inteiro evita.
             for indice, ticks in sorted(sessao.ticks_sem_reconhecer.items()):
                 if ticks == TICKS_SEM_RECONHECER_PARA_AVISAR:
+                    # AS CAUSAS SAIRAM EM 2026-09-02 ("alguem que nao estava
+                    # na party quando voce calibrou, ou alguem que virou LIDER
+                    # depois - a coroa antes do nome muda o desenho"). Elas
+                    # explicam POR QUE o reconhecimento falhou, e a acao e a
+                    # mesma nos dois casos: rodar calibrar.bat. Uma lista de
+                    # causas que converge numa unica acao nao muda o que o
+                    # usuario faz; ela so adia a leitura da acao.
+                    #
+                    # O AVISO CONTINUA SEM AFIRMAR NADA SOBRE A PARTY: ele
+                    # relata o que o scanner esta vendo. "Fulano perdeu o
+                    # reconhecimento" seria a mentira plausivel de sempre.
                     log.warning(
                         "A linha %d da party window esta ocupada ha %d leituras "
-                        "seguidas e eu nao reconheci quem esta nela. Pode ser "
-                        "alguem que nao estava na party quando voce calibrou, ou "
-                        "alguem que virou LIDER depois (a coroa antes do nome "
-                        "muda o desenho). Se for um membro da sua lista, rode "
-                        "calibrar.bat de novo para regravar as assinaturas.",
+                        "seguidas e eu nao reconheci quem esta nela. Se for um "
+                        "membro da sua lista, rode calibrar.bat.",
                         indice + 1,
                         ticks,
                     )
