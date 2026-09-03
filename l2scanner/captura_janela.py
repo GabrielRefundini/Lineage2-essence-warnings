@@ -459,6 +459,24 @@ class JanelaSource:
             return None
         return recorte
 
+    @property
+    def hwnd(self) -> int:
+        """A janela que ESTA FONTE esta lendo.
+
+        Existe porque `esta_minimizada(hwnd)` pede um hwnd e a fonte e quem o
+        tem. Perguntar a fonte e a unica resposta que nao pode divergir: um
+        `achar_janela(titulo)` feito por fora faz `EnumWindows` e casa por
+        titulo, e com DUAS instancias do cliente abertas ele pode devolver uma
+        janela DIFERENTE da que esta sendo lida -- que e o defeito que
+        `--janela` existe para impedir.
+
+        E ELA E PROPRIEDADE E NAO ATRIBUTO PUBLICO por causa do envelope:
+        `FonteRecuperavel.__getattr__` encaminha tudo que nao comeca com `_`,
+        entao `envelope.hwnd` entrega o hwnd do interior CORRENTE -- e nao o do
+        cadaver de onde ele foi lido antes de uma religacao (P-3).
+        """
+        return self._hwnd
+
     def estado_do_cliente(self):
         """Jogando, na tela de login, ou desconectado?
 

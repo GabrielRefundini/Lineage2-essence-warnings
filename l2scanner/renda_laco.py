@@ -71,7 +71,19 @@ from .renda_conta import (
     passo_entre_campos,
     tempo_ate_o_nivel,
 )
-from .renda_console import linha_do_tique, resumo_da_sessao_da_renda
+from .recaptura import FonteRecuperavel
+from .renda_console import (
+    RECORTE_DO_EXP_SEM_LEITURA,
+    aviso_da_transicao,
+    linha_do_tique,
+    resumo_da_sessao_da_renda,
+)
+from .renda_estado import (
+    MOTIVO_DO_EXP_SEM_LEITURA,
+    EstadoDaRenda,
+    RastreioDoValor,
+    classificar_a_visao,
+)
 from .renda_leitura import RecusaDaRenda
 from .renda_registro import ORIGEM_INDETERMINADA
 
@@ -124,6 +136,34 @@ MS_ENTRE_FRAMES_DA_RENDA = 250
 REGIAO_PARA_MEDIR_A_JANELA = Regiao(esquerda=0, topo=0, largura=1, altura=1)
 
 SUBCHAVE_DA_GEOMETRIA = "geometria_da_janela"
+
+# QUANTO TEMPO DE EXP BIT-IDENTICO ATE O PAINEL DIZER `PARADO`.
+#
+# ELE MORA AQUI E NAO NA SECAO `[renda]` DO `config.toml` (C-4). O detector
+# IRMAO, `FRAMES_IDENTICOS_PARA_CONGELADO = 30`, e constante nomeada em
+# `frames.py` com a razao escrita ao lado -- porque e uma propriedade DO
+# DETECTOR e nao um numero de farm que o usuario ajusta. A staleness de valor e
+# o mesmo tipo de numero. O modulo puro o recebe somente-nomeado e SEM valor de
+# fabrica; quem escolhe e este arquivo.
+#
+# 120 E ESCOLHA E NAO MEDICAO -- um numero que nao foi medido precisa dizer que
+# nao foi, a mesma disciplina de `MS_ENTRE_FRAMES_DA_RENDA` logo acima. O que
+# ESTA medido e o que o sustenta: o degrau de UM abate mede 10 unidades de EXP
+# (censo de 55 Hz, `renda_ponte.py:33-35`) e um farm ativo mata ~104 mobs por
+# minuto. Dois minutos sem UMA unidade de EXP nao sao cadencia: sao ninguem
+# matando nada.
+#
+# E ELE E TEMPO E NAO NUMERO DE AMOSTRAS, pela CTX-1 da Fase 2: com
+# `--intervalo` mudavel, `N=120` sao dois minutos a 1 Hz e dez a 5 Hz. A tela
+# mostra OS DOIS -- `PARADO ha 4min n=247` --, o que cumpre a letra do CEGO-02
+# ("bit-identicos por N amostras") sem herdar o defeito de contar amostras.
+#
+# *Alternativa registrada:* acrescentar `segundos_para_parado` a `[renda]`.
+# Custa a constante, o campo do dataclass, o `_inteiro_da_renda`, o
+# `_EXEMPLO_DA_RENDA`, o `config.toml` comentado e o teste -- seis lugares --
+# por um numero que ninguem pediu para ajustar. O modulo puro ja esta pronto
+# para receber outro valor no dia em que alguem pedir.
+SEGUNDOS_PARA_DECLARAR_PARADO = 120.0
 
 
 def _modulo_do_arranque():
@@ -220,10 +260,99 @@ def _avisar_se_a_janela_mudou_de_tamanho(entrada, largura, altura) -> None:
     )
 
 
-def _montar_a_fonte(titulo: str, entrada):
-    """`JanelaSource` MEDIDA na janela viva, mirada, e pronta para `capturar()`.
+def _a_janela_esta_minimizada(fonte) -> bool:
+    """`IsIconic` na fonte CORRENTE. E O PRIMEIRO CHAMADOR DAQUELA FUNCAO (C-7).
 
-    A ORDEM E A DE "A GEOMETRIA DA JANELA" DO PLANO, e cada passo tem razao:
+    `esta_minimizada` esta escrita em `captura_janela.py:203-204` desde o v1 e
+    nao tinha chamador nenhum em toda a arvore. Ela e o unico caminho para dizer
+    "minimizado" no SEGUNDO em que o usuario minimiza; sem ela o painel esperaria
+    os 30 frames de `FRAMES_IDENTICOS_PARA_CONGELADO` -- ~30 s a 1 Hz -- para
+    dizer `congelado`, que e a palavra ERRADA para uma janela que o usuario
+    acabou de minimizar de proposito.
+
+    O HWND VEM DA FONTE, E NUNCA DE UM `achar_janela(titulo)` PROPRIO. Recusado
+    por medicao de risco: `achar_janela` faz `EnumWindows` e casa por titulo, e
+    com DUAS instancias abertas ele pode devolver uma janela DIFERENTE da que a
+    fonte esta lendo, se o usuario abrir a segunda no meio da sessao. Perguntar
+    a fonte qual hwnd ELA esta lendo e a unica resposta que nao pode divergir --
+    e ler a instancia errada e exatamente o defeito que `--janela` existe para
+    impedir. Atraves do envelope, `__getattr__` entrega o hwnd do interior
+    CORRENTE, o que importa depois de uma religacao (P-3).
+
+    A AUSENCIA DE HWND VIRA `False` E NUNCA `True`: uma fonte que nao tem hwnd
+    (o caso do `MssSource` e o das fontes de teste) nao esta minimizada -- ela
+    so nao sabe responder, e "nao sei" nao pode virar uma pausa que suspende a
+    gravacao da noite inteira.
+
+    O IMPORT MORA DENTRO DA FUNCAO pelo mesmo cuidado de `_montar_a_fonte`:
+    `captura_janela` faz `ctypes.windll.user32` no topo, e a suite roda no
+    Python GLOBAL.
+    """
+    hwnd = getattr(fonte, "hwnd", None)
+    if not hwnd:
+        return False
+    from . import captura_janela
+
+    return bool(captura_janela.esta_minimizada(hwnd))
+
+
+def _o_estado_do_cliente(fonte):
+    """Jogando, no login, desconectado -- ou `None` quando nem da para perguntar.
+
+    A PERGUNTA E FEITA COM `hasattr`, EXATAMENTE COMO `sessao.py:468` FAZ, e
+    pela mesma razao: `MssSource` nao tem o metodo, e uma fonte de teste
+    tambem pode nao ter.
+
+    `None` E `DESCONHECIDO` SAO FATOS DIFERENTES E NAO PODEM COLAPSAR.
+    `DESCONHECIDO` e *"eu perguntei e o cliente nao respondeu"* -- a janela
+    sumiu, e isso PAUSA. `None` e *"eu nao perguntei"*, e nao pausa nada.
+    Colapsar os dois suspenderia a gravacao de qualquer fonte que nao fosse
+    `JanelaSource`.
+
+    A CADENCIA DE 5 s DO `matchTemplate` JA MORA DENTRO DE
+    `VigiaDoCliente.avaliar` (`cliente.py:250-252`) E ESTE LACO NAO A
+    REIMPLEMENTA. O titulo custa ~0,001 ms e e relido todo tique; o
+    `matchTemplate` custa ~45 ms e so roda quando a cadencia de la dentro vence.
+    """
+    if not hasattr(fonte, "estado_do_cliente"):
+        return None
+    try:
+        return fonte.estado_do_cliente()
+    except Exception:
+        # A COLETA FALHANDO NAO PODE DERRUBAR O TIQUE, e tambem nao pode virar
+        # um estado inventado: ela vira "nao perguntei". A cegueira de verdade
+        # continua chegando pela `SaudeDoFrame`, que e a rede embaixo desta
+        # pergunta.
+        log.debug("nao consegui ler o estado do cliente", exc_info=True)
+        return None
+
+
+def _montar_a_fonte(titulo: str, entrada, *, construir_janela=None):
+    """A fonte da noite inteira: MEDIDA, MIRADA e ENVELOPADA em `FonteRecuperavel`.
+
+    A BEHAVIOUR E A DA PARTY, E ESSA ESCOLHA E O CASO DE USO
+    ========================================================
+    A arvore tem DUAS behaviours prontas e esta fase nao inventa uma terceira: o
+    mercado congela em silencio e a party RELIGA. Fica a da party, e o argumento
+    e um numero -- o incidente medido em `recaptura.py:3-17` foram **33 minutos
+    cegos** com o jogo VIVO na tela, a janela existindo, a calibracao certa e
+    uma `JanelaSource` NOVA funcionando naquele mesmo instante. So o objeto de
+    captura preso no processo estava morto. O mercado herda esse defeito porque
+    roda com o usuario olhando; esta fase existe para a farmada NOTURNA, que e
+    exatamente quando ninguem esta olhando.
+
+    A FABRICA E O UNICO LUGAR ONDE A LISTA DE ARGUMENTOS DA FONTE EXISTE.
+    Arranque e religacao chamam a MESMA funcao, e e isso que impede os dois
+    sites de divergirem em silencio.
+
+    E A MIRA MORA DENTRO DELA, e este e o cuidado que decide tudo: a fonte nasce
+    com `Regiao(0,0,1,1)`, mede a janela viva e so entao `apontar_para` a regiao
+    completa. Se esses tres passos ficassem FORA de `construir()`, a fonte
+    reconstruida voltaria olhando para o retangulo UNITARIO e o laco leria UM
+    PIXEL pelo resto da noite -- o mesmo defeito que `_regiao_reancorada` existe
+    para impedir do lado da party.
+
+    A ORDEM DOS TRES PASSOS, e cada um tem razao:
 
     1. `Regiao(0,0,1,1)` + `relativa=True` — o molde de
        `renda_modo._frame_de_janela`, e **so essa metade dele**.
@@ -231,9 +360,17 @@ def _montar_a_fonte(titulo: str, entrada):
        ocorrencia dela neste modulo.
     3. `apontar_para(Regiao(0, 0, largura, altura))` — legal porque a fonte e
        relativa, e e o espaco de coordenadas em que os retangulos da renda
-       foram gravados (M-A).
-    4. Dali para a frente, `capturar()` — que classifica `SaudeDoFrame` sobre o
-       recorte, e e o que o `03-02` precisa existir.
+       foram gravados (M-A). Dali para a frente e `capturar()`, que classifica
+       `SaudeDoFrame` sobre o recorte — e e o que torna CEGO-01/02 possiveis.
+
+    E A GEOMETRIA E RECONFERIDA A CADA RECONSTRUCAO, de graca: se a janela
+    mudou de tamanho no meio da noite, o aviso sai de novo com o numero de
+    agora.
+
+    `construir_janela=` E INJECAO DE DEPENDENCIA e producao nao passa nada. Ele
+    e o que permite provar, sem WinRT e sem jogo aberto, que a fonte nasce
+    envelopada E que a reconstruida nasce mirada -- as duas afirmacoes que a
+    docstring acima faz.
 
     O IMPORT DE `captura_janela` MORA DENTRO DESTA FUNCAO, e e o que deixa a
     suite rodar no Python GLOBAL, sem as bindings WinRT — o mesmo cuidado de
@@ -241,36 +378,42 @@ def _montar_a_fonte(titulo: str, entrada):
 
     Devolve `(fonte, None)` ou `(None, mensagem)`. Nunca levanta.
     """
-    from .captura_janela import JanelaSource
+    if construir_janela is None:
+        from .captura_janela import JanelaSource as construir_janela
 
-    fonte = None
-    try:
-        fonte = JanelaSource(
+    def construir():
+        fonte = construir_janela(
             titulo,
             REGIAO_PARA_MEDIR_A_JANELA,
             relativa=True,
             minimum_update_interval=MS_ENTRE_FRAMES_DA_RENDA,
         )
-        completo = fonte.capturar_completo()
-    except Exception as erro:  # noqa: BLE001 - borda: vira recusa, nao traceback
-        if fonte is not None:
+        try:
+            completo = fonte.capturar_completo()
+            if completo is None or completo.size == 0:
+                raise RuntimeError(
+                    "nenhum frame utilizavel chegou dela. Ela esta "
+                    "minimizada? A captura por janela funciona com o jogo "
+                    "COBERTO por outra janela (medido), mas nao com ele "
+                    "minimizado."
+                )
+            altura, largura = int(completo.shape[0]), int(completo.shape[1])
+            _avisar_se_a_janela_mudou_de_tamanho(entrada, largura, altura)
+            fonte.apontar_para(
+                Regiao(esquerda=0, topo=0, largura=largura, altura=altura)
+            )
+        except Exception:
+            # UMA FABRICA QUE EXPLODE NAO PODE VAZAR A SESSAO DE CAPTURA que ja
+            # abriu. Na religacao isso acontece dentro do `try` de
+            # `recaptura._religar`, que segue com a fonte ANTIGA.
             fonte.fechar()
+            raise
+        return fonte
+
+    try:
+        return FonteRecuperavel(construir), None
+    except Exception as erro:  # noqa: BLE001 - borda: vira recusa, nao traceback
         return None, f"nao consegui abrir a janela {titulo!r}: {erro}"
-
-    if completo is None or completo.size == 0:
-        fonte.fechar()
-        return None, (
-            f"nenhum frame utilizavel chegou da janela {titulo!r}. Ela esta "
-            "minimizada? A captura por janela funciona com o jogo COBERTO por "
-            "outra janela (medido), mas nao com ele minimizado."
-        )
-
-    altura, largura = int(completo.shape[0]), int(completo.shape[1])
-    _avisar_se_a_janela_mudou_de_tamanho(entrada, largura, altura)
-    fonte.apontar_para(
-        Regiao(esquerda=0, topo=0, largura=largura, altura=altura)
-    )
-    return fonte, None
 
 
 def _tempo_ate_o_nivel(campos, passos, ajustes):
@@ -479,6 +622,25 @@ def laco_da_renda(
     erros_seguidos = 0
     ticks = 0
     saida = 0
+    # O RASTREIO DE VALOR E O UNICO ESTADO GENUINAMENTE NOVO DESTA FASE. Os
+    # tres detectores de staleness que a arvore ja tinha sao os tres de PIXEL
+    # (`frames._ClassificadorDeSaude`, `recaptura.FonteRecuperavel`,
+    # `mercado_pagina`), e NENHUM deles compara o VALOR LIDO. Ele vive FORA do
+    # `while` pela mesma razao de `contagem` e `passos`: dentro, nasceria zerado
+    # a cada volta e `PARADO` seria inalcancavel.
+    rastreio = RastreioDoValor()
+    # O LATCH DA TRANSICAO NASCE EM LENDO, e nao em `None`: uma sessao que sobe
+    # normal nao pode abrir com um bloco alto anunciando que esta lendo -- isso
+    # e o estado esperado. Uma sessao que sobe JA cega anuncia no primeiro
+    # tique, que e exatamente quando o usuario precisa saber.
+    estado_do_latch = EstadoDaRenda.LENDO
+    motivo_do_latch = None
+    # OS QUATRO CONTADORES QUE NAO SE SOMAM, no molde de `Contagem` do mercado e
+    # de `ContagemDaRenda`: sao perguntas diferentes com consertos diferentes, e
+    # somar duas delas apaga a pergunta. O quinto valor
+    # (`sem_leitura_do_exp`) e um RECORTE de `sem_leitura` e nao uma quinta
+    # parcela -- por isso ele nao entra na soma.
+    tiques_por_estado: dict = {}
 
     # O BLOCO SAI POR INTERVALO E NUNCA POR TIQUE, pela razao escrita em
     # `mercado_console.py:490-496`: *"Repintar um bloco de dezenas de linhas
@@ -532,42 +694,134 @@ def laco_da_renda(
             if desde is None:
                 desde = agora
 
-            for campo, resultado in campos.por_campo.items():
-                if isinstance(resultado, RecusaDaRenda):
-                    recusas_por_campo[campo] = (
-                        recusas_por_campo.get(campo, 0) + 1
-                    )
-
-            # A UNICA PORTA PARA A CONTA (C-8). As quatro regras de par NAO sao
-            # chamadas daqui — a decisao sobre o par mora em `renda_conta`.
-            passo = passo_entre_campos(
-                anterior,
-                campos,
-                carimbo_anterior=carimbo_anterior,
+            # OS QUATRO SINAIS CRUS, NA ORDEM DO CUSTO E NAO DA GRAVIDADE.
+            #
+            # `frame.saude` ja veio DENTRO do `Frame` e custa zero;
+            # `esta_minimizada` e um `IsIconic` (microssegundos);
+            # `estado_do_cliente()` le o titulo (~0,001 ms) e so paga o
+            # `matchTemplate` (~45 ms) quando a cadencia de 5 s DELE vence --
+            # e essa cadencia ja mora la dentro (`cliente.py:250-252`), entao
+            # este laco NAO a reimplementa.
+            #
+            # NENHUM DELES E DETECCAO NOVA (CTX-4). Quatro rodadas de correcao
+            # no v1 estao atras dos tres primeiros; esta fase CLASSIFICA e
+            # NOMEIA.
+            #
+            # A INCERTEZA A2 DO ASSUMPTIONS LOG, REGISTRADA POR ESCRITO: *"jogo
+            # fechado ou minimizado no meio manifesta-se como CONGELADO em ~30
+            # ticks e nunca como excecao"* foi INFERIDO de
+            # `captura_janela.py:281-296` + `frames.py:139-148` e NAO foi
+            # reproduzido em campo nesta rodada. E por isso que
+            # `esta_minimizada` e consultada em vez de se confiar no
+            # congelamento: ela e o caminho MEDIDO, e o congelamento e a rede.
+            visao = classificar_a_visao(
+                saude=frame.saude,
+                estado_do_cliente=_o_estado_do_cliente(fonte),
+                minimizada=_a_janela_esta_minimizada(fonte),
+                campos=campos,
+                rastreio=rastreio,
                 carimbo=agora,
-                fator_de_salto=ajustes.fator_de_salto_da_adena,
-                limiar_de_lacuna_em_segundos=ajustes.lacuna_maxima_segundos,
+                segundos_para_parado=SEGUNDOS_PARA_DECLARAR_PARADO,
             )
-            contar_o_passo(passo, contagem)
+            tiques_por_estado[visao.estado.value] = (
+                tiques_por_estado.get(visao.estado.value, 0) + 1
+            )
+            if visao.motivo == MOTIVO_DO_EXP_SEM_LEITURA:
+                tiques_por_estado[RECORTE_DO_EXP_SEM_LEITURA] = (
+                    tiques_por_estado.get(RECORTE_DO_EXP_SEM_LEITURA, 0) + 1
+                )
 
-            # UMA LINHA POR TIQUE, SEMPRE, inclusive com campo recusado: ela e
-            # o denominador da taxa. A fase NAO constroi um segundo portao de
-            # admissao — com 79% de recusa no nivel, um portao aqui entregaria
-            # linha em ~4% dos tiques.
-            if not registro.registrar(
-                campos,
-                carimbo=agora,
-                descontinuidade=passo.descontinuidade,
-                origem_do_ganho=ORIGEM_INDETERMINADA,
+            # O LATCH DA TRANSICAO: UMA linha alta por MUDANCA, e nunca por
+            # tique. O molde e `mercado_pagina.py:796-814`, e a razao e a
+            # mesma: um aviso repetido a cada tique vira ruido que o olho
+            # aprende a pular, e ai ele deixa de avisar. Foi exatamente essa
+            # licao que o mercado aprendeu em producao em 2026-09-01, com o
+            # usuario concluindo que o scanner tinha parado.
+            #
+            # O QUE FICA NA TELA ENTRE DUAS TRANSICOES E A LINHA DO TIQUE, e e
+            # por isso que ela passa a carregar o estado.
+            if (visao.estado, visao.motivo) != (
+                estado_do_latch,
+                motivo_do_latch,
             ):
-                perdidas += 1
+                estado_do_latch, motivo_do_latch = visao.estado, visao.motivo
+                if visao.estado is EstadoDaRenda.LENDO:
+                    log.info("%s", aviso_da_transicao(visao))
+                else:
+                    log.warning("%s", aviso_da_transicao(visao))
 
-            passos.append(passo)
-            anterior, carimbo_anterior = campos, agora
+            if visao.estado is EstadoDaRenda.PAUSADO:
+                # CEGO-01 E A AUSENCIA DE UMA CHAMADA, E E POR ISSO QUE ELE E
+                # BARATO (C-6). Zero coluna nova, zero valor de
+                # `descontinuidade` novo, zero segundo portao de admissao.
+                #
+                # O laco NAO chama `registrar`, NAO conta a recusa por campo
+                # (ela nao e recusa de leitura: e cegueira, e soma-la
+                # envenenaria os 79%/21%/0% do painel), NAO monta passo e --
+                # a linha que faz tudo funcionar -- NAO atualiza `anterior`
+                # nem `carimbo_anterior`. Mantido o carimbo de ANTES da
+                # cegueira, o primeiro par depois dela tem intervalo maior que
+                # `lacuna_maxima_segundos` (60) e `passo_entre_campos` marca
+                # `lacuna` SOZINHO; `DESCONTINUIDADES_DO_TEMPO` tira o passo do
+                # denominador e `lacunas_excluidas` / `segundos_em_lacuna`
+                # mostram na tela quanto tempo foi cego.
+                #
+                # E O LACO CONTINUA RODANDO. CEGO-01 diz "pausa declarada", e
+                # nunca "encerra": os dois precedentes da arvore concordam --
+                # a party religa e depois roda cega sem sair, o mercado congela
+                # em silencio, e os dois so saem por dez excecoes seguidas de
+                # CAPTURA.
+                pass
+            else:
+                for campo, resultado in campos.por_campo.items():
+                    if isinstance(resultado, RecusaDaRenda):
+                        recusas_por_campo[campo] = (
+                            recusas_por_campo.get(campo, 0) + 1
+                        )
+
+                # A UNICA PORTA PARA A CONTA (C-8). As quatro regras de par NAO
+                # sao chamadas daqui - a decisao sobre o par mora em
+                # `renda_conta`.
+                passo = passo_entre_campos(
+                    anterior,
+                    campos,
+                    carimbo_anterior=carimbo_anterior,
+                    carimbo=agora,
+                    fator_de_salto=ajustes.fator_de_salto_da_adena,
+                    limiar_de_lacuna_em_segundos=(
+                        ajustes.lacuna_maxima_segundos
+                    ),
+                )
+                contar_o_passo(passo, contagem)
+
+                # UMA LINHA POR TIQUE, SEMPRE, inclusive com campo recusado e
+                # inclusive PARADO: ela e o denominador da taxa (CTX-3). A fase
+                # NAO constroi um segundo portao de admissao - com 79% de
+                # recusa no nivel, um portao aqui entregaria linha em ~4% dos
+                # tiques, e suprimir as linhas do tempo parado faria a taxa da
+                # sessao mentir PARA CIMA (medido: 226 mil contra 466 mil
+                # adena/h).
+                if not registro.registrar(
+                    campos,
+                    carimbo=agora,
+                    descontinuidade=passo.descontinuidade,
+                    origem_do_ganho=ORIGEM_INDETERMINADA,
+                ):
+                    perdidas += 1
+
+                passos.append(passo)
+                anterior, carimbo_anterior = campos, agora
 
             # A LINHA SAI DEPOIS DO BLOCO DE PROCESSAMENTO: ela mostra o estado
             # DESTE tique, e nunca o do anterior.
-            log.info("%s", linha_do_tique(campos, contagem))
+            #
+            # `estado=` E O SEAM QUE O `03-01` DEIXOU NASCIDO E SEM CONSUMIDOR,
+            # e aqui ele ganha o consumidor sem que a assinatura mude.
+            # `visao.texto` e `None` no caso LENDO, e ai `linha_do_tique`
+            # calcula o texto dela mesma -- que e o que preserva o motivo da
+            # recusa na tela nos 79% de tiques em que o nivel recusa com o EXP
+            # subindo.
+            log.info("%s", linha_do_tique(campos, contagem, estado=visao.texto))
 
             if time.monotonic() >= proximo_bloco:
                 # AS TAXAS SAO CALCULADAS AQUI E NAO POR TIQUE: `as_duas_taxas`
@@ -636,6 +890,7 @@ def laco_da_renda(
                 registro,
                 recusas_por_campo=recusas_por_campo,
                 tiques=ticks,
+                tiques_por_estado=tiques_por_estado,
             ),
         )
         if perdidas:

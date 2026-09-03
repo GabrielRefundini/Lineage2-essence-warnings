@@ -145,7 +145,31 @@ ESTADO_LENDO = "LENDO"
 # ELE NAO E `console.LARGURA`. Aquele e 58 e e PISO de `moldurar`; a linha ao
 # vivo nunca passou por `moldurar`, nao trunca e nao quebra — a do mercado ja
 # roda 84 colunas normalmente e 255 com o aviso de layout colado (C-2).
-LARGURA_MAXIMA_DA_LINHA_DO_TIQUE = 72
+#
+# ELE SUBIU DE 72 PARA 76 NO `03-02`, E O NUMERO ANTIGO CAIU POR MEDICAO.
+# 72 era o teto medido do vocabulario de estados que existia no `03-01`: DOIS
+# (`LENDO` e a lista de recusas). O `03-02` traz CINCO, e os novos sao mais
+# longos. Medido com os valores reais do usuario de 2026-09-03 (`renda | nivel
+# 68 | EXP 48,0075% | adena 23.986.985 | `, que custa 53 colunas), com o teto
+# em 72:
+#
+#   PARADO ha 4min n=249        ->  73, truncava em `PARADO ha 4min n=2~`
+#   PARADO ha 59min n=3598      ->  75, truncava em `PARADO ha 59min n=~`
+#   PAUSADO: tela de login      ->  75, truncava em `PAUSADO: tela de l~`
+#   PAUSADO: desconectado       ->  74, truncava em `PAUSADO: desconect~`
+#
+# Ou seja: com o teto antigo, TODOS os estados novos perdiam o fim -- e o fim e
+# a contagem de amostras que o CEGO-02 pede pelo nome, e o motivo da pausa que
+# o CEGO-01 existe para dizer. Manter 72 teria sido preservar um numero medido
+# para OUTRO conjunto de linhas.
+#
+# 76 NAO E ESCOLHA NOVA: e `LARGURA_DO_AVISO`, o unico numero de largura de
+# console que este fonte cita com razao ao lado -- *"a largura em que ela cabe
+# num console padrao de 80"* (`mercado_console.py:748`) --, e ele ja e o teto
+# do bloco por intervalo deste mesmo arquivo. Com 76, as cinco linhas acima
+# cabem inteiras (73, 75, 75, 74) e a truncagem volta a ser o que ela era: a
+# rede para o caso patologico, e nao o caminho normal.
+LARGURA_MAXIMA_DA_LINHA_DO_TIQUE = LARGURA_DO_AVISO
 
 # O que fica no lugar do que foi cortado. Uma truncagem invisivel transformaria
 # `discordancia-entre-escalas` em `discordanci`, que parece um motivo inteiro e
@@ -244,6 +268,56 @@ def linha_do_tique(campos, contagem, *, estado: str | None = None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# O BLOCO ALTO DA TRANSICAO -- uma vez por MUDANCA de estado, e nunca por tique
+# ---------------------------------------------------------------------------
+#
+# A DISTINCAO E POR MARCA E PREFIXO, E NUNCA SO POR COR. `console._pintar`
+# desliga a cor quando `isatty()` e falso -- que e o caso do `caplog`, de um
+# pipe e do redirecionamento para `scanner.log`, que e exatamente onde o
+# usuario vai olhar de manha. Um estado que so se distinguisse por cor sumiria
+# justamente ali.
+#
+# E POR ISSO A MOLDURA VEM DE `console.moldurar` E NAO DE `console.destacar`.
+# `destacar` com `tipo=None` cai no default e devolve `*` para TODOS os
+# estados -- exatamente a colapso que o CEGO-02 proibe ("PARADO e PAUSADO tem
+# de ser distinguiveis num console rolando as 4 da manha"). A alternativa seria
+# reusar um `TipoDeEvento` da party para cada estado da renda, e ai `PARADO`
+# viraria `SAIU` ou `CEGUEIRA_LONGA` -- uma mentira no sistema de tipos, por
+# uma cor que o `scanner.log` nem mostra.
+#
+# AS CHAVES SAO AS STRINGS DO ENUM E NAO O ENUM: `renda_estado` importa DESTE
+# arquivo (a grafia da duracao e os rotulos dos campos), e importar de volta
+# fecharia o ciclo.
+MARCA_POR_ESTADO = {
+    "pausado": "!",
+    "parado": ".",
+    "sem_leitura": "?",
+    "lendo": "+",
+}
+
+MARCA_PADRAO_DA_TRANSICAO = "*"
+
+
+def aviso_da_transicao(visao, *, hora: str | None = None) -> str:
+    """O texto ALTO de UMA mudanca de estado. Quem o imprime e o laco.
+
+    ELE E SEPARADO DA LINHA DO TIQUE POR MEDICAO E NAO POR GOSTO. A frase
+    acionavel de minimizado tem ~240 caracteres e o orcamento da linha do tique
+    e 76 colunas, das quais os valores reais do usuario -- `renda | nivel 68 |
+    EXP 48,0075% | adena 23.986.985 | ` -- comem 53. Ela sairia truncada em
+    `PAUSADO: A JANELA DO JOGO E~`, cortando exatamente a parte que diz o que
+    fazer, que e a razao de ela existir. Aqui a moldura cresce com o texto
+    (`moldurar` usa `max(LARGURA, ...)`, que e PISO e nao teto).
+    """
+    if hora is None:
+        hora = datetime.now().strftime("%H:%M")
+    marca = MARCA_POR_ESTADO.get(
+        visao.estado.value, MARCA_PADRAO_DA_TRANSICAO
+    )
+    return "\n" + console.moldurar(visao.aviso, hora, marca)
+
+
+# ---------------------------------------------------------------------------
 # O BLOCO POR INTERVALO -- o que o programa CALCULOU (CONS-01)
 # ---------------------------------------------------------------------------
 
@@ -281,8 +355,16 @@ TEXTO_DA_TAXA_NEGATIVA = (
 TEXTO_SEM_EVIDENCIA = "sem previsao: ainda nao da para dizer."
 
 
-def _duracao_curta(segundos: float) -> str:
+def duracao_curta(segundos: float) -> str:
     """`17520.696` -> `4h52`. Inteiro, e a partir de EPOCHS SUBTRAIDOS.
+
+    ELA NASCEU PRIVADA NO `03-01` E FICOU PUBLICA NO `03-02`, e a razao e uma
+    so: `renda_estado.texto_do_parado` escreve `PARADO ha 4min` na MESMA tela
+    em que este arquivo escreve `ha 4min` na recencia da taxa. Duas gramaticas
+    de duracao lado a lado fariam a mesma grandeza aparecer escrita de dois
+    jeitos -- e a alternativa (copiar as seis linhas para o modulo puro) e
+    exatamente a segunda verdade que a mudanca de casa das tres grafias, no
+    `03-01`, existiu para impedir.
 
     O `int()` NA ENTRADA E O PONTO. `dashboard_dados.py:624-628` mediu
     `total_seconds()` devolvendo `69713.696` onde o inteiro dizia `69713`; um
@@ -398,18 +480,18 @@ def _linhas_de_uma_taxa(rotulo_base: str, sufixo: str, taxa, agora) -> list[str]
             f"sem numero: {taxa.motivo_da_ausencia}"
         )
 
-    recencia = "agora" if taxa.ate is None else f"ha {_duracao_curta(agora - taxa.ate)}"
+    recencia = "agora" if taxa.ate is None else f"ha {duracao_curta(agora - taxa.ate)}"
     numero = _grafia_curta(taxa.por_hora)
     return [_linha(rotulo, f"{numero:<9} (n={taxa.evidencia.n}, {recencia})")]
 
 
 def _sufixo_da_janela(taxa) -> str:
-    return f"janela ({_duracao_curta(taxa.janela_farmada_em_segundos)})"
+    return f"janela ({duracao_curta(taxa.janela_farmada_em_segundos)})"
 
 
 def _sufixo_da_sessao(taxa) -> str:
     return (
-        f"sessao ({_duracao_curta(taxa.janela_farmada_em_segundos)} farmadas)"
+        f"sessao ({duracao_curta(taxa.janela_farmada_em_segundos)} farmadas)"
     )
 
 
@@ -423,7 +505,7 @@ def _linhas_do_eta(eta, campos, agora) -> list[str]:
     )
 
     if eta.segundos is not None:
-        return [_linha(rotulo, _duracao_curta(float(eta.segundos)))]
+        return [_linha(rotulo, duracao_curta(float(eta.segundos)))]
 
     motivo = eta.motivo_da_ausencia or ""
     if motivo == MOTIVO_DA_TAXA_DE_EXP_ZERADA:
@@ -509,8 +591,8 @@ def bloco_da_renda(
         "",
         "HA QUANTO TEMPO A SESSAO CORRE:",
         "  sessao de pe "
-        f"{_duracao_curta(agora - desde)} "
-        f"({_duracao_curta(taxas_de_exp.sessao.janela_farmada_em_segundos)}"
+        f"{duracao_curta(agora - desde)} "
+        f"({duracao_curta(taxas_de_exp.sessao.janela_farmada_em_segundos)}"
         " farmadas)",
         "",
         f"O QUE ISSO RENDE (denominador em {taxas_de_exp.sessao.unidade_da_janela}, "
@@ -543,7 +625,7 @@ def bloco_da_renda(
         _linha(
             "lacunas excluidas",
             f"{sessao.lacunas_excluidas} "
-            f"({_duracao_curta(sessao.segundos_em_lacuna)} cegos)",
+            f"({duracao_curta(sessao.segundos_em_lacuna)} cegos)",
         ),
         _linha("passos aceitos na sessao", str(contagem.aceitas)),
     ]
@@ -574,6 +656,27 @@ def bloco_da_renda(
 # ---------------------------------------------------------------------------
 
 
+# O RECORTE do `sem_leitura`, e ele NAO e uma quinta parcela: `SEM LEITURA
+# (EXP)` ja esta contado dentro de `sem_leitura`. Ele sai numa linha propria e
+# recuada porque e o caso que a versao anterior do plano deixou cair entre as
+# regras -- e o unico em que a tela NAO SABE se o usuario esta parado.
+RECORTE_DO_EXP_SEM_LEITURA = "sem_leitura_do_exp"
+
+# OS QUATRO ESTADOS DO RESUMO, NA ORDEM EM QUE ELES SAEM. As quatro primeiras
+# linhas SOMAM o total de tiques classificados; a quinta e recorte da terceira.
+ROTULO_DO_ESTADO = (
+    ("lendo", "tiques LENDO"),
+    ("parado", "tiques PARADO (renda zero, gravada)"),
+    ("sem_leitura", "tiques SEM LEITURA (gravados)"),
+    (RECORTE_DO_EXP_SEM_LEITURA, "  destes, SEM LEITURA (EXP)"),
+    ("pausado", "tiques PAUSADO (cego, NAO gravados)"),
+)
+
+# As quatro que somam. O recorte fica de fora de proposito: soma-lo daria o
+# total mais uma vez a mesma parcela.
+ESTADOS_QUE_SOMAM = ("lendo", "parado", "sem_leitura", "pausado")
+
+
 def resumo_da_sessao_da_renda(
     contagem,
     orcamento,
@@ -581,6 +684,7 @@ def resumo_da_sessao_da_renda(
     *,
     recusas_por_campo: dict,
     tiques: int,
+    tiques_por_estado: dict,
 ) -> str:
     """O fim da sessao, contando o que foi ao DISCO e o que ele custou.
 
@@ -626,6 +730,21 @@ def resumo_da_sessao_da_renda(
                 ),
             )
         )
+
+    linhas += [
+        "",
+        "O QUE O SCANNER VIU, POR TIQUE (as quatro primeiras somam "
+        f"{tiques}):",
+    ]
+    for chave, rotulo in ROTULO_DO_ESTADO:
+        linhas.append(_linha(rotulo, str(int(tiques_por_estado.get(chave, 0)))))
+    linhas += [
+        "",
+        "  Estes quatro NAO se somam entre si como se fossem o mesmo fato:",
+        "  PAUSADO e `nao vi` e suspende a gravacao; PARADO e `vi e nao mudou`",
+        "  e GRAVA; SEM LEITURA e `vi e nao consegui ler` e tambem grava, com",
+        "  o motivo. Sao tres consertos diferentes.",
+    ]
 
     linhas += [
         "",
