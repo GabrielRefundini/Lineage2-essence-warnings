@@ -275,6 +275,33 @@ Use these entry points:
 Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
 <!-- GSD:workflow-end -->
 
+## Worktrees — limpar logo apos mesclar
+
+O isolamento por worktree **fica ligado**: e ele que protege o trabalho em paralelo (foi o que
+segurou os "testes fantasmas" quando outro agente commitava no meio de uma rodada). O que NAO
+fica e worktree parado depois de mesclado.
+
+**Regra:** quem mescla a branch de um executor remove o worktree e apaga a branch no MESMO
+passo — nunca "depois":
+
+    git merge --no-ff worktree-agent-<id> -m "..."
+    git worktree remove <caminho> --force
+    git branch -D worktree-agent-<id>
+
+**Antes de remover**, conferir que os artefatos soltos (SUMMARY, DRY-RUN, etc.) ja estao
+commitados no tronco (`git ls-files --error-unmatch <arquivo>`). Um worktree com alteracao
+nao commitada de OUTRO agente nao se apaga: salva-se o diff como patch versionado primeiro
+(precedente em `.planning/wip-resgatado/`).
+
+**Por que a regra existe (2026-09-02/03):** acumularam **57 worktrees** — cada um um checkout
+completo do repositorio — em dois dias de sessoes. A maquina chegou a 89% de RAM e o app do
+Claude morreu duas vezes. O ceifador automatico do GSD (`worktree.reap-orphans`) NAO cobre
+isso: ele so recolhe worktrees com arquivo de trava e dono morto, e os criados pela ferramenta
+de agentes nao passam por esse protocolo; alem disso exige a branch ja mesclada na branch
+PADRAO, e o `master` estava 172 commits atras. Manter o `master` avancado por fast-forward ao
+fim de cada bloco ajuda, mas nao substitui a limpeza manual. Conferencia rapida:
+`git worktree list` deve mostrar so a pasta principal fora de execucao.
+
 <!-- GSD:profile-start -->
 
 ## Developer Profile
