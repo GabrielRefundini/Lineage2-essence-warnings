@@ -62,7 +62,10 @@ from l2scanner.renda_leitura import (
     ValorDaRenda,
 )
 from l2scanner.renda_registro import (
+    ARQUIVO_DO_LEIAME,
+    AUSENCIAS,
     COLUNAS,
+    TEXTO_DO_LEIAME,
     ContratoDaRendaQuebrado,
     RegistroDaRenda,
     amostras_ao_vivo,
@@ -670,6 +673,104 @@ class TestATaxaNuncaEUmNumeroNu:
         assert taxa.ate == amostras[-1].carimbo
         assert taxa.evidencia.piso == PISO_DE_AMOSTRAS
         assert taxa.evidencia.n == 20
+
+
+class TestOLeiameQueNasceJuntoComAPasta:
+    """O texto para o humano que abre `.renda/` sem saber o que e aquilo.
+
+    A pasta e ignorada pelo git — `.renda/` esta no `.gitignore` com a razao ao
+    lado, no bloco das tres irmas —, entao ninguem vai encontrar este texto num
+    README de repositorio. Ele tem de estar na pasta, ao lado dos CSVs.
+    """
+
+    def test_ELE_NASCE_COM_A_PASTA_E_NAO_ESTA_VAZIO(self, tmp_path):
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+
+        leiame = tmp_path / ARQUIVO_DO_LEIAME
+        assert leiame.exists()
+        assert leiame.read_text(encoding="utf-8").strip()
+        assert registro.arquivo.exists()
+
+    def test_ELE_NASCE_ANTES_DA_PRIMEIRA_LEITURA_DO_CSV(self, tmp_path):
+        """A prova de ORDEM, e ela nao e uma inspecao — ela e um efeito.
+
+        Se o CSV que ja esta na pasta desliga o registro alto, o construtor
+        levanta na LEITURA. O LEIAME so existe depois disso se ele tiver sido
+        escrito ANTES — que e a ordem que o fonte declara: `mkdir`, LEIAME, e so
+        entao qualquer leitura. Um teste que so olhasse a pasta no fim passaria
+        com o LEIAME escrito por ultimo.
+        """
+        (tmp_path / "faerlina.csv").write_text(
+            ";".join(COLUNAS) + "\n" + "sem quebra de linha no fim",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ContratoDaRendaQuebrado):
+            RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+
+        assert (tmp_path / ARQUIVO_DO_LEIAME).exists(), (
+            "o LEIAME tem de nascer junto com a pasta e ANTES de qualquer "
+            "leitura: o texto que explica o arquivo nasce junto com a pasta que "
+            "o guarda, e nunca depois"
+        )
+
+    def test_A_ANOTACAO_DO_USUARIO_SOBREVIVE_AO_PROXIMO_ARRANQUE(self, tmp_path):
+        """Escrever SO SE AUSENTE, nunca sobrescrever.
+
+        O LEIAME e um texto para humano, na pasta do humano, e o usuario pode
+        anotar coisas ali. Um programa que o reescrevesse a cada arranque
+        apagaria a anotacao calado — a mesma familia de erro que o
+        cabecalho-contrato existe para impedir do outro lado do modulo.
+        """
+        RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        leiame = tmp_path / ARQUIVO_DO_LEIAME
+
+        anotacao = "\n\nANOTACAO MINHA: dia 02/09 farmei em Blazing Swamp.\n"
+        leiame.write_text(
+            leiame.read_text(encoding="utf-8") + anotacao, encoding="utf-8"
+        )
+
+        RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+
+        assert anotacao in leiame.read_text(encoding="utf-8")
+
+    def test_ELE_NOMEIA_AS_TREZE_COLUNAS_E_AS_QUATRO_AUSENCIAS(self):
+        """As duas listas SAO DERIVADAS DO MODULO, e nunca escritas a mao aqui.
+
+        Uma lista escrita no teste envelheceria em silencio no dia em que uma
+        coluna nascesse: o teste continuaria verde e o usuario abriria o CSV com
+        uma coluna que o LEIAME nao explica.
+        """
+        faltando = [coluna for coluna in COLUNAS if coluna not in TEXTO_DO_LEIAME]
+        assert faltando == [], (
+            f"o LEIAME nao explica {faltando}. Quem abre o CSV no Sheets le o "
+            "cabecalho e vem aqui perguntar o que cada coluna quer dizer"
+        )
+
+        sem_ausencia = [
+            ausencia for ausencia in AUSENCIAS if ausencia not in TEXTO_DO_LEIAME
+        ]
+        assert sem_ausencia == [], (
+            f"o LEIAME nao explica a ausencia de {sem_ausencia}. A primeira "
+            "pergunta de quem abre o arquivo no Sheets e 'cade a coluna do "
+            "ganho', e cada ausencia tem de dizer de onde o numero vem em vez "
+            "dela"
+        )
+        assert len(AUSENCIAS) == 4
+
+    def test_ELE_EXPLICA_A_UNIDADE_DO_EXP_E_O_ARQUIVO_POR_PERSONAGEM(self):
+        """Os quatro fatos que fazem alguem ler o arquivo errado sem saber.
+
+        A unidade do EXP (`80012` nao e oitenta mil por cento), o exemplo
+        conferivel ao lado dela, que ha um arquivo por personagem e nao um so, e
+        que ninguem poda isto — porque um usuario que ache que o arquivo cresce
+        demais vai apagar linhas, e nao ha desfazer.
+        """
+        assert "DECIMOS DE MILESIMO" in TEXTO_DO_LEIAME
+        assert "8,0012%" in TEXTO_DO_LEIAME
+        assert "UM ARQUIVO CSV POR" in TEXTO_DO_LEIAME
+        assert "NUNCA e podado" in TEXTO_DO_LEIAME
+        assert "as recusas" in TEXTO_DO_LEIAME.lower()
 
 
 class TestNenhumLimiarTemValorDeFabrica:

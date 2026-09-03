@@ -42,6 +42,12 @@ recordings/
 # duas saberia dizer qual metade e sua: a chave e o hash dos PIXELS, e a
 # mesma pessoa em outra tela produz outra chave.
 .identidades/
+# .renda/ guarda um CSV por personagem com uma linha por amostra da barra de
+# status — estado local, DURAVEL e sem poda, porque "quanto eu rendia mes
+# passado" e uma pergunta sobre meses, igual ao .loot/. Versionar misturaria a
+# renda de maquinas diferentes, e sem esta linha a primeira noite de farm entra
+# num commit sem ninguem notar.
+.renda/
 outbox.jsonl
 events.jsonl
 logs/

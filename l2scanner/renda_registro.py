@@ -106,6 +106,7 @@ log = logging.getLogger(__name__)
 # TUPLA E NAO LISTA, pelo portao `memoria_de_modulo` de
 # `tests/test_renda_par.py`, que passou a varrer este arquivo tambem.
 __all__ = (
+    "ARQUIVO_DO_LEIAME",
     "AUSENCIAS",
     "AmostraLida",
     "ArquivoRecortado",
