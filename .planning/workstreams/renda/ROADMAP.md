@@ -249,6 +249,20 @@ a leitura não recusar direito, gravar é gravar veneno.
 > `363 XP (bonus: 299)` é **363 no total**, porque `363/(363−299) = 5,67` e a barra exibe
 > **562%** como multiplicador de XP do personagem. Dez de onze linhas caem em 562–567%.
 
+> **A ponte do nível 67 virou histórica em 2026-09-03, no mesmo dia — e isso é o REND-08
+> funcionando como desenhado.** A Faerlina subiu para o 68 e `renda_ponte_de_xp` só tem
+> `Faerlina/67`: pelo desenho, o XP absoluto sai **declaradamente indisponível** até alguém
+> medir o 68, e **nunca** convertido com a constante do 67. Vale escrever o tamanho do erro
+> que essa regra evita — o nível 67 custou 38,87 milhões, os seguintes custam mais, e se o 68
+> custar 20% a mais, converter a porcentagem do 68 pela constante do 67 subestimaria o XP/h
+> em ~17%: um número plausível, com cara de medido, e errado. É o modo de falha que este
+> workstream inteiro existe para impedir.
+>
+> **O que isso torna urgente:** a ferramenta que mede a ponte em laço estava listada como
+> *ideia adiada* no `03-CONTEXT.md`, com a nota "ela vira necessária no próximo level up". O
+> próximo level up aconteceu **no mesmo dia**. Ela deixou de ser adiável e não tem plano nem
+> fase — é o primeiro candidato do que vier depois desta. — `03-ACHADO-DO-LEVEL-UP.md`, M-Z
+
 **As duas armadilhas, e por que cada uma ganhou critério próprio**: as duas foram levantadas
 pelo spike, e as duas têm o mesmo formato — **um delta negativo que não é renda negativa**.
 Elas não são casos de borda: subir de nível é a melhor coisa que acontece numa farmada, e gastar
@@ -400,6 +414,25 @@ portas para o mesmo arquivo é como um arquivo passa a ter duas verdades.
    > Faerlina andou de `140..170` para `160..180` em 8,5 h, e no dia seguinte a janela subiu ~8 px
    > e as três regiões morreram de uma vez — com o usuário vendo os três campos recusados. Na
    > Fase 1 isso seria estado dentro de uma função que a fase inteira definiu como pura.
+
+   > **E o LEIT-10 NÃO cobre um painel que MUDOU DE LUGAR — medido em 2026-09-03, rodando o
+   > `--renda` de verdade depois de fundir o `03-01`.** A Faerlina subiu de 67 para 68, o
+   > painel de status andou ~90 px, e o retângulo gravado (`251,738 20x16`) passou a apontar
+   > para **grama pura**: o nível recusou **100%** dos tiques, contra os 79% da Fase 1.
+   > Nenhum piso, em nenhum alcance, lê um número num retângulo que contém grama — a varredura
+   > teria pago as leituras extras por tique, perdido todas, e declarado cegueira do mesmo
+   > jeito, só que mais devagar.
+   >
+   > | o que mudou | como se vê | conserto |
+   > |---|---|---|
+   > | o **brilho** do fundo | o campo sai num piso vizinho | **varredura** — é o LEIT-10 |
+   > | a **posição** do painel | o campo não sai em piso NENHUM | **recalibrar** — `calibrar-renda.bat` |
+   >
+   > Os dois são idênticos vistos de fora e exigem conserto **oposto**. A consequência para o
+   > `03-03`: perder em **todos** os pisos do alcance não é só motivo de cegueira — é o sinal
+   > de que o suspeito é o **retângulo** e não o piso, e a mensagem tem de mandar o usuário ao
+   > calibrador. Custa uma frase, e é a diferença entre passar a noite achando que o scanner
+   > travou e rodar dois cliques de manhã. — `03-ACHADO-DO-LEVEL-UP.md`, M-Y
 2. Derrubar o `--renda` **não derruba** o `vigiar-party.bat` nem o `vigiar-mercado.bat`, e
    derrubar qualquer um deles não derruba o `--renda`. Quatro invocações, quatro janelas,
    nenhuma dependendo da outra para ficar de pé. — CONS-02
@@ -409,6 +442,26 @@ portas para o mesmo arquivo é como um arquivo passa a ter duas verdades.
 4. Valores bit-idênticos por N amostras fazem o painel dizer **"parado"**, e "parado" e "renda
    zero" ficam visualmente distinguíveis na tela. Renda zero é o usuário sentado sem matar nada;
    parado é o scanner não estar vendo. Às 4 da manhã a diferença é a única coisa que importa. — CEGO-02
+
+   > **Os dois rótulos deste critério estão trocados em relação ao código, e a ressalva é de
+   > 2026-09-03.** A SUBSTÂNCIA está cumprida e não se mexe: valores bit-idênticos ganham
+   > rótulo próprio, e ele é distinguível de renda zero na tela. O que está invertido é
+   > **qual palavra recebe qual fato**:
+   >
+   > | rótulo | o que este critério diz | o que o código faz |
+   > |---|---|---|
+   > | **PARADO** | o scanner não está vendo | **estou vendo, e o valor não mudou** — e GRAVA |
+   > | **PAUSADO** | (não nomeado aqui) | **não consigo ver** — e NÃO grava |
+   >
+   > **Quem prevalece é o `03-CONTEXT.md:56-66`**, o documento de decisão travada da fase, e
+   > ele decidiu assim com razão: *pausado* já é a palavra que o `REQUIREMENTS.md:307` e o
+   > critério 3 logo acima usam para *não estou enxergando*. Usar *parado* para a mesma coisa
+   > daria duas palavras a um fato e nenhuma ao outro — e o fato que ficaria sem palavra é o
+   > mais provável de todos: o usuário sentado sem matar nada.
+   >
+   > O critério **não é reescrito**, pela mesma disciplina da ressalva do critério 1: um
+   > argumento refutado que some é um argumento que volta. Sair desta fase afirmando o gloss
+   > trocado seria pior que calar — o próximo leitor confia nele e depura na direção errada.
 
 **Riscos e decisões que o planejamento tem que encarar**:
 
@@ -468,9 +521,13 @@ portas para o mesmo arquivo é como um arquivo passa a ter duas verdades.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. A leitura da barra | 0/? | Not started | - |
-| 2. A conta e o registro | 0/? | Not started | - |
-| 3. O modo `--renda` | 0/? | Not started | - |
+| 1. A leitura da barra | 5/5 | Complete | 2026-09-02 |
+| 2. A conta e o registro | 4/4 | Complete | 2026-09-03 |
+| 3. O modo `--renda` | 2/4 | Em execução | - |
+
+> Contagem por **SUMMARY em disco**, e as datas saem dos próprios SUMMARY. As Fases 1 e 2
+> estão mescladas com a suíte passando. Na Fase 3, o `03-01` (onda 1) e o `03-04` (onda 2)
+> fecharam; o `03-02` corre em paralelo na onda 2 e o `03-03` é onda 3.
 
 ## Coverage
 
@@ -485,12 +542,16 @@ portas para o mesmo arquivo é como um arquivo passa a ter duas verdades.
 | LEIT-07 | Phase 1 |
 | LEIT-08 | Phase 1 |
 | LEIT-09 | Phase 1 |
+| LEIT-10 | Phase 3 |
+| LEIT-11 | Phase 2 † |
 | REND-01 | Phase 2 |
 | REND-02 | Phase 2 |
 | REND-03 | Phase 2 |
 | REND-04 | Phase 2 |
 | REND-05 | Phase 2 |
 | REND-06 | Phase 2 |
+| REND-08 | Phase 2 |
+| REND-09 | Phase 2 |
 | REG-01 | Phase 2 |
 | REG-02 | Phase 2 |
 | REG-03 | Phase 2 |
@@ -500,7 +561,20 @@ portas para o mesmo arquivo é como um arquivo passa a ter duas verdades.
 | CEGO-01 | Phase 3 |
 | CEGO-02 | Phase 3 |
 
-**18 de 18 requisitos mapeados. Nenhum órfão, nenhum em duas fases.**
+**27 de 27 requisitos mapeados** — 9 na Fase 1, 13 na Fase 2, 5 na Fase 3. Nenhum
+órfão, nenhuma linha em duas fases.
+
+> **A tabela acima é DERIVADA do `REQUIREMENTS.md`**, varrendo os `- [ ] **XXX-NN**`, e não
+> escrita à mão. Ela dizia *"18 de 18"* sobre 23 linhas — nem o primeiro 18 nem o segundo —,
+> e faltavam **LEIT-10**, **LEIT-11**, **REND-08** e **REND-09**, os quatro acrescentados
+> depois que ela foi escrita. Um requisito ausente da tabela de cobertura é um requisito que
+> a próxima milestone não sabe que existe. Corrigido em 2026-09-03, pelo `03-04`.
+
+> **† LEIT-11 tem UMA dona, e ela é a Fase 2.** As regras de par são a defesa principal e
+> moram lá. O que a Fase 3 carrega é a obrigação **negativa** de não chamá-las — o laço fala
+> com `renda_conta` e nunca com as regras, e `tests/test_renda_par.py:704` prende isso. São
+> os dois lados da mesma fronteira, e não duas donas: a nota existe justamente para que
+> ninguém leia a fronteira como um requisito em duas fases.
 
 REG-04 **não existia** no `REQUIREMENTS.md` original: foi criado por este roadmap, e a razão
 está na seção seguinte.
