@@ -604,36 +604,43 @@ def resumo_da_contaminacao(retrato: RetratoDaContaminacao) -> str:
     Ela diz, entao, as tres coisas que sao verdade: quanto media o recorte, qual
     o teto, e que por isso nada foi gravado. Mais o que fazer, que e ESPERAR ou
     mover a party window, e nao editar arquivo nenhum.
+
+    O ENCURTAMENTO DE 2026-09-02, e por que esta linha era o pior caso do
+    projeto inteiro. Ela tinha 940 caracteres e o ultimo paragrafo dizia, com
+    todas as letras, "NAO HA O QUE CONFIGURAR". Uma mensagem que termina
+    avisando que nao ha nada a fazer nao precisa de 940 caracteres para
+    chegar la: ela e RARA e INFORMATIVA, e nessa categoria o texto longo custa
+    atencao e nao entrega nada.
+
+    O QUE SAIU FOI O PARAGRAFO `causa` INTEIRO, com a medicao de campo que o
+    sustenta: "a mascara de texto so tem PISO de brilho e nao tem teto, entao
+    terreno claro passando atras do painel semitransparente entra junto com as
+    letras. Medido em 01/09/2026 no acervo real: um nome limpo ocupa de 107 a
+    175 pixel(es) no mesmo recorte, e as entradas de 290, 336, 399, 515 e 843
+    eram pedra de Silent Valley gravada junto com a pessoa."
+
+    ELE FICA REGISTRADO AQUI, e nao se perde: e a medicao que justifica o teto
+    e quem for MEXER no teto precisa dela. Quem le o `scanner.log` no meio de
+    um farm, nao. A explicacao de por que baixar `VALOR_MINIMO_DO_TEXTO`
+    pioraria o reconhecimento de todo mundo tambem ficou aqui, pelo mesmo
+    argumento: ela existe para dissuadir uma acao que a mensagem nao esta mais
+    sugerindo.
+
+    O QUE FICOU E O ACIONAVEL: os numeros (quanto mediu, qual o teto), que
+    nada foi gravado, e as duas coisas que resolvem, que sao ESPERAR ou mover
+    a party window para fundo escuro. Nenhum arquivo para editar, nenhum
+    comando para digitar.
     """
     if retrato.maior is None or retrato.menor is None or retrato.teto is None:
-        return (
-            "Nao recusei nenhum recorte por contaminacao nesta sessao: todos os "
-            "recortes de nome couberam no teto."
-        )
+        return "Nenhum recorte de nome recusado por contaminacao nesta sessao."
 
-    faixa = (
-        f"Nao aprendi assinatura nova por contaminacao do recorte: "
-        f"{retrato.recusas} recusa(s) nesta sessao, o recorte do nome tinha de "
-        f"{retrato.menor} a {retrato.maior} pixel(es) de texto e o teto e "
-        f"{retrato.teto} pixel(es) ({retrato.celulas} celulas de recorte). "
+    return (
+        f"Nao aprendi assinatura nova: contaminacao do recorte, "
+        f"{retrato.recusas} recusa(s). O nome mediu de {retrato.menor} a "
+        f"{retrato.maior} pixel(es) de texto e o teto e {retrato.teto}. "
+        f"Nao ha o que configurar: volta sozinho quando a party sair do "
+        f"terreno claro ou a party window ficar sobre fundo escuro."
     )
-    causa = (
-        "Acima do teto o que esta aceso nao e so o nome. A mascara de texto so "
-        "tem PISO de brilho e nao tem teto, entao terreno claro passando atras "
-        "do painel semitransparente entra junto com as letras. Medido em "
-        "01/09/2026 no acervo real: um nome limpo ocupa de 107 a 175 pixel(es) "
-        "no mesmo recorte, e as entradas de 290, 336, 399, 515 e 843 eram pedra "
-        "de Silent Valley gravada junto com a pessoa. "
-    )
-    acao = (
-        "NAO HA O QUE CONFIGURAR, e isto e deliberado: baixar o brilho minimo "
-        "do texto pioraria o reconhecimento de todo mundo, inclusive de quem ja "
-        "tem assinatura calibrada. O aprendizado volta sozinho quando a party "
-        "sair do terreno claro, ou quando a party window ficar sobre um fundo "
-        "escuro. Ate la, ninguem novo e gravado e todo o resto do scanner "
-        "continua igual."
-    )
-    return faixa + causa + acao
 
 
 @dataclass(frozen=True)
@@ -760,52 +767,63 @@ def resumo_das_recusas(retrato: RetratoDasRecusas, tolerado: int) -> str:
     3. NA TURBULENCIA ELE NAO ENTREGA VALOR NENHUM, e diz por que. Nesse regime
        a acao certa e esperar a party estabilizar; qualquer numero aqui seria
        uma obediencia que nao conserta nada.
+
+    O ENCURTAMENTO DE 2026-09-02, e o que ele NAO podia tocar. Esta e a linha
+    RARA E ACIONAVEL do projeto: acontece uma vez por incidente e termina numa
+    linha que o usuario copia para o `config.toml`. Encurtar aqui e diferente
+    de encurtar um alerta de party, porque a instrucao E a mensagem.
+
+    O QUE FICOU INTACTO, palavra por palavra: `celulas_toleradas = <valor>`,
+    a mencao a secao `[identidade]` e ao `config.toml`, os quatro numeros (a
+    faixa, a mediana, a tolerancia atual e o teto), e a fracao
+    `abaixo_do_teto`/`medidas`, que e o numero que DECIDE se vale mexer.
+    Nenhum deles e justificativa: sao o que o usuario confere e digita.
+
+    O QUE SAIU FOI SO A EXPLICACAO DE CADA UM. O teto vinha com "que e a maior
+    tolerancia que o reconhecimento aceita sem juntar duas pessoas numa
+    assinatura so"; a sugestao vinha com "numero medido na SUA tela, e nao um
+    palpite, e ja conferido contra o teto"; a turbulencia vinha com "nessa
+    distancia o proprio reconhecimento ja trata as duas leituras como pessoas
+    DIFERENTES" mais a lista de causas (party se remontando, cegueira,
+    inventario por cima do nome). Tudo isso esta escrito nesta docstring e em
+    `TETO_DE_CELULAS_TOLERADAS`, que e onde quem for mexer no teto vai olhar.
+
+    A DIFERENCA ENTRE OS DOIS REGIMES CONTINUA GRITADA, porque os conselhos
+    sao OPOSTOS: na cintilacao a linha entrega um valor, na turbulencia ela diz
+    que subir NAO resolve. Um leitor que confundisse os dois copiaria um numero
+    que nao conserta nada, que e o defeito de 2026-09-01 por outra porta.
     """
-    cabeca = (
-        f"Nao aprendi assinatura nova por instabilidade: {retrato.recusas} "
-        "recusa(s) nesta sessao, "
-    )
+    cabeca = f"Nao aprendi assinatura nova: instabilidade, {retrato.recusas} recusa(s). "
 
     if retrato.menor is None or retrato.mediana is None:
         return (
-            cabeca + "sem distancia medida ainda (as leituras tinham formas "
-            f"diferentes), e a tolerancia atual e {tolerado}. Forma diferente "
-            "nao e uma distancia grande: sao recortes de retangulos diferentes, "
-            "e a distancia entre eles nao existe. Nenhum valor de [identidade] "
-            "celulas_toleradas muda isso, e nao ha o que ajustar com esta linha."
+            cabeca + "Sem distancia medida: as leituras tinham FORMAS "
+            "diferentes, e entre recortes de tamanhos diferentes nao existe "
+            "distancia. Nenhum valor de [identidade] celulas_toleradas muda "
+            "isso."
         )
 
     faixa = (
-        f"as leituras diferem de {retrato.menor} a {retrato.maior} celula(s), "
-        f"mediana {retrato.mediana:.1f}, e a tolerancia atual e {tolerado}. "
-    )
-    teto = (
-        f"{retrato.abaixo_do_teto} das {retrato.medidas} recusa(s) medidas "
-        f"cabem no teto de {TETO_DE_CELULAS_TOLERADAS} celula(s), que e a maior "
-        "tolerancia que o reconhecimento aceita sem juntar duas pessoas numa "
-        "assinatura so. "
+        f"As leituras diferem de {retrato.menor} a {retrato.maior} celula(s), "
+        f"mediana {retrato.mediana:.1f}; tolerancia atual {tolerado}, teto "
+        f"{TETO_DE_CELULAS_TOLERADAS} ({retrato.abaixo_do_teto} das "
+        f"{retrato.medidas} cabem nele). "
     )
 
     if retrato.regime == REGIME_DE_CINTILACAO:
         acao = (
-            "Isso e cintilacao da borda das letras, e a tolerancia resolve. "
-            "Escreva no config.toml, na secao [identidade], esta linha: "
-            f"celulas_toleradas = {retrato.sugestao} "
-            "(numero medido na SUA tela, e nao um palpite, e ja conferido "
-            "contra o teto)."
+            "E cintilacao da borda das letras, e a tolerancia resolve. No "
+            "config.toml, secao [identidade], escreva: celulas_toleradas = "
+            f"{retrato.sugestao}"
         )
     else:
         acao = (
-            "Subir [identidade] celulas_toleradas NAO resolve o seu caso: uma "
-            f"mediana de {retrato.mediana:.1f} celula(s) passa do teto, e nessa "
-            "distancia o proprio reconhecimento ja trata as duas leituras como "
-            "pessoas DIFERENTES. Isso nao e cintilacao da borda das letras: e a "
-            "party se remontando, uma cegueira ou o inventario aberto por cima "
-            "do nome. A resposta certa e esperar a party estabilizar e ler esta "
-            "linha de novo, e nao mexer no config.toml."
+            "Subir [identidade] celulas_toleradas NAO resolve: a mediana passa "
+            "do teto. Isso e a party se remontando, e a saida e esperar ela "
+            "estabilizar."
         )
 
-    return cabeca + faixa + teto + acao
+    return cabeca + faixa + acao
 
 
 @dataclass(frozen=True)

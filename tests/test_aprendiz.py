@@ -3901,8 +3901,24 @@ class TestOTextoDaRecusaPorContaminacao:
 
         assert "290" in texto and "843" in texto, "a faixa MEDIDA"
         assert "220" in texto, "o teto, ao lado dela"
-        assert "2200" in texto, "de quantas celulas o teto e fracao"
         assert "aprend" in texto.lower(), "e que por isso nao aprendeu"
+
+    def test_o_texto_NAO_traz_o_total_de_celulas_do_recorte(self, tmp_path):
+        """O que saiu no encurtamento de 2026-09-02, e por que podia sair.
+
+        A linha citava tambem de quantas CELULAS o teto e fracao ("2200"),
+        para o leitor saber que 220 e um decimo do recorte. Isso e contexto
+        para INTERPRETAR o teto, e nao algo sobre o que decidir: o usuario nao
+        mexe no teto (ele e derivado da area) e nao mexe no recorte. Ficou na
+        docstring de `resumo_da_contaminacao`, junto com a medicao de campo
+        que sustenta o numero.
+
+        O caso e afirmativo, e nao apagado, porque a linha desta familia so
+        encolhe uma vez: sem ele, o proximo a mexer aqui recoloca o numero sem
+        saber que a saida foi deliberada.
+        """
+        texto = resumo_da_contaminacao(self._retrato(tmp_path))
+        assert "2200" not in texto
 
     def test_o_texto_nao_manda_mexer_em_configuracao_nenhuma(self, tmp_path):
         """A hipotese errada que ja circulou tres vezes neste projeto.
