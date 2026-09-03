@@ -253,33 +253,59 @@ silenciar_minutos = 0
 #
 # Antes do primeiro uso, faca os 4 passos do PORTAO-DISCORD.txt.
 #
+# O TIPO DE CADA VALOR IMPORTA, e um tipo errado e RECUSADO no arranque em vez
+# de aceito calado. O deslize classico e por aspas em volta de um id: a ponte
+# subiria, diria no console que esta ouvindo o servidor, e nao ouviria nada,
+# porque "936..." nunca e igual a 936... . Outro e escrever `guild = true`, que
+# em Python passaria como o servidor de id 1 se ninguem checasse.
+#
 # Campos:
 #
-#   guild                 o id do servidor do Discord (XM Games)
-#   canais                os ids dos canais a ouvir. Mensagem de QUALQUER outro
+#   guild                 o id do servidor do Discord (XM Games).
+#                         NUMERO, sem aspas. Obrigatorio.
+#   canais                os ids dos canais a ouvir. LISTA DE NUMEROS, sem
+#                         aspas, com pelo menos um. Mensagem de QUALQUER outro
 #                         canal do servidor e ignorada. Id de thread tambem nao
 #                         passa, porque thread tem id proprio.
-#   conversa_de_destino   para qual conversa do Chatwoot os anuncios vao
-#   simulacao             true = so mostra no console, nao envia nada
+#                         Repetir um id nao e erro (vira um so); um so tambem
+#                         vale, nada exige exatamente dois.
+#   conversa_de_destino   para qual conversa do Chatwoot os anuncios vao.
+#                         TEXTO ENTRE ASPAS. Obrigatorio, mas pode ser "".
+#   simulacao             true = so mostra no console, nao envia nada.
+#                         Pode faltar: sem a linha, vale true.
+#                         `simulacao = false` e RECUSADO no arranque enquanto a
+#                         entrega nao existir (Fase 3) — uma chave que mente e
+#                         pior do que uma chave ausente.
 #
 # Para ver os ids no Discord: Configuracoes do usuario > Avancado > Modo de
 # desenvolvedor ligado; depois clique com o botao direito no servidor ou no
 # canal e escolha "Copiar ID".
+#
+# Para conferir tudo isto SEM conectar em nada:
+#     .venv\Scripts\python.exe -m l2scanner.ponte_discord --conferir
 
 [discord]
 guild = 936957935572103169
 canais = [1536506379752185953, 1538202612762022020]
 
-# Descubra o id rodando, nesta pasta:
+# A conversa 28 e a MESMA que ja recebe os avisos de morte e saida de party.
+# Isso foi escolhido de proposito em 2026-08-28, com o custo na mesa: anuncio de
+# guild passa a dividir o grupo com alerta de morte. A alternativa (uma segunda
+# conversa so para anuncio) foi recusada por dar manutencao a mais.
+#
+# Descubra ids rodando, nesta pasta:
 #     .venv\Scripts\python.exe tools\check_whatsapp.py conversas
-# NAO use uma conversa que ja esteja em CHATWOOT_CONVERSAS_COMANDO no .env:
-# aquela e a conversa de onde o scanner ACEITA COMANDO, e despejar anuncio de
-# guild nela mistura duas coisas que precisam ficar separadas.
-# Na Fase 1 pode ficar vazio: a ponte so simula, nao entrega nada ainda.
-conversa_de_destino = ""
+#
+# NAO use uma conversa que esteja em CHATWOOT_CONVERSAS_COMANDO no .env — e o
+# arranque RECUSA se voce usar. O motivo e o sentido de VOLTA: quem RESPONDE
+# numa conversa compartilhada manda uma mensagem de entrada, e numa conversa de
+# comando essa resposta seria lida como comando do scanner.
+conversa_de_destino = "28"
 
 # Na Fase 1 a ponte SO SIMULA: ela mostra a mensagem no console e nao manda
-# nada para o WhatsApp. Deixe true ate o texto de verdade aparecer no console.
+# nada para o WhatsApp. Deixe true ate o texto de verdade aparecer no console —
+# e note que `false` e recusado no arranque, porque a entrega so nasce na
+# Fase 3 e aceitar a chave sem cumpri-la faria voce esperar por nada.
 simulacao = true
 
 # ---------------------------------------------------------------------------
