@@ -636,3 +636,288 @@ class TestAsFerramentasNAO_ESCREVEM_EM_RECORDINGS:
                 or "gravacoes" in linha
                 or '"' not in linha
             ), f"{nome}: linha suspeita sobre recordings -> {linha}"
+
+
+# ---------------------------------------------------------------------------
+# A fragilidade POR ROTULO (quick-260902-syn Task 1)
+# ---------------------------------------------------------------------------
+
+
+def _amostra(rotulo: str, score: float, margem: float, indice: int = 0):
+    """Uma `Amostra` sintetica. Nenhum pixel, nenhuma gravacao, nenhum molde.
+
+    A funcao sob teste e PURA sobre a lista de amostras: ela nao varre e nao le
+    arquivo. Montar a populacao a mao e o que permite CONHECER a forma por
+    rotulo por construcao, em vez de descobri-la junto com o resultado.
+    """
+    return ferramenta.Amostra(
+        gravacao="sintetica",
+        arquivo=f"frame_{indice:06d}.png",
+        linha=indice,
+        coluna="total",
+        rotulo=rotulo,
+        score=score,
+        margem=margem,
+    )
+
+
+PISO_DO_TESTE = 0.50
+MARGEM_DO_TESTE = 0.10
+
+# `'7'`: 10 amostras, 6 com score ABAIXO do piso e todas as margens fundas.
+SCORES_DO_7 = [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.90, 0.92, 0.94, 0.96]
+MARGENS_DO_7 = [0.50] * 10
+# `'4'`: 10 amostras, scores todos acima do piso, 2 margens abaixo da minima.
+SCORES_DO_4 = [0.90, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99]
+MARGENS_DO_4 = [0.01, 0.02, 0.40, 0.40, 0.40, 0.40, 0.40, 0.40, 0.40, 0.40]
+# `'1'`: 10 amostras limpas nas duas travas.
+SCORES_DO_1 = [0.95] * 10
+MARGENS_DO_1 = [0.50] * 10
+
+
+def _populacao_conhecida() -> list:
+    """`'7'` fraco por SCORE, `'4'` fraco por MARGEM, `'1'` saudavel."""
+    amostras = []
+    indice = 0
+    for rotulo, scores, margens in (
+        ("7", SCORES_DO_7, MARGENS_DO_7),
+        ("4", SCORES_DO_4, MARGENS_DO_4),
+        ("1", SCORES_DO_1, MARGENS_DO_1),
+    ):
+        for score, margem in zip(scores, margens):
+            amostras.append(_amostra(rotulo, score, margem, indice))
+            indice += 1
+    return amostras
+
+
+class TestAFragilidadePorRotulo:
+    """A PROPRIEDADE MEDIDA: a ordem do relatorio e a TAXA DE RECUSA.
+
+    O relatorio agregado ja existente diz `p1=0,1918` sobre 2.057 glifos e nao
+    diz de QUEM e esse p1. Um agregado nunca aponta um culpado; ele so informa
+    que existe um. Esta classe prende a quebra por rotulo, e prende sobretudo a
+    CHAVE pela qual a quebra e ordenada.
+
+    OS TESTES 4 E 5 NAO SAO REPETICAO DO TESTE 1 - SAO CONTROLES DE CHAVE.
+    O Teste 1 mostra que UMA chave plausivel produz a ordem esperada; sozinho
+    ele ficaria verde com varias chaves erradas. Os dois controles separam a
+    chave escolhida das duas que foram REJEITADAS:
+
+        Teste 4  contra a chave por CONTAGEM de recusas. Um rotulo raro e
+                 fragil (`'A'`, n=4, taxa 0,75) tem de vencer um comum e sadio
+                 (`'B'`, n=400, taxa 0,05) - e por contagem seria 3 contra 20 e
+                 o fragil ficaria enterrado. A virgula e o `9` sao justamente os
+                 candidatos a raro.
+        Teste 5  contra a chave pelo PIOR SCORE ISOLADO. `'A'` tem o pior
+                 `score_min` de longe (0,01) por causa de UMA amostra em 100, e
+                 mesmo assim tem de ficar ATRAS de `'B'`, que recusa 3 em 10.
+                 Chave de amostra unica e amplificador de ruido.
+    """
+
+    def test_1_o_rotulo_fraco_ENCABECA_a_ordem(self) -> None:
+        """O `'7'`, construido para recusar 6 em 10, sai na frente."""
+        linhas = ferramenta.fragilidade_por_rotulo(
+            _populacao_conhecida(), PISO_DO_TESTE, MARGEM_DO_TESTE
+        )
+        assert linhas[0]["rotulo"] == "7"
+        assert [linha["rotulo"] for linha in linhas] == ["7", "4", "1"]
+
+    def test_2_os_numeros_do_rotulo_fraco_sao_os_CONSTRUIDOS(self) -> None:
+        """Afirmar o VALOR, e nunca "existe a chave"."""
+        linhas = ferramenta.fragilidade_por_rotulo(
+            _populacao_conhecida(), PISO_DO_TESTE, MARGEM_DO_TESTE
+        )
+        do_7 = next(linha for linha in linhas if linha["rotulo"] == "7")
+
+        assert do_7["n"] == 10
+        assert do_7["abaixo_do_piso"] == 6
+        assert do_7["abaixo_da_margem"] == 0
+        assert do_7["taxa_de_recusa"] == pytest.approx(0.6)
+
+        scores = np.asarray(SCORES_DO_7, dtype=np.float64)
+        margens = np.asarray(MARGENS_DO_7, dtype=np.float64)
+        assert do_7["score_min"] == pytest.approx(scores.min())
+        assert do_7["score_p1"] == pytest.approx(np.percentile(scores, 1))
+        assert do_7["score_p5"] == pytest.approx(np.percentile(scores, 5))
+        assert do_7["score_mediana"] == pytest.approx(np.median(scores))
+        assert do_7["margem_min"] == pytest.approx(margens.min())
+        assert do_7["margem_p1"] == pytest.approx(np.percentile(margens, 1))
+        assert do_7["margem_p5"] == pytest.approx(np.percentile(margens, 5))
+        assert do_7["margem_mediana"] == pytest.approx(np.median(margens))
+
+        do_4 = next(linha for linha in linhas if linha["rotulo"] == "4")
+        assert do_4["abaixo_do_piso"] == 0
+        assert do_4["abaixo_da_margem"] == 2
+        assert do_4["taxa_de_recusa"] == pytest.approx(0.2)
+
+    def test_2b_a_uniao_conta_UMA_VEZ_a_amostra_que_cai_nas_duas(self) -> None:
+        """A producao recusaria a amostra uma vez; a taxa tambem.
+
+        Sem isto a taxa poderia passar de 1,0, e um rotulo com todas as
+        amostras ruins nas DUAS travas apareceria com 2,0 de recusa - um numero
+        que nao existe.
+        """
+        # 4 amostras: 1 so abaixo do piso, 1 so abaixo da margem, 2 abaixo das
+        # DUAS. Por soma dariam 3 + 3 = 6 de 4; pela uniao, 4 de 4.
+        populacao = [
+            _amostra("X", 0.10, 0.50, 0),
+            _amostra("X", 0.95, 0.01, 1),
+            _amostra("X", 0.10, 0.01, 2),
+            _amostra("X", 0.20, 0.02, 3),
+        ]
+        linha = ferramenta.fragilidade_por_rotulo(
+            populacao, PISO_DO_TESTE, MARGEM_DO_TESTE
+        )[0]
+        assert linha["abaixo_do_piso"] == 3
+        assert linha["abaixo_da_margem"] == 3
+        assert linha["taxa_de_recusa"] == pytest.approx(1.0)
+
+    def test_3_o_relatorio_IMPRIME_a_ordem_e_os_numeros(self, capsys) -> None:
+        """A ordem impressa e a mesma que a funcao devolve."""
+        ferramenta.imprimir_a_fragilidade_por_rotulo(
+            _populacao_conhecida(), PISO_DO_TESTE, MARGEM_DO_TESTE
+        )
+        saida = capsys.readouterr().out
+        assert saida.index("'7'") < saida.index("'4'") < saida.index("'1'")
+
+        linha_do_7 = next(
+            linha for linha in saida.splitlines() if "'7'" in linha
+        )
+        assert "n=10" in linha_do_7
+        assert "abaixo do piso 6" in linha_do_7
+        assert "abaixo da margem 0" in linha_do_7
+
+    def test_4_CONTROLE_n_pequeno_e_fragil_ganha_de_n_grande_sadio(self) -> None:
+        """Contra a chave por CONTAGEM: a taxa e normalizada por `n`."""
+        populacao = []
+        indice = 0
+        for i in range(4):  # 'A': 3 de 4 recusadas -> 0,75
+            populacao.append(
+                _amostra("A", 0.10 if i < 3 else 0.95, 0.50, indice)
+            )
+            indice += 1
+        for i in range(400):  # 'B': 20 de 400 recusadas -> 0,05
+            populacao.append(
+                _amostra("B", 0.10 if i < 20 else 0.95, 0.50, indice)
+            )
+            indice += 1
+
+        linhas = ferramenta.fragilidade_por_rotulo(
+            populacao, PISO_DO_TESTE, MARGEM_DO_TESTE
+        )
+        por_rotulo = {linha["rotulo"]: linha for linha in linhas}
+        assert por_rotulo["A"]["abaixo_do_piso"] == 3
+        assert por_rotulo["B"]["abaixo_do_piso"] == 20
+        assert por_rotulo["A"]["taxa_de_recusa"] == pytest.approx(0.75)
+        assert por_rotulo["B"]["taxa_de_recusa"] == pytest.approx(0.05)
+        assert [linha["rotulo"] for linha in linhas] == ["A", "B"]
+
+    def test_5_CONTROLE_o_pior_score_ISOLADO_nao_decide(self) -> None:
+        """Contra a chave pelo PIOR SCORE: uma amostra nao coroa um rotulo."""
+        populacao = []
+        indice = 0
+        populacao.append(_amostra("A", 0.01, 0.50, indice))  # a unica ruim
+        indice += 1
+        for _ in range(99):
+            populacao.append(_amostra("A", 0.95, 0.50, indice))
+            indice += 1
+        for i in range(10):  # 'B': 3 margens abaixo da minima -> 0,30
+            populacao.append(
+                _amostra("B", 0.95, 0.01 if i < 3 else 0.50, indice)
+            )
+            indice += 1
+
+        linhas = ferramenta.fragilidade_por_rotulo(
+            populacao, PISO_DO_TESTE, MARGEM_DO_TESTE
+        )
+        por_rotulo = {linha["rotulo"]: linha for linha in linhas}
+        assert por_rotulo["A"]["score_min"] == pytest.approx(0.01)
+        assert por_rotulo["B"]["score_min"] == pytest.approx(0.95)
+        assert por_rotulo["A"]["taxa_de_recusa"] == pytest.approx(0.01)
+        assert por_rotulo["B"]["taxa_de_recusa"] == pytest.approx(0.30)
+        assert [linha["rotulo"] for linha in linhas] == ["B", "A"]
+
+    def test_6_a_funcao_NAO_altera_a_populacao_de_entrada(self) -> None:
+        """Pura tambem quer dizer que a lista recebida volta intacta."""
+        populacao = _populacao_conhecida()
+        antes = [
+            (a.gravacao, a.arquivo, a.linha, a.coluna, a.rotulo, a.score, a.margem)
+            for a in populacao
+        ]
+        ferramenta.fragilidade_por_rotulo(
+            populacao, PISO_DO_TESTE, MARGEM_DO_TESTE
+        )
+        depois = [
+            (a.gravacao, a.arquivo, a.linha, a.coluna, a.rotulo, a.score, a.margem)
+            for a in populacao
+        ]
+        assert depois == antes
+        assert len(populacao) == 30
+
+    def test_7_a_ordem_e_ESTAVEL_entre_execucoes_e_embaralhamentos(self) -> None:
+        """Um relatorio cuja ordem anda nao se compara com o da semana passada."""
+        populacao = _populacao_conhecida()
+        primeira = [
+            linha["rotulo"]
+            for linha in ferramenta.fragilidade_por_rotulo(
+                populacao, PISO_DO_TESTE, MARGEM_DO_TESTE
+            )
+        ]
+        segunda = [
+            linha["rotulo"]
+            for linha in ferramenta.fragilidade_por_rotulo(
+                populacao, PISO_DO_TESTE, MARGEM_DO_TESTE
+            )
+        ]
+        assert primeira == segunda
+
+        embaralhada = list(populacao)
+        np.random.default_rng(20260902).shuffle(embaralhada)
+        terceira = [
+            linha["rotulo"]
+            for linha in ferramenta.fragilidade_por_rotulo(
+                embaralhada, PISO_DO_TESTE, MARGEM_DO_TESTE
+            )
+        ]
+        assert terceira == primeira
+
+    def test_8a_sem_piso_a_contagem_e_AUSENTE_e_nao_zero(self) -> None:
+        """Zero e uma medicao; ausente nao e zero."""
+        linhas = ferramenta.fragilidade_por_rotulo(
+            _populacao_conhecida(), None, MARGEM_DO_TESTE
+        )
+        assert len(linhas) == 3
+        for linha in linhas:
+            assert linha["abaixo_do_piso"] is None
+            assert linha["taxa_de_recusa"] is None
+            assert linha["abaixo_da_margem"] is not None
+            assert linha["score_p1"] is not None
+            assert linha["margem_p1"] is not None
+
+    def test_8b_sem_margem_a_contagem_e_AUSENTE_e_nao_zero(self) -> None:
+        linhas = ferramenta.fragilidade_por_rotulo(
+            _populacao_conhecida(), PISO_DO_TESTE, None
+        )
+        for linha in linhas:
+            assert linha["abaixo_da_margem"] is None
+            assert linha["taxa_de_recusa"] is None
+            assert linha["abaixo_do_piso"] is not None
+
+    def test_8c_o_impresso_DIZ_que_a_trava_esta_ausente(self, capsys) -> None:
+        """O relatorio nunca substitui uma trava ausente por numero proprio."""
+        ferramenta.imprimir_a_fragilidade_por_rotulo(
+            _populacao_conhecida(), None, None
+        )
+        saida = capsys.readouterr().out
+        assert "AUSENTE" in saida
+        assert "n=10" in saida
+
+    def test_9_o_padrao_da_chave_de_linha_de_comando_e_FALSO(self) -> None:
+        """Sem `--por-rotulo` a ferramenta faz exatamente o que fazia."""
+        padrao = ferramenta.construir_analisador().parse_args([])
+        assert padrao.por_rotulo is False
+        assert padrao.gravar is False
+
+        pedido = ferramenta.construir_analisador().parse_args(["--por-rotulo"])
+        assert pedido.por_rotulo is True
+        assert pedido.gravar is False

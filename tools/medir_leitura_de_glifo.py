@@ -741,6 +741,190 @@ def _quantis(valores) -> str:
     )
 
 
+def fragilidade_por_rotulo(amostras, piso, margem_minima) -> list:
+    """A distribuicao QUEBRADA POR ROTULO, ordenada por TAXA DE RECUSA.
+
+    PURA: recebe as `Amostra` que `varrer` ja produziu e devolve uma lista de
+    dicionarios. Nao varre, nao le arquivo, nao imprime, e nao mexe na lista
+    recebida.
+
+    A CHAVE E A TAXA DE RECUSA, E AS QUATRO ALTERNATIVAS FORAM REJEITADAS
+    ---------------------------------------------------------------------
+    O relatorio agregado diz `score p1=0,1918` sobre 2.057 glifos e nao diz de
+    QUEM e esse p1. Um agregado nunca aponta um culpado; ele so informa que
+    existe um. A chave que quebra o agregado tem de ser escolhida, e a escolha e:
+
+    1. ELA ESTA NAS MESMAS UNIDADES DA DECISAO. `mercado_limiar_de_leitura_de_
+       glifo` e `mercado_margem_de_leitura_de_glifo` sao as duas travas que a
+       PRODUCAO usa para recusar um glifo. Ordenar por quantas vezes um rotulo
+       as encosta poe no topo exatamente o rotulo que a producao mais recusa.
+       Qualquer outra chave mede uma grandeza que a decisao nao consulta, e o
+       topo dela seria uma curiosidade em vez de uma pista.
+
+    2. ELA E NORMALIZADA POR `n`. Uma chave por CONTAGEM de recusas enterraria
+       um rotulo raro e fragil debaixo de um comum e sadio - 3 recusas em 4
+       amostras perderiam para 20 em 400 - e coroaria o comum so pelo volume. A
+       virgula e o `9` sao justamente os candidatos a raro.
+
+    3. O PIOR SCORE SOZINHO FOI REJEITADO. Um unico recorte ocluido, meio
+       rolado ou pego na troca de pagina coroaria um rotulo saudavel. Chave de
+       amostra unica e amplificador de ruido, e este relatorio existe para ser
+       acreditado sem segunda fonte.
+
+    4. A MEDIANA FOI REJEITADA. Ela esconde a cauda, e o `8` e a prova: mediana
+       0,7242 contra o proprio molde com a producao lendo bem. Uma chave que
+       elege o `8` como o mais doente em TODA execucao e uma chave que ninguem
+       le duas vezes.
+
+    5. O DESEMPATE E DETERMINISTICO - `score_p1` crescente, depois `margem_p1`
+       crescente, depois o rotulo. Um relatorio cuja ordem anda entre duas
+       execucoes sobre a mesma populacao nao pode ser comparado com o da semana
+       passada, e comparar duas execucoes e o unico uso que ele tem.
+
+    A UNIAO CONTA UMA VEZ. A amostra que cai nas duas travas e recusada UMA vez
+    pela producao, entao a taxa e `|abaixo do piso U abaixo da margem| / n`.
+    Somar as duas contagens deixaria a taxa passar de 1,0, que e um numero que
+    nao existe.
+
+    TRAVA AUSENTE NAO E TRAVA EM ZERO. Com `piso` ou `margem_minima` em `None`
+    a contagem correspondente sai `None` e a `taxa_de_recusa` tambem - nunca
+    zero, e nunca um numero proprio inventado no lugar. Zero e uma medicao
+    ("nada foi recusado"); ausente e a falta de uma. E uma taxa computada com
+    METADE das travas subestimaria em silencio, que e pior do que nao ter.
+
+    A RESSALVA QUE DECIDE SE O `9` E ACUSADO OU INOCENTADO
+    ------------------------------------------------------
+    OS BALDES SAO PELO ROTULO QUE A FERRAMENTA PROPOS, NUNCA PELA VERDADE. A
+    varredura nao tem gabarito: ela nao sabe o que estava na tela, so o que os
+    moldes disseram. Um `9` lido como `4` cai no balde do `4` e NUNCA aparece no
+    do `9`. Ler este relatorio como se os baldes fossem a verdade e a leitura
+    errada dele, e ela leva para o lado oposto do defeito.
+
+        INOCENTA POR AUSENCIA  se o balde do `9` tiver taxa de recusa baixa e
+        margens fundas, o erro de campo nao veio do score do `9` estar fraco - o
+        `9` que a ferramenta viu, ela leu com folga. A busca se move para a
+        SEGMENTACAO (`segmentar_glifos`) e para a geometria da coluna, que sao
+        os dois lugares onde um `9` deixa de virar um run de `9`.
+
+        ACUSA POR CAUDA  se o balde do `4` carregar uma cauda de margem baixa, e
+        nessa cauda que um glifo estrangeiro estaria sentado: lido como `4` por
+        pouco, com o segundo colocado colado. E cada `Amostra` guarda
+        `(gravacao, arquivo, linha, coluna)`, entao a cauda pode ser reconferida
+        frame a frame em vez de discutida.
+    """
+    do_rotulo: dict = {}
+    for amostra in amostras:
+        do_rotulo.setdefault(amostra.rotulo, []).append(amostra)
+
+    linhas = []
+    for rotulo, suas in do_rotulo.items():
+        scores = np.asarray([a.score for a in suas], dtype=np.float64)
+        margens = np.asarray([a.margem for a in suas], dtype=np.float64)
+
+        abaixo_do_piso = (
+            None if piso is None else int(sum(1 for a in suas if a.score < piso))
+        )
+        abaixo_da_margem = (
+            None
+            if margem_minima is None
+            else int(sum(1 for a in suas if a.margem < margem_minima))
+        )
+        if piso is None or margem_minima is None:
+            taxa = None
+        else:
+            recusadas = sum(
+                1
+                for a in suas
+                if a.score < piso or a.margem < margem_minima
+            )
+            taxa = recusadas / len(suas)
+
+        linhas.append(
+            {
+                "rotulo": rotulo,
+                "n": len(suas),
+                "score_min": float(scores.min()),
+                "score_p1": float(np.percentile(scores, 1)),
+                "score_p5": float(np.percentile(scores, 5)),
+                "score_mediana": float(np.median(scores)),
+                "margem_min": float(margens.min()),
+                "margem_p1": float(np.percentile(margens, 1)),
+                "margem_p5": float(np.percentile(margens, 5)),
+                "margem_mediana": float(np.median(margens)),
+                "abaixo_do_piso": abaixo_do_piso,
+                "abaixo_da_margem": abaixo_da_margem,
+                "taxa_de_recusa": taxa,
+                # A populacao do rotulo viaja junto para o impressor poder
+                # reusar `_quantis` sem reagrupar - e sem uma SEGUNDA copia do
+                # formato `n/min/p1/p5/mediana/max`, que e por onde os dois
+                # relatorios passariam a formatar diferente o mesmo numero.
+                "scores": [float(v) for v in scores],
+                "margens": [float(v) for v in margens],
+            }
+        )
+
+    # `-1.0` no lugar de `None` so para ORDENAR: com a trava ausente todas as
+    # taxas sao `None` juntas, entao a ordem cai inteira no desempate por
+    # `score_p1`. O valor devolvido continua `None`.
+    linhas.sort(
+        key=lambda linha: (
+            -(
+                linha["taxa_de_recusa"]
+                if linha["taxa_de_recusa"] is not None
+                else -1.0
+            ),
+            linha["score_p1"],
+            linha["margem_p1"],
+            linha["rotulo"],
+        )
+    )
+    return linhas
+
+
+def _trava(valor) -> str:
+    return "AUSENTE" if valor is None else f"{valor:.4f}"
+
+
+def _contagem(valor) -> str:
+    return "AUSENTE" if valor is None else str(valor)
+
+
+def imprimir_a_fragilidade_por_rotulo(amostras, piso, margem_minima) -> None:
+    """O relatorio por rotulo. So a impressao mora aqui; a conta e a de cima."""
+    linhas = fragilidade_por_rotulo(amostras, piso, margem_minima)
+    print("")
+    print("=" * 78)
+    print("RELATORIO POR ROTULO - QUEM ESTA EM APUROS, ORDENADO POR RECUSA")
+    print("=" * 78)
+    print(
+        f"  as travas CONFIGURADAS: piso {_trava(piso)}  "
+        f"margem {_trava(margem_minima)}"
+    )
+    print(
+        "  (sao as da calibracao, as que estao VALENDO - nunca o par PROPOSTO "
+        "pelo RELATORIO 1, que e hipotese)"
+    )
+    print(
+        "  os baldes sao pelo rotulo PROPOSTO, nunca pela verdade: um `9` lido "
+        "como `4` cai no balde do `4`."
+    )
+    print("")
+    for linha in linhas:
+        taxa = (
+            "AUSENTE"
+            if linha["taxa_de_recusa"] is None
+            else f"{100.0 * linha['taxa_de_recusa']:.1f}%"
+        )
+        print(
+            f"  '{linha['rotulo']}'  n={linha['n']:<6} "
+            f"abaixo do piso {_contagem(linha['abaixo_do_piso']):<7} "
+            f"abaixo da margem {_contagem(linha['abaixo_da_margem']):<7} "
+            f"recusa {taxa}"
+        )
+        print("      score  " + _quantis(linha["scores"]))
+        print("      margem " + _quantis(linha["margens"]))
+
+
 def gravar(caminho: Path, piso: float, margem: float, tolerancia) -> None:
     """Load-mutate-save. Nunca montar uma `Calibracao` do zero.
 
@@ -764,7 +948,12 @@ def gravar(caminho: Path, piso: float, margem: float, tolerancia) -> None:
     os.replace(provisorio, caminho)
 
 
-def main(argv=None) -> int:
+def construir_analisador() -> argparse.ArgumentParser:
+    """As chaves da linha de comando, numa casa so para o teste alcancar.
+
+    `--por-rotulo` e ADITIVA e nasce FALSA: sem ela a ferramenta imprime
+    exatamente o que sempre imprimiu, nem uma linha a mais nem a menos.
+    """
     analisador = argparse.ArgumentParser(
         description=(
             "Mede o piso e a margem de LEITURA de glifo e julga a guarda de "
@@ -774,7 +963,12 @@ def main(argv=None) -> int:
     analisador.add_argument("--gravacoes", default=str(RAIZ / "recordings"))
     analisador.add_argument("--calibracao", default=str(RAIZ / "calibration.json"))
     analisador.add_argument("--gravar", action="store_true")
-    opcoes = analisador.parse_args(argv)
+    analisador.add_argument("--por-rotulo", action="store_true")
+    return analisador
+
+
+def main(argv=None) -> int:
+    opcoes = construir_analisador().parse_args(argv)
 
     gravacoes = Path(opcoes.gravacoes).resolve()
     calibracao = Path(opcoes.calibracao).resolve()
@@ -930,6 +1124,16 @@ def main(argv=None) -> int:
                 f"    lido como '{rotulo}': n={len(do_rotulo)}, "
                 f"pior margem {min(a.margem for a in do_rotulo):.4f}"
             )
+
+    # -----------------------------------------------------------------
+    # RELATORIO POR ROTULO - so sob a chave, e sobre a MESMA populacao
+    # -----------------------------------------------------------------
+    if opcoes.por_rotulo:
+        imprimir_a_fragilidade_por_rotulo(
+            resultado.amostras,
+            cal.mercado_limiar_de_leitura_de_glifo,
+            cal.mercado_margem_de_leitura_de_glifo,
+        )
 
     # -----------------------------------------------------------------
     # RELATORIO 2 - a coluna Quantity, que a pesquisa nunca mediu
