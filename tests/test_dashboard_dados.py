@@ -913,3 +913,129 @@ class TestUmaTelaUmaUnidade:
         # A LEITURA nao se mexeu — nem a constante, nem o numero que sai dela.
         assert mercado_leitura.ADENA_POR_INCREMENTO == 5_000_000
         assert mercado_leitura.quantidade_de_adena(total=11100, incremento=5550) == antes
+
+
+# ---------------------------------------------------------------------------
+# A ESCADA DO EIXO VERTICAL
+# ---------------------------------------------------------------------------
+
+
+class TestAEscadaDoEixoVemDoPython:
+    """As MARCAS e os TEXTOS delas chegam prontos; o navegador so ESCOLHE.
+
+    O eixo era o unico lugar da pagina em que o DASH-03 nao valia como estava
+    escrito: `axes[1]` ia configurado como `y: {}`, e os rotulos `900 / 1.000 /
+    1.100` eram INVENTADOS pela biblioteca, em posicoes que o Python nunca via.
+    Era literalmente um segundo formatador — so que dentro da biblioteca, onde
+    nenhuma sonda de fonte o alcancava.
+
+    Agora o Python entrega VARIAS escadas, da mais fina para a mais grossa, e o
+    navegador fica com a primeira que cabe na janela. Filtrar por faixa e
+    SELECAO, e nao formatacao: nenhum digito e composto no navegador.
+    """
+
+    def _escadas(self, pasta: Path, totais: list[int]) -> list[dict]:
+        _escrever_csv(pasta, _linhas_da_adena(totais))
+        return dashboard_dados.payload(pasta, AGORA)["series"][0]["escadas_do_eixo"]
+
+    def test_os_TEXTOS_da_escada_de_cem_saem_prontos_do_payload(
+        self, pasta: Path
+    ) -> None:
+        """Primeiro a FAIXA medida, e so entao a escada que sai dela.
+
+        Os literais ficam escritos aqui de proposito. Um teste que recalculasse
+        a escada com a mesma regra da producao mediria a COPIA, e a Licao 1 do
+        CLAUDE.md proibe exatamente isso.
+        """
+        _escrever_csv(pasta, _linhas_da_adena([11100, 12000]))
+
+        serie = dashboard_dados.payload(pasta, AGORA)["series"][0]
+
+        # A FAIXA, AFIRMADA ANTES DA ESCADA: `11100 -> 5.550` e `12000 -> 6.000`
+        # na escala de cinco milhoes.
+        assert [ponto["menor_pixel"] for ponto in serie["pontos"]] == [5550.0, 6000.0]
+
+        de_cem = [
+            escada for escada in serie["escadas_do_eixo"] if escada["passo"] == 100
+        ]
+        assert len(de_cem) == 1, "a escada de passo 100 nao veio no payload"
+        marcas = de_cem[0]["marcas"]
+        assert [marca["texto"] for marca in marcas] == [
+            "56,00",
+            "57,00",
+            "58,00",
+            "59,00",
+            "60,00",
+        ]
+        assert [marca["pixel"] for marca in marcas] == [
+            5600.0,
+            5700.0,
+            5800.0,
+            5900.0,
+            6000.0,
+        ]
+
+    def test_as_escadas_saem_da_mais_FINA_para_a_mais_GROSSA(
+        self, pasta: Path
+    ) -> None:
+        """E os passos sao exatamente os que cabem — nem mais, nem menos.
+
+        Na faixa `[5550, 6000]` (450 de largura):
+          passo   1 -> 451 marcas, e passo 2 -> 226: os dois estouram o teto de
+                       `MAXIMO_DE_MARCAS_POR_ESCADA`
+          passo 500 e acima -> menos de DUAS marcas, e um eixo com uma marca so
+                       nao diz em que unidade esta
+
+        A ORDEM importa e por isso e afirmada: o navegador fica com a PRIMEIRA
+        que cabe, entao a lista sair invertida trocaria "a escada mais fina que
+        cabe" por "a mais grossa" sem nada quebrar em voz alta.
+        """
+        escadas = self._escadas(pasta, [11100, 12000])
+
+        assert [escada["passo"] for escada in escadas] == [5, 10, 20, 50, 100, 200]
+
+    def test_UM_ponto_so_ainda_ganha_UMA_marca(self, pasta: Path) -> None:
+        """Um eixo sem marca nenhuma e um eixo que nao diz em que unidade esta.
+
+        Com um ponto so a faixa e DEGENERADA — largura zero —, e nenhum passo
+        bonito cabe nela. A saida e a escada SEM PASSO: uma marca, no valor
+        arredondado, com `passo` zero para dizer que ela nao veio de uma regua.
+        """
+        escadas = self._escadas(pasta, [11100])
+
+        assert len(escadas) == 1
+        assert escadas[0]["passo"] == 0
+        assert escadas[0]["marcas"] == [{"pixel": 5550.0, "texto": "55,50"}]
+
+    def test_serie_SEM_VALOR_NENHUM_nao_inventa_eixo(self) -> None:
+        """Sem valor, sem escada — e nao uma escada em torno do zero.
+
+        Zero e um lugar no eixo, pela mesma razao que `_pixel` devolve `None` em
+        vez de `0.0`: desenhar a ausencia la seria afirmar que a taxa despencou.
+
+        A serie vazia e a UNICA forma dessa ausencia que este sistema produz —
+        `menor_pedido_visivel` tem piso 1, entao todo ponto que existe carrega
+        pelo menos o menor. Chamar `serie_para_o_grafico` direto, sem disco, e o
+        que deixa isso dito em vez de suposto.
+        """
+        serie = dashboard_dados.serie_para_o_grafico(
+            CHAVE_DA_SERIE_DA_ADENA, [], AGORA
+        )
+
+        assert serie["pontos"] == []
+        assert serie["escadas_do_eixo"] == []
+
+    def test_o_pixel_de_toda_marca_e_INTEIRO(self, pasta: Path) -> None:
+        """E o que autoriza a segunda travessia para `float` fora do `_pixel`.
+
+        Aquela converte uma FRACAO e por isso tem erro medido (7,76e-11 no pior
+        caso). Esta converte um INTEIRO, e inteiro ate dois elevado a 53
+        atravessa sem perder um bit. Sem este teste, a distincao seria uma
+        afirmacao no comentario e nada mais.
+        """
+        escadas = self._escadas(pasta, [11100, 12000])
+
+        assert escadas, "sem escada nenhuma este teste seria vacuo"
+        for escada in escadas:
+            for marca in escada["marcas"]:
+                assert float(int(marca["pixel"])) == marca["pixel"], marca
