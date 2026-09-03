@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 42
+open_count: 44
 waived_count: 1
 fixed_count: 10
-total_count: 53
-last_updated: 2026-09-03T02:21:58.774Z
+total_count: 55
+last_updated: 2026-09-03T03:22:05.497Z
 ---
 
 # Broken Windows Ledger
@@ -68,6 +68,8 @@ last_updated: 2026-09-03T02:21:58.774Z
 | 51 | 01 | deviation | l2scanner/calibrar_renda_moldes.py |  | M-U: o cortador propoe em ordem alfabetica e o limite de glifo unico trava na primeira largura, fechando 5 rotulos de 11 com recusas que culpam o retangulo. Ordenar por largura maxima decrescente conserta. Nao aplicado no 01-03. | open |  | 2026-09-02T17:45:21.316Z |  |
 | 52 | 01 | deviation | tests/test_janela_de_selecao.py |  | test_dreno_por_tempo_e_nao_por_numero_de_sondagens e instavel sob carga: assercao contador>20 presa a 50ms de relogio de parede com espera ocupada de 1ms por sondagem. Vermelho numa passada da suite completa, verde sozinho e na passada seguinte. Pre-existente, de outro plano. | open |  | 2026-09-02T20:43:25.630Z |  |
 | 53 | 02 | deviation | .planning/workstreams/renda/phases/02-a-conta-e-o-registro-de-duas-amostras-para-uma-taxa-e-uma-li/02-01-PLAN.md |  | Criterio do 02-01 pede 'passed >= 5355'; a linha de base real e 5331 passed + 24 skipped (5355 SELECIONADO). Executado com o piso conferido nas duas metades; 02-02/03/04 devem usar 5331 passed como piso. | open |  | 2026-09-03T02:21:58.774Z |  |
+| 54 | 02 | deviation | tests/test_sessao.py |  | BOMBA-RELOGIO DE CALENDARIO (achado pelo 02-02): agenda.py:1004 usa date.today() e 15 testes de test_sessao.py, test_janela_no_relogio.py e test_respawn.py ancoram fixtures em 2026-08-30. Passavam em 2026-09-02 e falham desde 2026-09-03; o numero de falhas oscila com a hora de parede. PRE-EXISTENTE: provado rodando o commit base 9b90572 numa arvore limpa no mesmo instante (mesmo conjunto de falhas). Conserto: injetar hoje por parametro, e nao desselecionar mais arquivos. | open |  | 2026-09-03T03:21:54.955Z |  |
+| 55 | 02 | deviation | l2scanner/renda_conta.py |  | passo_entre_campos nao roda a_adena_saltou_ordem_de_grandeza quando um campo recusa: sem LeituraDaRenda nao ha conferir_o_par, e o portao C-1 proibe chamar as irmas soltas. Com o nivel recusado em 79% dos tiques, a guarda de salto da adena e a de EXP-para-tras ficam ausentes na maioria dos passos. Escrito na docstring e em deferred-items.md (D-2). Conserto: uma composicao para o par PARCIAL em renda_leitura.py. | open |  | 2026-09-03T03:22:05.497Z |  |
 
 ````json
 [
@@ -705,6 +707,30 @@ last_updated: 2026-09-03T02:21:58.774Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-03T02:21:58.774Z",
+    "resolved_at": null
+  },
+  {
+    "id": 54,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "tests/test_sessao.py",
+    "line": null,
+    "description": "BOMBA-RELOGIO DE CALENDARIO (achado pelo 02-02): agenda.py:1004 usa date.today() e 15 testes de test_sessao.py, test_janela_no_relogio.py e test_respawn.py ancoram fixtures em 2026-08-30. Passavam em 2026-09-02 e falham desde 2026-09-03; o numero de falhas oscila com a hora de parede. PRE-EXISTENTE: provado rodando o commit base 9b90572 numa arvore limpa no mesmo instante (mesmo conjunto de falhas). Conserto: injetar hoje por parametro, e nao desselecionar mais arquivos.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-03T03:21:54.955Z",
+    "resolved_at": null
+  },
+  {
+    "id": 55,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "l2scanner/renda_conta.py",
+    "line": null,
+    "description": "passo_entre_campos nao roda a_adena_saltou_ordem_de_grandeza quando um campo recusa: sem LeituraDaRenda nao ha conferir_o_par, e o portao C-1 proibe chamar as irmas soltas. Com o nivel recusado em 79% dos tiques, a guarda de salto da adena e a de EXP-para-tras ficam ausentes na maioria dos passos. Escrito na docstring e em deferred-items.md (D-2). Conserto: uma composicao para o par PARCIAL em renda_leitura.py.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-03T03:22:05.497Z",
     "resolved_at": null
   }
 ]
