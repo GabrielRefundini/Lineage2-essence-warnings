@@ -126,6 +126,45 @@ def moldes_da_barra_de_exemplo(rotulos: str = ROTULOS_INCOMPLETOS) -> dict:
     }
 
 
+# A PROCEDENCIA MEDIDA, escrita uma vez e reusada por toda entrada de exemplo.
+#
+# Ela nao e enfeite de fixtura: o validador EXIGE os tres numeros, porque uma
+# constante medida em seis minutos e uma medida em tres horas nao valem o mesmo,
+# e quem le tem de conseguir saber qual e qual (CTX-8).
+PROCEDENCIA_DE_EXEMPLO = {
+    "medido_em": "2026-09-02",
+    "n_abates": 114,
+    "n_linhas_de_chat": 240,
+    "janela_em_segundos": 150,
+}
+
+
+def ponte_de_xp_de_exemplo() -> dict:
+    """Dois personagens, e DOIS NIVEIS dentro de um deles.
+
+    O nivel 66 da Faerlina nao e enfeite: ele e o VIZINHO que o acessor nao
+    pode devolver quando o nivel atual nao tem entrada. Sem ele dentro do
+    arquivo, o teste da recusa passaria por vacuidade — estaria afirmando que
+    nao houve queda para uma entrada que nunca existiu.
+    """
+
+    def entrada(xp_por_ponto: int) -> dict:
+        return {
+            "xp_por_ponto": xp_por_ponto,
+            **PROCEDENCIA_DE_EXEMPLO,
+            "observacao": (
+                "censo completo a 55 Hz: 188 degraus somando 1903 unidades "
+                "contra 1903 de avanco da propria barra, com zero leituras "
+                "negativas em 8.555 amostras"
+            ),
+        }
+
+    return {
+        "Faerlina": {"66": entrada(383_124), "67": entrada(388_700)},
+        "Yazalaque": {"70": entrada(410_000)},
+    }
+
+
 # Os campos cujo VALIDADOR e exigente demais para um valor generico por tipo.
 # Eles sao overrides de VALOR, e nunca da LISTA: a lista continua saindo de
 # `dataclasses.fields`, e um campo novo que este mapa nao conheca cai no
@@ -136,6 +175,14 @@ VALORES_ESPECIAIS = {
     "mercado_tolerancia_do_cruzamento": 0.0,
     "renda_por_personagem": renda_por_personagem_de_exemplo(),
     "renda_moldes_da_barra": moldes_da_barra_de_exemplo(),
+    # O QUINTO LUGAR DA TERCEIRA CHAVE, e o que some do radar.
+    #
+    # `_valor_por_tipo` despacha por TIPO, e `dict | None` cai no ramo generico
+    # que devolve `{"uma": "coisa"}`. Como a ponte tem validador DE FORMA — a
+    # CTX-8 exige que a constante carregue procedencia, e procedencia e forma —,
+    # o valor generico nao passa e a ida e volta quebra com uma mensagem que nao
+    # aponta para o motivo. Ja custou quarenta minutos duas vezes nesta arvore.
+    "renda_ponte_de_xp": ponte_de_xp_de_exemplo(),
     "assinaturas": [
         Assinatura(nome="Faerlina", mascara=np.ones((4, 4), dtype=np.uint8))
     ],
@@ -498,3 +545,252 @@ class TestOConjuntoDeMoldesDaBarra:
         cal = Calibracao.carregar(alvo)
         assert cal.renda_moldes_da_barra is None
         assert cal.versao == 2
+
+
+class TestAPonteDeXpNoArquivo:
+    """A terceira chave da renda: por personagem E POR NIVEL (REND-08, CTX-8)."""
+
+    def _com_a_ponte(self, tmp_path: Path, ponte) -> Path:
+        dados = json.loads(FIXTURA_DE_RENDA.read_text(encoding="utf-8"))
+        if ponte is None:
+            dados.pop("renda_ponte_de_xp", None)
+        else:
+            dados["renda_ponte_de_xp"] = ponte
+        alvo = tmp_path / "calibration.json"
+        alvo.write_text(json.dumps(dados), encoding="utf-8")
+        return alvo
+
+    def test_A_CHAVE_AUSENTE_PASSA_COM_A_VERSAO_INTACTA(self, tmp_path):
+        """Ninguem e obrigado a recalibrar: a chave e opcional e a versao fica em 2."""
+        cal = Calibracao.carregar(self._com_a_ponte(tmp_path, None))
+        assert cal.renda_ponte_de_xp is None
+        assert cal.versao == 2
+
+    def test_DOIS_PERSONAGENS_E_DOIS_NIVEIS_SOBREVIVEM_A_IDA_E_VOLTA(self, tmp_path):
+        cal = Calibracao.carregar(
+            self._com_a_ponte(tmp_path, ponte_de_xp_de_exemplo())
+        )
+        alvo = tmp_path / "de-volta.json"
+        cal.salvar(alvo)
+        de_volta = Calibracao.carregar(alvo)
+
+        assert de_volta.ponte_do_nivel("Faerlina", 66)["xp_por_ponto"] == 383_124
+        assert de_volta.ponte_do_nivel("Faerlina", 67)["xp_por_ponto"] == 388_700
+        assert de_volta.ponte_do_nivel("Yazalaque", 70)["xp_por_ponto"] == 410_000
+        assert de_volta.renda_ponte_de_xp == ponte_de_xp_de_exemplo()
+
+    def test_UMA_SUBCHAVE_DESCONHECIDA_SOBREVIVE_A_IDA_E_VOLTA(self, tmp_path):
+        """O dict e CRU: uma sub-chave que este codigo ainda nao conhece fica.
+
+        Se algum dia alguem reconstruir a entrada campo a campo, o campo novo
+        da ferramenta de medicao nasce apagado no dia em que for gravado.
+        """
+        ponte = ponte_de_xp_de_exemplo()
+        ponte["Faerlina"]["67"]["campo_do_futuro"] = {"n_sessoes": 3}
+        cal = Calibracao.carregar(self._com_a_ponte(tmp_path, ponte))
+        alvo = tmp_path / "de-volta.json"
+        cal.salvar(alvo)
+        de_volta = Calibracao.carregar(alvo)
+        assert de_volta.ponte_do_nivel("Faerlina", 67)["campo_do_futuro"] == {
+            "n_sessoes": 3
+        }
+
+
+class TestOValidadorDaPonteDeXp:
+    """Presente tem de estar certo. E a forma inclui a PROCEDENCIA."""
+
+    def _carregar(self, tmp_path: Path, ponte):
+        dados = json.loads(FIXTURA_DE_RENDA.read_text(encoding="utf-8"))
+        dados["renda_ponte_de_xp"] = ponte
+        alvo = tmp_path / "calibration.json"
+        alvo.write_text(json.dumps(dados), encoding="utf-8")
+        return Calibracao.carregar(alvo)
+
+    def test_O_CONTROLE_A_ENTRADA_COMPLETA_PASSA(self, tmp_path):
+        """Sem este controle, um validador que recusasse TUDO passaria nos irmaos."""
+        cal = self._carregar(tmp_path, ponte_de_xp_de_exemplo())
+        assert cal.ponte_do_nivel("Faerlina", 67)["xp_por_ponto"] == 388_700
+
+    @pytest.mark.parametrize(
+        "valor",
+        [0, -1, "388700", 388_700.0, None],
+        ids=["zero", "negativo", "texto", "flutuante", "nulo"],
+    )
+    def test_UM_XP_POR_PONTO_INVALIDO_E_RECUSADO_NOMEANDO_PERSONAGEM_E_NIVEL(
+        self, tmp_path, valor
+    ):
+        ponte = ponte_de_xp_de_exemplo()
+        ponte["Faerlina"]["67"]["xp_por_ponto"] = valor
+        with pytest.raises(CalibracaoInvalida) as erro:
+            self._carregar(tmp_path, ponte)
+        mensagem = str(erro.value)
+        assert "Faerlina" in mensagem, "a recusa precisa dizer de QUEM e a entrada"
+        assert "67" in mensagem, "a recusa precisa dizer de QUAL NIVEL e a entrada"
+        assert "Recalibre" in mensagem, "a mensagem precisa carregar o conserto"
+
+    def test_UM_XP_POR_PONTO_AUSENTE_E_RECUSADO(self, tmp_path):
+        ponte = ponte_de_xp_de_exemplo()
+        ponte["Faerlina"]["67"].pop("xp_por_ponto")
+        with pytest.raises(CalibracaoInvalida) as erro:
+            self._carregar(tmp_path, ponte)
+        mensagem = str(erro.value)
+        assert "xp_por_ponto" in mensagem
+        assert "Faerlina" in mensagem and "67" in mensagem
+
+    def test_UM_XP_POR_PONTO_BOOLEANO_E_RECUSADO_COM_MENSAGEM_PROPRIA(self, tmp_path):
+        """`True` e um `int` de valor 1, e uma ponte de 1 XP por ponto e absurda.
+
+        Sem recusa PROPRIA para `bool` ele passaria por `isinstance(v, int)` e
+        viraria uma constante que converte 8 pontos percentuais em 8 XP — um
+        numero perfeitamente formatado e a trinta milhoes de distancia do certo.
+        """
+        ponte = ponte_de_xp_de_exemplo()
+        ponte["Faerlina"]["67"]["xp_por_ponto"] = True
+        with pytest.raises(CalibracaoInvalida) as erro:
+            self._carregar(tmp_path, ponte)
+        assert "bool" in str(erro.value), (
+            "a recusa precisa nomear o tipo: sem isso o usuario le 'precisa ser "
+            "um inteiro' olhando para um valor que ele considera um inteiro"
+        )
+
+    @pytest.mark.parametrize(
+        "campo", ["n_abates", "n_linhas_de_chat", "janela_em_segundos"]
+    )
+    def test_CADA_CAMPO_DE_PROCEDENCIA_AUSENTE_E_RECUSADO_PELO_NOME(
+        self, tmp_path, campo
+    ):
+        """A procedencia e OBRIGATORIA, e a razao e a CTX-8.
+
+        Uma constante medida em seis minutos e uma medida em tres horas nao
+        valem o mesmo. Sem os numeros ao lado, ninguem consegue auditar depois
+        qual das duas esta no arquivo.
+        """
+        ponte = ponte_de_xp_de_exemplo()
+        ponte["Faerlina"]["67"].pop(campo)
+        with pytest.raises(CalibracaoInvalida) as erro:
+            self._carregar(tmp_path, ponte)
+        mensagem = str(erro.value)
+        assert campo in mensagem, "a recusa precisa nomear o campo que falta"
+        assert "Faerlina" in mensagem and "67" in mensagem
+
+    def test_A_DATA_DA_MEDICAO_AUSENTE_E_RECUSADA(self, tmp_path):
+        """"Quando foi medida" e procedencia tanto quanto "com quantos abates"."""
+        ponte = ponte_de_xp_de_exemplo()
+        ponte["Faerlina"]["67"].pop("medido_em")
+        with pytest.raises(CalibracaoInvalida) as erro:
+            self._carregar(tmp_path, ponte)
+        assert "medido_em" in str(erro.value)
+
+    @pytest.mark.parametrize(
+        "campo", ["n_abates", "n_linhas_de_chat", "janela_em_segundos"]
+    )
+    def test_UM_CAMPO_DE_PROCEDENCIA_NAO_POSITIVO_E_RECUSADO(self, tmp_path, campo):
+        """Zero abates ou zero segundo de janela nao e procedencia: e ausencia."""
+        ponte = ponte_de_xp_de_exemplo()
+        ponte["Faerlina"]["67"][campo] = 0
+        with pytest.raises(CalibracaoInvalida) as erro:
+            self._carregar(tmp_path, ponte)
+        assert campo in str(erro.value)
+
+    def test_UMA_CHAVE_DE_NIVEL_QUE_NAO_E_NUMERO_E_RECUSADA(self, tmp_path):
+        ponte = ponte_de_xp_de_exemplo()
+        ponte["Faerlina"]["sessenta e sete"] = ponte["Faerlina"].pop("67")
+        with pytest.raises(CalibracaoInvalida) as erro:
+            self._carregar(tmp_path, ponte)
+        mensagem = str(erro.value)
+        assert "sessenta e sete" in mensagem
+        assert "nivel" in mensagem.lower(), (
+            "a mensagem precisa dizer o que se esperava naquela posicao"
+        )
+
+    def test_UM_NOME_DE_PERSONAGEM_VAZIO_E_RECUSADO(self, tmp_path):
+        ponte = ponte_de_xp_de_exemplo()
+        ponte[""] = ponte.pop("Yazalaque")
+        with pytest.raises(CalibracaoInvalida):
+            self._carregar(tmp_path, ponte)
+
+    def test_UMA_ENTRADA_QUE_NAO_E_OBJETO_E_RECUSADA(self, tmp_path):
+        ponte = ponte_de_xp_de_exemplo()
+        ponte["Faerlina"]["67"] = 388_700
+        with pytest.raises(CalibracaoInvalida) as erro:
+            self._carregar(tmp_path, ponte)
+        assert "Faerlina" in str(erro.value)
+
+    def test_A_CHAVE_QUE_NAO_E_OBJETO_E_RECUSADA(self, tmp_path):
+        with pytest.raises(CalibracaoInvalida) as erro:
+            self._carregar(tmp_path, [{"Faerlina": {}}])
+        assert "renda_ponte_de_xp" in str(erro.value)
+
+
+class TestOAcessorDaPonteNuncaCaiParaOVizinho:
+    """A proibicao de queda mora em UM lugar so, e e este acessor."""
+
+    def _cal(self, tmp_path: Path, ponte=None) -> Calibracao:
+        dados = json.loads(FIXTURA_DE_RENDA.read_text(encoding="utf-8"))
+        if ponte is not None:
+            dados["renda_ponte_de_xp"] = ponte
+        alvo = tmp_path / "calibration.json"
+        alvo.write_text(json.dumps(dados), encoding="utf-8")
+        return Calibracao.carregar(alvo)
+
+    def test_O_NIVEL_PEDIDO_E_O_NIVEL_DEVOLVIDO(self, tmp_path):
+        cal = self._cal(tmp_path, ponte_de_xp_de_exemplo())
+        assert cal.ponte_do_nivel("Faerlina", 66)["xp_por_ponto"] == 383_124
+        assert cal.ponte_do_nivel("Faerlina", 67)["xp_por_ponto"] == 388_700
+
+    def test_SEM_ENTRADA_PARA_O_NIVEL_ATUAL_NAO_CAI_PARA_O_ANTERIOR(self, tmp_path):
+        """O defeito que a CTX-8 proibe com todas as letras.
+
+        A constante do 66 aplicada ao 67 produz um numero com a mesma cara e
+        errado. O teste afirma, na mesma funcao, que a entrada do 66 EXISTIA —
+        sem isso ele passaria por vacuidade.
+        """
+        ponte = ponte_de_xp_de_exemplo()
+        ponte["Faerlina"].pop("67")
+        cal = self._cal(tmp_path, ponte)
+
+        assert cal.ponte_do_nivel("Faerlina", 66) is not None, (
+            "o vizinho tem de EXISTIR, senao a assercao de baixo e vacua"
+        )
+        assert cal.ponte_do_nivel("Faerlina", 67) is None
+
+    def test_SEM_ENTRADA_PARA_O_PERSONAGEM_NAO_CAI_PARA_O_OUTRO(self, tmp_path):
+        cal = self._cal(tmp_path, ponte_de_xp_de_exemplo())
+        assert cal.ponte_do_nivel("Yazalaque", 70) is not None, (
+            "a entrada vizinha tem de EXISTIR, senao a assercao de baixo e vacua"
+        )
+        assert cal.ponte_do_nivel("Yazalaque", 67) is None
+        assert cal.ponte_do_nivel("Korzis", 67) is None
+
+    def test_A_CHAVE_DE_NIVEL_INTEIRA_E_ENCONTRADA_DE_VOLTA(self, tmp_path):
+        """O modo de falha classico desta forma, e ele NAO LEVANTA.
+
+        JSON nao tem chave inteira: `{67: ...}` gravado vira `{"67": ...}`. Um
+        acessor que comparasse o inteiro com a chave de texto so devolveria
+        nada, e o painel diria "indisponivel" para sempre sem ninguem entender
+        por que.
+        """
+        cal = self._cal(tmp_path)
+        cal.renda_ponte_de_xp = {
+            "Faerlina": {67: dict(PROCEDENCIA_DE_EXEMPLO, xp_por_ponto=388_700)}
+        }
+
+        assert cal.ponte_do_nivel("Faerlina", 67)["xp_por_ponto"] == 388_700
+
+        alvo = tmp_path / "de-volta.json"
+        cal.salvar(alvo)
+        de_volta = Calibracao.carregar(alvo)
+        assert list(de_volta.renda_ponte_de_xp["Faerlina"]) == ["67"], (
+            "o JSON converteu a chave para TEXTO, que e o ponto deste teste"
+        )
+        assert de_volta.ponte_do_nivel("Faerlina", 67)["xp_por_ponto"] == 388_700
+
+    def test_A_CHAVE_INTEIRAMENTE_AUSENTE_DEVOLVE_NADA_E_NAO_LEVANTA(self, tmp_path):
+        cal = self._cal(tmp_path)
+        assert cal.renda_ponte_de_xp is None
+        assert cal.ponte_do_nivel("Faerlina", 67) is None
+
+    def test_SEM_NOME_E_SEM_NIVEL_DEVOLVE_NADA(self, tmp_path):
+        cal = self._cal(tmp_path, ponte_de_xp_de_exemplo())
+        assert cal.ponte_do_nivel(None, 67) is None
+        assert cal.ponte_do_nivel("Faerlina", None) is None
