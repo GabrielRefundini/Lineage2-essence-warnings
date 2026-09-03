@@ -369,7 +369,7 @@ zero.
 **Depends on**: Phase 2 — o painel exibe as taxas que a Fase 2 calcula, e a pausa protege o
 arquivo que a Fase 2 escreve.
 
-**Requirements**: CONS-01, CONS-02, CEGO-01, CEGO-02
+**Requirements**: CONS-01, CONS-02, CEGO-01, CEGO-02, **LEIT-10**
 
 **A fronteira com a Fase 2, que não se mexe**: o **portão de admissão** do registro é da Fase 2
 — uma amostra ou é aceita ou é recusada com motivo. Esta fase não constrói um segundo portão:
@@ -381,8 +381,25 @@ portas para o mesmo arquivo é como um arquivo passa a ter duas verdades.
 
 1. `vigiar-renda.bat` sobe em dois cliques e o painel mostra, atualizando ao vivo, nível, EXP%,
    adena, XP/min, XP/h, adena/min, adena/h, o tempo até o próximo nível e há quanto tempo a
-   sessão corre — no mesmo `rich.Live` das telas que já existem, com `n` e recência colados nos
-   números como o `--mercado` já faz. — CONS-01
+   sessão corre — com `n` e recência colados nos números como o `--mercado` já faz. — CONS-01
+
+   > **`rich.Live` caiu, em 2026-09-03, e por duas medições.** (a) `rich` **não está instalado**
+   > (`ModuleNotFoundError`) e tem **zero** importações em `l2scanner/`; o `CLAUDE.md` o lista no
+   > stack, e o stack está velho. (b) O "ao vivo" desta casa **não é painel de tabela**: é
+   > `mercado_console.linha_ao_vivo`, **uma linha** repintada sobre `console.py`
+   > (`LARGURA = 58`, `moldurar`, `destacar`), feito à mão e sem dependência. A frase original
+   > dizia "no mesmo `rich.Live` das telas que já existem" e **nenhuma tela existente usa isso**.
+   > O critério sobrevive inteiro sem ela; o que muda é a ferramenta, e a decisão está na Área 1
+   > do `03-CONTEXT.md`.
+
+5. **Antes de declarar cegueira, o laço tenta os pisos vizinhos da banda gravada** e usa o que
+   produzir leitura válida, dizendo na tela qual piso usou. — LEIT-10
+
+   > **LEIT-10 é desta fase e o roadmap não o tinha listado.** O requisito já nomeia a Fase 3
+   > como dona ("onde existe laço ao vivo"), e a razão está medida três vezes: a banda do EXP da
+   > Faerlina andou de `140..170` para `160..180` em 8,5 h, e no dia seguinte a janela subiu ~8 px
+   > e as três regiões morreram de uma vez — com o usuário vendo os três campos recusados. Na
+   > Fase 1 isso seria estado dentro de uma função que a fase inteira definiu como pura.
 2. Derrubar o `--renda` **não derruba** o `vigiar-party.bat` nem o `vigiar-mercado.bat`, e
    derrubar qualquer um deles não derruba o `--renda`. Quatro invocações, quatro janelas,
    nenhuma dependendo da outra para ficar de pé. — CONS-02
