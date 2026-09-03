@@ -47,6 +47,7 @@ from pathlib import Path
 
 import pytest
 
+from l2scanner.loot import apelido
 from l2scanner.mercado_catalogo import SEPARADOR
 from l2scanner.renda_conta import SEM_DESCONTINUIDADE
 from l2scanner.renda_leitura import (
@@ -499,3 +500,349 @@ class TestUmaLinhaRuimNaoEUmArquivoRuim:
 
         assert len(lidas) == 1
         assert any("linha 3" in linha.getMessage() for linha in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# TAREFA 2 — o append, um arquivo por personagem, e a dedup que NAO atravessou
+# ---------------------------------------------------------------------------
+
+
+class TestADedupQueNaoAtravessou:
+    """C-3, T-02-16: o portao COMPORTAMENTAL, em duas escalas."""
+
+    def test_DUAS_AMOSTRAS_IDENTICAS_DEIXAM_DUAS_LINHAS(self, tmp_path):
+        """A escala que pega uma dedup por IDENTIDADE de linha.
+
+        `mercado_registro.chave_da_observacao` exclui o carimbo de proposito,
+        para o arquivo do mercado nao crescer uma linha por segundo sobre o
+        mesmo anuncio. Aqui uma linha por tique E O PRODUTO: ela e o
+        denominador da taxa.
+        """
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        for carimbo in (0.0, 30.0):
+            gravar(registro, campos(), carimbo=carimbo)
+
+        assert len(linhas_cruas(registro.arquivo)) == 2
+
+    def test_CEM_AMOSTRAS_IDENTICAS_DEIXAM_CEM_LINHAS(self, tmp_path):
+        """A escala que pega uma dedup POR JANELA, que a de duas nao pegaria.
+
+        Uma dedup "no maximo uma linha por minuto" ou "so grava quando mudou
+        desde a ultima" passaria no teste de duas amostras espacadas de 30 s e
+        cairia aqui. Cem amostras a ~1 Hz com os tres campos identicos e o caso
+        REAL do personagem parado — a adena so muda quando cai loot — e sao
+        exatamente as linhas que a taxa da noite conta.
+        """
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        for tique in range(100):
+            gravar(registro, campos(), carimbo=float(tique))
+
+        linhas = linhas_cruas(registro.arquivo)
+        assert len(linhas) == 100, (
+            "cem amostras identicas com carimbos diferentes deixaram "
+            f"{len(linhas)} linhas e nao cem. Alguma forma de dedup atravessou "
+            "do mercado, e ela apagaria a MAIORIA das amostras de uma noite de "
+            "farm — o denominador da taxa sumiria sem nenhuma mensagem."
+        )
+        assert len({celula(linha, "carimbo") for linha in linhas}) == 100
+
+    def test_NENHUM_CONJUNTO_NASCE_NO_CONSTRUTOR(self):
+        """O portao de ARVORE ao lado do comportamental, e ele pega outra coisa.
+
+        O comportamental pega a dedup ATIVA; este pega o indice sendo montado
+        antes de alguem chegar a usa-lo. `RegistroDaRenda` e classe comum e nao
+        `dataclass` precisamente para que esta varredura veja codigo de verdade
+        em vez do `__init__` vazio que um `dataclass` nao escreve no fonte.
+        """
+        arvore = ast.parse(FONTE_DO_MODULO.read_text(encoding="utf-8"))
+        conjuntos = [
+            tipo.__class__.__name__
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.FunctionDef) and no.name == "__init__"
+            for tipo in ast.walk(no)
+            if isinstance(tipo, (ast.Set, ast.SetComp))
+        ]
+        assert conjuntos == []
+
+
+class TestAsRecusasTambemSaoGravadas:
+    """CTX-9, T-02-20: a taxa de RECUSA e dado, e nao ruido."""
+
+    def test_UMA_AMOSTRA_COM_OS_TRES_CAMPOS_RECUSADOS_VIRA_LINHA(self, tmp_path):
+        """Um arquivo so com sucessos nao permite auditar a taxa de recusa.
+
+        Sem estas linhas ninguem consegue responder "por que a taxa desta hora
+        tem n=12 se o scanner rodou quarenta minutos". A alternativa registrada
+        — gravar so as aceitas, arquivo menor e mais limpo — perde exatamente
+        essa auditoria, e por isso foi recusada.
+        """
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        gravar(
+            registro,
+            campos(recusados=(CAMPO_DO_NIVEL, CAMPO_DO_EXP, CAMPO_DA_ADENA)),
+            carimbo=0.0,
+        )
+
+        linhas = linhas_cruas(registro.arquivo)
+        assert len(linhas) == 1
+
+        (linha,) = linhas
+        for _, valor, guarda, motivo in TRES_COLUNAS_POR_CAMPO:
+            assert celula(linha, motivo) != ""
+            assert celula(linha, valor) == ""
+            assert celula(linha, guarda) == ""
+
+    def test_A_LINHA_DE_RECUSA_VOLTA_TIPADA_COM_VALOR_NULO_E_MOTIVO_CHEIO(
+        self, tmp_path
+    ):
+        """A ida e a volta: ausencia de valor e presenca de motivo sao o mesmo fato."""
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        gravar(registro, campos(recusados=(CAMPO_DO_NIVEL,)), carimbo=0.0)
+
+        (amostra,) = amostras_do_arquivo(registro.arquivo)
+
+        assert amostra.nivel is None
+        assert amostra.nivel_escalas is None
+        assert amostra.motivo_do_nivel == "nivel-vazio"
+        assert amostra.exp_decimos == 80_012
+        assert amostra.adena == 13_160_684
+
+
+class TestUmArquivoPorPersonagem:
+    """C-5, REG-04, T-02-03: um escritor por arquivo, porque sao duas instancias."""
+
+    def test_DOIS_PERSONAGENS_DOIS_ARQUIVOS_E_NENHUMA_LINHA_ATRAVESSA(
+        self, tmp_path
+    ):
+        """E a coluna concorda com o nome do arquivo, linha a linha.
+
+        Nao sao duas verdades: a COLUNA e o dado que o consumidor le, e o NOME
+        DO ARQUIVO e o roteamento que garante um escritor so. Um arquivo
+        renomeado a mao continua dizendo de quem ele e.
+        """
+        for personagem in ("Faerlina", "J4guar"):
+            registro = RegistroDaRenda(pasta=tmp_path, personagem=personagem)
+            for carimbo in (0.0, 30.0):
+                gravar(registro, campos(personagem=personagem), carimbo=carimbo)
+
+        arquivos = sorted(caminho.name for caminho in tmp_path.glob("*.csv"))
+        assert arquivos == ["faerlina.csv", "j4guar.csv"]
+
+        for caminho in tmp_path.glob("*.csv"):
+            linhas = linhas_cruas(caminho)
+            assert len(linhas) == 2
+            donos = {celula(linha, "personagem") for linha in linhas}
+            assert len(donos) == 1
+            (dono,) = donos
+            assert apelido(dono) == caminho.stem, (
+                f"a coluna `personagem` diz {dono!r} num arquivo chamado "
+                f"{caminho.name!r}. A adena de uma instancia entraria na conta "
+                "do EXP da outra."
+            )
+
+    @pytest.mark.parametrize(
+        "hostil",
+        [
+            "../../Windows/System32",
+            "..\\..\\..\\etc\\passwd",
+            "C:nome:com:dois-pontos",
+        ],
+    )
+    def test_UM_NOME_HOSTIL_NAO_SAI_DA_PASTA(self, hostil, tmp_path):
+        """T-02-17: o nome vem do TITULO DA JANELA do jogo e vira caminho.
+
+        `apelido()` reduz por lista de PERMISSAO (`[^a-z0-9]+` -> `-`), e nao
+        por lista de proibicao: nao ha caractere de travessia que sobreviva a
+        isso, porque a lista diz o que PASSA em vez de tentar enumerar o que
+        nao passa. A comparacao aqui e por `Path.resolve()` contra a pasta
+        resolvida, e nunca por inspecao de texto — um teste que so procurasse
+        `".."` no nome passaria com um `%2e%2e` ou com um separador exotico.
+        """
+        alvo = arquivo_do_personagem(tmp_path, hostil).resolve()
+        assert alvo.parent == tmp_path.resolve()
+        assert tmp_path.resolve() in alvo.parents
+
+
+class TestAOrigemDoGanho:
+    """REND-04, CTX-7: marcador explicito, nunca heuristica."""
+
+    def test_TODA_LINHA_DIZ_INDETERMINADO_INCLUSIVE_AS_DE_RECUSA(self, tmp_path):
+        """A coluna existe, sai `indeterminado`, e ninguem a infere por limiar.
+
+        O roadmap ofereceu tres caminhos e os dois primeiros — a forma do salto
+        e o painel do mercado estar aberto — sao inferencia por limiar magico
+        sobre um dado que o consumidor nao pode auditar. D-02 vale inteiro: um
+        numero exibido tem de ter existido. Uma coluna `indeterminado` que o
+        `dashboard` mostra como indeterminado e melhor que um balde errado com
+        cara de certo.
+        """
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        gravar(registro, campos(), carimbo=0.0)
+        gravar(
+            registro,
+            campos(recusados=(CAMPO_DO_NIVEL, CAMPO_DO_EXP, CAMPO_DA_ADENA)),
+            carimbo=30.0,
+        )
+
+        linhas = linhas_cruas(registro.arquivo)
+        assert len(linhas) == 2
+        for linha in linhas:
+            assert celula(linha, "origem_do_ganho") == ORIGEM_INDETERMINADA
+
+    def test_NENHUM_LIMIAR_DECIDE_A_ORIGEM_DENTRO_DE_CAMPOS_DA_LINHA(self):
+        """O portao e ESCOPADO A FUNCAO que decide o valor, e o referente e ZERO.
+
+        A versao anterior deste portao contava as comparacoes do ARQUIVO
+        INTEIRO e mandava afirmar que o numero "nao cresceu por causa da
+        origem". Nao existe referente para "nao cresceu": este modulo NASCE no
+        `02-01` e EXPANDE aqui, entao qualquer numero medido seria carimbado
+        como linha de base sem ninguem saber contra o que — e um portao cujo
+        valor esperado o proprio executor escolhe nao e portao.
+
+        O escopo por funcao tem referente ABSOLUTO — zero — e diz a mesma coisa
+        com mais forca: a origem nao pode sair de limiar porque no lugar onde
+        ela e decidida nao ha limiar nenhum. `is`, `==` e `!=` continuam
+        legitimos ali; o que o portao olha e comparacao de ORDEM.
+        """
+        arvore = ast.parse(FONTE_DO_MODULO.read_text(encoding="utf-8"))
+        funcoes = [
+            no
+            for no in ast.walk(arvore)
+            if isinstance(no, ast.FunctionDef) and no.name == "campos_da_linha"
+        ]
+        assert len(funcoes) == 1, (
+            "`campos_da_linha` tem de existir e ser UMA so: o portao e escopado "
+            "a ela pelo nome, e duas definicoes fariam a varredura olhar uma "
+            "delas e passar."
+        )
+        ordens = sorted(
+            {
+                type(operador).__name__
+                for funcao in funcoes
+                for comparacao in ast.walk(funcao)
+                if isinstance(comparacao, ast.Compare)
+                for operador in comparacao.ops
+                if isinstance(operador, (ast.Gt, ast.Lt, ast.GtE, ast.LtE))
+            }
+        )
+        assert ordens == []
+
+
+class TestOAppendEAFalhaDeDisco:
+    """T-02-19: a feature desliga, e o PRODUTO nunca."""
+
+    def test_O_ARQUIVO_TERMINA_EM_QUEBRA_DE_LINHA_DEPOIS_DE_CADA_GRAVACAO(
+        self, tmp_path
+    ):
+        """A bicondicional do portao do terminador, do lado do ESCRITOR.
+
+        `csv.writer.writerow` emite UMA unica chamada de escrita contendo a
+        linha E o terminador, e o `flush` vem logo atras: um registro esta
+        completo se e somente se o arquivo termina em quebra de linha.
+        """
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        for tique in range(5):
+            gravar(registro, campos(), carimbo=float(tique))
+            assert registro.arquivo.read_text(encoding="utf-8").endswith("\n")
+
+    def test_UMA_SEGUNDA_SESSAO_APENDA_NO_FIM_E_NAO_REESCREVE(self, tmp_path):
+        """Criterio 4 do roadmap, na metade que e do disco (REG-02).
+
+        Reiniciar o scanner nao inventa nem apaga renda: as linhas de antes
+        continuam la, NA ORDEM, e as novas vao para o fim. A outra metade — a
+        primeira amostra pos-reinicio ser ANCORA e nao delta — e da conta, e
+        esta presa no tracer.
+        """
+        primeira = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        for carimbo in (0.0, 30.0):
+            gravar(primeira, campos(), carimbo=carimbo)
+        antes = [celula(linha, "carimbo") for linha in linhas_cruas(primeira.arquivo)]
+
+        segunda = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        gravar(segunda, campos(), carimbo=60.0)
+
+        depois = [celula(linha, "carimbo") for linha in linhas_cruas(segunda.arquivo)]
+        assert depois[: len(antes)] == antes
+        assert len(depois) == 3
+
+    def test_FALHA_DE_ESCRITA_DESLIGA_A_SESSAO_INTEIRA_SEM_NOVA_TENTATIVA(
+        self, monkeypatch, tmp_path
+    ):
+        """Definitivo para a sessao: um retry por tique a 1 Hz enche o log.
+
+        E a gravacao seguinte NAO TOCA O DISCO — a assercao e sobre os BYTES do
+        arquivo depois de o substituto ser removido, e nao sobre o valor de
+        retorno: um desligamento que ainda abrisse o arquivo a cada tique
+        manteria uma alca sobre o CSV que o usuario quer abrir no Sheets.
+        """
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        gravar(registro, campos(), carimbo=0.0)
+        assinatura_de_antes = registro.arquivo.read_bytes()
+
+        original = Path.open
+
+        def open_que_recusa(self, *args, **kwargs):
+            if self == registro.arquivo and args and "a" in args[0]:
+                raise PermissionError(13, "disco cheio de mentira")
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", open_que_recusa)
+        assert gravar(registro, campos(), carimbo=30.0) is False
+        assert registro.ligado is False
+
+        # E agora SEM o substituto: o disco "voltou", e o registro continua
+        # desligado. Quem religa e o proximo arranque, e nao o proximo tique.
+        monkeypatch.undo()
+        assert gravar(registro, campos(), carimbo=60.0) is False
+        assert registro.arquivo.read_bytes() == assinatura_de_antes, (
+            "a gravacao seguinte ao desligamento tocou o disco. O desligamento "
+            "e DEFINITIVO para a sessao e sem nova tentativa."
+        )
+
+    def test_A_MENSAGEM_DO_DESLIGAMENTO_DIZ_QUE_OS_ALERTAS_CONTINUAM(
+        self, caplog, monkeypatch, tmp_path
+    ):
+        """O desligamento e da FEATURE e nunca do PRODUTO.
+
+        Se o registro da renda cai, a morte, a saida e a ressurreicao da party
+        continuam sendo detectadas e entregues — e o usuario tem de ler isso na
+        mesma mensagem que diz que a renda parou.
+        """
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+        original = Path.open
+
+        def open_que_recusa(self, *args, **kwargs):
+            if self == registro.arquivo and args and "a" in args[0]:
+                raise PermissionError(13, "disco cheio de mentira")
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", open_que_recusa)
+        with caplog.at_level("ERROR"):
+            gravar(registro, campos(), carimbo=0.0)
+
+        registrado = " ".join(linha.getMessage() for linha in caplog.records)
+        assert "REGISTRO DE RENDA DESLIGADO" in registrado
+        assert "ressurreicao" in registrado
+
+    def test_CONTROLE_O_APPEND_NAO_CAPTURA_O_QUE_NAO_E_ERRO_DE_SISTEMA(
+        self, monkeypatch, tmp_path
+    ):
+        """`except OSError` E SO, e nunca `except Exception`.
+
+        Um `except Exception` esconderia um `AttributeError` de refatoracao
+        como se fosse disco cheio — e o usuario leria "REGISTRO DESLIGADO,
+        conserte o arquivo ou a pasta" para um defeito que nao esta nem no
+        arquivo nem na pasta dele.
+        """
+        registro = RegistroDaRenda(pasta=tmp_path, personagem="Faerlina")
+
+        def campos_que_explodem(*args, **kwargs):
+            raise AttributeError("um refactor quebrou alguma coisa aqui dentro")
+
+        monkeypatch.setattr(
+            "l2scanner.renda_registro.campos_da_linha", campos_que_explodem
+        )
+        with pytest.raises(AttributeError):
+            gravar(registro, campos(), carimbo=0.0)
+
+        assert registro.ligado is True
