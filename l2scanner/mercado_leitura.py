@@ -1640,17 +1640,38 @@ class TravaDaObservacao:
         classe. Ela so registra o que ja foi dito: o portao do limite derivado
         e da guarda desligada continua la, um passo acima.
 
-        O INDICE ENTRA NO TEXTO E NAO NA CHAVE — e onde o usuario olha na
-        grade, e na primeira ocorrencia ele esta certo.
+        O INDICE ENTRA NO TEXTO E NAO NA CHAVE, E O TEXTO DIZ AS DUAS
+        NUMERACOES: `linha {indice + 1} (indice {indice})`.
+
+        A FRASE QUE ESTAVA AQUI CAIU EM 2026-09-02, E A RAZAO FICA ESCRITA.
+        Ela dizia que o indice "e onde o usuario olha na grade, e na primeira
+        ocorrencia ele esta certo" — e ele NUNCA esteve certo. O indice e base
+        0 (`mercado_pagina.py:1049-1050`: `for indice in range(...)` e
+        `topo = gy + indice * altura`), entao o texto apontava sempre uma linha
+        ACIMA da linha real. A forma antiga era
+        `linha {indice} OBSERVACAO do cruzamento: ...`.
+
+        AQUI O ERRO CUSTA MAIS QUE NA IRMA `TravaDaRecusa`, E POR UM MOTIVO
+        CONCRETO: na aba de NEGOCIACAO `mercado_tolerancia_do_cruzamento` e
+        `None` e a guarda so OBSERVA — nada e descartado —, entao ESTA e a
+        UNICA mensagem que avisa o usuario de que uma linha nao fecha. Apontar
+        para a linha errada e apontar errado justamente onde nao ha segunda
+        chance.
+
+        A CHAVE NAO MUDOU: continua `(int(total), unitario, int(quantidade))`,
+        sem indice nenhum, pela razao ja escrita na classe — a oferta sobe e
+        desce de linha quando o usuario rola o quadro.
         """
         chave = (int(total), unitario, int(quantidade))
         if chave in self.ja_observadas:
             return None
         self.ja_observadas.add(chave)
+        # As duas numeracoes, na mesma ordem da irma `TravaDaRecusa`: a posicao
+        # na tela primeiro, porque e ela que o usuario confere olhando o jogo.
         return (
-            f"linha {indice} OBSERVACAO do cruzamento: total={total} "
-            f"unitario={unitario} quantidade={quantidade} residuo={residuo} "
-            f"acima do limite derivado "
+            f"linha {indice + 1} (indice {indice}) OBSERVACAO do cruzamento: "
+            f"total={total} unitario={unitario} quantidade={quantidade} "
+            f"residuo={residuo} acima do limite derivado "
             f"{limite_derivado_do_cruzamento(quantidade):.1f}. A guarda esta "
             f"DESLIGADA (medicao do 02-02 REPROVADA) — nada foi descartado."
         )
