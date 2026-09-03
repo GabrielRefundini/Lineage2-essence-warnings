@@ -28,15 +28,22 @@ fase):
 onda 2 (`9b90572`, antes de qualquer linha desta tarefa) foi extraido para uma
 arvore limpa com `git archive` e a suite rodou la, no mesmo instante:
 
-| Arvore | `passed` | `failed` |
-|---|---|---|
-| base `9b90572`, limpa | 5492 | 16 |
-| `02-02` | 5547 | 15 |
+| Arvore | `passed` | `failed` | `passed + failed` |
+|---|---|---|---|
+| 2026-09-02, antes da virada (base) | 5508 | 0 | 5508 |
+| base `9b90572`, limpa, ja em 2026-09-03 | 5492 | 16 | **5508** |
+| `02-02` completo, no mesmo instante | 5560 | 15 | **5575** |
 
-O conjunto de testes falhando e **o mesmo nos dois**, e `5547 - 5492 = 55` e
-exatamente o numero de testes novos do `02-02`. Nenhum modulo de `l2scanner/`
-importa `renda_conta` (conferido por varredura), entao nao ha caminho por onde
-esta tarefa pudesse alcancar `sessao.py`, `agenda.py` ou `respawn`.
+A soma `passed + failed` e a coluna que importa, porque o numero de falhas
+OSCILA entre rodadas — a bomba depende da hora de parede, nao so do dia. Ela
+mostra que a base perdeu exatamente para as falhas o que tinha de `passed` antes
+da virada (5508 -> 5492 + 16), e que o `02-02` acrescentou `5575 - 5508 = 67`
+testes, que e exatamente o tamanho de `tests/test_renda_conta.py`.
+
+O conjunto de testes falhando e **o mesmo nos dois**. Nenhum modulo de
+`l2scanner/` importa `renda_conta` (conferido por varredura de arvore), entao nao
+ha caminho por onde esta tarefa pudesse alcancar `sessao.py`, `agenda.py` ou
+`respawn`.
 
 **Por que `tests/test_agenda.py` ja estava desselecionado.** Ele e o irmao mais
 obvio da mesma familia, e o `02-01` ja rodava a suite com

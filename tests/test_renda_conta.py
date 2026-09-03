@@ -942,6 +942,38 @@ class TestOPortaoDaDistincaoDosMotivosDaConta:
         assert da_conta, "o modulo da conta nao declara motivo nenhum"
         assert da_leitura, "a coleta nao achou os motivos da Fase 1"
 
+    def test_AS_DUAS_TUPLAS_PARTEM_OS_MARCADORES_SEM_SOBRA_E_SEM_SOBREPOSICAO(
+        self,
+    ):
+        """"Esta descontinuidade conta" tem de ser afirmacao EXECUTAVEL.
+
+        Sem esta particao, somar uma sexta descontinuidade nao obrigaria ninguem
+        a dizer de que lado ela cai — e o silencio cairia do lado da exclusao,
+        que e o lado que custa o requisito.
+        """
+        excluem = set(rc.DESCONTINUIDADES_QUE_EXCLUEM)
+        procedencia = set(rc.DESCONTINUIDADES_DE_PROCEDENCIA)
+        # SO a familia das descontinuidades, derivada pelo prefixo dela. Os
+        # `MOTIVO_DA_TAXA_*` sao da outra familia — eles nao descrevem um PASSO,
+        # e sim a ausencia de uma previsao —, e por isso nao entram na particao.
+        declarados = {
+            valor
+            for nome, valor in motivos_do_modulo(rc).items()
+            if nome.startswith("DESCONTINUIDADE_")
+        }
+
+        assert not (excluem & procedencia), (
+            "uma descontinuidade esta nas DUAS tuplas: ou ela exclui, ou ela e "
+            f"so procedencia. {sorted(excluem & procedencia)}"
+        )
+        assert excluem | procedencia == declarados, (
+            "ha marcador declarado que nao esta em nenhuma das duas tuplas — "
+            "quem o escreveu nao disse se o passo dele conta ou nao: "
+            f"{sorted(declarados - (excluem | procedencia))}"
+        )
+        assert set(rc.DESCONTINUIDADES_DO_TEMPO) <= excluem
+        assert SEM_DESCONTINUIDADE not in excluem | procedencia
+
     def test_OS_CINCO_MARCADORES_DA_CONTA_ESTAO_DECLARADOS(self):
         valores = set(motivos_do_modulo(rc).values())
         for marcador in (

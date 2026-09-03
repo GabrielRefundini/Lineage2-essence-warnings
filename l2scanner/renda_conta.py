@@ -2,9 +2,33 @@
 
 O QUE ESTE MODULO EXISTE PARA FAZER
 ===================================
-Ele recebe `LeituraDaRenda` por parametro — nunca um pixel, nunca um frame,
-nunca o relogio — e devolve dois fatos: o **passo** entre duas amostras
-consecutivas, e a **taxa por hora** sobre uma sequencia de passos.
+Ele recebe `LeituraDaRenda` (ou `CamposDaRenda`, quando um dos tres campos
+recusou) por parametro — nunca um pixel, nunca um frame, nunca o relogio — e
+devolve quatro fatos: o **passo** entre duas amostras consecutivas, a **taxa por
+hora** sobre uma sequencia de passos, o **tempo ate o proximo nivel**, e a
+**contagem** que explica de onde veio cada `n`.
+
+OS QUATRO CASOS EM QUE A SUBTRACAO INGENUA MENTE, E OS QUATRO SAO ORDINARIOS
+===========================================================================
+Subir de nivel e a melhor coisa que acontece numa farmada; gastar adena e o que
+o usuario faz toda sessao; ficar cego acontece toda noite; e o relogio desta
+maquina volta ~3h adiantado do Linux toda vez que ela reinicia. Nenhum dos
+quatro e caso de borda, e nos quatro `atual - anterior` produz um numero
+plausivel e errado:
+
+    level up            `80_012 - 685_632 = -605_620`  -> `394_380` (REND-03)
+    gasto de adena      entra negativo na taxa         -> campo PROPRIO (REND-04)
+    nivel recusado      vira level up INVENTADO        -> marcador nomeado (CTX-5)
+    relogio para tras   intervalo negativo no denominador -> evento nomeado (CTX-10)
+
+O DENOMINADOR E POR GRANDEZA, E NAO POR PASSO
+=============================================
+Cada taxa soma os intervalos dos passos que produziram ganho **daquela**
+grandeza. O passo em que o nivel recusou e o EXP caiu sai do denominador do EXP
+e **continua** no da adena. Sem isso, o campo mais fragil dos tres — o nivel, que
+recusa em 79% dos tiques (`02-CONTEXT.md:150`) — derrubaria os outros dois junto,
+e a taxa de XP viveria em ~4% dos pares. Quem decide isso e
+`PassoDaRenda.aceito_para`, e nao `PassoDaRenda.aceito`.
 
 ELE E O UNICO CHAMADOR DE PRODUCAO DAS REGRAS DE PAR DE TODA A ARVORE
 =====================================================================
