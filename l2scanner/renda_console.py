@@ -529,6 +529,7 @@ def bloco_da_renda(
     agora: float,
     recusas_por_campo: dict,
     tiques: int,
+    pisos_em_uso: dict | None = None,
 ) -> str:
     """O que o programa CALCULOU, por INTERVALO e nunca por tique.
 
@@ -550,6 +551,17 @@ def bloco_da_renda(
 
     `contagem` viaja para os dois numeros que SAO dela — passos aceitos e
     lacunas — e para o `03-03`, que acrescenta o piso usado.
+
+    `pisos_em_uso` E O QUE O `03-03` ACRESCENTOU (LEIT-10): `campo -> (piso em
+    uso, piso gravado)`, somente dos campos cujo piso SAIU do gravado. Ele tem
+    default `None` porque "nenhum campo fora do piso gravado" e um estado
+    legitimo e e o estado da esmagadora maioria das sessoes — nao um argumento
+    esquecido.
+
+    A SECAO DELE SO APARECE QUANDO HA ALGUEM FORA DO GRAVADO, e essa e a
+    decisao: uma secao vazia todo minuto seria ruido que o olho aprende a
+    pular, e uma secao que APARECE **e** o aviso. O mesmo criterio do latch de
+    transicao do `03-02`.
     """
     hora = datetime.fromtimestamp(agora).strftime("%H:%M")
     linhas = [
@@ -648,7 +660,49 @@ def bloco_da_renda(
             )
         )
 
+    linhas += linhas_do_piso_em_uso(pisos_em_uso)
     return "\n".join(linhas)
+
+
+TITULO_DO_PISO_EM_USO = "PISO DE BRILHO EM USO (a banda andou):"
+
+
+def linhas_do_piso_em_uso(pisos_em_uso: dict | None) -> list[str]:
+    """A secao do LEIT-10, e ela SO EXISTE quando ha campo fora do gravado.
+
+    E AQUI QUE O MARCADOR DE PISO MORA, E NAO NA LINHA DO TIQUE. Medido no
+    `03-01`/`03-02`: a largura real desta casa e **76** colunas e a linha do
+    tique com o marcador colado mede **78** — ela sairia truncada exatamente no
+    fim, que e onde o marcador estaria. O marcador sai em dois lugares onde ele
+    cabe inteiro: aqui, e numa linha de log com latch, uma vez por mudanca.
+
+    A FRASE IMPORTA MAIS QUE O NUMERO. O usuario nao deduz "recalibre" de `piso
+    220`; o criterio e o de `__main__.py:776-784` — a mensagem tem de dizer o
+    que fazer a respeito. Por isso as duas linhas de prosa embaixo da lista, e
+    por isso elas dizem que **nada foi gravado de volta**: sem isso o usuario
+    poderia concluir que o scanner se auto-recalibrou e que nao ha o que fazer.
+    """
+    if not pisos_em_uso:
+        return []
+    linhas = ["", TITULO_DO_PISO_EM_USO]
+    for campo in ROTULO_NA_LINHA:
+        par = pisos_em_uso.get(campo)
+        if not par:
+            continue
+        em_uso, gravado = int(par[0]), int(par[1])
+        linhas.append(
+            _linha(
+                ROTULO_NA_LINHA[campo],
+                f"piso {em_uso} (gravado {gravado}, {em_uso - gravado:+d})",
+            )
+        )
+    linhas += [
+        "",
+        "  A calibracao deste personagem esta ENVELHECENDO: o campo so volta",
+        "  a sair num piso vizinho do gravado. Nada foi gravado de volta no",
+        "  arquivo de calibracao - rode `calibrar-renda.bat` quando puder.",
+    ]
+    return linhas
 
 
 # ---------------------------------------------------------------------------
@@ -685,6 +739,8 @@ def resumo_da_sessao_da_renda(
     recusas_por_campo: dict,
     tiques: int,
     tiques_por_estado: dict,
+    varreduras: dict | None = None,
+    desvios: dict | None = None,
 ) -> str:
     """O fim da sessao, contando o que foi ao DISCO e o que ele custou.
 
@@ -745,6 +801,51 @@ def resumo_da_sessao_da_renda(
         "  e GRAVA; SEM LEITURA e `vi e nao consegui ler` e tambem grava, com",
         "  o motivo. Sao tres consertos diferentes.",
     ]
+
+    # OS TRES FATOS DA VARREDURA DE PISO, E ELES NAO SE SOMAM (LEIT-10).
+    #
+    # "Quantas rodaram" e "quantas venceram" pedem leituras OPOSTAS: muitas
+    # rodadas com muitas vitorias e a banda de brilho andando, e o conserto e
+    # recalibrar sem pressa; muitas rodadas com ZERO vitorias e o M-Y — o
+    # retangulo saiu de cima do campo, e nenhum piso le um numero em grama.
+    # Somar os dois num "varreduras" unico apagaria justamente essa distincao.
+    #
+    # A SECAO SAI SEMPRE, inclusive com zero: "a varredura nunca precisou
+    # rodar" e um fato sobre a noite, e some-la faria o usuario adivinhar se o
+    # mecanismo existe.
+    contagens = varreduras or {}
+    linhas += [
+        "",
+        "VARREDURAS DE PISO (o campo parou de sair e tentei os vizinhos):",
+        _linha("varreduras de piso rodadas", str(int(contagens.get("rodadas", 0)))),
+        _linha("delas, que acharam um piso", str(int(contagens.get("vencidas", 0)))),
+    ]
+    if desvios:
+        for campo in ROTULO_NA_LINHA:
+            par = desvios.get(campo)
+            if not par:
+                continue
+            em_uso, gravado = int(par[0]), int(par[1])
+            linhas.append(
+                _linha(
+                    f"  {ROTULO_NA_LINHA[campo]} terminou em",
+                    f"piso {em_uso} (gravado {gravado}, {em_uso - gravado:+d})",
+                )
+            )
+        linhas.append(
+            "  A calibracao esta envelhecendo. Nada foi gravado de volta: "
+            "rode `calibrar-renda.bat`."
+        )
+    elif int(contagens.get("rodadas", 0)) > int(
+        contagens.get("vencidas", 0)
+    ):
+        linhas += [
+            "  Alguma varredura PERDEU em todos os pisos do alcance. Quando",
+            "  isso acontece o suspeito e o RETANGULO e nao o brilho: em",
+            "  2026-09-03 o painel de status moveu ~90 px e os retangulos",
+            "  gravados passaram a apontar para grama. Rode",
+            "  `calibrar-renda.bat` para este personagem.",
+        ]
 
     linhas += [
         "",

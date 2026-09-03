@@ -83,8 +83,18 @@ from .renda_estado import (
     EstadoDaRenda,
     RastreioDoValor,
     classificar_a_visao,
+    motivo_da_pausa,
 )
-from .renda_leitura import RecusaDaRenda
+from .renda_leitura import (
+    CAMPO_DA_ADENA,
+    CAMPO_DO_EXP,
+    CAMPO_DO_NIVEL,
+    ORDEM_DOS_CAMPOS,
+    SUBCHAVE_POR_CAMPO,
+    CamposDaRenda,
+    RecusaDaRenda,
+)
+from .renda_pisos import pisos_vizinhos
 from .renda_registro import ORIGEM_INDETERMINADA
 
 log = logging.getLogger("l2scanner")
@@ -164,6 +174,108 @@ SUBCHAVE_DA_GEOMETRIA = "geometria_da_janela"
 # por um numero que ninguem pediu para ajustar. O modulo puro ja esta pronto
 # para receber outro valor no dia em que alguem pedir.
 SEGUNDOS_PARA_DECLARAR_PARADO = 120.0
+
+# ---------------------------------------------------------------------------
+# A VARREDURA DE PISOS VIZINHOS (LEIT-10) -- e os dois numeros que a fazem
+# caber no orcamento do tique
+# ---------------------------------------------------------------------------
+
+# QUANTAS RECUSAS SEGUIDAS DAQUELE CAMPO ATE VARRER OS PISOS VIZINHOS.
+#
+# O NUMERO SAI DA ARITMETICA, E NAO DO MOLDE DOS IRMAOS. Os dois moldes obvios
+# desta arvore -- `JANELAS_IGUAIS_PARA_CONGELAR` e
+# `CONGELADOS_SEGUIDOS_PARA_RELIGAR` -- valem **3**, e 3 aqui inverteria o
+# proprio argumento. Com a taxa MEDIDA de 79% de recusa do nivel (Fase 1) e sob
+# a hipotese de INDEPENDENCIA entre tiques:
+#
+#     K       0,79^K     quantos tiques disparariam a varredura
+#     3       0,493      49% dos tiques   <- o molde dos irmaos
+#     5       0,308      31%
+#     10      0,0947     9,5%
+#     13      0,0467     4,7%             <- este
+#     15      0,0291     2,9%
+#     20      0,0090     0,9%
+#
+# O ALVO DECLARADO: a varredura nao pode disparar em mais de **5%** dos tiques
+# no campo mais fragil. O menor K que o cumpre e **13** (`0,79^13 = 4,67%`), e a
+# 1 Hz sao treze segundos de recusa seguida — que e uma descricao honesta de "o
+# campo parou de sair", e nao de "o campo recusou de novo". O custo esperado
+# fica em `8 x 0,0467 = 0,37` leitura extra por tique, contra `8 x 0,493 = 3,9`
+# que o molde de 3 teria produzido.
+#
+# O CUSTO DE UMA VARREDURA ESTA MEDIDO, E COM A FUNCAO DE PRODUCAO
+# (`_varrer_os_vizinhos` + `renda_leitura.ler_um_campo`), contra
+# `tests/fixtures/renda/montagem_completa.png`, em 2026-09-03. Mediana de 15
+# rodadas:
+#
+#     campo   PIOR caso (8 tentativas, todas perdidas)   MELHOR (vence na 1a)
+#     nivel                27,9 ms                             6,2 ms
+#     EXP                  95,4 ms                            15,2 ms
+#     adena                 0,6 ms                             5,7 ms
+#
+# DUAS COISAS QUE ESTA MEDICAO ENSINOU, e nenhuma delas era o que se esperava:
+#
+# 1. **O pior caso CABE no tique de 1 s** -- 95 ms e o teto, no campo mais
+#    caro. O risco de orcamento nao e uma varredura: e a varredura REPETIDA em
+#    todo tique, que e o que a carencia abaixo existe para impedir. Com ~79% de
+#    recusa e sem carencia, 95 ms viram ~75 ms de imposto POR TIQUE, para
+#    sempre.
+# 2. **A varredura perdida da adena e a mais BARATA das tres** (0,6 ms contra
+#    5,7 ms da vencedora), porque o caminho de glifo desiste na mascara vazia
+#    antes de segmentar. Perder rapido e o comportamento certo aqui, e ele sai
+#    de graca do desenho da Fase 1.
+#
+# E POR QUE NAO VARRER EM TODA RECUSA, com estes numeros na mao: uma leitura de
+# campo isolada custa 8,9 ms (nivel), 23,4 ms (EXP) e 5,3 ms (adena) na mesma
+# fixtura. Varrer a cada recusa pagaria a varredura em quatro de cada cinco
+# tiques do nivel para redescobrir, quatro de cada cinco vezes, que o piso
+# gravado esta certo e o campo simplesmente nao saiu naquele frame.
+#
+# INCERTEZA A3, DECLARADA: a aritmetica acima assume que as recusas sao
+# INDEPENDENTES tique a tique, e **ninguem mediu isso**. Os 79% sao uma TAXA
+# sobre **14 amostras**, e a distribuicao de comprimento das corridas nao existe
+# em documento nenhum deste workstream. Ha razao fisica para suspeitar que elas
+# sao CORRELACIONADAS: a recusa vem do cenario atras da barra semitransparente,
+# e cenario muda em segundos e nao em frames — o personagem para numa area
+# escura e o campo recusa vinte tiques seguidos por uma causa so. Se as recusas
+# forem clusterizadas, **o K certo e maior que 13**, e a carencia multiplicativa
+# abaixo e o que torna esse erro BARATO. O que mede isto, quando alguem quiser:
+# o CSV de `.renda/` ja grava uma linha por tique com o motivo por campo, e uma
+# noite de farm da a distribuicao de graca, sem instrumentacao nova. Quando ela
+# existir, muda-se ESTE numero.
+RECUSAS_SEGUIDAS_PARA_VARRER = 13
+
+# O TETO DO MULTIPLICADOR DE CARENCIA, e sem ele o requisito NAO CABE NO
+# ORCAMENTO.
+#
+# Uma varredura PERDIDA zera a serie e DOBRA a exigencia daquele campo: `K`,
+# `2K`, `4K`, e para aqui. Sem esses dois movimentos, `recusas_seguidas`
+# continuaria `>= K` e a varredura re-rodaria as oito tentativas em TODO tique
+# seguinte, pelo resto da noite, num campo que recusa 79% das vezes **por
+# natureza** e nao porque o piso esteja errado. O `OrcamentoDoTick` acusaria
+# estouro em ~79% dos tiques e a cadencia de 1 Hz morreria — o defeito que a
+# compensacao de `mercado_modo.py:781-783` existe para impedir.
+#
+# A CONTA DA CARENCIA, na mesma hipotese: uma varredura perdida sobe a exigencia
+# para 26 recusas seguidas (`0,79^26 = 0,22%` dos tiques) e a segunda para 52
+# (`0,79^52`, que arredonda para zero). **E o comportamento certo e nao uma
+# limitacao:** se a varredura nao achou o piso em `+/-20`, ele nao esta la, e
+# re-perguntar a cada treze tiques nao o traz. O campo fica em SEM LEITURA, que
+# e o estado verdadeiro, o usuario ve na tela, e a varredura volta sozinha no
+# instante em que o campo voltar a sair.
+#
+# *Alternativa registrada:* uma carencia FIXA em tiques. E mais simples de ler e
+# NAO CONVERGE: com carencia fixa de 60 tiques e 79% de recusa, a varredura
+# ainda roda ~50 vezes por hora sem nunca achar nada. O multiplicador converge,
+# e um numero que converge nao precisa que ninguem acerte o teto.
+TETO_DA_CARENCIA = 4
+
+# A MARCA DE "JA ANUNCIEI A PERDA DESTE CAMPO", para o latch. Ela e uma string
+# e nao `None` porque `None` ja significa outra coisa no mesmo dicionario ("nao
+# anunciei nada"), e colapsar os dois faria a mensagem do M-Y sair de novo a
+# cada varredura perdida -- que e justamente o ruido que o latch existe para
+# impedir.
+_PERDA = "varredura-perdida"
 
 
 def _modulo_do_arranque():
@@ -416,6 +528,95 @@ def _montar_a_fonte(titulo: str, entrada, *, construir_janela=None):
         return None, f"nao consegui abrir a janela {titulo!r}: {erro}"
 
 
+def _com_o_campo(campos, campo, valor):
+    """`CamposDaRenda` com UM campo trocado. Ela e congelada, entao nasce outra.
+
+    A troca e feita pela chave de `por_campo` e NAO por `dataclasses.replace`
+    com `**{campo: valor}`. Os nomes coincidem hoje -- `nivel`, `exp`, `adena`
+    sao ao mesmo tempo os campos do dataclass e os valores de `CAMPO_*` -- e
+    depender dessa coincidencia amarraria a varredura a um detalhe que ninguem
+    prometeu manter.
+    """
+    lidos = dict(campos.por_campo)
+    lidos[campo] = valor
+    return CamposDaRenda(
+        personagem=campos.personagem,
+        nivel=lidos[CAMPO_DO_NIVEL],
+        exp=lidos[CAMPO_DO_EXP],
+        adena=lidos[CAMPO_DA_ADENA],
+    )
+
+
+def _bloco_do_campo(entrada, campo) -> dict:
+    """O bloco gravado daquele campo, ou vazio. `SUBCHAVE_POR_CAMPO` e a tabela
+    do leitor, importada e nao copiada."""
+    bloco = (entrada or {}).get(SUBCHAVE_POR_CAMPO[campo])
+    return bloco if isinstance(bloco, dict) else {}
+
+
+def _ler_campo_a_campo(ler_campo, pixels, *, personagem, cal, pisos):
+    """Os tres campos, UM A UM, cada um com o piso LEMBRADO daquele campo.
+
+    ELE SO E USADO QUANDO HA MEMORIA DE PISO, e a razao e medida. As duas formas
+    de ler os tres campos custam **o mesmo dentro do ruido** -- medidas
+    intercaladas, 40 rodadas de cada, contra a fixtura de campo:
+    `ler_os_tres_campos` **36,1 ms** de mediana e tres `ler_um_campo`
+    **32,0 ms**, com o OCR variando de 16 a 135 ms nas duas. Ou seja: o caminho
+    campo a campo nao e mais caro, e nao ha razao de custo para evita-lo.
+
+    A razao de nao usa-lo SEMPRE e outra e e de contrato: `ler_campos=` e o seam
+    de producao que o `03-01` desenhou e que o resto da suite injeta, e trocar a
+    porta padrao do tique por outra so porque ela empata seria mudar o caminho
+    de 1 Hz sem nada a ganhar.
+    """
+    lidos = {
+        campo: ler_campo(
+            pixels,
+            personagem=personagem,
+            campo=campo,
+            calibracao=cal,
+            piso_de_brilho=pisos.get(campo),
+        )
+        for campo in ORDEM_DOS_CAMPOS
+    }
+    return CamposDaRenda(
+        personagem=personagem,
+        nivel=lidos[CAMPO_DO_NIVEL],
+        exp=lidos[CAMPO_DO_EXP],
+        adena=lidos[CAMPO_DA_ADENA],
+    )
+
+
+def _varrer_os_vizinhos(ler_campo, pixels, *, personagem, cal, campo, entrada):
+    """Anda pelos pisos vizinhos e PARA NA PRIMEIRA leitura valida.
+
+    Devolve `(valor_ou_None, piso_ou_None, gravado, tentados)`. O planejador da
+    ordem e `renda_pisos.pisos_vizinhos`, que e PURO: a decisao mora la, e aqui
+    mora so o custo -- uma leitura de campo por tentativa.
+
+    A ORIGEM E SEMPRE O PISO **GRAVADO**, e nunca o lembrado. Quem chama ja
+    esqueceu o lembrado antes de entrar aqui; se a origem fosse a memoria, ela
+    viraria uma calibracao paralela que envelhece sozinha, e a varredura
+    seguinte partiria de um ponto que ninguem escolheu.
+    """
+    bloco = _bloco_do_campo(entrada, campo)
+    gravado = int(bloco.get("piso_de_brilho", 0))
+    vizinhos = pisos_vizinhos(
+        piso=gravado, largura_da_banda=bloco.get("largura_da_banda")
+    )
+    for piso in vizinhos:
+        resultado = ler_campo(
+            pixels,
+            personagem=personagem,
+            campo=campo,
+            calibracao=cal,
+            piso_de_brilho=piso,
+        )
+        if not isinstance(resultado, RecusaDaRenda):
+            return resultado, piso, gravado, vizinhos
+    return None, None, gravado, vizinhos
+
+
 def _tempo_ate_o_nivel(campos, passos, ajustes):
     """O ETA sobre a taxa da JANELA, ou a ausencia com o motivo dela.
 
@@ -455,6 +656,7 @@ def laco_da_renda(
     *,
     fonte=None,
     ler_campos=None,
+    ler_campo=None,
     relogio=None,
     pasta=None,
     ticks_maximos=None,
@@ -474,6 +676,13 @@ def laco_da_renda(
     de producao como default. A alternativa seria monkeypatchar
     `l2scanner.renda_leitura.ler_texto`, que esta casa evita e que faria o
     teste de laco depender do formato interno de outro modulo.
+
+    `ler_campo=` E O SEGUNDO SEAM, E ELE E DO `03-03`. A varredura de pisos
+    precisa ler UM campo com UM piso, e `ler_campos=` nao tem como expressar
+    isso -- ela le os tres com os pisos gravados. Sao SEIS alavancas agora, e as
+    duas de leitura apontam para a mesma tela em producao
+    (`renda_leitura.ler_os_tres_campos` DELEGA a `ler_um_campo`), o que impede
+    as duas de divergirem sobre o que a tela mostra.
 
     `ticks_maximos=None` significa laco infinito, que e o caso de producao.
     """
@@ -573,6 +782,9 @@ def laco_da_renda(
     if ler_campos is None:
         from .renda_leitura import ler_os_tres_campos as ler_campos
 
+    if ler_campo is None:
+        from .renda_leitura import ler_um_campo as ler_campo
+
     if fonte is None:
         fonte, problema = _montar_a_fonte(args.janela, entrada)
         if fonte is None:
@@ -641,6 +853,35 @@ def laco_da_renda(
     # (`sem_leitura_do_exp`) e um RECORTE de `sem_leitura` e nao uma quinta
     # parcela -- por isso ele nao entra na soma.
     tiques_por_estado: dict = {}
+    # ------------------------------------------------------------------
+    # O ESTADO DA VARREDURA DE PISOS (LEIT-10), E ELE E PEQUENO E E DO LACO.
+    #
+    # **NADA DISTO MORA EM `renda_leitura.py`**, e a separacao nao e gosto: a
+    # Fase 1 definiu-se pura por escrito, e `tests/test_renda_par.py` varre a
+    # arvore de sintaxe daquele arquivo atras de `global` e de literal mutavel
+    # de nivel de modulo, COM CONTROLE POSITIVO. Um cache de piso la dentro
+    # deixaria o portao vermelho. E o portao esta certo: a Fase 1 e uma funcao
+    # de UM frame, e memoria e do laco.
+    #
+    # Tres dicionarios de tres chaves, e cada um responde uma pergunta
+    # diferente. Eles nascem VAZIOS e nao pre-populados: `.get(campo, padrao)`
+    # diz o padrao no ponto de uso, e um dicionario pre-populado esconderia um
+    # campo novo entrando com o valor de outro.
+    recusas_seguidas: dict = {}  # campo -> corrida de recusas AGORA
+    piso_em_uso: dict = {}  # campo -> o piso que venceu a ultima varredura
+    carencia: dict = {}  # campo -> multiplicador do limiar (nasce em 1)
+    # O que a tela e o log ja anunciaram, para o LATCH: um aviso por MUDANCA e
+    # nunca por tique. O molde e `mercado_pagina.py:796-814`, e a licao e de
+    # producao (2026-09-01): um aviso repetido a cada tique vira ruido que o
+    # olho aprende a pular, e ai ele deixa de avisar.
+    anunciado: dict = {}
+    # OS TRES FATOS DA VARREDURA, E ELES NAO SE SOMAM, no molde de
+    # `ContagemDaRenda`: quantas rodaram, quantas venceram e em que desvio o
+    # campo ficou. "Rodou" e "venceu" pedem leituras diferentes -- muitas
+    # rodadas com poucas vitorias e o sinal de que o retangulo, e nao o brilho,
+    # e o problema (M-Y).
+    varreduras = {"rodadas": 0, "vencidas": 0}
+    desvios: dict = {}  # campo -> (piso em uso, piso gravado)
 
     # O BLOCO SAI POR INTERVALO E NUNCA POR TIQUE, pela razao escrita em
     # `mercado_console.py:490-496`: *"Repintar um bloco de dezenas de linhas
@@ -684,9 +925,162 @@ def laco_da_renda(
 
             erros_seguidos = 0
 
-            campos = ler_campos(
-                frame.pixels, personagem=personagem, calibracao=cal
-            )
+            # A LEITURA DO TIQUE, E ELA TEM DUAS FORMAS PORQUE HA DUAS
+            # SITUACOES.
+            #
+            # SEM memoria de piso -- o caso normal e o do arranque -- e a porta
+            # de producao de sempre, `ler_campos`, com os tres pisos GRAVADOS.
+            # COM memoria, os tres campos sao lidos um a um, cada um no piso que
+            # venceu a varredura DELE: e o que faz o regime estavel voltar a UMA
+            # leitura por campo depois de uma mudanca de cenario, em vez de
+            # pagar a varredura de novo a cada treze tiques pelo resto da noite.
+            #
+            # O CUSTO DAS DUAS EMPATA DENTRO DO RUIDO (36,1 ms contra 32,0 ms de
+            # mediana, medido contra a fixtura de campo), entao a escolha nao e
+            # de orcamento: e de contrato. Ver `_ler_campo_a_campo`.
+            if any(piso is not None for piso in piso_em_uso.values()):
+                campos = _ler_campo_a_campo(
+                    ler_campo,
+                    frame.pixels,
+                    personagem=personagem,
+                    cal=cal,
+                    pisos=piso_em_uso,
+                )
+            else:
+                campos = ler_campos(
+                    frame.pixels, personagem=personagem, calibracao=cal
+                )
+
+            # OS QUATRO SINAIS CRUS SAO COLHIDOS UMA VEZ e servem a DUAS
+            # perguntas: a barata ("o frame mostra o jogo?", que decide se vale
+            # a pena varrer) e a completa (`classificar_a_visao`). Colher duas
+            # vezes pagaria o `matchTemplate` de `estado_do_cliente` duas vezes
+            # no tique em que a cadencia de 5 s dele vence.
+            estado_do_cliente = _o_estado_do_cliente(fonte)
+            minimizada = _a_janela_esta_minimizada(fonte)
+
+            # ----------------------------------------------------------------
+            # A VARREDURA DE PISOS VIZINHOS (LEIT-10).
+            #
+            # ELA MORA **ENTRE** A LEITURA E A CLASSIFICACAO DE ESTADO, e e
+            # literalmente o "antes de declarar" do requisito: quando
+            # `classificar_a_visao` receber os campos, a varredura ja tentou os
+            # vizinhos e o veredito de SEM LEITURA ja e sobre o resultado dela.
+            #
+            # ELA NAO RODA EM FRAME CEGO. `motivo_da_pausa` e a metade barata da
+            # classificacao -- ela responde "o frame mostra o jogo?" sem precisar
+            # de `CamposDaRenda` -- e varrer com a janela minimizada ou na tela
+            # de login gastaria oito leituras de OCR para perder as oito por uma
+            # causa que nao e o piso.
+            # ----------------------------------------------------------------
+            if (
+                motivo_da_pausa(
+                    saude=frame.saude,
+                    estado_do_cliente=estado_do_cliente,
+                    minimizada=minimizada,
+                )
+                is None
+            ):
+                for campo, resultado in campos.por_campo.items():
+                    if not isinstance(resultado, RecusaDaRenda):
+                        # O CAMPO SAIU -- por qualquer piso. Zera a serie E o
+                        # multiplicador: se ele leu, a situacao mudou, e a
+                        # punicao acumulada deixa de valer.
+                        recusas_seguidas[campo] = 0
+                        carencia[campo] = 1
+                        if piso_em_uso.get(campo) is None:
+                            # De volta ao piso gravado: o latch e liberado para
+                            # que a PROXIMA mudanca volte a ser anunciada.
+                            anunciado.pop(campo, None)
+                        continue
+
+                    recusas_seguidas[campo] = (
+                        recusas_seguidas.get(campo, 0) + 1
+                    )
+                    limiar = RECUSAS_SEGUIDAS_PARA_VARRER * carencia.get(
+                        campo, 1
+                    )
+                    if recusas_seguidas[campo] < limiar:
+                        # O CAMINHO DE 79% DOS TIQUES DO NIVEL: nada acontece.
+                        # A recusa isolada e o estado normal e MEDIDO, e o que
+                        # o LEIT-10 trata e o campo que PAROU de sair.
+                        continue
+
+                    # ---- O GATILHO ----
+                    #
+                    # O PISO LEMBRADO E ESQUECIDO **AQUI**, e nao na primeira
+                    # recusa dele. Esquecer na recusa avulsa seria esquecer no
+                    # tique seguinte ao da vitoria, porque o nivel recusa 79%
+                    # das vezes por natureza -- a memoria nao sobreviveria a um
+                    # tique e a varredura seria paga de novo a cada treze. O
+                    # campo parou de sair OUTRA VEZ; a serie recomeca do piso
+                    # GRAVADO.
+                    piso_em_uso[campo] = None
+                    desvios.pop(campo, None)
+                    varreduras["rodadas"] += 1
+                    valor, piso, gravado, tentados = _varrer_os_vizinhos(
+                        ler_campo,
+                        frame.pixels,
+                        personagem=personagem,
+                        cal=cal,
+                        campo=campo,
+                        entrada=entrada,
+                    )
+
+                    if valor is not None:
+                        # ---- VENCEU ----
+                        campos = _com_o_campo(campos, campo, valor)
+                        piso_em_uso[campo] = piso
+                        desvios[campo] = (piso, gravado)
+                        recusas_seguidas[campo] = 0
+                        carencia[campo] = 1
+                        varreduras["vencidas"] += 1
+                        if anunciado.get(campo) != piso:
+                            anunciado[campo] = piso
+                            log.warning(
+                                "o campo do %s voltou a sair com o piso %d "
+                                "(gravado %d, %+d) -- a banda de brilho andou, "
+                                "e a calibracao deste personagem esta "
+                                "envelhecendo. Ele continua sendo lido e NADA "
+                                "foi gravado de volta: rode "
+                                "`calibrar-renda.bat` quando puder, para o "
+                                "piso gravado voltar a ser o certo.",
+                                campo,
+                                piso,
+                                gravado,
+                                piso - gravado,
+                            )
+                        continue
+
+                    # ---- PERDEU ----
+                    #
+                    # A recusa ORIGINAL fica de pe, com o motivo original: a
+                    # varredura nao inventa recusa nova nem esconde a antiga. O
+                    # que muda e o ORCAMENTO -- a serie volta a zero e a
+                    # exigencia dobra.
+                    recusas_seguidas[campo] = 0
+                    carencia[campo] = min(
+                        carencia.get(campo, 1) * 2, TETO_DA_CARENCIA
+                    )
+                    if anunciado.get(campo) != _PERDA:
+                        anunciado[campo] = _PERDA
+                        log.error(
+                            "o campo do %s parou de sair e a varredura PERDEU "
+                            "nos %d pisos vizinhos (%d a %d): o suspeito agora "
+                            "e o RETANGULO, e nao o brilho. Medido em "
+                            "2026-09-03: o painel de status moveu ~90 px e o "
+                            "retangulo gravado passou a apontar para grama "
+                            "pura, e nenhum piso le um numero em grama. Rode "
+                            "`calibrar-renda.bat` para este personagem. A "
+                            "varredura NAO vai se repetir a cada tique: a "
+                            "proxima deste campo exige %d recusas seguidas.",
+                            campo,
+                            len(tentados),
+                            min(tentados) if tentados else gravado,
+                            max(tentados) if tentados else gravado,
+                            RECUSAS_SEGUIDAS_PARA_VARRER * carencia[campo],
+                        )
+
             # O CARIMBO VEM DO RELOGIO INJETADO e nunca de `datetime.now()`
             # dentro deste laco: e o que torna `relogio-andou-para-tras`
             # atingivel em teste e o que impede a taxa de depender da maquina.
@@ -714,10 +1108,14 @@ def laco_da_renda(
             # reproduzido em campo nesta rodada. E por isso que
             # `esta_minimizada` e consultada em vez de se confiar no
             # congelamento: ela e o caminho MEDIDO, e o congelamento e a rede.
+            # OS QUATRO SINAIS JA FORAM COLHIDOS ACIMA, antes da varredura --
+            # `estado_do_cliente` e `minimizada` chegam prontos e nao sao
+            # perguntados de novo. `motivo_da_pausa` e re-executada aqui dentro,
+            # e isso e de graca: ela e pura e olha tres valores ja em memoria.
             visao = classificar_a_visao(
                 saude=frame.saude,
-                estado_do_cliente=_o_estado_do_cliente(fonte),
-                minimizada=_a_janela_esta_minimizada(fonte),
+                estado_do_cliente=estado_do_cliente,
+                minimizada=minimizada,
                 campos=campos,
                 rastreio=rastreio,
                 carimbo=agora,
@@ -858,6 +1256,7 @@ def laco_da_renda(
                         agora=agora,
                         recusas_por_campo=recusas_por_campo,
                         tiques=ticks,
+                        pisos_em_uso=desvios,
                     ),
                 )
                 proximo_bloco = time.monotonic() + float(args.status_a_cada)
@@ -891,6 +1290,8 @@ def laco_da_renda(
                 recusas_por_campo=recusas_por_campo,
                 tiques=ticks,
                 tiques_por_estado=tiques_por_estado,
+                varreduras=varreduras,
+                desvios=desvios,
             ),
         )
         if perdidas:

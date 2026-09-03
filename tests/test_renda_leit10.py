@@ -473,8 +473,18 @@ class TelaFalsa:
 
     @property
     def tiques(self) -> int:
-        """O EXP e lido UMA vez por tique nos roteiros deste arquivo, entao a
-        contagem de leituras dele E a contagem de tiques."""
+        """Quantos tiques ja COMPLETARAM a leitura do EXP.
+
+        O EXP e lido UMA vez por tique em todos os roteiros deste arquivo (ele
+        nunca e varrido), entao a contagem de leituras dele e um relogio de
+        tiques exato -- **e ele conta os COMPLETOS**. Durante o tique `N`, o
+        nivel e lido ANTES do EXP (`ORDEM_DOS_CAMPOS` comeca por ele), entao
+        `tiques` vale `N - 1` na hora em que o roteiro decide o piso do nivel.
+        Os roteiros abaixo estao escritos nessa unidade, de proposito: fingir um
+        contador "do tique atual" exigiria adivinhar, dentro da duble, se uma
+        leitura de nivel e a do tique ou a de uma tentativa de varredura -- e
+        uma duble que adivinha o estado do laco mede o proprio palpite.
+        """
         return self.leituras[CAMPO_DO_EXP]
 
     def _piso_certo(self, campo):
@@ -719,28 +729,68 @@ class TestAMemoriaDoPisoQueFuncionou:
     def test_O_PISO_LEMBRADO_E_ESQUECIDO_E_A_SERIE_RECOMECA_DO_GRAVADO(
         self, cal, tmp_path
     ):
-        """Sem o esquecimento a memoria viraria uma calibracao PARALELA e
-        invisivel, que envelhece sozinha -- e a proxima mudanca de cenario seria
-        varrida a partir de um ponto que ninguem escolheu.
+        """A varredura seguinte parte do piso GRAVADO, e nao do lembrado.
 
         O vencedor e o QUARTO vizinho (190) de proposito: se a varredura
         seguinte partisse do LEMBRADO, ela tentaria 195 primeiro; partindo do
         GRAVADO, tenta 205. Um vencedor que fosse o primeiro vizinho tornaria os
         dois casos indistinguiveis.
+
+        **ESTE TESTE SOZINHO NAO PROVA O ESQUECIMENTO, E ISSO FICA ESCRITO
+        PORQUE FOI MEDIDO.** Na prova de mutacao, apagar as duas linhas que
+        esquecem o piso deixou os 47 testes VERDES -- porque
+        `_varrer_os_vizinhos` recebe o piso gravado por construcao, e a ordem da
+        varredura nao depende da memoria. O que o esquecimento muda de verdade e
+        a LEITURA DO TIQUE seguinte, e quem prova isso e o teste logo abaixo. A
+        mutacao sobrevivente derrubou a afirmacao original deste teste e
+        obrigou o outro a existir.
         """
         vencedor = VIZINHOS_DO_NIVEL[3]
         assert vencedor == 190
 
         def roteiro(tique):
-            # Ate o tique 20 o vencedor funciona; depois dele, nada funciona.
+            # Ate 20 tiques completos o vencedor funciona; dali em diante, nada
+            # funciona -- e o campo tem de parar de sair OUTRA VEZ para a
+            # segunda varredura disparar.
             return so_o_nivel_recusa(vencedor if tique <= 20 else None)
 
         tela = TelaFalsa(roteiro=roteiro)
-        rodar_o_laco(cal, tmp_path, tela, ticks=20 + RECUSAS_SEGUIDAS_PARA_VARRER)
-        segunda_varredura = tela.pisos_pedidos[CAMPO_DO_NIVEL][
-            -TENTATIVAS_DE_UMA_VARREDURA:
-        ]
-        assert tuple(segunda_varredura) == VIZINHOS_DO_NIVEL
+        rodar_o_laco(cal, tmp_path, tela, ticks=40)
+
+        # A SEGUNDA varredura e a que importa: ela comeca no ULTIMO 205 pedido.
+        # Se a serie recomecasse do LEMBRADO (190), a primeira tentativa seria
+        # 195 e nao 205 -- e este `index` nem acharia o inicio.
+        pedidos = tela.pisos_pedidos[CAMPO_DO_NIVEL]
+        inicio = len(pedidos) - 1 - pedidos[::-1].index(VIZINHOS_DO_NIVEL[0])
+        segunda = pedidos[inicio : inicio + TENTATIVAS_DE_UMA_VARREDURA]
+        assert tuple(segunda) == VIZINHOS_DO_NIVEL
+        # E ela e mesmo a SEGUNDA: houve uma vitoria em 190 antes dela.
+        assert vencedor in pedidos[:inicio]
+
+    def test_DEPOIS_DE_UMA_VARREDURA_PERDIDA_O_TIQUE_VOLTA_AO_PISO_GRAVADO(
+        self, cal, tmp_path
+    ):
+        """O teste que a mutacao sobrevivente obrigou a existir.
+
+        Sem o esquecimento, o campo continuaria sendo lido no piso LEMBRADO
+        pelo resto da noite -- uma calibracao PARALELA e invisivel, que
+        envelhece sozinha e que ninguem escolheu. O sintoma seria cruel: o
+        usuario recalibraria o campo, o piso gravado passaria a estar certo, e o
+        laco continuaria lendo no piso velho ate o processo ser reiniciado.
+        """
+        vencedor = VIZINHOS_DO_NIVEL[3]
+
+        def roteiro(tique):
+            return so_o_nivel_recusa(vencedor if tique <= 20 else None)
+
+        tela = TelaFalsa(roteiro=roteiro)
+        rodar_o_laco(cal, tmp_path, tela, ticks=40)
+        # Os ultimos tiques sao leituras de tique (a varredura ja perdeu e a
+        # carencia a adiou), e elas tem de estar no GRAVADO.
+        assert tela.pisos_pedidos[CAMPO_DO_NIVEL][-1] == (
+            PISO_GRAVADO[CAMPO_DO_NIVEL]
+        )
+        assert vencedor not in tela.pisos_pedidos[CAMPO_DO_NIVEL][-3:]
 
     def test_A_MEMORIA_ATRAVESSA_A_RECUSA_ISOLADA(self, cal, tmp_path):
         """Ela NAO e esquecida na primeira recusa, e este e o ponto do desenho.
@@ -816,13 +866,15 @@ class TestACarenciaDepoisDeUmaVarreduraPERDIDA:
         )
 
     def test_O_MULTIPLICADOR_PARA_NO_TETO_DE_QUATRO(self, cal, tmp_path):
-        """As corridas sao 13, 26, 52, 104, 104, ... e nunca 208.
+        """As corridas sao 13, 26, 52, 52, 52... e nunca 104.
 
-        Os gatilhos caem nos tiques 13, 39, 91, 195 e 299. Se o multiplicador
-        nao tivesse teto, o quinto cairia no 403 e o teste com 299 tiques veria
-        QUATRO varreduras em vez de cinco.
+        O multiplicador vai 1 -> 2 -> 4 e PARA, entao os gatilhos caem nos
+        tiques **13, 39, 91, 143 e 195**. Sem o teto, o multiplicador seguiria
+        para 8 e o quarto gatilho cairia no 195 em vez do 143 -- e este teste,
+        com 195 tiques, veria QUATRO varreduras em vez de cinco. E o que separa
+        "tem teto" de "nao tem".
         """
-        gatilhos = (13, 39, 91, 195, 299)
+        gatilhos = (13, 39, 91, 143, 195)
         assert TETO_DA_CARENCIA == 4
 
         tela = TelaFalsa(roteiro=so_o_nivel_recusa(None))
@@ -844,18 +896,25 @@ class TestACarenciaDepoisDeUmaVarreduraPERDIDA:
         valer: a varredura seguinte volta a disparar em `K`, e nao em `2K`."""
 
         def roteiro(tique):
-            # Perde a varredura no 13; o campo volta a sair no 14; para de sair
-            # de novo a partir do 15.
+            # A varredura perde no tique 13 (multiplicador vai a 2). O campo
+            # volta a sair no tique 15 -- `tique` conta os COMPLETOS, ver
+            # `TelaFalsa.tiques` -- e ali a punicao acumulada tem de cair.
             if tique == 14:
                 return so_o_nivel_recusa(PISO_GRAVADO[CAMPO_DO_NIVEL])
             return so_o_nivel_recusa(None)
 
         tela = TelaFalsa(roteiro=roteiro)
-        # 14 + 13 = 27: a segunda varredura cai no tique 27 se o multiplicador
-        # voltou a 1, e no 40 se nao voltou.
-        rodar_o_laco(cal, tmp_path, tela, ticks=27)
+        # Com o multiplicador de volta a 1, a segunda varredura cai no tique
+        # `15 + 13 = 28`. Se ele tivesse ficado em 2, ela cairia no 41.
+        rodar_o_laco(cal, tmp_path, tela, ticks=28)
         assert tela.leituras[CAMPO_DO_NIVEL] == (
-            27 + 2 * TENTATIVAS_DE_UMA_VARREDURA
+            28 + 2 * TENTATIVAS_DE_UMA_VARREDURA
+        )
+
+        antes = TelaFalsa(roteiro=roteiro)
+        rodar_o_laco(cal, tmp_path, antes, ticks=27)
+        assert antes.leituras[CAMPO_DO_NIVEL] == (
+            27 + TENTATIVAS_DE_UMA_VARREDURA
         )
 
     def test_A_CARENCIA_E_POR_CAMPO(self, cal, tmp_path):
@@ -974,10 +1033,14 @@ class TestOQueOUsuarioVE:
             rodar_o_laco(
                 cal, tmp_path, tela, ticks=RECUSAS_SEGUIDAS_PARA_VARRER + 5
             )
+        # `caplog.text` prefixa cada linha com `arquivo.py:linha `, e o nome do
+        # arquivo COMECA com `renda` -- entao a fatia tem de ser pelo prefixo
+        # COM o separador, e nao pela palavra solta.
+        marca = PREFIXO_DA_LINHA + " |"
         linhas = [
-            linha[linha.index(PREFIXO_DA_LINHA) :]
+            linha[linha.index(marca) :]
             for linha in caplog.text.splitlines()
-            if PREFIXO_DA_LINHA + " |" in linha
+            if marca in linha
         ]
         assert linhas
         for linha in linhas:

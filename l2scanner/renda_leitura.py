@@ -93,6 +93,28 @@ SUBCHAVE_DO_EXP = "barra_esquerda"
 SUBCHAVE_DA_ADENA = "barra_direita"
 SUBCHAVE_DO_NIVEL = "nivel"
 
+#: DE CAMPO PARA SUB-CHAVE, e a tabela e DECLARADA pelo mesmo motivo que
+#: `ORDEM_DOS_CAMPOS` e: um `if/elif` de tres ramos seria uma QUARTA verdade
+#: sobre quais campos existem, e a quarta e a que esquece de ser atualizada.
+#:
+#: Ela e PUBLICA porque o laco precisa dela para achar o piso gravado e a
+#: `largura_da_banda` do campo que vai varrer (LEIT-10) -- e a alternativa seria
+#: o laco carregar a sua propria copia deste mapa, que e exatamente a segunda
+#: verdade que esta tabela existe para impedir.
+#:
+#: `MappingProxyType` E NAO `dict` porque o portao de ausencia de memoria deste
+#: arquivo e de verdade: `tests/test_renda_par.py` varre a arvore de sintaxe
+#: atras de literal mutavel de nivel de modulo, com controle positivo. Um `dict`
+#: nu deixaria o portao vermelho, e o portao esta certo -- um mapa mutavel de
+#: modulo e memoria esperando para ser escrita.
+SUBCHAVE_POR_CAMPO = MappingProxyType(
+    {
+        CAMPO_DO_NIVEL: SUBCHAVE_DO_NIVEL,
+        CAMPO_DO_EXP: SUBCHAVE_DO_EXP,
+        CAMPO_DA_ADENA: SUBCHAVE_DA_ADENA,
+    }
+)
+
 # ---------------------------------------------------------------------------
 # OS MOTIVOS DE RECUSA -- e eles sao DISTINTOS porque os consertos sao distintos
 # ---------------------------------------------------------------------------
@@ -1354,43 +1376,33 @@ def _detalhe_do_personagem_sem_calibracao(calibracao, personagem) -> str:
     )
 
 
-#: A TABELA DE QUAIS CAMPOS EXISTEM, e ela e DECLARADA pelo mesmo motivo que
-#: `ORDEM_DOS_CAMPOS` e: um `if/elif` de tres ramos seria uma QUARTA verdade
-#: sobre os campos da renda, e a quarta e sempre a que esquece de ser
-#: atualizada. Cada entrada e `(sub-chave do calibration.json, leitor)`, e os
-#: tres leitores tem assinatura UNIFORME -- `(recorte, piso, moldes, conjunto)`
-#: -- mesmo que so a adena use os dois ultimos. Uniformizar aqui e o que
-#: permite despachar por tabela em vez de por ramo.
+#: DE CAMPO PARA LEITOR, a companheira de `SUBCHAVE_POR_CAMPO` e declarada pelo
+#: mesmo motivo. Os tres leitores tem assinatura UNIFORME --
+#: `(recorte, piso, moldes, conjunto)` -- mesmo que so a adena use os dois
+#: ultimos; uniformizar aqui e o que permite despachar por tabela em vez de por
+#: ramo, e um ramo a menos e uma verdade a menos para divergir.
 #:
-#: `MappingProxyType` E NAO `dict` PORQUE O PORTAO DE MEMORIA DESTE ARQUIVO E
-#: DE VERDADE: `tests/test_renda_par.py` varre a arvore de sintaxe atras de
-#: literal mutavel de nivel de modulo, com controle positivo. Um `dict` nu aqui
-#: deixaria o portao vermelho -- e o portao esta certo, porque um mapa mutavel
-#: de modulo e memoria esperando para ser escrita.
-_PORTA_DO_CAMPO = MappingProxyType(
+#: Ela e privada porque, ao contrario das sub-chaves, ninguem de fora tem o que
+#: fazer com um leitor solto: quem quer ler um campo chama `ler_um_campo`, que e
+#: onde moram a recusa por personagem, a guarda do recorte e a resolucao do
+#: piso.
+_LEITOR_POR_CAMPO = MappingProxyType(
     {
-        CAMPO_DO_NIVEL: (
-            SUBCHAVE_DO_NIVEL,
-            lambda recorte, piso, moldes, conjunto: nivel_da_regiao(
-                recorte, piso_de_brilho=piso
-            ),
+        CAMPO_DO_NIVEL: lambda recorte, piso, moldes, conjunto: (
+            nivel_da_regiao(recorte, piso_de_brilho=piso)
         ),
-        CAMPO_DO_EXP: (
-            SUBCHAVE_DO_EXP,
-            lambda recorte, piso, moldes, conjunto: exp_da_barra(
-                recorte, piso_de_brilho=piso
-            ),
+        CAMPO_DO_EXP: lambda recorte, piso, moldes, conjunto: (
+            exp_da_barra(recorte, piso_de_brilho=piso)
         ),
-        CAMPO_DA_ADENA: (
-            SUBCHAVE_DA_ADENA,
-            lambda recorte, piso, moldes, conjunto: adena_da_barra(
+        CAMPO_DA_ADENA: lambda recorte, piso, moldes, conjunto: (
+            adena_da_barra(
                 recorte,
                 piso_de_brilho=piso,
                 moldes=moldes,
                 piso_de_leitura=conjunto.get("piso_de_leitura"),
                 margem_de_leitura=conjunto.get("margem_de_leitura"),
                 folga_de_cola=conjunto.get("folga_de_cola"),
-            ),
+            )
         ),
     }
 )
@@ -1464,12 +1476,13 @@ def ler_um_campo(
     exatamente onde ninguem o veria. O molde e o de `ganho_do_passo`
     (`renda_conta.py:900-903`): a mensagem nomeia os que existem.
     """
-    if campo not in _PORTA_DO_CAMPO:
+    if campo not in SUBCHAVE_POR_CAMPO:
         raise ValueError(
             f"campo desconhecido: {campo!r}. Os que existem sao "
             f"{ORDEM_DOS_CAMPOS!r}"
         )
-    subchave, leitor = _PORTA_DO_CAMPO[campo]
+    subchave = SUBCHAVE_POR_CAMPO[campo]
+    leitor = _LEITOR_POR_CAMPO[campo]
 
     # A RECUSA POR PERSONAGEM VEM ANTES DE QUALQUER OCR, e a proibicao de queda
     # mora num lugar so (`Calibracao.renda_do_personagem`): nao se gasta o
