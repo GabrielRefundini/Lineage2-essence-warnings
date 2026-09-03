@@ -609,6 +609,7 @@ class TestOResumoDaSessao:
             RegistroFalso(),
             recusas_por_campo={},
             tiques=0,
+            tiques_por_estado={},
         )
 
         assert "RESUMO DA SESSAO DE RENDA" in texto
@@ -628,6 +629,7 @@ class TestOResumoDaSessao:
             RegistroFalso(),
             recusas_por_campo={CAMPO_DO_NIVEL: 2},
             tiques=3,
+            tiques_por_estado={"lendo": 2, "sem_leitura": 1},
         )
 
         assert "p50" in texto and "p95" in texto and "maximo" in texto
@@ -654,6 +656,7 @@ class TestOResumoDaSessao:
             RegistroFalso(),
             recusas_por_campo={CAMPO_DO_NIVEL: 2},
             tiques=3,
+            tiques_por_estado={"lendo": 2, "sem_leitura": 1},
         )
 
         assert "RECUSA POR CAMPO" in texto

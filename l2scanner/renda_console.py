@@ -244,6 +244,56 @@ def linha_do_tique(campos, contagem, *, estado: str | None = None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# O BLOCO ALTO DA TRANSICAO -- uma vez por MUDANCA de estado, e nunca por tique
+# ---------------------------------------------------------------------------
+#
+# A DISTINCAO E POR MARCA E PREFIXO, E NUNCA SO POR COR. `console._pintar`
+# desliga a cor quando `isatty()` e falso -- que e o caso do `caplog`, de um
+# pipe e do redirecionamento para `scanner.log`, que e exatamente onde o
+# usuario vai olhar de manha. Um estado que so se distinguisse por cor sumiria
+# justamente ali.
+#
+# E POR ISSO A MOLDURA VEM DE `console.moldurar` E NAO DE `console.destacar`.
+# `destacar` com `tipo=None` cai no default e devolve `*` para TODOS os
+# estados -- exatamente a colapso que o CEGO-02 proibe ("PARADO e PAUSADO tem
+# de ser distinguiveis num console rolando as 4 da manha"). A alternativa seria
+# reusar um `TipoDeEvento` da party para cada estado da renda, e ai `PARADO`
+# viraria `SAIU` ou `CEGUEIRA_LONGA` -- uma mentira no sistema de tipos, por
+# uma cor que o `scanner.log` nem mostra.
+#
+# AS CHAVES SAO AS STRINGS DO ENUM E NAO O ENUM: `renda_estado` importa DESTE
+# arquivo (a grafia da duracao e os rotulos dos campos), e importar de volta
+# fecharia o ciclo.
+MARCA_POR_ESTADO = {
+    "pausado": "!",
+    "parado": ".",
+    "sem_leitura": "?",
+    "lendo": "+",
+}
+
+MARCA_PADRAO_DA_TRANSICAO = "*"
+
+
+def aviso_da_transicao(visao, *, hora: str | None = None) -> str:
+    """O texto ALTO de UMA mudanca de estado. Quem o imprime e o laco.
+
+    ELE E SEPARADO DA LINHA DO TIQUE POR MEDICAO E NAO POR GOSTO. A frase
+    acionavel de minimizado tem ~240 caracteres e o orcamento da linha do tique
+    e 76 colunas, das quais os valores reais do usuario -- `renda | nivel 68 |
+    EXP 48,0075% | adena 23.986.985 | ` -- comem 53. Ela sairia truncada em
+    `PAUSADO: A JANELA DO JOGO E~`, cortando exatamente a parte que diz o que
+    fazer, que e a razao de ela existir. Aqui a moldura cresce com o texto
+    (`moldurar` usa `max(LARGURA, ...)`, que e PISO e nao teto).
+    """
+    if hora is None:
+        hora = datetime.now().strftime("%H:%M")
+    marca = MARCA_POR_ESTADO.get(
+        visao.estado.value, MARCA_PADRAO_DA_TRANSICAO
+    )
+    return "\n" + console.moldurar(visao.aviso, hora, marca)
+
+
+# ---------------------------------------------------------------------------
 # O BLOCO POR INTERVALO -- o que o programa CALCULOU (CONS-01)
 # ---------------------------------------------------------------------------
 
@@ -582,6 +632,27 @@ def bloco_da_renda(
 # ---------------------------------------------------------------------------
 
 
+# O RECORTE do `sem_leitura`, e ele NAO e uma quinta parcela: `SEM LEITURA
+# (EXP)` ja esta contado dentro de `sem_leitura`. Ele sai numa linha propria e
+# recuada porque e o caso que a versao anterior do plano deixou cair entre as
+# regras -- e o unico em que a tela NAO SABE se o usuario esta parado.
+RECORTE_DO_EXP_SEM_LEITURA = "sem_leitura_do_exp"
+
+# OS QUATRO ESTADOS DO RESUMO, NA ORDEM EM QUE ELES SAEM. As quatro primeiras
+# linhas SOMAM o total de tiques classificados; a quinta e recorte da terceira.
+ROTULO_DO_ESTADO = (
+    ("lendo", "tiques LENDO"),
+    ("parado", "tiques PARADO (renda zero, gravada)"),
+    ("sem_leitura", "tiques SEM LEITURA (gravados)"),
+    (RECORTE_DO_EXP_SEM_LEITURA, "  destes, SEM LEITURA (EXP)"),
+    ("pausado", "tiques PAUSADO (cego, NAO gravados)"),
+)
+
+# As quatro que somam. O recorte fica de fora de proposito: soma-lo daria o
+# total mais uma vez a mesma parcela.
+ESTADOS_QUE_SOMAM = ("lendo", "parado", "sem_leitura", "pausado")
+
+
 def resumo_da_sessao_da_renda(
     contagem,
     orcamento,
@@ -589,6 +660,7 @@ def resumo_da_sessao_da_renda(
     *,
     recusas_por_campo: dict,
     tiques: int,
+    tiques_por_estado: dict,
 ) -> str:
     """O fim da sessao, contando o que foi ao DISCO e o que ele custou.
 
@@ -634,6 +706,21 @@ def resumo_da_sessao_da_renda(
                 ),
             )
         )
+
+    linhas += [
+        "",
+        "O QUE O SCANNER VIU, POR TIQUE (as quatro primeiras somam "
+        f"{tiques}):",
+    ]
+    for chave, rotulo in ROTULO_DO_ESTADO:
+        linhas.append(_linha(rotulo, str(int(tiques_por_estado.get(chave, 0)))))
+    linhas += [
+        "",
+        "  Estes quatro NAO se somam entre si como se fossem o mesmo fato:",
+        "  PAUSADO e `nao vi` e suspende a gravacao; PARADO e `vi e nao mudou`",
+        "  e GRAVA; SEM LEITURA e `vi e nao consegui ler` e tambem grava, com",
+        "  o motivo. Sao tres consertos diferentes.",
+    ]
 
     linhas += [
         "",
