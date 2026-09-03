@@ -139,7 +139,7 @@ SONDAS_DE_SEGUNDO_FORMATADOR = (
 
 CONTROLE_DO_SEGUNDO_FORMATADOR = (
     'escrever("xm-texto", Number(dados.destaque.xm.pixel).toFixed(2)'
-    '.replace(".", ",") + " XM por milhao");'
+    '.replace(".", ",") + " XM por 5 milhoes");'
 )
 
 SONDAS_DE_MARCACAO = (

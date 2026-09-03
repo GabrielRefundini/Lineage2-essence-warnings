@@ -193,7 +193,11 @@ ROTULO_DA_TIPICA = "mediana"
 # AS DUAS UNIDADES EXIBIDAS. Elas nao sao escolhidas por um `if` sobre a
 # sentinela — ver `_e_a_taxa`, que deriva a resposta do UNICO ponto de decisao
 # que ja existe (`formatador_do_unitario`).
-UNIDADE_EXIBIDA_DA_TAXA = "XM por milhão de adena"
+#
+# ATE 2026-09-03 A PRIMEIRA DIZIA `XM por milhão de adena`. A escala passou a
+# CINCO milhoes, que e como a coluna do proprio jogo se escreve (`5 mln
+# increment`) — ver o bloco de `UNIDADE_DA_TAXA` em `mercado_console.py`.
+UNIDADE_EXIBIDA_DA_TAXA = "XM por 5 milhões de adena"
 UNIDADE_EXIBIDA_DO_UNITARIO = "centésimos por unidade"
 
 # O valor em R$, com a marca OBRIGATORIA de informado por voce. O UI-SPEC proibe
@@ -201,8 +205,8 @@ UNIDADE_EXIBIDA_DO_UNITARIO = "centésimos por unidade"
 # nao foi lido de lugar nenhum, foi digitado, e quem copiar a linha para o
 # WhatsApp precisa que essa procedencia viaje junto.
 MOLDE_DO_VALOR_EM_REAIS = (
-    "R$ {valor} por milhão de adena (derivado do câmbio informado por você em "
-    "{quando})"
+    "R$ {valor} por 5 milhões de adena (derivado do câmbio informado por você "
+    "em {quando})"
 )
 
 # AS FRASES PROIBIDAS NA TELA, herdadas do `mercado_console` — onde ja ha teste
@@ -217,7 +221,7 @@ MOLDE_DO_VALOR_EM_REAIS = (
 # O `0,00` NAO ESTA NESTA TUPLA, E A RAZAO FOI MEDIDA AQUI. A quarta proibicao do
 # UI-SPEC — "`0,00` como espaco reservado enquanto carrega" — parece pertencer a
 # esta lista e NAO pertence: comparada por substring, ela reprova
-# `"30,00 XM por milhao de adena (derivado)"`, que e um valor legitimo. Toda taxa
+# `"30,00 XM por 5 milhoes de adena (derivado)"`, que e um valor legitimo. Toda taxa
 # terminada em zero (`10,00`, `20,00`, `30,00`) cairia junto. A proibicao e sobre
 # o NUMERO INTEIRO ser zero, e por isso ela e verificada por TOKEN, com um molde
 # de numero, em `tests/test_dashboard_dados.py` (`MOLDE_DE_NUMERO`) — e com um
@@ -699,7 +703,7 @@ def frase_de_piso_da_tipica(evidencia: Evidencia) -> str:
 
 
 def _e_a_taxa(chave_da_serie: str) -> bool:
-    """Esta serie se fala em XM por milhao? A resposta vem do UNICO ponto.
+    """Esta serie se fala em XM por 5 milhoes? A resposta vem do UNICO ponto.
 
     ELA NAO REPETE O `if` DA SENTINELA. `formatador_do_unitario` ja e o unico
     ponto de decisao entre a taxa da Adena e o unitario comum, e a docstring dele
@@ -733,11 +737,22 @@ def _pixel(chave_da_serie: str, valor: Fraction | None) -> float | None:
     formatador que o DASH-03 proibe).
 
     O ERRO DESSA CONVERSAO ESTA MEDIDO, e por isso ela e aceitavel: sobre a taxa
-    da Adena em centesimos por milhao, o pior caso medido foi **1,9e-11** — em
-    `Fraction(1, 3) x 10⁶`, que da `333333.3333333333`. Os valores reais do CSV
-    (`11600/10.000.000` e `30000/15.000.000`) converteram com erro **ZERO**. Um
-    erro de 1,9e-11 centesimo nao move um pixel; um erro na string moveria a
-    decisao de compra.
+    da Adena em centesimos por 5 milhoes, o pior caso medido foi **7,76e-11** —
+    em `Fraction(1, 3) x 5x10⁶`, que da `1666666.6666666667`. Os valores reais
+    do CSV (`11600/10.000.000` e `30000/15.000.000`) converteram com erro
+    **ZERO** — medido de novo na escala nova, e nao herdado da anterior. Um erro
+    de 7,76e-11 centesimo nao move um pixel; um erro na string moveria a decisao
+    de compra.
+
+    ESTE NUMERO SUBIU, E SUBIR ERA O ESPERADO: ate 2026-09-03 a escala era um
+    milhao e o pior caso medido era **1,9e-11**, em `Fraction(1, 3) x 10⁶` =
+    `333333.3333333333`. Multiplicar por cinco leva o valor a uma faixa onde o
+    `float` de dupla precisao tem menos bits de fracao disponiveis, entao o erro
+    ABSOLUTO cresce junto — quase pelo mesmo fator (medido: 1,94e-11 -> 7,76e-11,
+    exatamente x4). O erro RELATIVO nao piorou: medido, ele CAIU de 5,82e-17
+    para 4,66e-17, os dois abaixo do epsilon da maquina (2,22e-16). As duas
+    medicoes sairam de chamadas a codigo de producao, e nao de uma conta refeita
+    por fora.
 
     AUSENCIA VIRA `None`, E NUNCA `0.0`. Zero e um lugar no eixo — uma taxa de
     zero — e desenhar a ausencia la seria afirmar que a taxa despencou.
@@ -886,14 +901,19 @@ def _falha_fechada(estado: str, arquivo: Path, agora: datetime, avisos: list) ->
 
 
 def _valor_em_reais(taxa: Fraction, cambio) -> str:
-    """A taxa em R$ por milhao de adena, com a marca de informado por voce.
+    """A taxa em R$ por 5 milhoes de adena, com a marca de informado por voce.
 
     A CONTA, ESCRITA POR EXTENSO, no molde de `formatar_taxa_derivada`:
 
         taxa = Fraction(11600, 10_000_000) centesimos de XM POR ADENA
-          -> x 1.000.000 = 1.160 centesimos de XM por milhao
-          -> x R$ 0,50 por XM = 580 CENTAVOS de R$ por milhao
-          -> 580 centavos = R$ 5,80 por milhao
+          -> x 5.000.000 = 5.800 centesimos de XM por 5 milhoes
+          -> x R$ 0,50 por XM = 2.900 CENTAVOS de R$ por 5 milhoes
+          -> 2.900 centavos = R$ 29,00 por 5 milhoes
+
+    ATE 2026-09-03 ESTA CONTA MULTIPLICAVA POR 1.000.000 e terminava em `R$ 5,80
+    por milhao`. A escala de exibicao passou a cinco milhoes junto com a do
+    texto em XM — as duas saem da MESMA `UNIDADE_DA_TAXA`, e essa e a razao de
+    nenhuma linha de codigo desta funcao ter mudado na troca.
 
     A MULTIPLICACAO POR `UNIDADE_DA_TAXA` E POR `reais_por_xm` NA MESMA LINHA NAO
     E ECONOMIA DE CODIGO: centesimos-de-XM vezes reais-por-XM da centavos-de-R$

@@ -251,22 +251,45 @@ def formatar_unitario_derivado(unitario: Fraction) -> str:
 #
 # Uma oferta de adena e da ordem de dez milhoes de unidades, entao o unitario
 # por ADENA e da ordem de um milesimo de centesimo — inexibivel em duas casas.
-# O milhao e a escala em que o numero volta a ser legivel por um humano: "11,60
-# XM por milhao" e o que o usuario diz em voz alta.
+# A multiplicacao por uma escala e o que traz o numero de volta para a faixa que
+# um humano le.
+#
+# A ESCALA E CINCO MILHOES, E ATE 2026-09-03 ELA ERA UM MILHAO. A frase que
+# morava aqui dizia que "o milhao e a escala em que o numero volta a ser legivel
+# por um humano", e dava `11,60 XM por milhao` como o que o usuario diz em voz
+# alta. Legivel ele era — mas nao era a escala da TELA. A coluna do proprio jogo
+# se chama `5 mln increment`, e falar por milhao obrigava a uma conversao mental
+# a cada comparacao entre o dashboard e a janela do jogo. Na escala nova a mesma
+# oferta le `58,00`, e a de `111,00` que o usuario trouxe le `55,50` — onde
+# antes lia `11,60` e `11,10`.
 #
 # ELA MORA AQUI E NAO NO `calibration.json` porque nao e medicao nem limiar: e
 # a escala em que a taxa se fala, do mesmo jeito que `ADENA_POR_INCREMENTO`
 # mora no fonte por ser como o jogo escreve a coluna. Grava-la na calibracao
 # criaria duas verdades sobre uma unidade so.
 #
+# ELA E `ADENA_POR_INCREMENTO` (`mercado_leitura.py`) VALEM 5.000.000 OS DOIS E
+# CONTINUAM DUAS CONSTANTES — decisao do usuario, e nao esquecimento. Elas
+# respondem a perguntas diferentes: uma e como o JOGO ESCREVE a coluna, a outra
+# e como NOS FALAMOS o numero. Coincidir de valor nao e ser a mesma coisa, e
+# apelidar uma da outra acoplaria a EXIBICAO ao incremento do jogo em silencio —
+# no dia em que o jogo mudasse a coluna para `10 mln`, a fala mudaria junto sem
+# ninguem decidir. E exatamente o que o paragrafo acima ja alerta com "duas
+# verdades sobre uma unidade so", do outro lado. Quem MEDE a separacao (em vez
+# de afirma-la, que com dois valores iguais nao prova nada) e
+# `tests/test_escala_de_exibicao.py`, e o teste da separacao em
+# `tests/test_dashboard_dados.py::TestUmaTelaUmaUnidade`.
+#
 # E ELA E DE EXIBICAO, SO. `mercado_analise` continua sem saber que existe aba:
 # menor pedido, mediana e tendencia comparam `Fraction(total, quantidade)`
-# exata, e a escala nao muda ordenacao nenhuma.
-UNIDADE_DA_TAXA = 1_000_000
+# exata, e a escala nao muda ordenacao nenhuma. Quem VERIFICA essa frase — em
+# vez de so repeti-la — e `tests/test_escala_de_exibicao.py`, que troca a escala
+# e afirma que as tres decisoes nao se movem nem por um bit.
+UNIDADE_DA_TAXA = 5_000_000
 
 
 def formatar_taxa_derivada(taxa: Fraction) -> str:
-    """A taxa da Adena em XM por MILHAO de adena, com a marca de derivado.
+    """A taxa da Adena em XM por CINCO MILHOES de adena, com a marca de derivado.
 
     IRMA DE `formatar_unitario_derivado`, E NAO UM PARAMETRO COM DEFAULT — e a
     razao esta MEDIDA: `round(Fraction(11600, 10_000_000))` vale **zero**. A
@@ -281,13 +304,21 @@ def formatar_taxa_derivada(taxa: Fraction) -> str:
 
         10.000.000 de adena por 116,00 XM
           -> taxa = Fraction(11600, 10_000_000) centesimos POR ADENA
-          -> x 1.000.000 = 1.160 centesimos por milhao
-          -> 1.160 centesimos = 11,60 XM por milhao
+          -> x 5.000.000 = 5.800 centesimos por 5 milhoes
+          -> 5.800 centesimos = 58,00 XM por 5 milhoes
+
+    ATE 2026-09-03 ESTA MESMA CONTA TERMINAVA EM `1.160 centesimos = 11,60 XM
+    por milhao`, e o par que o usuario viu na tela era `10M/116,00 -> 11,60` e
+    `15M/300,00 -> 20,00`. Na escala nova os dois pares leem `58,00` e `100,00`,
+    e a oferta de `111,00` que motivou a troca le `55,50` — era `11,10`. O que
+    mudou foi a ESCALA em que se fala, e nao a conta: ver o bloco de
+    `UNIDADE_DA_TAXA` para a razao (a coluna do jogo se chama `5 mln
+    increment`).
 
     O erro da pesquisa foi carregar o `11600` intacto para depois da
-    multiplicacao, como se ele ja fosse o resultado dela. O ROADMAP e o
-    `05-CONTEXT.md` trazem o `11,60`, e ha teste sobre os dois pares que o
-    usuario viu na tela (`10M/116,00 -> 11,60` e `15M/300,00 -> 20,00`).
+    multiplicacao, como se ele ja fosse o resultado dela — e esse erro continua
+    possivel na escala nova, so que agora ele produziria `116,00` onde o certo e
+    `58,00`.
 
     A MARCA `(derivado)` PELA MESMA RAZAO DA IRMA: o CSV guarda `total` e
     `quantidade`, e a taxa e derivacao. Sem o rotulo, alguem copia a linha para
@@ -296,9 +327,10 @@ def formatar_taxa_derivada(taxa: Fraction) -> str:
     O ARREDONDAMENTO ACONTECE SO AQUI, sobre a `Fraction` exata — a comparacao
     entre ofertas ja aconteceu, e ela aconteceu sem perder um bit.
     """
+    centesimos_na_escala_exibida = round(taxa * UNIDADE_DA_TAXA)
     return (
-        f"{formatar_centesimos(round(taxa * UNIDADE_DA_TAXA))} "
-        f"XM por milhao de adena (derivado)"
+        f"{formatar_centesimos(centesimos_na_escala_exibida)} "
+        f"XM por 5 milhoes de adena (derivado)"
     )
 
 

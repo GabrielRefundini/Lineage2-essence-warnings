@@ -4,7 +4,7 @@
 // ============================================================
 // `formatar_taxa_derivada`, `formatar_centesimos` e `_recencia_em_duas_formas`
 // chegam prontos do servidor, em ASCII: `"ha 8 h (31/08 10:00)"`,
-// `"sem evidencia - 2 de 5 ofertas distintas"`, `"11,60 XM por milhao de ..."`.
+// `"sem evidencia - 2 de 5 ofertas distintas"`, `"58,00 XM por 5 milhoes de ..."`.
 // Este arquivo escreve essas strings COMO RECEBEU.
 //
 // Reacentuar `milhao` para `milhão`, ou trocar `ha` por `há`, ou re-arredondar
@@ -230,9 +230,9 @@ function pintarUmCartao(prefixo, valor) {
   // O TEXTO INTEIRO VAI PARA O NÚMERO, e o vão da unidade fica vazio.
   //
   // ISTO É UMA COSTURA ENTRE PLANOS, E ELA ESTÁ DECLARADA. A marcação reservou
-  // um vão de unidade esperando receber `XM por milhao de ... (derivado)`
+  // um vão de unidade esperando receber `XM por 5 milhoes de ... (derivado)`
   // separado do número; o payload não entrega os dois separados — ele entrega
-  // UMA string pronta, `"11,60 XM por milhao de ... (derivado)"`, saída de
+  // UMA string pronta, `"58,00 XM por 5 milhoes de ... (derivado)"`, saída de
   // `formatar_taxa_derivada`. Partir essa string aqui, num espaço ou numa
   // vírgula, seria o segundo formatador: o navegador passaria a ter uma opinião
   // sobre onde termina o número e começa a unidade, e essa opinião erraria no

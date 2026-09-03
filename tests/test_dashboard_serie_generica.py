@@ -237,7 +237,7 @@ class TestDuasSeriesAtravessamODado:
         """ESTA E A FORMA CORRETA DE PROVAR GENERALIDADE, e a razao e direta:
 
         se existisse UMA chave so da Adena -- um `taxa_derivada`, um
-        `xm_por_milhao` --, entao instanciar a segunda serie exigiria codigo
+        `xm_por_5_milhoes` --, entao instanciar a segunda serie exigiria codigo
         novo do lado do desenho para lidar com a ausencia dela. E o requisito
         proibe exatamente isso: "instanciar uma segunda serie nao exige codigo
         de grafico novo".
@@ -276,7 +276,7 @@ class TestOFormatadorSaiDoPontoDeDecisaoUNICO:
     o unitario comum, e ele existe precisamente para que nao haja quatro `if`
     espalhados que um dia divirjam. Se a serie da Adena recebesse o formatador
     de unitario comum, a tela mostraria `0,00 por unidade` para uma taxa de
-    11,60 -- calada e errada.
+    58,00 -- calada e errada.
     """
 
     def test_o_ponto_de_decisao_devolve_formatadores_DIFERENTES(self):

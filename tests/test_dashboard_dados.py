@@ -41,7 +41,13 @@ from pathlib import Path
 
 import pytest
 
-from l2scanner import dashboard_dados, mercado_console, mercado_registro
+from l2scanner import (
+    dashboard,
+    dashboard_dados,
+    mercado_console,
+    mercado_leitura,
+    mercado_registro,
+)
 from l2scanner.mercado_analise import (
     N_MINIMO_PARA_MEDIANA,
     mediana_dos_unitarios,
@@ -51,6 +57,11 @@ from l2scanner.mercado_catalogo import CHAVE_DA_SERIE_DA_ADENA, SEPARADOR
 from l2scanner.mercado_registro import ObservacaoLida
 
 AGORA = datetime(2026, 9, 1, 15, 0, 0)
+
+# A PAGINA entra neste arquivo por UMA razao so: `TestUmaTelaUmaUnidade` precisa
+# ver o titulo e o payload NA MESMA funcao de teste. Separar as duas metades em
+# arquivos diferentes e o que deixaria as duas divergirem em silencio.
+ARQUIVO_DO_HTML = dashboard.PASTA_DOS_ESTATICOS / "index.html"
 
 
 def _oferta(
@@ -471,7 +482,11 @@ class TestAPrecedenciaDosCincoESTADOS:
         pronto = dashboard_dados.payload(pasta, AGORA)
 
         assert pronto["estado"] == "abaixo_do_piso"
-        assert pronto["destaque"]["xm"]["texto"] == "11,60 XM por milhao de adena (derivado)"
+        # `11600 -> 58,00` na escala de cinco milhoes (era `11,60` na do milhao,
+        # ate 2026-09-03).
+        assert pronto["destaque"]["xm"]["texto"] == (
+            "58,00 XM por 5 milhoes de adena (derivado)"
+        )
         tipica = pronto["series"][0]["pontos"][0]["tipica_texto"]
         assert "sem evidencia" in tipica
 
@@ -603,8 +618,10 @@ class TestNenhumValorPadraoEChutado:
         assert reais is not None
         assert reais["derivado"] is True
         assert reais["informado_em"] == "2026-09-01T14:32:00"
-        # 11,60 XM por milhao x R$ 0,50 por XM = R$ 5,80 por milhao.
-        assert "5,80" in reais["texto"]
+        # 58,00 XM por 5 milhoes x R$ 0,50 por XM = R$ 29,00 por 5 milhoes.
+        # (Era `11,60` -> `R$ 5,80 por milhao` ate 2026-09-03; as duas metades
+        # saem da MESMA `UNIDADE_DA_TAXA`, e por isso mudaram juntas.)
+        assert "29,00" in reais["texto"]
         assert "informado por você" in reais["texto"]
         assert any("toda a série" in aviso for aviso in pronto["avisos"])
 
@@ -638,7 +655,7 @@ class TestODadoVelhoPerdeOAgoraENaoONumero:
         pronto = dashboard_dados.payload(pasta, muito_depois)
 
         assert pronto["destaque"]["xm"]["velho"] is True
-        assert "11,60" in pronto["destaque"]["xm"]["texto"]
+        assert "58,00" in pronto["destaque"]["xm"]["texto"]
         assert any("não de agora" in aviso for aviso in pronto["avisos"])
         # A frase PROIBIDA e "agora" colado no numero — e a unica forma
         # verificavel dela nesta arvore e o "agora mesmo" que o console emite
@@ -654,10 +671,10 @@ class TestODadoVelhoPerdeOAgoraENaoONumero:
         assert not any("não de agora" in aviso for aviso in pronto["avisos"])
 
 
-# O molde de um numero como a casa o escreve: `1.480,00`, `11,60`, `30,00`.
+# O molde de um numero como a casa o escreve: `1.480,00`, `58,00`, `30,00`.
 #
 # ELE EXISTE PORQUE `"0,00" in texto` ESTA ERRADO, E O ERRO FOI MEDIDO AQUI: a
-# primeira redacao deste teste reprovou `"30,00 XM por milhao de adena
+# primeira redacao deste teste reprovou `"30,00 XM por 5 milhoes de adena
 # (derivado)"`, um valor perfeitamente legitimo, porque `0,00` e substring de
 # `30,00`. Toda taxa terminada em zero — `10,00`, `20,00`, `30,00` — seria
 # proibida, e a proibicao que o UI-SPEC escreveu nao e essa.
@@ -726,10 +743,10 @@ class TestAsFrasesProibidasNaoAparecem:
         `0,00` sozinho e reprovado.
         """
         assert "0,00" not in MOLDE_DE_NUMERO.findall(
-            "30,00 XM por milhao de adena (derivado)"
+            "30,00 XM por 5 milhoes de adena (derivado)"
         )
         assert "0,00" in MOLDE_DE_NUMERO.findall(
-            "0,00 XM por milhao de adena (derivado)"
+            "0,00 XM por 5 milhoes de adena (derivado)"
         )
         assert "0,00" in MOLDE_DE_NUMERO.findall("Lendo o arquivo: 0,00")
 
@@ -745,8 +762,11 @@ class TestAFronteiraDoFLOAT:
         ponto = dashboard_dados.payload(pasta, AGORA)["series"][0]["pontos"][0]
 
         assert isinstance(ponto["menor_pixel"], float)
-        assert ponto["menor_pixel"] == pytest.approx(1160.0)
-        assert ponto["menor_texto"] == "11,60 XM por milhao de adena (derivado)"
+        # `11600/10.000.000 x 5.000.000 = 5.800` — o pixel e a string sobem
+        # juntos por saírem da MESMA escala. Eram `1160.0` e `11,60` ate
+        # 2026-09-03.
+        assert ponto["menor_pixel"] == pytest.approx(5800.0)
+        assert ponto["menor_texto"] == "58,00 XM por 5 milhoes de adena (derivado)"
 
     def test_sem_valor_o_pixel_e_NULO_e_nao_zero(self, pasta: Path) -> None:
         """Zero e um lugar no eixo; ausencia nao e."""
@@ -790,3 +810,106 @@ class TestAFraseDePisoEAMESMADoConsole:
         )
 
         assert nossa in do_console
+
+
+# ---------------------------------------------------------------------------
+# UMA TELA, UMA UNIDADE
+# ---------------------------------------------------------------------------
+
+
+class TestUmaTelaUmaUnidade:
+    """O defeito relatado NAO foi "um numero errado" — foi DUAS UNIDADES na
+    mesma tela.
+
+    O usuario viu `9,10 XM` no destaque e `900 / 1.000 / 1.100` no eixo do
+    grafico logo abaixo, e reconheceu a divergencia na primeira olhada. Um
+    teste por superficie deixaria exatamente esse defeito passar de novo: cada
+    um ficaria verde sozinho enquanto as seis discordassem entre si. Por isso o
+    primeiro teste mede as SEIS superficies de uma vez, na MESMA funcao, e isso
+    e deliberado.
+    """
+
+    def test_as_SEIS_superficies_falam_a_MESMA_unidade(self, pasta: Path) -> None:
+        """`10.000.000` de adena por `111,00` XM -> `55,50`, e nunca `11,10`.
+
+        A conta, por extenso (e o exemplo que o usuario deu):
+
+            Fraction(11100, 10_000_000) x 5_000_000 = 5.550 centesimos
+              -> 5.550 centesimos = 55,50 XM por 5 milhoes
+
+        Cinco milhoes e como o JOGO escreve a propria coluna (`5 mln
+        increment`). Falar na escala dela apaga uma conversao mental a cada
+        comparacao entre o dashboard e a tela do jogo.
+        """
+        _escrever_csv(pasta, _linhas_da_adena([11100, 12000]))
+        cambio = _CambioDeTeste(
+            reais_por_xm=Decimal("0.50"),
+            informado_em=datetime(2026, 9, 1, 14, 32),
+        )
+        esperada = "55,50 XM por 5 milhoes de adena (derivado)"
+
+        pronto = dashboard_dados.payload(pasta, AGORA, cambio=cambio)
+        serie = pronto["series"][0]
+
+        # (a) o console, em ASCII — a voz do terminal.
+        assert (
+            mercado_console.formatar_taxa_derivada(Fraction(11100, 10_000_000))
+            == esperada
+        )
+        # (b) o destaque do payload — a MESMA string, e nao uma parecida.
+        assert pronto["destaque"]["xm"]["texto"] == esperada
+        # (c) o rotulo da unidade da serie, acentuado — a voz da pagina.
+        assert serie["unidade"] == "XM por 5 milhões de adena"
+        # (d) o texto do ponto, que e o que o tooltip do grafico mostra.
+        assert serie["pontos"][0]["menor_texto"] == esperada
+        # (e) o titulo da aba e o titulo da pagina, IGUAIS ENTRE SI. Duas
+        #     superficies dizendo a mesma coisa com palavras diferentes sao a
+        #     mesma familia de defeito que este teste existe para pegar. O verbo
+        #     concorda no plural: cinco milhoes VALEM.
+        html = ARQUIVO_DO_HTML.read_text(encoding="utf-8")
+        titulo = re.search(r"<title>(.*?)</title>", html, re.S).group(1).strip()
+        cabecalho = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.S).group(1).strip()
+        assert titulo == cabecalho
+        assert titulo == "Quanto valem 5 milhões de adena"
+        # (f) o R$ derivado do cambio, na MESMA unidade das outras cinco:
+        #
+        #         5.550 centesimos de XM x R$ 0,50 por XM = 2.775 centavos
+        #           -> R$ 27,75 por 5 milhoes
+        #
+        #     O `R$ 29,00` da tabela do plano e do OUTRO exemplo, o de `11600`
+        #     (`5.800 x 0,50 = 2.900`). O destaque sai do MENOR pedido, e o
+        #     menor deste CSV e o `11100` do usuario — entao o numero certo
+        #     aqui e `27,75`. Escrito por extenso para ninguem "corrigir" de
+        #     volta para o literal da outra linha da tabela.
+        assert "27,75" in pronto["destaque"]["reais"]["texto"]
+        assert "por 5 milhões de adena" in pronto["destaque"]["reais"]["texto"]
+
+    def test_a_EXIBICAO_segue_uma_constante_e_a_LEITURA_segue_a_outra(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`UNIDADE_DA_TAXA` e `ADENA_POR_INCREMENTO` valem 5.000.000 os DOIS.
+
+        Uma comparacao `UNIDADE_DA_TAXA == ADENA_POR_INCREMENTO` sozinha nao
+        provaria NADA hoje: os dois valem o mesmo, e a igualdade ficaria verde
+        ate no dia em que uma virasse apelido da outra. O que este teste MEDE e
+        a SEPARACAO — mexer na primeira move a EXIBICAO e nao move a LEITURA.
+
+        Elas respondem a perguntas diferentes: uma e como o JOGO ESCREVE a
+        coluna (`5 mln increment`), a outra e como NOS FALAMOS o numero.
+        Coincidir de valor nao e ser a mesma coisa.
+        """
+        # `111,00` no total e `55,50` no incremento -> n = 2 incrementos ->
+        # 10.000.000 de adena. E a MESMA oferta do teste anterior, lida pelo
+        # outro lado do sistema.
+        antes = mercado_leitura.quantidade_de_adena(total=11100, incremento=5550)
+        assert antes == (10_000_000, 2)
+
+        monkeypatch.setattr(mercado_console, "UNIDADE_DA_TAXA", 1_000_000)
+
+        # A EXIBICAO seguiu a constante trocada: voltou a escala do milhao.
+        assert mercado_console.formatar_taxa_derivada(
+            Fraction(11100, 10_000_000)
+        ).startswith("11,10")
+        # A LEITURA nao se mexeu — nem a constante, nem o numero que sai dela.
+        assert mercado_leitura.ADENA_POR_INCREMENTO == 5_000_000
+        assert mercado_leitura.quantidade_de_adena(total=11100, incremento=5550) == antes

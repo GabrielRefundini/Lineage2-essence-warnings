@@ -61,8 +61,10 @@ TERMINADOR = "\r\n"
 # As quatro linhas de dado, e o que cada uma existe para provar:
 #
 #   1. adena#  11600 / 10.000.000  -> o MENOR unitario da serie; e dela que o
-#      destaque sai. `11600 / 10.000.000 * 1.000.000 = 1.160 centesimos`, que o
-#      `formatar_taxa_derivada` imprime como `11,60 XM por milhao`.
+#      destaque sai. `11600 / 10.000.000 * 5.000.000 = 5.800 centesimos`, que o
+#      `formatar_taxa_derivada` imprime como `58,00 XM por 5 milhoes`. (Era
+#      `1.160` e `11,60 XM por milhao` ate 2026-09-03, quando a escala de
+#      exibicao passou a cinco milhoes — a escala da coluna do proprio jogo.)
 #   2. adena#  30000 / 15.000.000  -> unitario MAIOR e total MAIOR. Ela prova
 #      que a ordem e pelo UNITARIO: escolher pelo total nao mudaria nada aqui,
 #      mas a linha 3 fecha esse buraco.
@@ -202,7 +204,7 @@ class TestUmaFonteUmaConta:
         # E o valor CONCRETO, para a fixture nao poder derivar em silencio junto
         # com o codigo: se os dois mudarem juntos, a igualdade acima continuaria
         # verde sobre um numero errado.
-        assert servido == "11,60 XM por milhao de adena (derivado)"
+        assert servido == "58,00 XM por 5 milhoes de adena (derivado)"
 
     def test_o_destaque_carrega_n_e_recencia_colados_no_numero(
         self, porta: int

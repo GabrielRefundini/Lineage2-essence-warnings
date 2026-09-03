@@ -928,10 +928,17 @@ class TestOLacoCONSULTA_A_TRAVA:
 # A CONTA, REFEITA AQUI E NAO COPIADA. `05-RESEARCH.md:621` escreve
 # `-> x 1.000.000 = 11600 centesimos = 116,00 XM por milhao` e esta ERRADO POR
 # UM FATOR DE DEZ: `Fraction(11600, 10_000_000)` e CENTESIMO POR ADENA; vezes
-# 1.000.000 da 1.160 CENTESIMOS, e 1.160 centesimos sao `11,60`, que e o numero
-# que o ROADMAP e o `05-CONTEXT.md` trazem. O erro da pesquisa foi carregar o
-# `11600` intacto para depois da multiplicacao, como se ele ja fosse o
-# resultado dela.
+# 1.000.000 daria 1.160 CENTESIMOS, e 1.160 centesimos sao `11,60`. O erro da
+# pesquisa foi carregar o `11600` intacto para depois da multiplicacao, como se
+# ele ja fosse o resultado dela.
+#
+# A ESCALA PASSOU A CINCO MILHOES EM 2026-09-03, e por isso os numeros deste
+# bloco mudaram: `x 5.000.000` da 5.800 centesimos, que sao `58,00` — onde o
+# ROADMAP e o `05-CONTEXT.md` traziam `11,60`. A razao da troca esta no bloco de
+# `UNIDADE_DA_TAXA` (a coluna do jogo se chama `5 mln increment`, e falar por
+# milhao custava uma conversao mental a cada olhada na tela). O erro de fator
+# que a pesquisa cometeu continua possivel: ele agora produziria `116,00` onde
+# o certo e `58,00`.
 #
 # O PERIGO QUE TORNA AS DUAS FUNCOES IRMAS, E NAO UMA COM PARAMETRO: a mesma
 # `Fraction` no formatador de negociacao arredonda para ZERO. O erro nao seria
@@ -966,26 +973,42 @@ def observacao_de_adena(
 class TestOsDoisFormatadoresSobreAMESMAFracao:
     """O par que torna EXECUTAVEL o perigo, em vez de deixa-lo num comentario."""
 
-    def test_a_taxa_da_adena_sai_em_XM_por_MILHAO(self) -> None:
-        """`11,60`, recalculado — e nao `116,00`, que e o erro da pesquisa."""
+    def test_a_taxa_da_adena_sai_em_XM_por_CINCO_MILHOES(self) -> None:
+        """`58,00`, recalculado — e nao `116,00`, que e o erro da pesquisa.
+
+        Era `11,60` ate 2026-09-03, quando a escala era um milhao. A conta:
+        `Fraction(11600, 10_000_000) x 5.000.000 = 5.800 centesimos = 58,00`.
+        """
         assert mercado_console.formatar_taxa_derivada(TAXA_DA_ADENA) == (
-            "11,60 XM por milhao de adena (derivado)"
+            "58,00 XM por 5 milhoes de adena (derivado)"
         )
 
     def test_a_MESMA_fracao_no_formatador_de_negociacao_da_ZERO(self) -> None:
         """O CONTROLE NEGATIVO, e ele e a razao de a funcao nova existir.
 
-        Sem este teste, "a Adena sai em XM por milhao" seria uma preferencia de
-        formatacao. Com ele, esta escrito que o formatador errado nao erra feio:
-        erra `0,00`, com toda a confianca do mundo.
+        Sem este teste, "a Adena sai em XM por 5 milhoes" seria uma preferencia
+        de formatacao. Com ele, esta escrito que o formatador errado nao erra
+        feio: erra `0,00`, com toda a confianca do mundo.
         """
         assert mercado_console.formatar_unitario_derivado(TAXA_DA_ADENA) == (
             "0,00 por unidade (derivado)"
         )
 
-    def test_a_unidade_e_o_MILHAO_e_ela_tem_nome_no_fonte(self) -> None:
-        """Constante nomeada e nao um `1_000_000` solto no meio de um f-string."""
-        assert mercado_console.UNIDADE_DA_TAXA == 1_000_000
+    def test_a_unidade_de_CINCO_MILHOES_e_USADA_e_tem_nome_no_fonte(self) -> None:
+        """A constante e CHAMADA, e nao apenas existente.
+
+        ATE 2026-09-03 ESTE TESTE ERA UM `assert CONSTANTE == numero` SOZINHO —
+        a "afirmacao de existencia" que a Licao 2 do CLAUDE.md proibe: ele
+        ficaria verde com a constante definida e nunca lida por ninguem. Agora a
+        primeira linha injeta uma entrada conhecida e afirma a SAIDA RENDERIZADA
+        (e ai a constante so pode estar sendo usada), e o valor dela vira a
+        SEGUNDA linha do mesmo teste — o nome no fonte continua prendido, mas
+        deixou de ser a unica coisa medida.
+        """
+        assert mercado_console.formatar_taxa_derivada(
+            Fraction(11100, 10_000_000)
+        ) == "55,50 XM por 5 milhoes de adena (derivado)"
+        assert mercado_console.UNIDADE_DA_TAXA == 5_000_000
 
     def test_a_taxa_carrega_a_MARCA_de_derivado(self) -> None:
         """Pela mesma razao ja escrita em `formatar_unitario_derivado`: sem a
@@ -996,14 +1019,17 @@ class TestOsDoisFormatadoresSobreAMESMAFracao:
         )
 
     def test_a_outra_captura_do_usuario_tambem_confere(self) -> None:
-        """`15.000.000 de adena por 300,00 XM` -> `20,00 XM por milhao`.
+        """`15.000.000 de adena por 300,00 XM` -> `100,00 XM por 5 milhoes`.
 
-        Um segundo par MEDIDO na tela: com um so, um `x 1.000.000` trocado por
+        Um segundo par MEDIDO na tela: com um so, um `x 5.000.000` trocado por
         uma constante de ajuste ficaria verde.
+
+        Era `20,00` ate 2026-09-03, na escala do milhao:
+        `Fraction(30000, 15_000_000) x 5.000.000 = 10.000 centesimos = 100,00`.
         """
         assert mercado_console.formatar_taxa_derivada(
             Fraction(30000, 15_000_000)
-        ) == "20,00 XM por milhao de adena (derivado)"
+        ) == "100,00 XM por 5 milhoes de adena (derivado)"
 
 
 class TestAEscolhaDoFormatadorEUMPontoSO:
@@ -1016,7 +1042,7 @@ class TestAEscolhaDoFormatadorEUMPontoSO:
             CHAVE_DA_SERIE_DA_ADENA
         )
         assert formatador(TAXA_DA_ADENA) == (
-            "11,60 XM por milhao de adena (derivado)"
+            "58,00 XM por 5 milhoes de adena (derivado)"
         )
 
     def test_uma_chave_de_ITEM_escolhe_o_unitario(self) -> None:
@@ -1064,8 +1090,10 @@ class TestOParQueDISCRIMINA_NoMESMOTexto:
         modelo = ModeloDeMercado.de_observacoes(observacoes)
         return secao_do_vale_quanto(modelo, [], AGORA)
 
-    def test_a_ADENA_sai_em_XM_por_milhao(self) -> None:
-        assert "11,60 XM por milhao de adena (derivado)" in self._texto()
+    def test_a_ADENA_sai_em_XM_por_5_milhoes(self) -> None:
+        # Era `11,60 ... por milhao` ate 2026-09-03; a escala passou a cinco
+        # milhoes, e `11600/10.000.000 x 5.000.000 = 5.800` centesimos.
+        assert "58,00 XM por 5 milhoes de adena (derivado)" in self._texto()
 
     def test_a_NEGOCIACAO_no_MESMO_texto_continua_por_unidade(self) -> None:
         assert "por unidade (derivado)" in self._texto()
@@ -1098,10 +1126,11 @@ class TestOParQueDISCRIMINA_NoMESMOTexto:
         mediana = [
             linha
             for linha in self._texto().splitlines()
-            if linha.strip().startswith("mediana:") and "XM por milhao" in linha
+            if linha.strip().startswith("mediana:")
+            and "XM por 5 milhoes" in linha
         ]
         assert mediana, (
-            "a mediana da Adena nao saiu em XM por milhao — ela e a outra "
+            "a mediana da Adena nao saiu em XM por 5 milhoes — ela e a outra "
             "metade do mesmo bloco do menor pedido"
         )
 
@@ -1115,7 +1144,7 @@ class TestOParQueDISCRIMINA_NoMESMOTexto:
         ]
         assert len(medianas) == 2, "as duas series tem de ter mediana no texto"
         assert any("por unidade (derivado)" in linha for linha in medianas)
-        assert any("XM por milhao" in linha for linha in medianas)
+        assert any("XM por 5 milhoes" in linha for linha in medianas)
 
     def test_o_n_e_a_recencia_continuam_na_linha_da_adena(self) -> None:
         """ADEN-04 pede a taxa COM `n` e recencia; a disciplina do 04 nao pode
@@ -1130,7 +1159,7 @@ class TestOParQueDISCRIMINA_NoMESMOTexto:
 
 
 class TestODestaqueAoVivoDaAdena:
-    def test_a_moldura_traz_a_taxa_em_XM_por_milhao(self) -> None:
+    def test_a_moldura_traz_a_taxa_em_XM_por_5_milhoes(self) -> None:
         """`TravaDoDestaque.anunciar` ja tem `linha.chave_da_serie` na mao — e
         o destaque e o texto que o usuario mais copia para o WhatsApp."""
         from l2scanner.mercado_catalogo import (
@@ -1152,8 +1181,10 @@ class TestODestaqueAoVivoDaAdena:
         )
         texto = TravaDoDestaque().anunciar(linha, destaque, AGORA)
         assert texto is not None
-        assert "11,60 XM por milhao de adena (derivado)" in texto
-        assert "12,00 XM por milhao de adena (derivado)" in texto
+        # `11600 -> 58,00` e `12000 -> 60,00` na escala de cinco milhoes; eram
+        # `11,60` e `12,00` na do milhao, ate 2026-09-03.
+        assert "58,00 XM por 5 milhoes de adena (derivado)" in texto
+        assert "60,00 XM por 5 milhoes de adena (derivado)" in texto
 
     def test_uma_oferta_de_ITEM_continua_saindo_por_unidade(self) -> None:
         """O controle negativo do anterior, pela trava e nao pela funcao."""
@@ -1162,7 +1193,7 @@ class TestODestaqueAoVivoDaAdena:
         )
         assert texto is not None
         assert "por unidade (derivado)" in texto
-        assert "XM por milhao" not in texto
+        assert "XM por 5 milhoes" not in texto
 
 
 class TestAFraseDeMercadoVAZIO:
