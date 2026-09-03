@@ -56,6 +56,98 @@ Com qualquer criterio reprovado a ferramenta grava
 caiu, com o numero. Falha fechada vale para a guarda tambem: uma guarda que nao
 se provou nao pode descartar dado, porque ai ela e o defeito.
 
+TRES COISAS JA TENTADAS CONTRA O `9` QUE VIRA `4`, E JA REFUTADAS
+------------------------------------------------------------------
+Em 2026-09-02 dois erros de leitura de campo tiveram a MESMA forma: um `9` saiu
+`4`. Quantidade 9 lida como 4 (`Improved Scroll: Enchant C-grade Armor`, residuo
+1948), e incremento 5999 lido como 5949 (`total=11999 incremento=5949 n=2
+residuo=101`) - o segundo PROVADO sem a tela, porque o jogo deriva o incremento
+do total e `59,49 x 2 = 118,98` nunca poderia estar ao lado de `119,99` na mesma
+linha. A guarda de Adena recusou as duas; o dado ruim nao entrou no CSV.
+
+Tres explicacoes foram levantadas e as tres CAIRAM. Ficam escritas aqui, com o
+numero de cada uma, porque uma hipotese refutada sem registro volta a ser
+tentada - e ja custou tres rodadas.
+
+REFUTACAO 1 - OS MOLDES `9` E `4` NAO SE PARECEM.
+Medido em 2026-09-02 com `casamento_da_ancora`, molde contra molde, na mesma
+mecanica da matriz de colisao:
+
+    `9` x `4` = 0,3162 acromatico (posicao 19 de 78 pares)
+                0,3788 cromatico   (posicao 13 de 78)
+    `0` x `8` = 0,7110  <- o par mais estreito do conjunto
+
+Ou seja: o par que o sistema tem de vigiar e o `0`x`8`, e o `9`x`4` esta muito
+mais longe. Semelhanca de molde NAO explica o erro de campo.
+
+E A REMEDICAO DISCORDA DE UM DOS DOIS NUMEROS - ISTO E ACHADO, NAO ERRATA.
+Medido em 2026-09-02 por ESTA ferramenta, sob `--por-rotulo`, sobre os moldes de
+PRODUCAO e na composicao de `pontuar_glifos`:
+
+    `0` x `8` = 0,7110   IDENTICO ao registro acima
+    `9` x `4` = 0,0663   contra os 0,3162 registrados
+
+A mesma mecanica reproduz o `0`x`8` na quarta casa e NAO reproduz o `9`x`4`.
+Isso desloca a suspeita para o 0,3162: ele provavelmente saiu de outra variante
+(outro alinhamento, ou o par cromatico) e nao da composicao que a producao usa.
+Nao ha explicacao medida para a diferenca, entao nenhuma esta escrita aqui - o
+que esta escrito e o fato. A CONCLUSAO nao se mexe em nenhuma das duas leituras:
+por 0,3162 ou por 0,0663, o `9` e o `4` estao muito abaixo do par mais estreito
+do sistema, e a refutacao fica de pe com folga maior do que a registrada.
+
+Esta ferramenta REMEDE os dois pares a cada execucao sob `--por-rotulo`, e
+`TestOsMoldesQueNaoSeParecem` remede a ordem em clone limpo sobre os moldes das
+fixturas (la os numeros sao 0,0663 contra 0,6952, a mesma ordem). A afirmacao
+nao pode apodrecer em silencio - e nao apodreceu: a discordancia acima so
+apareceu porque a remedicao existe.
+
+O VEREDITO SOBRE O `9`, PELOS NUMEROS DA VARREDURA DE 2026-09-02
+-----------------------------------------------------------------
+O `9` sai INOCENTADO como problema de SCORE. Medido sobre 55.342 glifos das 8
+gravacoes, com as travas configuradas (piso 0,4698, margem 0,0370):
+
+    '9'  n=2904   recusa 17,8%   score_p1 0,0710   margem_p1 0,0020
+    '4'  n=5170   recusa 45,1%   score_p1 -0,0892  margem_p1 0,0017
+
+O balde do `9` e o TERCEIRO MAIS SAUDAVEL dos onze rotulos - so `'2'` (6,9%) e
+`'0'` (17,5%) recusam menos. O `9` que a ferramenta ve, ela le com folga.
+
+O balde do `4` e o SEGUNDO PIOR dos onze, atras so do `'6'` (53,4%), e um dos
+DOIS unicos com `score_p1` NEGATIVO - o outro e a virgula. Lendo pela ressalva de
+`fragilidade_por_rotulo` - os baldes sao pelo rotulo PROPOSTO, entao um `9` lido
+como `4` cai no balde do `4` e nunca aparece no do `9` - as duas linhas apontam
+para o mesmo lado: INOCENTA POR AUSENCIA no `9`, ACUSA POR CAUDA no `4`.
+
+Isto NAO prova que a cauda do `4` seja feita de `9`. Prova que a cauda existe,
+que ela e grande (2.332 abaixo do piso em 5.170) e que e ali que um glifo
+estrangeiro estaria sentado. A proxima medicao esta nomeada: cada `Amostra`
+guarda `(gravacao, arquivo, linha, coluna)`, entao a cauda do `4` abaixo do piso
+pode ser reconferida frame a frame, e a pergunta a responder e quantos daqueles
+recortes sao `9` na tela. Enquanto isso nao for olhado, o `9` esta inocentado
+como score e a busca se move para `segmentar_glifos` e para a geometria da
+coluna, que sao os dois lugares onde um `9` deixa de virar um run de `9`.
+
+REFUTACAO 2 - A COLUNA DO INCREMENTO NAO E CORTADA PELA BORDA DA JANELA.
+Medido em frame vivo: a coluna termina em x=1179 numa janela de 1720 px de
+largura - 541 px de folga a direita. Metodo, para a medida ser refazivel sem
+adivinhacao: tomar o retangulo calibrado da coluna, somar `left + width` no
+mesmo espaco de coordenadas da janela do painel, e comparar com a largura da
+janela do rastreio. Nao ha glifo caindo fora do recorte; um `9` truncado pela
+borda nao explica o erro.
+
+REGISTRO 3 - O ARNES QUE FOI JOGADO FORA, E POR QUE ESTE RELATORIO ENTROU AQUI.
+Uma terceira tentativa foi DESCARTADA como arnes quebrado. Um script avulso
+recalculou a geometria da celula A MAO em vez de usar a geometria de PRODUCAO, e
+devolveu resultado IDENTICO para as dez linhas de uma pagina - impossivel com
+dado real, e o sinal que denunciou o defeito. As coordenadas caiam na coluna
+`Auction List`, cujo texto (`10.000.000 Adena`) e o mesmo em toda linha: o
+script media dez vezes o mesmo pixel e chamava aquilo de dez amostras.
+
+E o mesmo padrao de defeito que esta sessao ja contou doze vezes, cometido desta
+vez por quem orquestrava. E exatamente por isso o relatorio por rotulo entrou
+NESTA ferramenta, que ja varre as 8 gravacoes com a geometria de producao, em
+vez de num script novo. Nao recalcular geometria a mao, em lugar nenhum.
+
 Uso (no checkout PRINCIPAL - `recordings/` e gitignored):
 
     .venv/Scripts/python.exe tools/medir_leitura_de_glifo.py
@@ -91,6 +183,7 @@ from l2scanner.identidade import mascara_de_texto  # noqa: E402
 # mudanca de casa.
 from l2scanner.mercado_leitura import (  # noqa: E402
     LIMITE_DERIVADO_POR_UNIDADE,
+    _alinhar_por_preenchimento,
     centesimos_de_moeda,
     inteiro_de_quantidade,
     limite_derivado_do_cruzamento,
@@ -116,8 +209,39 @@ from l2scanner.mercado_pagina import LeitorDePagina  # noqa: E402
 from l2scanner.mercado_visao import (  # noqa: E402
     RastreioDoPainel,
     ancoras_de_calibracao,
+    casamento_da_ancora,
     glifos_de_calibracao,
 )
+
+# `_alinhar_por_preenchimento` E PRIVADO DE PRODUCAO, E MESMO ASSIM IMPORTADO.
+#
+# A alternativa seria a ferramenta padronizar o proprio alinhamento antes de
+# pontuar - e uma segunda copia mediria OUTRA COISA com o mesmo nome. O
+# alinhamento nao e detalhe: `_alinhar_por_preenchimento` preenche ate a maior
+# caixa em vez de cortar ate a menor, e a propria docstring dele mede a
+# diferenca num par real - 0.1918 preenchendo, 0.5000 cortando. Uma copia que
+# cortasse devolveria 0,5 onde a producao ve 0,19 e a refutacao sairia com o
+# nome certo e o significado errado.
+#
+# E a mesma razao ja escrita acima para o portao de LAYOUT, aplicada de novo:
+# uma mecanica so pode ter uma casa, e a seta aponta producao -> ferramenta.
+
+
+def casamento_entre_moldes(moldes: dict, a: str, b: str) -> float:
+    """Molde contra molde, na MESMA composicao de `pontuar_glifos`.
+
+    Tres linhas de proposito: alinhar com `_alinhar_por_preenchimento` e pontuar
+    com `casamento_da_ancora` e exatamente o que a producao faz por par em
+    `mercado_leitura.pontuar_glifos:670-680`. Espelhar a composicao - e nunca
+    reescreve-la de outro jeito - e o que faz este numero se comparar com a
+    matriz de colisao de `calibrar_mercado.py`.
+
+    Nao assumir simetria: `casamento_da_ancora(recorte, molde)` compara numa
+    posicao so, com o molde encaixado no alvo, entao a ordem dos argumentos e
+    parte da medida.
+    """
+    alinhado_a, alinhado_b = _alinhar_por_preenchimento(moldes[a], moldes[b])
+    return float(casamento_da_ancora(alinhado_a, alinhado_b))
 
 
 def _carregar_o_censo():
@@ -1134,6 +1258,28 @@ def main(argv=None) -> int:
             cal.mercado_limiar_de_leitura_de_glifo,
             cal.mercado_margem_de_leitura_de_glifo,
         )
+
+        # A REFUTACAO 1, REMEDIDA NA HORA sobre os moldes de PRODUCAO - os
+        # mesmos que `varrer` acabou de usar, pelo mesmo acessor. Escrever o
+        # numero so na docstring o deixaria apodrecer no dia em que alguem
+        # recortasse um molde novo.
+        print("")
+        print("  OS DOIS PARES, REMEDIDOS AGORA (molde contra molde):")
+        for a, b, nota in (
+            ("9", "4", "a semelhanca ACUSADA em campo, e refutada"),
+            ("0", "8", "o par mais estreito do sistema"),
+        ):
+            ausentes = [r for r in (a, b) if r not in moldes]
+            if ausentes:
+                print(
+                    f"    '{a}' x '{b}': NAO MEDIDO, molde ausente: "
+                    + ", ".join(f"'{r}'" for r in ausentes)
+                )
+                continue
+            print(
+                f"    '{a}' x '{b}' = {casamento_entre_moldes(moldes, a, b):.4f}"
+                f"   ({nota})"
+            )
 
     # -----------------------------------------------------------------
     # RELATORIO 2 - a coluna Quantity, que a pesquisa nunca mediu

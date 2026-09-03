@@ -50,7 +50,8 @@ import numpy as np
 import pytest
 
 from l2scanner.calibracao import Calibracao
-from l2scanner.mercado_leitura import segmentar_glifos
+from l2scanner.mercado_leitura import _alinhar_por_preenchimento, segmentar_glifos
+from l2scanner.mercado_visao import casamento_da_ancora
 from l2scanner.mercado_pagina import LeitorDePagina
 from l2scanner.identidade import VALOR_MINIMO_DO_TEXTO, mascara_de_texto
 
@@ -921,3 +922,92 @@ class TestAFragilidadePorRotulo:
         pedido = ferramenta.construir_analisador().parse_args(["--por-rotulo"])
         assert pedido.por_rotulo is True
         assert pedido.gravar is False
+
+
+# ---------------------------------------------------------------------------
+# Os moldes que NAO se parecem (quick-260902-syn Task 2)
+# ---------------------------------------------------------------------------
+
+
+class TestOsMoldesQueNaoSeParecem:
+    """A REFUTACAO nao pode virar prosa que ninguem confere.
+
+    Em 2026-09-02 dois erros de leitura de campo tiveram a MESMA forma: um `9`
+    saiu `4`. A primeira hipotese - "os moldes `9` e `4` se parecem" - foi
+    medida e REFUTADA. A refutacao esta escrita na docstring do modulo da
+    ferramenta, e prosa escrita apodrece em silencio: no dia em que alguem
+    recortar um molde novo, ou em que o alinhamento mudar, o texto continuaria
+    afirmando o que deixou de ser verdade.
+
+    Esta classe REMEDE a afirmacao em clone limpo, sobre os moldes recortados
+    das proprias fixturas versionadas, a cada rodada da suite. O relatorio da
+    ferramenta remede sobre os moldes de PRODUCAO a cada `--por-rotulo`. Sao as
+    duas metades: a suite cobra a afirmacao onde nao ha `calibration.json`, e o
+    relatorio cobra onde ha.
+
+    O Teste 3 sozinho NUNCA bastaria - uma ancora de sanidade nao distingue uma
+    funcao que ignora o segundo argumento de uma que o usa. E exatamente por
+    isso ele fica verde sob a mutacao que derruba os Testes 1 e 2.
+    """
+
+    def test_1_o_9_e_o_4_NAO_se_parecem_e_o_0_x_8_e_que_e_estreito(
+        self, moldes
+    ) -> None:
+        """A REFUTACAO, medida e nao afirmada.
+
+        Medido em 2026-09-02 sobre os moldes recortados destas fixturas, na
+        mesma mecanica da matriz de colisao:
+
+            `9` x `4` = 0,066299
+            `0` x `8` = 0,695182   <- o par mais estreito do sistema
+
+        Nos moldes de PRODUCAO os numeros sao outros e a ordem e a mesma:
+        `9`x`4` = 0,3162 acromatico (posicao 19 de 78 pares) e 0,3788 cromatico
+        (posicao 13), contra `0`x`8` = 0,7110. As duas medicoes concordam: seja
+        qual for o motivo de um `9` virar `4` em campo, NAO e semelhanca de
+        molde.
+
+        A afirmacao e sobre a ORDEM, e a folga e enorme nos dois conjuntos.
+        Afrouxar esta afirmacao para caber num numero que saiu diferente seria
+        transformar a refutacao no seu contrario.
+        """
+        nove_contra_quatro = ferramenta.casamento_entre_moldes(moldes, "9", "4")
+        zero_contra_oito = ferramenta.casamento_entre_moldes(moldes, "0", "8")
+
+        assert nove_contra_quatro < zero_contra_oito, (
+            f"`9`x`4` = {nove_contra_quatro:.6f} nao ficou abaixo de "
+            f"`0`x`8` = {zero_contra_oito:.6f}. RELATAR o numero; a refutacao "
+            "escrita no fonte teria de ser reescrita, jamais a afirmacao "
+            "afrouxada."
+        )
+        # Materialmente abaixo, e nao por um fio: menos da metade.
+        assert nove_contra_quatro < 0.5 * zero_contra_oito
+        assert zero_contra_oito > 0.5
+
+    def test_2_a_funcao_E_a_composicao_de_PRODUCAO_provado_por_VALOR(
+        self, moldes
+    ) -> None:
+        """Igualdade EXATA com os dois simbolos importados da producao.
+
+        Nao por inspecao de fonte: por valor. Se a ferramenta trocar de
+        mecanica - outro alinhamento, outro casamento, um `max` sobre
+        deslocamentos - este teste cai, mesmo que o numero continue plausivel.
+        """
+        for a, b in (("9", "4"), ("0", "8"), ("1", "7"), ("2", "3")):
+            alinhado_a, alinhado_b = _alinhar_por_preenchimento(
+                moldes[a], moldes[b]
+            )
+            esperado = float(casamento_da_ancora(alinhado_a, alinhado_b))
+            assert ferramenta.casamento_entre_moldes(moldes, a, b) == esperado, (
+                f"a ferramenta deixou de ser a composicao de producao em "
+                f"{a} x {b}"
+            )
+
+    def test_3_ancora_de_sanidade_um_molde_contra_si_mesmo_da_1(
+        self, moldes
+    ) -> None:
+        """Sem ela, uma mutacao que devolvesse lixo passaria no Teste 1."""
+        for rotulo in ("9", "4", "0", "8"):
+            assert ferramenta.casamento_entre_moldes(
+                moldes, rotulo, rotulo
+            ) == pytest.approx(1.0, abs=1e-6), rotulo
