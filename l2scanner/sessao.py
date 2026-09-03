@@ -852,9 +852,8 @@ class Sessao:
             if not self._ja_avisou_da_falha_do_aprendiz:
                 self._ja_avisou_da_falha_do_aprendiz = True
                 log.warning(
-                    "O aprendizado de identidades falhou neste frame e "
-                    "provavelmente nos proximos. Nenhuma assinatura nova sera "
-                    "gravada. Todo o resto do scanner continua igual.",
+                    "O aprendizado de identidades falhou: nenhuma assinatura "
+                    "nova sera gravada. O resto do scanner continua igual.",
                     exc_info=True,
                 )
             else:
@@ -925,13 +924,18 @@ class Sessao:
                 # qualquer instalacao que tenha uma assinatura — mas o usuario
                 # nao pode descobri-la pela ausencia de alertas.
                 self._ja_avisou_da_virada_de_identidade = True
+                # O QUE SAIU EM 2026-09-02: "em vez de pegar o nome da lista
+                # por posicao" e "isso vale para a party inteira, e nao so
+                # para a linha aprendida". A primeira e o comportamento
+                # ANTIGO, que quem le nao precisa reconstruir; a segunda e o
+                # ESCOPO, e o comentario acima ja explica por extenso por que
+                # a virada e da party toda. O que muda o comportamento de quem
+                # le sao as duas afirmacoes que ficaram: linha nao reconhecida
+                # vira "Membro N", e nenhum alerta sai em nome dela.
                 log.warning(
-                    "A partir de agora ha identidade visual em jogo: o scanner "
-                    "gravou a primeira assinatura sozinho. Linhas que ele nao "
-                    "reconhecer passam a aparecer como Membro N, em vez de "
-                    "pegar o nome da lista por posicao, e nenhum alerta sai em "
-                    "nome delas. Isso vale para a party inteira, e nao so para "
-                    "a linha aprendida."
+                    "A partir de agora ha identidade visual em jogo: gravei a "
+                    "primeira assinatura sozinho. Linha que eu nao reconhecer "
+                    "vira Membro N, e nenhum alerta sai em nome dela."
                 )
 
         # A PERGUNTA (BATI-01), e ela fica DEPOIS de tudo que ja estava aqui.

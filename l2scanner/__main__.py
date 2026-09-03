@@ -2807,9 +2807,7 @@ def laco_principal(
             if sessao.ticks_cego == TICKS_CEGO_PARA_SUGERIR_RECALIBRAR:
                 log.warning(
                     "Sem visao da party ha %d leituras seguidas. Se o jogo "
-                    "esta aberto e a party window visivel, ela pode ter "
-                    "sido ARRASTADA ou o jogo REDIMENSIONADO — nesse caso "
-                    "rode calibrar.bat de novo.",
+                    "esta aberto e a party window visivel, rode calibrar.bat.",
                     sessao.ticks_cego,
                 )
 
@@ -2851,13 +2849,21 @@ def laco_principal(
             # projeto inteiro evita.
             for indice, ticks in sorted(sessao.ticks_sem_reconhecer.items()):
                 if ticks == TICKS_SEM_RECONHECER_PARA_AVISAR:
+                    # AS CAUSAS SAIRAM EM 2026-09-02 ("alguem que nao estava
+                    # na party quando voce calibrou, ou alguem que virou LIDER
+                    # depois - a coroa antes do nome muda o desenho"). Elas
+                    # explicam POR QUE o reconhecimento falhou, e a acao e a
+                    # mesma nos dois casos: rodar calibrar.bat. Uma lista de
+                    # causas que converge numa unica acao nao muda o que o
+                    # usuario faz; ela so adia a leitura da acao.
+                    #
+                    # O AVISO CONTINUA SEM AFIRMAR NADA SOBRE A PARTY: ele
+                    # relata o que o scanner esta vendo. "Fulano perdeu o
+                    # reconhecimento" seria a mentira plausivel de sempre.
                     log.warning(
                         "A linha %d da party window esta ocupada ha %d leituras "
-                        "seguidas e eu nao reconheci quem esta nela. Pode ser "
-                        "alguem que nao estava na party quando voce calibrou, ou "
-                        "alguem que virou LIDER depois (a coroa antes do nome "
-                        "muda o desenho). Se for um membro da sua lista, rode "
-                        "calibrar.bat de novo para regravar as assinaturas.",
+                        "seguidas e eu nao reconheci quem esta nela. Se for um "
+                        "membro da sua lista, rode calibrar.bat.",
                         indice + 1,
                         ticks,
                     )

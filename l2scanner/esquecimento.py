@@ -188,6 +188,14 @@ def _linha_da_volta(chaves: Sequence[str], com_nome: bool) -> str:
     arquivo numa pasta, e um prefixo de seis digitos o faria abrir cada um para
     conferir. Os 64 caracteres sao feios na tela do celular e sao exatamente o
     que ele precisa colar.
+
+    "NAO HA COMANDO PARA ISSO, E A VOLTA A MAO E DE PROPOSITO" SAIU DAS DUAS
+    REDACOES em 2026-09-02. E uma frase sobre o DESENHO do comando, e nao sobre
+    o que fazer: o usuario que acabou de ler a instrucao de renomear ja sabe
+    que a volta e a mao, porque acabou de receber o passo a passo dela. A
+    intencao por tras (a volta e manual para o esquecimento nao poder ser
+    desfeito por engano, do celular, por quem so queria conferir) fica aqui,
+    onde quem for acrescentar um comando de desfazer vai olhar.
     """
     if len(chaves) == 1:
         chave = chaves[0]
@@ -204,19 +212,17 @@ def _linha_da_volta(chaves: Sequence[str], com_nome: bool) -> str:
                 f", e {PREFIXO_NOME_ESQUECIDO}{chave} para {PREFIXO_NOME}{chave}"
             )
         return (
-            f"Nada foi apagado: na pasta .identidades o arquivo agora se chama "
+            f"Nada foi apagado: em .identidades o arquivo agora se chama "
             f"{PREFIXO_ESQUECIDA}{chave}{SUFIXO_ASSINATURA}. {volta}. Depois "
-            "reinicie o scanner. Nao ha comando para isso, e a volta a mao e "
-            "de proposito."
+            "reinicie o scanner."
         )
 
     return (
-        f"Nada foi apagado: na pasta .identidades cada arquivo trocou o "
-        f"prefixo {PREFIXO_ASSINATURA} pelo prefixo {PREFIXO_ESQUECIDA} (e o "
+        f"Nada foi apagado: em .identidades cada arquivo trocou o prefixo "
+        f"{PREFIXO_ASSINATURA} pelo prefixo {PREFIXO_ESQUECIDA} (e o "
         f"{PREFIXO_NOME} de quem tinha nome virou {PREFIXO_NOME_ESQUECIDO}). "
-        "Para trazer uma de volta, renomeie os dois arquivos daquela chave de "
-        "volta e reinicie o scanner. Nao ha comando para isso, e a volta a mao "
-        "e de proposito."
+        "Para trazer uma de volta, renomeie os dois arquivos daquela chave e "
+        "reinicie o scanner."
     )
 
 
@@ -498,11 +504,18 @@ def _esquecer_o_lote(
 
 
 def _recusa_da_simulacao() -> str:
-    """O `--dry-run` nao encosta na pasta compartilhada. Ver `acervo.esquecer`."""
+    """O `--dry-run` nao encosta na pasta compartilhada. Ver `acervo.esquecer`.
+
+    A CLAUSULA QUE SAIU EM 2026-09-02 ("mexer nela daqui apagaria do
+    reconhecimento dele uma pessoa que ele esta vendo") e a consequencia que
+    justifica a recusa, e nao uma instrucao. Quem mandou o comando com
+    `--dry-run` escolheu simular; o que ele precisa saber e que nada foi feito
+    e por qual motivo estrutural (a pasta e compartilhada). O resto e o
+    raciocinio que fez a regra existir, e mora aqui.
+    """
     return (
-        "Isto aqui e uma simulacao (--dry-run), entao nao esqueci nada: a "
-        "pasta .identidades e a MESMA do scanner de verdade, e mexer nela "
-        "daqui apagaria do reconhecimento dele uma pessoa que ele esta vendo."
+        "Simulacao (--dry-run): nao esqueci nada. A pasta .identidades e a "
+        "MESMA do scanner de verdade."
     )
 
 
