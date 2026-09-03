@@ -609,11 +609,15 @@ class TestAPrevisaoNoArranque:
         )
 
         assert len(despachante.despachos) == 1
-        # A frase do WhatsApp, e nao "a janela abriu": a linha de previsao
-        # tambem contem esse pedaco, e casar por ele acharia a propria previsao.
+        # A frase do WhatsApp, e nao "janela": a linha de previsao tambem
+        # contem essa palavra, e casar por ela acharia a propria previsao. A
+        # ressalva da abertura ("ele ainda pode demorar") so existe na frase
+        # do grupo — a previsao entrega os dois horarios e nao ressalva o
+        # primeiro. Antes do encurtamento de 2026-09-02 a ancora deste `next`
+        # era "Antes de agora ele nao nascia", pedaco da mesma frase.
         despachada = next(
             i for i, m in enumerate(mensagens)
-            if "Antes de agora ele nao nascia" in m
+            if "ainda pode demorar" in m
         )
         assert com_ancora < despachada and sem_ancora < despachada, (
             "a previsao do arranque saiu depois do primeiro aviso"

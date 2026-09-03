@@ -607,66 +607,86 @@ def texto_da_janela(aviso: AvisoDeJanela) -> str:
     AS HORAS SAEM DE `aviso.horas`, que veio do `[[boss]]`, e nunca de um
     numero escrito aqui: um boss novo no `config.toml` tem que produzir a frase
     com as horas dele.
-    """
-    instante = aviso.ancora.instante
-    hora = f"{instante.hour:02d}:{instante.minute:02d}"
-    data = f"{instante.day:02d}/{instante.month:02d}"
-    horas = f"{aviso.horas:g}h"
 
-    ancorado_no_anuncio = aviso.ancora.origem is not OrigemDoAviso.ALVO
-    if ancorado_no_anuncio:
-        desde = f"desde o nascimento anterior, que o servidor anunciou as {hora} de {data}"
-        ressalva = ""
-    else:
-        desde = (
-            f"desde a ultima vez que seu alvo virou {aviso.boss}, "
-            f"as {hora} de {data}"
-        )
-        ressalva = (
-            " Ter o boss no alvo nao prova que ele tinha acabado de nascer, "
-            "entao este numero pode estar adiantado."
-        )
+    O QUE SAIU DAQUI EM 2026-09-02, E PARA ONDE FOI. O usuario pediu mensagens
+    curtas, de leitura rapida no celular no meio do farm. As quatro frases
+    tinham de 161 a 248 caracteres, e a maior parte do excedente era UMA
+    justificativa aritmetica repetida em todas: "a conta parte do nascimento e
+    nao da morte, entao o tempo em que o boss ficou vivo ainda nao entrou
+    nela".
+
+    ELA MOROU AQUI POR UM MOTIVO CERTO, e o motivo continua valendo: e a razao
+    de os dois avisos sairem CEDO, nunca tarde. Chame de `k` o tempo que o boss
+    ficou vivo entre o nascimento e a morte. A previsao conta do NASCIMENTO
+    anterior, entao a janela real abre `k` depois do que esta escrito na
+    mensagem, e `k` e um numero que o scanner nao tem como medir. Nada disso
+    mudou; o que mudou e onde esta escrito.
+
+    O QUE FICOU NA MENSAGEM E A CONSEQUENCIA, que e a unica parte acionavel:
+    "Ele ainda pode demorar" na abertura e "Ele pode nascer a qualquer
+    momento" no limite. As duas dizem ao leitor o que FAZER com o numero. A
+    aritmetica dizia por que o numero e aquele, e quem le no celular durante
+    uma luta nao vai refazer a conta: le a ressalva e decide. A justificativa
+    ficou aqui, nesta docstring, onde quem for MEXER na conta a encontra.
+
+    O PISO CONTINUA AFIRMADO, e essa parte nao encolheu. "Pode nascer a
+    qualquer momento" nao e enfeite: e o substituto de D-19 para a negacao de
+    encerramento, e sai literal nas duas frases de limite. Encurtar em cima
+    dela seria trocar informacao por texto.
+    """
+    horas = f"{aviso.horas:g}h"
+    desde, ressalva = _citacao_da_ancora(aviso.ancora)
 
     if aviso.tipo is TipoDeJanela.ABRE:
-        return (
-            f"{aviso.boss}: a janela abriu. Antes de agora ele nao nascia; "
-            f"sao {horas} {desde}.{ressalva} "
-            f"A conta parte do nascimento e nao da morte, entao ele ainda "
-            f"pode demorar."
-        )
+        # "Ele ainda pode demorar" E A CLAUSULA DA MORTE, dita pela
+        # consequencia em vez da aritmetica. A aritmetica esta na docstring
+        # acima; no celular ela custava 70 caracteres para entregar a mesma
+        # unica instrucao operacional, que e nao sair correndo.
+        return f"{aviso.boss}: janela ABERTA, {horas} {desde}.{ressalva} Ele ainda pode demorar."
 
-    if ancorado_no_anuncio:
-        return (
-            f"{aviso.boss}: passaram as {horas} {desde}. "
-            f"Esse era o limite otimista da conta, e dele para a frente ele "
-            f"pode nascer a qualquer momento: a conta parte do nascimento e "
-            f"nao da morte, entao o tempo em que o boss ficou vivo ainda nao "
-            f"entrou nela."
-        )
-    # A CLAUSULA DA MORTE ENTRA AQUI TAMBEM, e a razao e que esta era a UNICA
-    # das quatro frases sem ela. As outras tres dizem "a conta parte do
-    # nascimento e nao da morte"; esta dizia so a ressalva do alvo.
-    #
-    # E justamente a frase que mais precisa: ela junta as DUAS fontes de atraso
-    # da previsao. A ressalva do alvo cobre uma (o boss podia estar de pe ha
-    # horas quando foi alvejado) e a clausula da morte cobre a outra (o tempo
-    # em que ele ficou vivo depois do nascimento nunca entrou na conta). Sem a
-    # segunda, quem le atribui o adiantamento inteiro ao alvo e conclui que um
-    # aviso ancorado no chat seria exato — e nao seria.
+    # "pode nascer a qualquer momento" E O PISO AFIRMADO (D-19), e continua
+    # literal nas DUAS frases de limite. Ela nao e enfeite nem justificativa:
+    # e a unica coisa que um leitor pode FAZER com o limite, e afirmar o piso
+    # e o que substitui a negacao de encerramento que o portao de tokens
+    # proibe. Encurtar em cima dela seria trocar informacao por texto.
     return (
-        f"{aviso.boss}: passaram as {horas} {desde}.{ressalva} "
-        f"Esse era o limite otimista da conta, e dele para a frente ele pode "
-        f"nascer a qualquer momento: a conta parte do nascimento e nao da "
-        f"morte, entao o tempo em que o boss ficou vivo ainda nao entrou nela."
+        f"{aviso.boss}: passou o limite otimista, {horas} {desde}."
+        f"{ressalva} Ele pode nascer a qualquer momento."
     )
 
 
-def _citacao_da_ancora(boss_no_config: str, ancora: Ancora) -> tuple[str, str]:
+def _citacao_da_ancora(ancora: Ancora) -> tuple[str, str]:
     """A citacao da origem e a ressalva, na MESMA distincao das quatro frases.
 
-    Extraida para o console e a mensagem do grupo nao poderem divergir na
-    unica coisa que D-16 protege: quem le o console tem que poder julgar o
-    numero com a mesma informacao de quem le o grupo.
+    UMA SO ORIGEM DE TEXTO PARA AS DUAS FAMILIAS. Desde 2026-09-02 esta funcao
+    serve `texto_da_janela` (as quatro frases do grupo) E `linhas_de_previsao`
+    (a resposta do `/tiat` e o console), e nao mais so a segunda. E o que D-16
+    sempre pediu, agora estrutural: quem le o console julga o numero com a
+    MESMA informacao de quem le o WhatsApp, porque as duas leem esta funcao.
+    Duas copias voltariam a divergir na primeira vez que alguem encurtasse uma
+    delas, que e literalmente o que este commit esta fazendo.
+
+    O BOSS SAIU DA CITACAO DO ALVO, e o parametro `boss_no_config` com ele. A
+    frase antiga era "da ultima vez que seu alvo virou Tiat North, as 14:30 de
+    30/08" e as duas familias de mensagem ja COMECAM pelo nome do boss (D-14).
+    Repeti-lo no meio custava 13 caracteres para nomear pela segunda vez, na
+    mesma frase, a criatura que o leitor acabou de ler. "Desde que virou seu
+    alvo" diz a mesma coisa e nao deixa duvida sobre quem virou.
+
+    A RESSALVA ENCOLHEU MAS NAO SAIU, e a distincao importa. "Ter o boss no
+    alvo nao prova nascimento, entao este numero pode estar adiantado" virou
+    "Alvo nao prova nascimento, pode estar adiantado": 65 caracteres a menos,
+    a mesma afirmacao. Ela nao podia sair de jeito nenhum, e a razao esta em
+    `texto_da_janela`: o alvo REARMA quando o usuario desmarca e remarca,
+    entao uma criatura viva ha uma hora pode gravar ancora nova e reiniciar a
+    conta. Com D-15 (cobertura sobre precisao) escolhido, esta linha e a
+    unica coisa que mantem o erro LEGIVEL, e o usuario decide sair de casa
+    com base nela.
+
+    A CITACAO DO ANUNCIO NAO TEM RESSALVA porque nao ha o que ressalvar: o
+    servidor anunciou o nascimento, e isso e prova. Uma ressalva generica nas
+    duas diluiria a diferenca entre prova e indicio, que e a informacao
+    inteira.
     """
     instante = ancora.instante
     hora = f"{instante.hour:02d}:{instante.minute:02d}"
@@ -674,14 +694,12 @@ def _citacao_da_ancora(boss_no_config: str, ancora: Ancora) -> tuple[str, str]:
 
     if ancora.origem is not OrigemDoAviso.ALVO:
         return (
-            f"do nascimento que o servidor anunciou as {hora} de {data}",
+            f"desde o nascimento que o servidor anunciou as {hora} de {data}",
             "",
         )
     return (
-        f"da ultima vez que seu alvo virou {boss_no_config}, "
-        f"as {hora} de {data}",
-        " Ter o boss no alvo nao prova nascimento, entao este numero pode "
-        "estar adiantado.",
+        f"desde que virou seu alvo as {hora} de {data}",
+        " Alvo nao prova nascimento, pode estar adiantado.",
     )
 
 
@@ -723,87 +741,56 @@ def linhas_de_previsao(
     no MESMO portao de tokens de `tests/test_respawn.py`, e nao num segundo que
     poderia divergir dele.
 
-    A LINHA COM ANCORA TERMINA PELA REGRA (`_regra_da_janela`), e a razao de a
-    frase morar aqui — e nao so na resposta do comando `/tiat` — esta escrita
-    naquela funcao. A LINHA SEM ANCORA NAO A RECEBE, e a assimetria e
-    deliberada: T-02-13 exige que ela nao contenha numero NENHUM, e a regra e
-    feita de dois numeros. Alem disso, ela nao teria o que explicar — nao ha
-    intervalo previsto para justificar.
+    A REGRA DO SERVIDOR SAIU DA LINHA EM 2026-09-02, a pedido do usuario. Ela
+    dizia, POR BOSS: "A regra sao 8h fixas mais ate 2h aleatorias, entao o
+    nascimento cai em algum ponto entre os dois horarios acima." A linha
+    inteira tinha 349 caracteres e a resposta do `/tiat` com dois bosses
+    passava de 700, lida no celular no meio de um farm.
+
+    A REGRA CONTINUA VERDADE, e continua sendo `respawn_horas_min` mais a
+    DIFERENCA para `respawn_horas_max`, lidas do `[[boss]]`. O que mudou e o
+    julgamento de que ela precisava ser DITA. Ela existia para explicar por que
+    ha dois horarios em vez de um, mas a linha ja diz "a janela abre em X e o
+    limite passa em Y": um intervalo com dois extremos ja E a resposta, e a
+    segunda metade da frase ("o nascimento cai em algum ponto entre os dois
+    horarios acima") so repetia com outras palavras o que "janela" significa.
+    A primeira metade era aritmetica de servidor, que ninguem refaz no celular.
+
+    O QUE A LINHA CARREGA HOJE, e cada item e acionavel: o NOME do boss (D-14,
+    decide para onde a party se desloca), os DOIS horarios, o TEMPO VERBAL de
+    cada um (uma janela que ja abriu e um fato diferente de uma que vai abrir),
+    e a CITACAO DA ANCORA com a ressalva do alvo quando ela cabe. Nada mais.
+
+    A RESSALVA DO ALVO NAO E ENFEITE e nao pode sumir na proxima limpeza:
+    ancora de alvo pode estar adiantada, e o usuario decide sair de casa com
+    base nesse numero. Ela vem de `_citacao_da_ancora`, a mesma que as quatro
+    frases do grupo usam, entao encurta-la de um lado encurta dos dois.
+
+    A LINHA SEM ANCORA CONTINUA SEM NUMERO NENHUM (T-02-13), e por isso ela
+    tambem nunca teve a regra: a regra e feita de dois numeros, e afrouxar o
+    portao de digitos para ela caber abriria a porta pela qual um horario
+    inventado entraria depois.
     """
     linhas: list[str] = []
     for boss in bosses:
         ancora = ancoras.get(apelido_do_evento(boss.nome))
         if ancora is None:
             linhas.append(
-                f"{boss.nome}: ainda nao vi nascimento nenhum deste boss, "
-                f"entao nao tenho previsao de janela para ele."
+                f"{boss.nome}: sem nascimento visto, nao tenho janela "
+                f"para prever."
             )
             continue
 
         abre = ancora.instante + timedelta(hours=boss.respawn_horas_min)
         limite = ancora.instante + timedelta(hours=boss.respawn_horas_max)
-        desde, ressalva = _citacao_da_ancora(boss.nome, ancora)
+        desde, ressalva = _citacao_da_ancora(ancora)
         linhas.append(
-            f"{boss.nome}: a janela "
-            f"{'abre' if agora < abre else 'abriu'} em {_quando(abre)} e o "
-            f"limite otimista "
-            f"{'passa' if agora < limite else 'passou'} em {_quando(limite)}, "
-            f"contados {desde}.{ressalva} {_regra_da_janela(boss)}"
+            f"{boss.nome}: janela "
+            f"{'abre' if agora < abre else 'abriu'} {_quando(abre)}, "
+            f"limite {'passa' if agora < limite else 'passou'} "
+            f"{_quando(limite)}, {desde}.{ressalva}"
         )
     return linhas
-
-
-def _regra_da_janela(boss: Boss) -> str:
-    """A regra do servidor por extenso: a parte FIXA mais o SORTEIO.
-
-    POR QUE ESTA FRASE EXISTE. A linha antiga entregava dois horarios e nenhuma
-    explicacao para eles serem dois. Quem le um intervalo sem a regra que o
-    produziu inventa a explicacao sozinho, e a mais natural — "o bot esta em
-    duvida entre dois horarios" — e falsa: o scanner nao esta incerto sobre a
-    conta, o SERVIDOR e que sorteia dentro da faixa. A diferenca decide o que a
-    party faz: uma conta duvidosa se ignora, um sorteio se espera.
-
-    POR QUE ELA MORA AQUI, DENTRO DA PREVISAO, E NAO SO NA RESPOSTA DO COMANDO.
-    Foi uma escolha entre duas, e as duas tinham argumento. Contra: o console e
-    o anuncio horario ficam com uma frase a mais que ninguem pediu. A favor, e
-    e o que decidiu: e a MESMA disciplina de `_citacao_da_ancora`, escrita ali
-    por D-16 — quem le o console tem que poder julgar o numero com a mesma
-    informacao de quem le o WhatsApp. A regra e parte de como julgar o numero,
-    e nao enfeite; posta so na resposta do comando, ela seria a primeira coisa
-    desta familia a existir num canal e faltar no outro, e a segunda copia
-    nasceria livre para divergir da primeira no dia em que o servidor trocasse
-    a regra de novo. Uma frase a mais no console e barato; duas versoes da
-    mesma verdade nao e.
-
-    OS DOIS NUMEROS SAO CALCULADOS E NUNCA ESCRITOS. A parte fixa e
-    `respawn_horas_min`; a aleatoria e a DIFERENCA entre os dois campos do
-    `[[boss]]`. O servidor ja mudou a regra uma vez — era 6h fixas mais ate 2h,
-    virou 8h mais ate 2h — e vai mudar de novo. Um literal aqui viraria uma
-    mentira que passa em todos os testes, porque nenhum deles compara o texto
-    com o `config.toml`.
-
-    FAIXA ZERO NAO ANUNCIA SORTEIO. `ler_bosses` so recusa `max` MENOR que
-    `min`, entao `max == min` e uma configuracao legal. A frase generica sairia
-    como "mais ate 0h aleatorias", que e pior que nao dizer nada: ela promete
-    um sorteio inexistente e manda o leitor procurar uma faixa de largura zero.
-
-    NAO AFIRMA ENCERRAMENTO (D-19) e nao pode passar a afirmar. Ela descreve a
-    regra do servidor, que conta a partir da MORTE; a previsao conta a partir
-    do NASCIMENTO. Dizer aqui que "depois de 10h ele ja nasceu" seria juntar as
-    duas contas e produzir exatamente a afirmacao que o portao de tokens de
-    `tests/test_respawn.py` recusa.
-    """
-    fixas = boss.respawn_horas_min
-    aleatorias = boss.respawn_horas_max - boss.respawn_horas_min
-    if aleatorias <= 0:
-        return (
-            f"A regra deste boss sao {fixas:g}h cravadas, sem parte sorteada: "
-            f"os dois horarios acima sao o mesmo instante."
-        )
-    return (
-        f"A regra sao {fixas:g}h fixas mais ate {aleatorias:g}h aleatorias, "
-        f"entao o nascimento cai em algum ponto entre os dois horarios acima."
-    )
 
 
 def _quando(instante: datetime) -> str:

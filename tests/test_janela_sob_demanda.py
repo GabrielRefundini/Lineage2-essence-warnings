@@ -253,16 +253,40 @@ class TestOTextoDaResposta:
         assert "31/08 05:59" in texto and "31/08 07:59" in texto
         assert "31/08 06:29" in texto and "31/08 08:29" in texto
 
-    def test_diz_a_janela_ALEATORIA_por_extenso(self, tmp_path):
-        """O acrescimo que o usuario pediu com todas as letras.
+    def test_NAO_repete_a_regra_do_servidor_em_cada_linha(self, tmp_path):
+        """A troca que o usuario pediu com todas as letras, em 2026-09-02.
 
-        Sem esta frase a resposta entrega dois horarios e nenhuma explicacao
-        para eles serem dois.
+        ESTE CASO JA AFIRMOU O CONTRARIO, e a inversao e deliberada. Ele exigia
+        "8h fixas" e "2h aleatorias" na resposta, uma vez POR BOSS. Com dois
+        Tiats no `config.toml` a resposta do `/tiat` passava de 700 caracteres,
+        lida no celular no meio de um farm, e a frase da regra era quase um
+        terco dela.
+
+        O QUE A REGRA EXPLICAVA continua explicado, so que pelo formato: a
+        resposta diz "a janela abre em X e o limite passa em Y", e um intervalo
+        com dois extremos ja e a resposta para "por que ha dois horarios". A
+        segunda metade da frase antiga ("o nascimento cai em algum ponto entre
+        os dois horarios acima") repetia o que a palavra janela significa.
+
+        O QUE NAO PODE ACONTECER e a resposta voltar a crescer. Por isso este
+        caso ficou, invertido, em vez de ser apagado: ele e o portao.
         """
         texto = perguntar("/tiat", tmp_path).textos[0]
 
-        assert "8h fixas" in texto
-        assert "2h aleatorias" in texto
+        assert "fixas" not in texto
+        assert "aleatorias" not in texto
+        assert "entre os dois horarios" not in texto
+
+    def test_cada_linha_da_resposta_cabe_numa_olhada(self, tmp_path):
+        """O corte que o pedido do usuario virou: leitura rapida no celular.
+
+        Medido POR LINHA e nao sobre a resposta inteira, porque a linha e que
+        multiplica: um boss a mais no `config.toml` e uma linha a mais.
+        """
+        texto = perguntar("/tiat", tmp_path).textos[0]
+
+        for linha in texto.split("\n"):
+            assert len(linha) <= 160, f"{len(linha)} caracteres: {linha}"
 
     def test_sem_ancora_nenhuma_NAO_inventa_horario(self, tmp_path):
         """T-02-13 atravessa ate o WhatsApp.
