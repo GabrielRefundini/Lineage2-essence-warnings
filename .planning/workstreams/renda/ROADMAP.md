@@ -298,7 +298,38 @@ registra `-68,5%` quando o usuário sobe de nível não erra num canto — erra 
   farmado. A resposta provável é excluir o tempo cego do denominador, e ela precisa estar
   escrita, porque o oposto (dividir pelo relógio de parede) é o padrão silencioso.
 
-**Plans**: TBD
+**Plans**: 4 planos escritos
+
+- [ ] `02-01-PLAN.md` — o traçador: de duas amostras a uma taxa por hora, atravessando as regras
+      de par, o passo, o disco e o leitor tolerante; **e o portão da Fase 1 invertido** no mesmo
+      commit (`tests/test_renda_par.py:591-623` proibia chamador; passa a exigir que ele exista e
+      seja um só). Fecha também a seção `[renda]` do `config.toml` e `.renda/` no `.gitignore`
+      (onda 1)
+- [ ] `02-02-PLAN.md` — a conta: os quatro deltas negativos que não são prejuízo (level up
+      `(100−ant)+atual`, gasto à parte, relógio para trás, e o nível **recusado** que nunca vira
+      level up adivinhado), a janela móvel por tempo com o tempo cego fora do denominador, as duas
+      taxas com `n`, o tempo até o nível e a contagem que explica cada `n` (onda 2)
+- [ ] `02-03-PLAN.md` — o registro: as treze colunas com o invariante das duas metades, os dois
+      portões de contrato, um arquivo por personagem, **sem a dedup do `.mercado/`** (ela apagaria
+      o denominador da taxa), o leitor tolerante próprio, e a refutação do "uma lista de colunas,
+      não um parser" escrita no fonte **e presa por teste** (onda 2)
+- [ ] `02-04-PLAN.md` — a ponte XP↔pp: `renda_ponte_de_xp` nos cinco lugares do
+      `calibration.json`, o consumo com XP absoluto **ou** três ausências distinguíveis, a
+      constante medida **semeada** com a procedência (Faerlina 67, 388.700 XP/pp, censo completo a
+      55 Hz), e a convenção do bônus de REND-09 como função testada (onda 1)
+
+> **A forma do arquivo foi decidida no planejamento, e a suposição que a originou caiu.** O
+> `02-CONTEXT.md:87` dizia "um arquivo por personagem por dia, na forma que o `.mercado/` e o
+> `.loot/` já usam" — e **nenhum dos dois tem essa forma**: o `.mercado/` é *"UM ARQUIVO SO, QUE
+> CRESCE, SEM ROTACAO"* (`mercado_registro.py:610`) e o `.loot/` é uma pasta de marcadores vazios,
+> nem CSV é. Rotação por data não existe nesta árvore. Ficou **um arquivo por personagem, sem
+> rotação**, e a razão principal não é precedente: é que o usuário roda **duas instâncias** e o
+> dialeto copiado pressupõe **um escritor por arquivo**. Rotação por dia ainda obrigaria o leitor
+> a decidir o que fazer na virada da meia-noite no meio de uma janela de dez minutos, criando uma
+> lacuna artificial indistinguível da lacuna de verdade.
+
+> **REND-07 não entra nesta fase** — comparar renda entre locais de farm já está em v2, e o
+> `02-CONTEXT.md:163` o defere explicitamente. Os outros doze requisitos da fase têm dono.
 
 ---
 
