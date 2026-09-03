@@ -157,3 +157,65 @@ chamador de produção, de propósito.
 - Avisar no WhatsApp quando a renda cair (ALER-01, v2).
 
 </deferred>
+
+<corrections>
+## Resposta às dez contradições da pesquisa (2026-09-03)
+
+Todas aceitas. Duas delas são minhas, e as duas são do mesmo tipo: **eu derrubei o `rich.Live`
+mas fiquei com a imagem mental que ele tinha criado.**
+
+### As duas que corrigem a Área 1 — e ela estava errada depois de já ter sido corrigida uma vez
+
+- **#1 — `linha_ao_vivo` NÃO é repintada.** Não há `\r`, não há clear, não há `print`: o laço faz
+  `log.info` e a linha **rola**. Eu escrevi "uma linha repintada" três vezes. A tela desta casa é
+  um **log que desce**, não um painel que se atualiza no lugar. Isso muda o desenho do painel
+  inteiro — "atualizando ao vivo" do critério 1 significa **uma linha nova por tique**, não um
+  retângulo que pisca.
+- **#2 — `console.LARGURA = 58` nunca governou a linha ao vivo.** `moldurar` usa
+  `max(LARGURA, ...)`: 58 é **piso, não teto**. Medido: a linha do mercado já roda **84 colunas**
+  normalmente e **255** com aviso; a largura citada no fonte é **76**. Minha decisão de "medir o
+  que cabe em 58" partia de uma restrição que não existe. A linha densa da renda mede **87** — e
+  o precedente multi-linha existe e é forte (`resumo_da_sessao`, ~25 linhas, por intervalo).
+
+### A que muda o que o executor vai escrever primeiro
+
+- **#5 — `renda_modo._frame_de_janela` usa `capturar_completo()` e PULA a saúde inteira.** Ele foi
+  escrito na Fase 1 para leitura única, onde isso é correto. **Copiá-lo para o laço torna CEGO-01
+  e CEGO-02 estruturalmente impossíveis** — sem `SaudeDoFrame` não há como distinguir FALHA de
+  CONGELADO, e o painel não teria o que dizer. O laço usa `capturar()`, não `capturar_completo()`.
+
+### As que barateiam a fase
+
+- **#6 — CEGO-01 é mais barato do que o roadmap supõe:** zero coluna nova, zero portão novo.
+  Basta **não chamar `registrar`** durante a cegueira; o próximo par vira `lacuna` sozinho, pela
+  regra que a Fase 2 já tem. A fase declara na tela e cala no disco.
+- **#4 — a chave de cadência não existe e não precisa existir.** A seção `[renda]` tem cinco
+  chaves e nenhuma é cadência, mas **`--intervalo` já existe de graça** no caminho do mercado. Não
+  inventar a sexta chave.
+
+### As armadilhas
+
+- **#8 — `tests/test_renda_par.py:704` exige que SÓ `renda_conta.py` chame as regras de par.** É o
+  portão que a Fase 2 inverteu, e ele é uma armadilha para o módulo novo: se o laço chamar
+  `conferir_o_par` direto, a suíte fica vermelha. **O laço chama `renda_conta`, nunca as regras.**
+  Isso é bom desenho e não só obediência — a conta é de lá.
+- **#3 — os marcadores de descontinuidade são SETE, não cinco.** E só **dois** exigem laço ao
+  vivo (`lacuna` e `relogio-andou-para-tras`). O resto a Fase 2 já produz.
+- **#7 — `esta_minimizada` existe e não tem chamador.** Nenhum documento a citava. É exatamente o
+  sinal que CEGO-01 pede para "minimizado", e ela já está escrita.
+
+### Contradição #4 do meu lado, sobre a Área 3
+
+- A pesquisa mediu que `largura_da_banda` está gravada (4/3/5), é **contagem de passos de 5**, e o
+  piso gravado é o **centro** da banda. Mas o M-S mediu deslocamento de **4 passos** — maior que a
+  banda inteira. **Andar dentro da banda gravada não teria salvo o caso real.** O LEIT-10 continua
+  valendo, mas o plano tem de decidir o alcance da varredura com esse número na mão, e não com a
+  largura gravada.
+
+### Higiene
+
+- **#9** — `Progress` e `Coverage` do `ROADMAP.md` estão desatualizados e o LEIT-10 falta na
+  Coverage. Tarefa de fim de fase.
+- **#10** — `.renda/` nasce com `LEIAME.txt` além do CSV; quem for ler a pasta precisa saber.
+
+</corrections>
