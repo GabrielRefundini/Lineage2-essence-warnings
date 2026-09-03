@@ -2433,9 +2433,47 @@ class TestATravaDaRecusa:
         outra = TravaDaRecusa()
         primeira = outra.anunciar(5, "oclusao", "fundo nao uniforme")
         assert isinstance(primeira, str)
-        assert primeira == "linha 5 RECUSADA (oclusao): fundo nao uniforme"
+        # A FORMA MUDOU EM 2026-09-02 E A RAZAO FICA AQUI: ate entao esta linha
+        # afirmava `"linha 5 RECUSADA (oclusao): fundo nao uniforme"`, e o `5`
+        # sozinho apontava para a SEXTA linha da tela (o indice e base 0). O
+        # texto passou a dizer as duas numeracoes. Este assert continua sendo o
+        # que prende a frase byte a byte — so que a frase agora e outra.
+        assert primeira == (
+            "linha 6 (indice 5) RECUSADA (oclusao): fundo nao uniforme"
+        )
         for _repeticao in range(4):
             assert outra.anunciar(5, "oclusao", "fundo nao uniforme") is None
+
+    def test_a_recusa_diz_a_POSICAO_NA_TELA_junto_do_indice(self) -> None:
+        """A frase carrega OS DOIS NUMEROS, e o teste MEDE a string emitida.
+
+        O DEFEITO QUE ISTO PRENDE FOI VISTO EM PRODUCAO (2026-09-02): o log
+        emitiu `linha 7 RECUSADA (cruzamento): total=19000 incremento=6000 n=3
+        residuo=1000` apontando para a OITAVA linha da tela. O indice e base 0
+        (`mercado_pagina.py:1049-1050`: `for indice in range(...)` e
+        `topo = gy + indice * altura`), e a propria mensagem provava o
+        deslocamento: `n=3` so acontece nas ofertas de 15.000.000, e a SETIMA
+        linha da tela era `120,00 / 60,00 / 10M`, que fecha com residuo 0 e
+        nunca seria recusada.
+
+        Isso importa porque o `scanner.log` e a UNICA ferramenta de forense
+        pos-farm do projeto. Uma mensagem que aponta para a linha errada faz a
+        evidencia mentir justamente quando alguem finalmente a le.
+
+        O INDICE 0 ENTRA JUNTO DE PROPOSITO: e onde a distancia relativa entre
+        os dois numeros e maior (`linha 1` contra `indice 0`), e onde um
+        `+ 1` esquecido produziria a frase mais absurda de todas — `linha 0`,
+        que nao existe em tela nenhuma.
+        """
+        from l2scanner.mercado_leitura import TravaDaRecusa
+
+        setima = TravaDaRecusa().anunciar(7, "cruzamento", "residuo=1000")
+        assert isinstance(setima, str)
+        assert "linha 8 (indice 7)" in setima, setima
+
+        primeira = TravaDaRecusa().anunciar(0, "oclusao", "fundo nao uniforme")
+        assert isinstance(primeira, str)
+        assert "linha 1 (indice 0)" in primeira, primeira
 
     def test_o_leitor_PASSA_A_SUA_trava_a_cada_ler_linha(
         self, cal, janela_f010, monkeypatch
