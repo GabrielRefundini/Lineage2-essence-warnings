@@ -491,3 +491,81 @@ respawn_horas_max = 10
 # [identidade]
 # leituras_para_aprender = 5
 # celulas_toleradas = 0
+
+# ---------------------------------------------------------------------------
+# RENDA — os cinco numeros que governam a conta de quanto voce esta rendendo
+#
+# O scanner le a barra de status (nivel, EXP e adena), compara duas leituras
+# seguidas e transforma a diferenca em taxa por hora. Estes cinco numeros sao o
+# que decide o que e "agora", o que e "o scanner ficou cego" e a partir de
+# quanta amostra ele se sente no direito de dizer um numero.
+#
+# ESTA SECAO E OPCIONAL. Sem ela o scanner usa os padroes abaixo, que sao os
+# valores certos para a esmagadora maioria das farmadas. Os cinco numeros entram
+# COMENTADOS de proposito: um numero escrito no arquivo e um numero que alguem
+# vai achar que precisa ajustar.
+#
+# QUALQUER UM DELES ESCRITO ERRADO DERRUBA O ARRANQUE COM O NOME DA CHAVE NA
+# MENSAGEM. Os cinco sao inteiros MAIORES QUE ZERO. `true` e recusado de
+# proposito: em Python `true` valeria 1, e um fator de salto valendo 1 recusaria
+# calado toda amostra em que a adena mudou — ou seja, a noite inteira.
+#
+#   janela_movel_minutos     o tamanho da janela que responde "o que esta
+#                            acontecendo AGORA". Padrao 10. Subir suaviza (a
+#                            taxa para de pular a cada mob grande e demora mais
+#                            a reagir quando o farm melhora); descer deixa o
+#                            numero nervoso. Medido: a media de 8h45 deu 226 mil
+#                            adena/h e a janela curta deu 466 mil/h — a
+#                            diferenca inteira e tempo parado, e por isso as
+#                            duas taxas aparecem, e nao so uma.
+#                            AINDA NAO FAZ NADA: e lido e conferido desde ja (um
+#                            valor torto derruba o arranque dizendo qual campo
+#                            esta errado), mas quem o usa e o proximo plano.
+#                            Esta aqui agora para voce nao editar este arquivo
+#                            duas vezes — o mesmo motivo das horas de respawn.
+#
+#   lacuna_maxima_segundos   acima de quantos segundos entre duas leituras o
+#                            intervalo deixa de contar como tempo farmado e vira
+#                            LACUNA, contada a parte. Padrao 60. O scanner
+#                            captura a ~1 leitura por segundo, entao sessenta
+#                            segundos sao sessenta leituras perdidas seguidas:
+#                            isso e cegueira, e nao cadencia. O tempo de lacuna
+#                            NAO entra na conta — se entrasse, uma pausa para o
+#                            jantar apareceria como "o farm piorou".
+#
+#   fator_de_salto_da_adena  quantas vezes a adena pode variar entre duas
+#                            leituras antes de a leitura ser recusada por
+#                            suspeita de digito lido errado. Padrao 10. ESTE NAO
+#                            E UM PALPITE: os tres casos reais medidos sao
+#                            8.786 contra 10.673.628, 106.020 contra 1.696.020 e
+#                            91 contra 13.160.684. Gastar e ganhar adena sao
+#                            normais; saltar uma ordem de grandeza nao e.
+#                            NUNCA coloque 1 aqui: 1 recusa toda amostra em que
+#                            a adena mudou.
+#
+#   amostras_minimas_para_taxa
+#                            quantas comparacoes boas o scanner exige antes de
+#                            dizer uma taxa por hora. Padrao 8. Abaixo disso ele
+#                            responde "faltam N amostras" em vez de um numero.
+#                            E o mesmo oito que o painel do mercado ja usa para
+#                            declarar tendencia.
+#
+#   janela_minima_para_taxa_segundos
+#                            quantos segundos de tempo FARMADO ele exige antes
+#                            de dizer uma taxa por hora. Padrao 120. Os dois
+#                            pisos existem porque sao duas perguntas diferentes:
+#                            oito amostras em quarenta segundos e oito amostras
+#                            em duas horas nao valem o mesmo, e sem este piso uma
+#                            sessao de quarenta segundos sairia como taxa horaria
+#                            de verdade. Quando um dos dois falta, o scanner diz
+#                            QUAL faltou.
+#
+# SE VOCE MEXER EM UM SO, OS OUTROS QUATRO CONTINUAM NO PADRAO. Nao e preciso
+# escrever os cinco.
+#
+# [renda]
+# janela_movel_minutos = 10
+# lacuna_maxima_segundos = 60
+# fator_de_salto_da_adena = 10
+# amostras_minimas_para_taxa = 8
+# janela_minima_para_taxa_segundos = 120
