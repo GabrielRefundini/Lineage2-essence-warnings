@@ -318,10 +318,33 @@ nenhuma.
                     13.160.684 sao dez glifos: oito digitos e duas virgulas.
   motivo_da_adena   por que a adena nao saiu, quando nao saiu.
 
-  descontinuidade   preenchida quando aquele passo NAO entra na conta da taxa:
+  descontinuidade   por que aquele passo nao e um delta comum. SAO SETE VALORES,
+                    e eles se dividem em DOIS GRUPOS que a coluna nao separa —
+                    quem consome tem de olhar `renda_conta` para saber qual e qual,
+                    e a lista canonica mora la (`DESCONTINUIDADES_QUE_EXCLUEM` e
+                    `DESCONTINUIDADES_DE_PROCEDENCIA`), nunca aqui, para nao haver
+                    duas verdades sobre a mesma particao.
+
+                    EXCLUEM o passo do denominador da taxa:
                     `ancora` (primeira amostra, nao ha anterior),
                     `lacuna` (o scanner ficou cego tempo demais),
-                    `relogio-andou-para-tras` (a hora da maquina pulou).
+                    `relogio-andou-para-tras` (a hora da maquina pulou),
+                    `exp-indisponivel`, `adena-indisponivel` (o campo recusou),
+                    `nivel-indisponivel-com-exp-caindo` (o EXP caiu sem que se
+                    possa saber se houve level up — e supor seria inventar).
+
+                    NAO exclui, e e so PROCEDENCIA:
+                    `nivel-indisponivel-com-exp-subindo` — o passo CONTA. Subir de
+                    nivel faz o EXP CAIR, entao com o EXP subindo nao ha nada a
+                    supor. Esta distincao nao e detalhe: o nivel recusa em 79% dos
+                    tiques (medido em campo), e tratar este marcador como exclusao
+                    derrubaria o denominador do XP para ~4,4% dos pares.
+
+                    A redacao anterior desta secao dizia "preenchida quando aquele
+                    passo NAO entra na conta da taxa" e listava tres valores. As
+                    duas metades cairam quando o `02-02` acrescentou os quatro
+                    marcadores e a particao; fica escrito porque uma documentacao
+                    que envelhece calada e pior que nenhuma.
   origem_do_ganho   se a adena veio de farm ou de venda. Hoje sai sempre
                     `indeterminado`, e isso e de proposito: ninguem sabe
                     preencher ainda, e adivinhar seria pior que admitir.
