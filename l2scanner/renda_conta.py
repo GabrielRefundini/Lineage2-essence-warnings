@@ -97,7 +97,7 @@ dentro de uma comparacao que o usuario faz de cabeca.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import TYPE_CHECKING, Sequence
 
@@ -1082,3 +1082,149 @@ def as_duas_taxas(
             piso_da_janela_em_segundos=piso_da_janela_em_segundos,
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# O TEMPO ATE O PROXIMO NIVEL (REND-05)
+# ---------------------------------------------------------------------------
+#
+# OS TRES CASOS EM QUE NAO HA NUMERO A DIZER SAO TRES E NAO UM, e cada um tem
+# motivo proprio porque o CONSERTO DO USUARIO e diferente em cada um:
+#
+#   taxa zerada    -> "voce nao esta ganhando EXP" ... va farmar
+#   taxa negativa  -> "voce esta PERDENDO EXP" ...... pare de morrer
+#   sem evidencia  -> "ainda nao da para dizer" ..... espere mais um pouco
+#
+# Fundir dois deles faria dois consertos diferentes virarem a mesma mensagem —
+# a mesma razao pela qual `campo-vazio` e `gramatica` sao motivos separados na
+# Fase 1.
+MOTIVO_DA_TAXA_DE_EXP_ZERADA = "taxa-de-exp-zerada"
+MOTIVO_DA_TAXA_DE_EXP_NEGATIVA = "taxa-de-exp-negativa"
+
+
+@dataclass(frozen=True)
+class TempoAteONivel:
+    """Quantos segundos faltam, OU o motivo de nao haver resposta.
+
+    A FORMA E A DE `mercado_analise.Tendencia`: o numero e `None` sempre que nao
+    ha numero a dizer, e `motivo_da_ausencia` diz POR QUE, com textos
+    DIFERENTES para causas diferentes.
+
+    NUNCA INFINITO, NUNCA NEGATIVO. Um infinito escapando vira "faltam
+    infinitas horas" na tela; um negativo vira uma previsao com cara de certa
+    apontando para o passado. Os dois sao piores que a ausencia com motivo.
+    """
+
+    segundos: Fraction | None
+    motivo_da_ausencia: str | None
+
+
+def tempo_ate_o_nivel(
+    *, exp_atual_em_decimos: int, taxa: TaxaDaRenda
+) -> TempoAteONivel:
+    """`(cem pontos percentuais - o EXP de agora) / (EXP por hora)`, em segundos.
+
+    ELE NAO PRECISA DE TABELA DE XP POR NIVEL, e essa e a razao de a milestone
+    inteira ler a BARRA em vez do chat: a barra ja e uma fracao do nivel, entao
+    a conta fecha em pontos percentuais e nunca em XP absoluto. Uma tabela de XP
+    por nivel seria dependencia externa, especifica de servidor e desatualizavel
+    a cada patch — e ela nao existe aqui.
+
+    OS CEM PONTOS SAEM DA CONSTANTE DA FASE 1, nunca de um literal.
+
+    OS TRES CASOS DE AUSENCIA SAO TRATADOS **ANTES** DA DIVISAO, e nao capturados
+    depois. E a mesma disciplina que `mercado_analise` aplica ao `intercept == 0`:
+    quem sabe que a divisao nao pode ser feita nao a faz. Ha portao de arvore de
+    sintaxe negando `math.inf` e a captura de `ZeroDivisionError` neste modulo —
+    porque "deixar acontecer e limpar o estrago" e um desenho diferente, e nao
+    uma implementacao diferente do mesmo desenho.
+
+    A ORDEM E: evidencia primeiro. A previsao NAO PODE SER MAIS CONFIANTE QUE O
+    NUMERO DE QUE ELA SAI — se a taxa nao existe, nao ha o que dividir, e o
+    motivo e o DELA e nao um motivo novo. Herdar em vez de reescrever tambem
+    impede que os dois textos divirjam.
+    """
+    if taxa.por_hora is None:
+        return TempoAteONivel(
+            segundos=None, motivo_da_ausencia=taxa.motivo_da_ausencia
+        )
+    if taxa.por_hora == 0:
+        return TempoAteONivel(
+            segundos=None, motivo_da_ausencia=MOTIVO_DA_TAXA_DE_EXP_ZERADA
+        )
+    if taxa.por_hora < 0:
+        return TempoAteONivel(
+            segundos=None, motivo_da_ausencia=MOTIVO_DA_TAXA_DE_EXP_NEGATIVA
+        )
+
+    faltam = _decimos_de_um_nivel() - int(exp_atual_em_decimos)
+    return TempoAteONivel(
+        segundos=Fraction(faltam) * SEGUNDOS_POR_HORA / taxa.por_hora,
+        motivo_da_ausencia=None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# A CONTAGEM: por que a taxa desta hora tem o `n` que tem
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ContagemDaRenda:
+    """Quatro fatos que NAO SE SOMAM, no molde de `mercado_modo.Contagem`.
+
+    ELA EXISTE PARA RESPONDER UMA PERGUNTA SO, e a pergunta esta escrita no
+    `02-CONTEXT.md`: **por que a taxa desta hora tem `n=12` se o scanner rodou
+    quarenta minutos.** Sem ela a taxa de recusa vira ruido invisivel — e a Fase
+    1 ja mediu que ela e alta e DESIGUAL entre os campos: 79% no nivel, 21% na
+    adena, 0% no EXP.
+
+    OS QUATRO SAO CAMPOS SEPARADOS PELA MESMA RAZAO QUE `duplicadas` E
+    `perdidas` SAO CAMPOS SEPARADOS: "o scanner nao viu" (lacuna) e "o scanner
+    viu e recusou" (recusa) pedem consertos OPOSTOS do usuario, e somar um no
+    outro apaga a pergunta.
+
+    ELA E MUTAVEL E MUTADA NO LUGAR, e nasce de quem chama. NAO e estado de
+    modulo: ha o portao de ausencia de memoria de `tests/test_renda_par.py`
+    varrendo este fonte, e um teste comportamental afirmando que duas contagens
+    nao se enxergam.
+
+    ELA DEVOLVE NUMEROS EM VEZ DE IMPRIMIR: esta fase nao tem tela. Quem desenha
+    e outro plano, e a metade em DISCO deste mesmo fato e a coluna de motivo do
+    `renda_registro` (CTX-9).
+    """
+
+    aceitas: int = 0
+    lacunas: int = 0
+    recusadas_por_motivo: dict = field(default_factory=dict)
+    descontinuidades_por_motivo: dict = field(default_factory=dict)
+
+
+def contar_o_passo(passo: PassoDaRenda, contagem: ContagemDaRenda) -> None:
+    """Soma UM passo na contagem, no lugar. Devolve `None` de proposito.
+
+    Devolver uma contagem NOVA a cada passo convidaria quem chama a perder a
+    anterior num `for` distraido — o molde de `mercado_modo` muta e devolve
+    texto, e aqui nem texto ha.
+
+    UM PASSO PODE SOMAR EM MAIS DE UM CAMPO, e isso nao e dupla contagem: uma
+    lacuna soma em `lacunas` E em `descontinuidades_por_motivo`, porque as duas
+    perguntas sao diferentes ("quantos buracos" e "que tipos de descontinuidade
+    apareceram"). O que nunca acontece e um passo somar em `aceitas` e em
+    `recusadas_por_motivo` ao mesmo tempo.
+    """
+    if passo.aceito:
+        contagem.aceitas = contagem.aceitas + 1
+
+    if passo.descontinuidade == DESCONTINUIDADE_DA_LACUNA:
+        contagem.lacunas = contagem.lacunas + 1
+
+    if passo.descontinuidade != SEM_DESCONTINUIDADE:
+        contagem.descontinuidades_por_motivo[passo.descontinuidade] = (
+            contagem.descontinuidades_por_motivo.get(passo.descontinuidade, 0) + 1
+        )
+
+    for recusa in passo.recusas:
+        contagem.recusadas_por_motivo[recusa.motivo] = (
+            contagem.recusadas_por_motivo.get(recusa.motivo, 0) + 1
+        )
