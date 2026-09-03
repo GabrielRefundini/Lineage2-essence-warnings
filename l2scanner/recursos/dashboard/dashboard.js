@@ -4,7 +4,7 @@
 // ============================================================
 // `formatar_taxa_derivada`, `formatar_centesimos` e `_recencia_em_duas_formas`
 // chegam prontos do servidor, em ASCII: `"ha 8 h (31/08 10:00)"`,
-// `"sem evidencia - 2 de 5 ofertas distintas"`, `"11,60 XM por milhao de ..."`.
+// `"sem evidencia - 2 de 5 ofertas distintas"`, `"58,00 XM por 5 milhoes de ..."`.
 // Este arquivo escreve essas strings COMO RECEBEU.
 //
 // Reacentuar `milhao` para `milhão`, ou trocar `ha` por `há`, ou re-arredondar
@@ -28,6 +28,36 @@
 // PODE TER DITO: o "há N s" da faixa de servidor mudo — porque o servidor mudo
 // é, por definição, o estado em que o Python não respondeu — e nada mais. Todo
 // o resto é transporte de string.
+//
+// O EIXO VERTICAL ERA O ÚNICO LUGAR EM QUE A REGRA ACIMA NÃO VALIA COMO ESTAVA
+// ESCRITA — E AGORA VALE (2026-09-03).
+// ---------------------------------------------------------------------------
+// Até esta data `axes[1]` ia configurado como `y: {}`, vazio, e os rótulos do
+// eixo (`900 / 1.000 / 1.100`) eram INVENTADOS pela biblioteca, em posições que
+// o Python nunca via. Era um segundo formatador de fato — só que dentro do
+// pacote vendorizado, onde nenhuma sonda de fonte deste projeto o alcançava. O
+// usuário viu o resultado na primeira olhada: `9,10 XM` no destaque e `900` no
+// eixo dez centímetros abaixo, duas unidades na mesma tela.
+//
+// A ROTA ESCOLHIDA: o Python entrega as POSIÇÕES e os TEXTOS, e o navegador só
+// escolhe QUAL conjunto cabe na janela visível. É o mesmo desenho que
+// `resolucaoPara` já usa no eixo do tempo, sob a frase que já estava escrita
+// aqui: "A JANELA é decisão do navegador; a CONTA não é."
+//
+// AS TRÊS ROTAS RECUSADAS, e por quê:
+//
+//   1. UM GANCHO DE FORMATAÇÃO NO EIXO. É a resposta de três linhas, e é um
+//      SEGUNDO FORMATADOR — o que o DASH-03 proíbe por escrito. Ele não erra no
+//      dia em que nasce; erra meses depois, quando alguém mexe num dos dois
+//      lados. As sondas de `tests/test_dashboard_js.py` (a tupla de segundo
+//      formatador) já o reprovariam, e reprovam de propósito.
+//   2. FIXAR A ESCALA VERTICAL NA FAIXA INTEIRA DA SÉRIE — entregar também o
+//      mínimo e o máximo e desligar o ajuste automático. Resolveria a escada num
+//      passo, mas MATARIA o comportamento de hoje: ao aproximar num período
+//      curto, o eixo deixaria de abrir. O usuário não pediu isso e não pode
+//      ganhar de brinde.
+//   3. UMA ESCADA ÚNICA, FIXA. Ao aproximar muito, sobraria uma marca ou
+//      nenhuma — e um eixo sem marca não diz em que unidade está.
 //
 // NENHUM LITERAL HEXADECIMAL DE COR NESTE ARQUIVO. A paleta mora no
 // `dashboard.css`, e quem precisa de cor a pede por `getPropertyValue`. Há
@@ -230,9 +260,9 @@ function pintarUmCartao(prefixo, valor) {
   // O TEXTO INTEIRO VAI PARA O NÚMERO, e o vão da unidade fica vazio.
   //
   // ISTO É UMA COSTURA ENTRE PLANOS, E ELA ESTÁ DECLARADA. A marcação reservou
-  // um vão de unidade esperando receber `XM por milhao de ... (derivado)`
+  // um vão de unidade esperando receber `XM por 5 milhoes de ... (derivado)`
   // separado do número; o payload não entrega os dois separados — ele entrega
-  // UMA string pronta, `"11,60 XM por milhao de ... (derivado)"`, saída de
+  // UMA string pronta, `"58,00 XM por 5 milhoes de ... (derivado)"`, saída de
   // `formatar_taxa_derivada`. Partir essa string aqui, num espaço ou numa
   // vírgula, seria o segundo formatador: o navegador passaria a ter uma opinião
   // sobre onde termina o número e começa a unidade, e essa opinião erraria no
@@ -488,8 +518,26 @@ const PASSO_DO_ZOOM = 1.25;
 // O botão do meio, na numeração do evento do navegador.
 const BOTAO_DO_MEIO = 1;
 
+// Quantas marcas do eixo vertical ainda cabem antes de os rótulos se
+// atropelarem. ESCOLHA, E NÃO MEDIÇÃO, na mesma voz do bloco de `RESOLUCOES`
+// logo acima: oito rótulos em uma coluna deixam respiro com a escala
+// tipográfica de hoje, e se um dia ficar apertado o número muda aqui e nada
+// mais no arquivo precisa saber.
+const MAXIMO_DE_MARCAS_VISIVEIS = 8;
+
 // O último conjunto de textos entregue ao gráfico. A dica sob o cursor lê daqui.
 let textosDoGrafico = { instantes: [], principal: [], tipica: [] };
+
+// AS ESCADAS DO EIXO VERTICAL, como o Python as entregou, da mais fina para a
+// mais grossa — e a fatia delas que está na tela agora.
+//
+// ELES SÃO ESTADO DE MÓDULO PELA MESMA RAZÃO QUE `textosDoGrafico` É: a
+// instância do gráfico é REAPROVEITADA entre voltas, e o objeto de opções que a
+// criou fica preso à primeira série. Uma escada capturada lá dentro envelheceria
+// na segunda volta e o eixo passaria a rotular a série antiga.
+let escadasDoEixo = [];
+let marcasDesenhadas = [];
+
 let grafico = null;
 let serieDesenhada = null;
 let resolucaoAtual = null;
@@ -668,13 +716,39 @@ function conjuntoNaResolucao(serie, nome) {
 }
 
 /**
+ * As marcas do eixo vertical para a janela visível: FILTRA e ESCOLHE, e é tudo.
+ *
+ * O MESMO MOLDE DE `resolucaoPara`, E PELA MESMA RAZÃO. As escadas chegam do
+ * Python da mais fina para a mais grossa, e esta função fica com a PRIMEIRA cujo
+ * número de marcas dentro da janela ainda cabe na coluna. Filtrar por faixa é
+ * SELEÇÃO, não formatação: nenhum dígito é composto aqui, e o texto de cada
+ * marca é o que o Python escreveu.
+ *
+ * SEM ESCADA NENHUMA, LISTA VAZIA. A biblioteca então desenha o eixo sem marca,
+ * que é honesto; inventar uma marca seria inventar uma unidade.
+ */
+function marcasVisiveis(minimoDaJanela, maximoDaJanela) {
+  for (let posicao = 0; posicao < escadasDoEixo.length; posicao += 1) {
+    const naJanela = escadasDoEixo[posicao].marcas.filter(function (marca) {
+      return marca.pixel >= minimoDaJanela && marca.pixel <= maximoDaJanela;
+    });
+    if (naJanela.length <= MAXIMO_DE_MARCAS_VISIVEIS) {
+      return naJanela;
+    }
+  }
+  return [];
+}
+
+/**
  * A dica sob o cursor, montada a partir das STRINGS do ponto.
  *
  * A REGRA, QUE É A MESMA DA FRONTEIRA DO `float`: o número no payload é o PIXEL,
  * e a string é a VERDADE. O `float` existe porque o canvas só aceita número de
- * JS, e o erro dele foi medido — pior caso `1,9e-11`. Ele serve para posicionar
- * uma linha; ele NÃO serve para ser lido. O que o usuário lê é a string que o
- * Python formatou, e é por isso que cada ponto viaja com as duas coisas.
+ * JS, e o erro dele foi medido — pior caso `7,76e-11` na escala de cinco
+ * milhões (era `1,9e-11` enquanto a escala era o milhão; o número subiu junto
+ * com a escala, e o erro RELATIVO caiu). Ele serve para posicionar uma linha;
+ * ele NÃO serve para ser lido. O que o usuário lê é a string que o Python
+ * formatou, e é por isso que cada ponto viaja com as duas coisas.
  */
 function textoSobOCursor(qualLista) {
   return function (instancia, valor, indiceDaSerie, indiceDoPonto) {
@@ -725,7 +799,31 @@ function opcoesDoGrafico(serie, area) {
       // muda com a série — a taxa e o unitário comum têm unidades diferentes —,
       // e é justamente por isso que ela é propriedade do objeto e não uma
       // constante deste arquivo.
-      Object.assign({}, eixo, { label: serie.unidade }),
+      //
+      // E AGORA AS MARCAS E OS TEXTOS DELAS TAMBÉM VÊM DE LÁ. O navegador só
+      // escolhe QUAL escada cabe na janela; ele não compõe um dígito.
+      //
+      // A ORDEM DAS DUAS CHAMADAS É GARANTIDA PELA BIBLIOTECA, E FOI LIDA E NÃO
+      // SUPOSTA: na passagem de eixos do pacote vendorizado (`vendor/uPlot.iife.
+      // min.js`, v1.6.32) as duas saem na MESMA expressão, `_splits` primeiro e
+      // `_values` logo em seguida, recebendo exatamente aquelas posições. É isso
+      // que autoriza `values` a ler o que `splits` acabou de guardar em vez de
+      // recalcular a seleção — recalcular seria a segunda oportunidade de os
+      // dois discordarem.
+      Object.assign({}, eixo, {
+        label: serie.unidade,
+        splits: function (instancia, indice, minimoDaEscala, maximoDaEscala) {
+          marcasDesenhadas = marcasVisiveis(minimoDaEscala, maximoDaEscala);
+          return marcasDesenhadas.map(function (marca) {
+            return marca.pixel;
+          });
+        },
+        values: function () {
+          return marcasDesenhadas.map(function (marca) {
+            return marca.texto;
+          });
+        },
+      }),
     ],
     series: [
       {
@@ -946,7 +1044,12 @@ function desenharUmaSerie(serie) {
     max: eixoDoTempo[eixoDoTempo.length - 1],
   };
 
+  // NA MESMA LINHA EM QUE `serieDesenhada` É ATUALIZADA, e essa vizinhança é a
+  // razão: a instância do gráfico é reaproveitada entre voltas, e o eixo lê a
+  // escada por esta variável justamente para não ficar preso à série que criou
+  // as opções.
   serieDesenhada = serie;
+  escadasDoEixo = serie.escadas_do_eixo;
 
   if (grafico === null) {
     resolucaoAtual = null;

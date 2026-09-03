@@ -18,7 +18,7 @@ arvore com o analisador da biblioteca padrao (`html.parser`, o mesmo molde de
 A DIVERGENCIA DE ACENTUACAO E INTENCIONAL
 ==========================================
 As frases da MOLDURA sao nossas, sao HTML em UTF-8 e levam acento. As strings de
-VALOR chegam prontas do Python em ASCII (`"11,60 XM por milhao de adena
+VALOR chegam prontas do Python em ASCII (`"58,00 XM por 5 milhoes de adena
 (derivado)"`). Reacentuar no navegador seria o segundo formatador que o DASH-03
 proibe. Este arquivo confere as duas convencoes lado a lado, cada uma na sua
 fonte, e nao tenta unifica-las.

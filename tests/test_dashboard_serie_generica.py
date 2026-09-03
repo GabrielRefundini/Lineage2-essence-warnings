@@ -237,7 +237,7 @@ class TestDuasSeriesAtravessamODado:
         """ESTA E A FORMA CORRETA DE PROVAR GENERALIDADE, e a razao e direta:
 
         se existisse UMA chave so da Adena -- um `taxa_derivada`, um
-        `xm_por_milhao` --, entao instanciar a segunda serie exigiria codigo
+        `xm_por_5_milhoes` --, entao instanciar a segunda serie exigiria codigo
         novo do lado do desenho para lidar com a ausencia dela. E o requisito
         proibe exatamente isso: "instanciar uma segunda serie nao exige codigo
         de grafico novo".
@@ -267,6 +267,38 @@ class TestDuasSeriesAtravessamODado:
         assert set(primeira["baldes"]) == set(segunda["baldes"])
         assert set(primeira["pontos"][0]) == set(segunda["pontos"][0])
 
+    def test_as_DUAS_series_ganham_escada_de_eixo_na_forma_de_DINHEIRO(
+        self, series
+    ):
+        """A escada do eixo e generica, e o item comum PROVA que ela e.
+
+        E a mesma decisao de escopo que o resto deste arquivo cobra: consertar o
+        eixo so da Adena deixaria o item comum com o rotulo dizendo
+        `centesimos por unidade` e as marcas do eixo em outra forma -- o MESMO
+        defeito que este plano veio corrigir, so que na outra serie. O DASH-05
+        proibe a excecao com forma de Adena, e este teste e onde a proibicao
+        vira medida.
+
+        Os textos das duas saem em forma de dinheiro brasileiro porque as duas
+        passam por `formatar_centesimos` -- a mesma funcao, e nao duas parecidas.
+        As `unidade` continuam DIFERENTES entre si, e isso tambem e afirmado:
+        generico nao quer dizer indistinguivel.
+        """
+        molde_de_dinheiro = re.compile(r"^\d{1,3}(?:\.\d{3})*,\d{2}$")
+
+        for serie in series:
+            escadas = serie["escadas_do_eixo"]
+            assert escadas, f"a serie {serie['chave']!r} veio sem escada de eixo"
+            for escada in escadas:
+                for marca in escada["marcas"]:
+                    assert molde_de_dinheiro.match(marca["texto"]), (
+                        serie["chave"],
+                        marca,
+                    )
+
+        primeira, segunda = series
+        assert primeira["unidade"] != segunda["unidade"]
+
 
 class TestOFormatadorSaiDoPontoDeDecisaoUNICO:
     """Chamar o formatador errado imprimiria um numero zerado com toda a
@@ -276,7 +308,7 @@ class TestOFormatadorSaiDoPontoDeDecisaoUNICO:
     o unitario comum, e ele existe precisamente para que nao haja quatro `if`
     espalhados que um dia divirjam. Se a serie da Adena recebesse o formatador
     de unitario comum, a tela mostraria `0,00 por unidade` para uma taxa de
-    11,60 -- calada e errada.
+    58,00 -- calada e errada.
     """
 
     def test_o_ponto_de_decisao_devolve_formatadores_DIFERENTES(self):

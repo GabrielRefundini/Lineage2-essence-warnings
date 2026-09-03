@@ -468,13 +468,17 @@ class TestATaxaExataSobreviveAoDisco:
             volta.total_em_centesimos, volta.quantidade
         ) == Fraction(29, 25000)
 
-    def test_a_exibicao_em_XM_por_milhao_fecha_no_11_60(self, tmp_path) -> None:
+    def test_a_exibicao_em_XM_por_5_milhoes_fecha_no_58_00(self, tmp_path) -> None:
         """A ponta a ponta: do disco ate o texto que o usuario le.
 
-        `11,60` — RECALCULADO, e nao o `116,00` que a pesquisa escreve. E o
+        `58,00` — RECALCULADO, e nao o `116,00` que a pesquisa escreve. E o
         unico teste deste arquivo que atravessa o console, e ele esta aqui
         porque a promessa do ADEN-03 e do ADEN-04 juntas so vale se o numero
         que sai na tela vier do arquivo.
+
+        Ate 2026-09-03 este teste fechava no `11,60`, na escala do milhao. A
+        escala passou a cinco milhoes (a da coluna `5 mln increment` do jogo) e
+        `11600/10.000.000 x 5.000.000 = 5.800 centesimos = 58,00`.
         """
         from l2scanner.mercado_console import formatar_taxa_derivada
 
@@ -485,7 +489,7 @@ class TestATaxaExataSobreviveAoDisco:
         volta = observacoes_do_arquivo(tmp_path / ARQUIVO_DE_OBSERVACOES)[0]
         taxa = unitario(volta.total_em_centesimos, volta.quantidade)
         assert formatar_taxa_derivada(taxa) == (
-            "11,60 XM por milhao de adena (derivado)"
+            "58,00 XM por 5 milhoes de adena (derivado)"
         )
 
 

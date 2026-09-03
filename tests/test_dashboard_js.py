@@ -139,7 +139,7 @@ SONDAS_DE_SEGUNDO_FORMATADOR = (
 
 CONTROLE_DO_SEGUNDO_FORMATADOR = (
     'escrever("xm-texto", Number(dados.destaque.xm.pixel).toFixed(2)'
-    '.replace(".", ",") + " XM por milhao");'
+    '.replace(".", ",") + " XM por 5 milhoes");'
 )
 
 SONDAS_DE_MARCACAO = (
@@ -187,6 +187,13 @@ FECHAMENTO_DA_REGIAO = "// >>> COMPONENTE-DE-SERIE"
 #     que e o segundo formatador que o DASH-03 recusa;
 #   - `baldes` chega a mais porque a agregacao do zoom largo e mediana inferior
 #     sobre fracao exata, e isso so existe no Python.
+#
+# `escadas_do_eixo` ENTROU EM 2026-09-03, e ela nao e uma excecao com forma de
+# Adena: TODA serie a traz, e ela nasce dos pixels que o payload ja carregava.
+# Ela existe porque o eixo vertical era o unico lugar em que o DASH-03 nao valia
+# como estava escrito — os rotulos `900 / 1.000 / 1.100` eram inventados pela
+# biblioteca, em posicoes que o Python nunca via. Com ela, as marcas E os textos
+# vem prontos e o navegador so escolhe qual escada cabe na janela.
 PROPRIEDADES_DO_CONTRATO = {
     "titulo",
     "unidade",
@@ -194,6 +201,7 @@ PROPRIEDADES_DO_CONTRATO = {
     "baldes",
     "rotulo_principal",
     "rotulo_tipico",
+    "escadas_do_eixo",
 }
 
 # A MESMA EXPRESSAO QUE `test_dashboard_tracer.py` e `test_dashboard_pagina.py`
@@ -593,8 +601,8 @@ class TestOComponenteDeSerieEGenerico:
         """O numero no payload e o PIXEL; a string e a VERDADE.
 
         O `float` existe porque o canvas so aceita numero de JS, e o erro dele
-        foi medido (pior caso 1,9e-11). Ele posiciona uma linha; ele nao e para
-        ser lido.
+        foi medido (pior caso 7,76e-11 na escala de cinco milhoes; era 1,9e-11
+        na do milhao). Ele posiciona uma linha; ele nao e para ser lido.
         """
         corpo = _so_o_codigo(_corpo_da_funcao(js, "conjuntoCru"))
         assert "textos:" in corpo
@@ -895,3 +903,121 @@ class TestOArquivoAoMenosANALISA:
             text=True,
         )
         assert concluido.returncode == 0, concluido.stderr
+
+
+# ===========================================================================
+# A COSTURA PYTHON -> JSON -> JAVASCRIPT, ATRAVESSADA DE VERDADE
+# ===========================================================================
+#
+# ESTE BLOCO ESTENDE O PRECEDENTE ACIMA, e pela mesma razao: o `node` nao e
+# dependencia deste projeto e nao entra no `requirements.txt`. Quando ele existe,
+# estes testes atravessam a costura inteira; quando nao existe, eles PULAM com a
+# razao dita, em vez de sumir calados.
+#
+# O QUE ELES PROVAM QUE NENHUMA SONDA DE TEXTO PROVA: que os literais dos DOIS
+# lados sao os mesmos. As sondas acima veem a FORMA do arquivo; estas veem o
+# RESULTADO de rodar o arquivo sobre um payload que saiu de `dashboard_dados.
+# payload` -- codigo de producao dos dois lados da serializacao.
+#
+# O ESBOCO E DE DUAS LINHAS, E ELE FOI MEDIDO E NAO SUPOSTO: o unico efeito de
+# CARGA do `dashboard.js` e o `document.addEventListener` da ultima linha. Com
+# `document` e `window` tendo um `addEventListener` vazio cada, o arquivo avalia
+# inteiro.
+#
+# O QUE O ESBOCO NAO COBRE, dito por extenso: a instancia real da biblioteca de
+# grafico nao e criada aqui, entao estes testes NAO provam que `axes[1]` chama o
+# que devia. Eles provam que a ESCOLHA da escada -- a unica conta que sobrou do
+# lado do navegador -- devolve os textos certos para uma janela dada.
+
+_MOLDE_DE_SONDA_DO_NAVEGADOR = """
+const fs = require("fs");
+const fonte = fs.readFileSync(process.argv[1], "utf8");
+globalThis.document = { addEventListener: function () {} };
+globalThis.window = { addEventListener: function () {} };
+
+// O `dashboard.js` avaliado INTEIRO, sem uma linha reescrita. O acrescimo e so
+// a porta de saida: a funcao sob julgamento e o ajuste do estado de modulo que,
+// em producao, `desenharUmaSerie` faz.
+const portas = new Function(
+  fonte +
+    "\\nreturn {" +
+    "  marcasVisiveis: marcasVisiveis," +
+    "  definirEscadas: function (e) { escadasDoEixo = e; }" +
+    "};"
+)();
+
+portas.definirEscadas(JSON.parse(process.argv[2]));
+const janelas = JSON.parse(process.argv[3]);
+const saida = janelas.map(function (janela) {
+  return portas.marcasVisiveis(janela[0], janela[1]).map(function (marca) {
+    return marca.texto;
+  });
+});
+console.log(JSON.stringify(saida));
+"""
+
+
+def _textos_escolhidos_pelo_navegador(pasta: Path, janelas: list[list[float]]):
+    """As escadas saem de `payload()`; a escolha sai do `dashboard.js`."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip(
+            "`node` nao esta nesta maquina, entao a costura Python -> JSON -> "
+            "JavaScript nao pode ser atravessada aqui. As sondas de texto deste "
+            "arquivo seguem valendo; o que se perde e so a garantia de que os "
+            "literais dos dois lados sao os mesmos."
+        )
+
+    _escrever_cru(
+        pasta,
+        _cabecalho()
+        + _linha(datetime(2026, 9, 1, 14, 0), 11100)
+        + TERMINADOR
+        + _linha(datetime(2026, 9, 1, 14, 1), 12000)
+        + TERMINADOR,
+    )
+    escadas = dashboard_dados.payload(pasta, AGORA)["series"][0]["escadas_do_eixo"]
+
+    concluido = subprocess.run(
+        [
+            node,
+            "-e",
+            _MOLDE_DE_SONDA_DO_NAVEGADOR,
+            str(ARQUIVO_DO_JS),
+            json.dumps(escadas),
+            json.dumps(janelas),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert concluido.returncode == 0, concluido.stderr
+    return json.loads(concluido.stdout)
+
+
+class TestAEscolhaDaEscadaNOnavegador:
+    """O navegador escolhe QUAL escada cabe; ele nao compoe um digito.
+
+    E o mesmo molde que `resolucaoPara` ja usa no eixo do tempo, sob a frase que
+    ja esta escrita no arquivo: "A JANELA e decisao do navegador; a CONTA nao e."
+    """
+
+    def test_a_janela_INTEIRA_recebe_a_escada_de_cem(self, pasta: Path) -> None:
+        """Os MESMOS cinco literais de `test_dashboard_dados.py`, agora do outro
+        lado da serializacao.
+
+        Se um dos dois lados derivar, esta igualdade cai -- que e exatamente o
+        que uma sonda de texto sobre o fonte nao consegue ver.
+        """
+        (textos,) = _textos_escolhidos_pelo_navegador(pasta, [[5550, 6000]])
+
+        assert textos == ["56,00", "57,00", "58,00", "59,00", "60,00"]
+
+    def test_APROXIMADO_a_escada_FINA_entra_sozinha(self, pasta: Path) -> None:
+        """Aproximar troca de escada sem uma nova viagem ao servidor.
+
+        E a razao de o Python entregar VARIAS escadas em vez de uma: com escada
+        unica, esta janela teria sobrado com UMA marca ou nenhuma.
+        """
+        (textos,) = _textos_escolhidos_pelo_navegador(pasta, [[5790, 5810]])
+
+        assert textos == ["57,90", "57,95", "58,00", "58,05", "58,10"]

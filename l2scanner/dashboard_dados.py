@@ -193,7 +193,11 @@ ROTULO_DA_TIPICA = "mediana"
 # AS DUAS UNIDADES EXIBIDAS. Elas nao sao escolhidas por um `if` sobre a
 # sentinela — ver `_e_a_taxa`, que deriva a resposta do UNICO ponto de decisao
 # que ja existe (`formatador_do_unitario`).
-UNIDADE_EXIBIDA_DA_TAXA = "XM por milhão de adena"
+#
+# ATE 2026-09-03 A PRIMEIRA DIZIA `XM por milhão de adena`. A escala passou a
+# CINCO milhoes, que e como a coluna do proprio jogo se escreve (`5 mln
+# increment`) — ver o bloco de `UNIDADE_DA_TAXA` em `mercado_console.py`.
+UNIDADE_EXIBIDA_DA_TAXA = "XM por 5 milhões de adena"
 UNIDADE_EXIBIDA_DO_UNITARIO = "centésimos por unidade"
 
 # O valor em R$, com a marca OBRIGATORIA de informado por voce. O UI-SPEC proibe
@@ -201,8 +205,8 @@ UNIDADE_EXIBIDA_DO_UNITARIO = "centésimos por unidade"
 # nao foi lido de lugar nenhum, foi digitado, e quem copiar a linha para o
 # WhatsApp precisa que essa procedencia viaje junto.
 MOLDE_DO_VALOR_EM_REAIS = (
-    "R$ {valor} por milhão de adena (derivado do câmbio informado por você em "
-    "{quando})"
+    "R$ {valor} por 5 milhões de adena (derivado do câmbio informado por você "
+    "em {quando})"
 )
 
 # AS FRASES PROIBIDAS NA TELA, herdadas do `mercado_console` — onde ja ha teste
@@ -217,7 +221,7 @@ MOLDE_DO_VALOR_EM_REAIS = (
 # O `0,00` NAO ESTA NESTA TUPLA, E A RAZAO FOI MEDIDA AQUI. A quarta proibicao do
 # UI-SPEC — "`0,00` como espaco reservado enquanto carrega" — parece pertencer a
 # esta lista e NAO pertence: comparada por substring, ela reprova
-# `"30,00 XM por milhao de adena (derivado)"`, que e um valor legitimo. Toda taxa
+# `"30,00 XM por 5 milhoes de adena (derivado)"`, que e um valor legitimo. Toda taxa
 # terminada em zero (`10,00`, `20,00`, `30,00`) cairia junto. A proibicao e sobre
 # o NUMERO INTEIRO ser zero, e por isso ela e verificada por TOKEN, com um molde
 # de numero, em `tests/test_dashboard_dados.py` (`MOLDE_DE_NUMERO`) — e com um
@@ -699,7 +703,7 @@ def frase_de_piso_da_tipica(evidencia: Evidencia) -> str:
 
 
 def _e_a_taxa(chave_da_serie: str) -> bool:
-    """Esta serie se fala em XM por milhao? A resposta vem do UNICO ponto.
+    """Esta serie se fala em XM por 5 milhoes? A resposta vem do UNICO ponto.
 
     ELA NAO REPETE O `if` DA SENTINELA. `formatador_do_unitario` ja e o unico
     ponto de decisao entre a taxa da Adena e o unitario comum, e a docstring dele
@@ -733,11 +737,22 @@ def _pixel(chave_da_serie: str, valor: Fraction | None) -> float | None:
     formatador que o DASH-03 proibe).
 
     O ERRO DESSA CONVERSAO ESTA MEDIDO, e por isso ela e aceitavel: sobre a taxa
-    da Adena em centesimos por milhao, o pior caso medido foi **1,9e-11** — em
-    `Fraction(1, 3) x 10⁶`, que da `333333.3333333333`. Os valores reais do CSV
-    (`11600/10.000.000` e `30000/15.000.000`) converteram com erro **ZERO**. Um
-    erro de 1,9e-11 centesimo nao move um pixel; um erro na string moveria a
-    decisao de compra.
+    da Adena em centesimos por 5 milhoes, o pior caso medido foi **7,76e-11** —
+    em `Fraction(1, 3) x 5x10⁶`, que da `1666666.6666666667`. Os valores reais
+    do CSV (`11600/10.000.000` e `30000/15.000.000`) converteram com erro
+    **ZERO** — medido de novo na escala nova, e nao herdado da anterior. Um erro
+    de 7,76e-11 centesimo nao move um pixel; um erro na string moveria a decisao
+    de compra.
+
+    ESTE NUMERO SUBIU, E SUBIR ERA O ESPERADO: ate 2026-09-03 a escala era um
+    milhao e o pior caso medido era **1,9e-11**, em `Fraction(1, 3) x 10⁶` =
+    `333333.3333333333`. Multiplicar por cinco leva o valor a uma faixa onde o
+    `float` de dupla precisao tem menos bits de fracao disponiveis, entao o erro
+    ABSOLUTO cresce junto — quase pelo mesmo fator (medido: 1,94e-11 -> 7,76e-11,
+    exatamente x4). O erro RELATIVO nao piorou: medido, ele CAIU de 5,82e-17
+    para 4,66e-17, os dois abaixo do epsilon da maquina (2,22e-16). As duas
+    medicoes sairam de chamadas a codigo de producao, e nao de uma conta refeita
+    por fora.
 
     AUSENCIA VIRA `None`, E NUNCA `0.0`. Zero e um lugar no eixo — uma taxa de
     zero — e desenhar a ausencia la seria afirmar que a taxa despencou.
@@ -745,6 +760,110 @@ def _pixel(chave_da_serie: str, valor: Fraction | None) -> float | None:
     if valor is None:
         return None
     return float(valor * _escala_do_grafico(chave_da_serie))
+
+
+# O TETO DE MARCAS DE UMA ESCADA. ELE E ESCOLHA, E NAO MEDICAO — e dizer isso e
+# mais honesto do que deixar o leitor supor que houve um experimento.
+#
+# O QUE ELE COMPRA: o tamanho do payload. Cada marca custa um `float` e uma
+# string curta, e sem teto a escada mais fina de uma faixa larga teria dezenas de
+# milhares delas.
+#
+# O QUE ELE CUSTA: o quanto da para APROXIMAR antes de o eixo comecar a perder
+# marca. As escadas nascem da faixa INTEIRA da serie; quem aproxima alem do que a
+# escada mais fina cobre ve menos marcas, e no limite nenhuma. Duzentos e o ponto
+# em que a faixa medida do CSV de hoje ainda entrega passo 5 — cinco centesimos
+# de resolucao — sem o payload sentir.
+MAXIMO_DE_MARCAS_POR_ESCADA = 200
+
+
+def _passos_bonitos(largura_da_faixa: Fraction) -> list[int]:
+    """Um, dois e cinco vezes potencia de dez, enquanto o passo couber na faixa.
+
+    SAO OS PASSOS QUE UM HUMANO LE SEM PENSAR — `56,00 / 57,00 / 58,00`, e nunca
+    `56,37 / 57,74`. A regra e a mesma que qualquer eixo de grafico usa, e esta
+    escrita aqui como REGRA para nao virar uma tabela de casos que envelhece.
+
+    O corte e `passo > largura`: um passo maior que a faixa inteira nao pode ter
+    duas marcas dentro dela. Isso NAO dispensa o filtro de duas marcas la em
+    cima — um passo que cabe na largura ainda pode cair desalinhado e render uma
+    marca so (faixa `[5550, 6000]`, passo 450: so `5850`).
+    """
+    passos: list[int] = []
+    expoente = 0
+    while True:
+        for base in (1, 2, 5):
+            passo = base * 10**expoente
+            if passo > largura_da_faixa:
+                return passos
+            passos.append(passo)
+        expoente += 1
+
+
+def _escadas_do_eixo(minimo: Fraction, maximo: Fraction) -> list[dict]:
+    """As marcas do eixo vertical, JA COM O TEXTO, da mais fina para a mais grossa.
+
+    AS DUAS ENTRADAS JA VEM NA ESCALA EXIBIDA — a mesma que `_escala_do_grafico`
+    aplica —, e nao no unitario cru. Escalar aqui dentro seria a segunda
+    aplicacao da escala, que e o defeito que `tests/test_escala_de_exibicao.py`
+    existe para pegar.
+
+    A REGRA, e nao a implementacao dela: para cada passo bonito que cabe na
+    faixa, as marcas sao os MULTIPLOS dele entre o teto do minimo e o piso do
+    maximo. Uma escada entra se tiver de DUAS a `MAXIMO_DE_MARCAS_POR_ESCADA`
+    marcas, e a lista sai da mais fina para a mais grossa — porque quem escolhe e
+    o navegador, e o que ele quer e a primeira que cabe na janela.
+
+    A ESCADA SEM PASSO. Se NENHUMA entrar — faixa degenerada, um ponto so, ou
+    faixa mais estreita que a menor marca —, sai UMA escada com UMA marca no
+    valor arredondado do MEIO da faixa, e o campo `passo` dela e zero. Zero e o
+    que diz "esta marca nao veio de uma regua"; um eixo sem marca nenhuma seria
+    um eixo que nao diz em que unidade esta.
+
+    O TEXTO SAI DE `formatar_centesimos`, A MESMA FUNCAO JA EXISTENTE, e a razao
+    de ela servir e que a marca e INTEIRA em centesimos por construcao (multiplo
+    de um passo inteiro). Nenhum segundo formatador nasce aqui — nem neste modulo
+    nem, muito menos, no navegador.
+
+    O PIXEL DE CADA MARCA E `float` DE UM INTEIRO, E ISTO NAO E UMA SEGUNDA
+    FRONTEIRA DO `float` NO SENTIDO DO `_pixel`. Aquela converte uma FRACAO e por
+    isso carrega erro medido; esta converte um inteiro, e inteiro ate dois
+    elevado a 53 atravessa sem perder um bit. Quem prende essa distincao — em vez
+    de so afirma-la — e `test_o_pixel_de_toda_marca_e_INTEIRO`.
+    """
+    escadas: list[dict] = []
+    for passo in _passos_bonitos(maximo - minimo):
+        # Teto do minimo e piso do maximo, em aritmetica de `Fraction`: nenhuma
+        # marca cai fora da faixa por arredondamento.
+        primeiro = -((-minimo) // passo)
+        ultimo = maximo // passo
+        quantidade = int(ultimo - primeiro) + 1
+        if quantidade < 2 or quantidade > MAXIMO_DE_MARCAS_POR_ESCADA:
+            continue
+        escadas.append(
+            {
+                "passo": passo,
+                "marcas": [
+                    {
+                        "pixel": float(multiplo * passo),
+                        "texto": formatar_centesimos(multiplo * passo),
+                    }
+                    for multiplo in range(int(primeiro), int(ultimo) + 1)
+                ],
+            }
+        )
+
+    if not escadas:
+        unica = round((minimo + maximo) / 2)
+        escadas.append(
+            {
+                "passo": 0,
+                "marcas": [
+                    {"pixel": float(unica), "texto": formatar_centesimos(unica)}
+                ],
+            }
+        )
+    return escadas
 
 
 def serie_para_o_grafico(
@@ -796,6 +915,28 @@ def serie_para_o_grafico(
     # mesma serie cairia em baldes diferentes a cada recarregamento.
     ancora = ancora_da_meia_noite(pontos[0].instante) if pontos else agora
 
+    # A FAIXA DO EIXO SAI DOS PONTOS, E OS BALDES NAO ENTRAM NA CONTA. Todo balde
+    # e uma MEDIANA de um subconjunto dos pontos, e por isso vive dentro da faixa
+    # deles: incluir os baldes nao moveria o minimo nem o maximo, so o custo.
+    #
+    # A ESCALA E APLICADA AQUI E NAO DENTRO DE `_escadas_do_eixo`, e a
+    # multiplicacao fica em `Fraction` ate a marca ser um inteiro. Passar por
+    # `_pixel` primeiro levaria a faixa para `float` antes da conta da escada, e
+    # ai a marca deixaria de ser exata — que e justamente o que autoriza a
+    # conversao barata la dentro.
+    escala = _escala_do_grafico(chave_da_serie)
+    valores_na_escala = [
+        valor * escala
+        for ponto in pontos
+        for valor in (ponto.menor, ponto.tipica)
+        if valor is not None
+    ]
+    escadas = (
+        _escadas_do_eixo(min(valores_na_escala), max(valores_na_escala))
+        if valores_na_escala
+        else []
+    )
+
     return {
         "chave": chave_da_serie,
         "titulo": ModeloDeMercado.de_observacoes(observacoes).nome_exibido_de(
@@ -808,6 +949,7 @@ def serie_para_o_grafico(
         ),
         "rotulo_principal": ROTULO_DO_MENOR,
         "rotulo_tipico": ROTULO_DA_TIPICA,
+        "escadas_do_eixo": escadas,
         "pontos": [
             {
                 "instante": ponto.instante.isoformat(),
@@ -886,14 +1028,19 @@ def _falha_fechada(estado: str, arquivo: Path, agora: datetime, avisos: list) ->
 
 
 def _valor_em_reais(taxa: Fraction, cambio) -> str:
-    """A taxa em R$ por milhao de adena, com a marca de informado por voce.
+    """A taxa em R$ por 5 milhoes de adena, com a marca de informado por voce.
 
     A CONTA, ESCRITA POR EXTENSO, no molde de `formatar_taxa_derivada`:
 
         taxa = Fraction(11600, 10_000_000) centesimos de XM POR ADENA
-          -> x 1.000.000 = 1.160 centesimos de XM por milhao
-          -> x R$ 0,50 por XM = 580 CENTAVOS de R$ por milhao
-          -> 580 centavos = R$ 5,80 por milhao
+          -> x 5.000.000 = 5.800 centesimos de XM por 5 milhoes
+          -> x R$ 0,50 por XM = 2.900 CENTAVOS de R$ por 5 milhoes
+          -> 2.900 centavos = R$ 29,00 por 5 milhoes
+
+    ATE 2026-09-03 ESTA CONTA MULTIPLICAVA POR 1.000.000 e terminava em `R$ 5,80
+    por milhao`. A escala de exibicao passou a cinco milhoes junto com a do
+    texto em XM — as duas saem da MESMA `UNIDADE_DA_TAXA`, e essa e a razao de
+    nenhuma linha de codigo desta funcao ter mudado na troca.
 
     A MULTIPLICACAO POR `UNIDADE_DA_TAXA` E POR `reais_por_xm` NA MESMA LINHA NAO
     E ECONOMIA DE CODIGO: centesimos-de-XM vezes reais-por-XM da centavos-de-R$
