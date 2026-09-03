@@ -679,6 +679,70 @@ def montar_catalogo_de_mercado(pasta: Path | None = None):
         return None
 
 
+def montar_registro_da_renda(pasta: Path | None = None, personagem: str = ""):
+    """Monta o registro da renda, ou diz por que nao montou. NUNCA levanta.
+
+    TRILHO IDENTICO ao de `montar_registro_de_mercado` e ao de
+    `montar_catalogo_de_mercado` logo acima, e ele existe pela mesma razao
+    escrita — desta vez com todas as letras na docstring do proprio construtor
+    (`renda_registro.py:911-919`): *"O CONSTRUTOR NAO SE DEFENDE, e isso e
+    deliberado: `mkdir` pode levantar e `carregar` pode levantar
+    `ContratoDaRendaQuebrado` ou `OSError`. Quem envolve tudo num `try` e a
+    montagem, pelo trilho de `montar_gravador`."* Sem esta funcao aquele
+    traceback subiria cru do arranque do `--renda`.
+
+    Por isso o `try` envolve o construtor INTEIRO, `mkdir` incluido.
+
+    A CAPTURA E ESTREITA, E SAO DUAS FAMILIAS NOMEADAS. `OSError` cobre pasta
+    que nao abre, disco cheio, permissao negada e o `FileExistsError` de um
+    ARQUIVO ocupando o nome da pasta. `ContratoDaRendaQuebrado` nao e nenhum
+    deles — nao e falha de sistema de arquivos, e uma recusa DELIBERADA de ler
+    um arquivo cujo cabecalho diverge ou cujo fim o programa nao consegue
+    afirmar, sobre dado que o usuario acumulou. Como o desfecho e o mesmo —
+    feature desligada, scanner de pe — o tratamento e o mesmo. Um
+    `except Exception` nu esconderia um `AttributeError` de refactor futuro com
+    a mesma cara de um disco cheio, que e o oposto do que este trilho existe
+    para fazer.
+
+    O MOTIVO CITA O ARQUIVO, e nao so a pasta: com dois personagens em
+    `.renda/` o usuario precisa saber QUAL mover.
+
+    `personagem` E OBRIGATORIO E NAO TEM DEFAULT UTIL. Nao ha personagem
+    padrao, e cair no primeiro que estiver no arquivo e exatamente o defeito
+    que `Calibracao.renda_do_personagem` existe para proibir. A ordem dos
+    parametros segue o irmao: `pasta` primeiro, porque e o que o teste
+    sobrescreve para nunca tocar a `.renda/` do usuario.
+
+    O tipo de retorno nao e anotado pelo mesmo motivo dos irmaos: o nome so
+    existe atras do import ADIADO.
+    """
+    from .renda_registro import (
+        PASTA_DA_RENDA,
+        ContratoDaRendaQuebrado,
+        RegistroDaRenda,
+        arquivo_do_personagem,
+    )
+
+    # A pasta padrao resolve em tempo de CHAMADA, e nao no topo do modulo: e o
+    # que permite ao teste apontar para `tmp_path` sem nunca tocar a `.renda/`
+    # do usuario, que e dado acumulado e sem desfazer.
+    destino = PASTA_DA_RENDA if pasta is None else pasta
+
+    try:
+        return RegistroDaRenda(destino, personagem)
+    except (OSError, ContratoDaRendaQuebrado) as erro:
+        log.error(
+            "REGISTRO DA RENDA DESLIGADO - nao consegui abrir %s: %s",
+            arquivo_do_personagem(destino, personagem),
+            erro,
+        )
+        log.error(
+            "Todo o resto do scanner continua igual: morte, saida e "
+            "ressurreicao seguem sendo detectadas e entregues."
+        )
+        return None
+
+
 def _duracao_legivel(segundos: float) -> str:
     """Segundos viram "3h02min" — "10920s" nao ajuda ninguem a reconhecer o
     proprio problema de dual boot."""
