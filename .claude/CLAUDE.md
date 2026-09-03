@@ -246,6 +246,73 @@ Um "scanner" que vigia a tela do Lineage 2 XM Essence enquanto o usuário farma 
 Conventions not yet established. Will populate as patterns emerge during development.
 <!-- GSD:conventions-end -->
 
+## Licoes medidas — para os mesmos erros nao voltarem (2026-09-02/03)
+
+Cada regra abaixo tem um numero atras. Nao sao preferencias de estilo; sao o que custou caro.
+
+### 1. Medir SO com codigo de producao
+
+Se voce quer um numero (geometria de celula, semelhanca de molde, recorte, residuo), ESTENDA
+a ferramenta existente ou CHAME a funcao de producao (`LeitorDePagina`, `RastreioDoPainel`,
+`pontuar_glifos`, `casamento_entre_moldes`, `JanelaSource.capturar_completo`). Nunca
+reimplemente por fora "so para conferir".
+
+Por que: tres medicoes de improviso sairam erradas no mesmo dia, todas com a mesma forma —
+re-derivar o que a producao ja faz por dentro. Recortar dois moldes em vez de alinha-los deu
+`9`x`4` = 0,3162 (o real e 0,0663) e virou uma "refutacao" escrita no fonte que teve de ser
+retirada; recalcular a geometria da celula a mao devolveu dez linhas IDENTICAS (as coordenadas
+caiam na coluna `Auction List`, cujo texto repete). O mesmo padrao — "um criterio que afirma
+que a coisa EXISTE em vez de que foi CHAMADA" — apareceu doze vezes no codigo dos agentes na
+mesma sessao. O unico diagnostico que ficou de pe foi o que entrou DENTRO de
+`tools/medir_leitura_de_glifo.py`.
+
+Sinal de alarme: resultados identicos onde deveriam variar, ou um numero que confirma a
+hipotese rapido demais.
+
+### 2. Criterio de aceite MEDE, nunca afirma existencia
+
+Contar chamadas, comparar a string emitida, injetar entrada conhecida e afirmar a saida.
+Nunca `assert "x" in getsource(...)`, nunca `grep` sobre arquivo gitignored, nunca teste que
+reimplementa a funcao e mede a copia. Toda mudanca na primeira camada (abaixo) leva prova de
+mutacao (quebrar a linha de producao tem de deixar o teste VERMELHO) **e** CONTROLE
+(refatorar mantendo a saida tem de ficar VERDE — senao o teste esta preso a forma do codigo
+e sera desligado pela primeira pessoa com pressa).
+
+### 3. Processo em camadas — o GSD inteiro so onde ele paga
+
+| a mudanca toca... | processo |
+|---|---|
+| o leitor, a guarda, a calibracao, um mecanismo novo, qualquer coisa que **decide** sobre dado | GSD inteiro: planner + executor + mutacao + controle |
+| texto, formato de log, docs, constante cuja razao ja esta escrita | `/gsd-fast` ou edicao direta com UM teste que mede |
+
+Por que: o planner pagou o proprio custo tres vezes em coisas nao obvias que teriam ido
+erradas para producao (tres objetos guardando a fonte de captura; o teto da guarda dobrando
+em silencio junto com o limite; os baldes do relatorio serem pelo rotulo PROPOSTO). Mas o
+mesmo ritual numa troca de f-string custou ~234 mil tokens por uma edicao de cinco minutos.
+Na duvida entre as camadas, e a primeira.
+
+### 4. Pytest: uma rodada por merge, saida inteira
+
+Nunca `| tail -N` (ja escondeu o resumo de 15 falhas), nunca duas rodadas em paralelo, e
+nao disparar antes de o merge que ela deveria julgar estar feito. Comando:
+`python -m pytest -q --ignore=tests/test_agenda.py` (o aborto ali e um `KeyboardInterrupt`
+deliberado). Os skips de OCR sao de ambiente — o pytest roda no python global e as bindings
+do Windows moram no `.venv`.
+
+### 5. Tarefa que nao cabe numa janela e tarefa grande demais
+
+Um executor foi cortado por limite de sessao aos 225 mil tokens e teve de ser retomado.
+Dividir antes, nao depois.
+
+### 6. Numero que caiu tem de dizer que caiu
+
+Uma frase no fonte que afirma um numero ou um veredito ("o veredito e robusto", "na primeira
+ocorrencia ele esta certo", "a ausencia de rate-limit e decisao") e uma promessa. Quando a
+medicao a derruba, a frase se reescreve no lugar, com o numero novo e o antigo — nunca se
+apaga. Cinco cairam nesta sessao; tres eram do orquestrador.
+
+<!-- GSD:architecture-start source:ARCHITECTURE.md -->
+
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 
 ## Architecture
