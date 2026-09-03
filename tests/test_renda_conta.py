@@ -48,6 +48,7 @@ esperado da SAIDA. Mover 79% para 70% nao muda nenhuma assercao daquele teste.
 from __future__ import annotations
 
 import ast
+from fractions import Fraction
 from pathlib import Path
 
 import l2scanner.renda_conta as rc
@@ -61,8 +62,11 @@ from l2scanner.renda_conta import (
     GRANDEZA_DA_ADENA,
     GRANDEZA_DO_EXP,
     SEM_DESCONTINUIDADE,
+    UNIDADE_DA_JANELA,
+    as_duas_taxas,
     passo_entre,
     passo_entre_campos,
+    passos_da_janela,
     taxa_por_hora,
 )
 from l2scanner.renda_leitura import (
@@ -969,3 +973,670 @@ class TestOPortaoDaDistincaoDosMotivosDaConta:
         assert definicoes.count("motivos_do_modulo") == 1
         assert definicoes.count("chamadas_de") == 1
         assert definicoes.count("literais_de_um_milhao") == 1
+
+
+# ===========================================================================
+# TAREFA 2: A JANELA MOVEL POR TEMPO, O DENOMINADOR SEM LACUNA, AS DUAS TAXAS
+# ===========================================================================
+
+
+def sequencia_regular(
+    *,
+    n: int,
+    passo_em_segundos: float,
+    comeco: float = 0.0,
+    exp_por_passo: int = 1_000,
+    adena_por_passo: int = 5_000,
+    exp_inicial: int = 100_000,
+    adena_inicial: int = 10_000_000,
+):
+    """`n` amostras ordinarias, cadencia fixa, EXP e adena subindo em passo fixo.
+
+    O GANHO POR PASSO E CONSTANTE DE PROPOSITO: e o que faz a taxa da sequencia
+    com buraco ser EXATAMENTE a mesma da sequencia sem buraco, em vez de
+    aproximadamente a mesma. Um teste de taxa que precisasse de tolerancia
+    deixaria de medir a exclusao da lacuna e passaria a medir a tolerancia.
+    """
+    return [
+        leitura(
+            nivel=67,
+            exp=exp_inicial + indice * exp_por_passo,
+            adena=adena_inicial + indice * adena_por_passo,
+            carimbo=comeco + indice * passo_em_segundos,
+        )
+        for indice in range(n)
+    ]
+
+
+class TestAJanelaEPorTempoENaoPorContagem:
+    """CTX-1: "ultimos dez minutos" e o que o usuario entende.
+
+    "Ultimas quarenta amostras" muda de significado quando a cadencia muda ou
+    quando o scanner fica cego — e a Fase 3 tem cadencia variavel POR NATUREZA,
+    porque o OCR custa dezenas de milissegundos e o jogo as vezes some da tela.
+    """
+
+    def test_DOBRAR_A_CADENCIA_NAO_MUDA_A_JANELA_COBERTA_E_MUDA_O_N(self):
+        devagar = passos_da_sequencia(
+            sequencia_regular(n=61, passo_em_segundos=1.0)
+        )
+        depressa = passos_da_sequencia(
+            sequencia_regular(n=121, passo_em_segundos=0.5)
+        )
+
+        da_devagar = taxa_por_hora(
+            passos_da_janela(devagar, janela_em_segundos=60.0),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS_DESLIGADO,
+            piso_da_janela_em_segundos=PISO_DA_JANELA_DESLIGADO,
+        )
+        da_depressa = taxa_por_hora(
+            passos_da_janela(depressa, janela_em_segundos=60.0),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS_DESLIGADO,
+            piso_da_janela_em_segundos=PISO_DA_JANELA_DESLIGADO,
+        )
+
+        assert (
+            da_devagar.janela_farmada_em_segundos
+            == da_depressa.janela_farmada_em_segundos
+            == 60.0
+        ), (
+            "a janela e por TEMPO: sessenta segundos de farm continuam sendo "
+            "sessenta segundos, tenha a cadencia dobrado ou nao. Se este numero "
+            "mudou, a janela virou 'as ultimas N amostras' — e ela muda de "
+            "significado toda vez que o OCR fica mais lento"
+        )
+        assert da_devagar.evidencia.n == 60
+        assert da_depressa.evidencia.n == 120, (
+            "o `n` TEM de mudar: dobrar a cadencia dobra o numero de passos "
+            "dentro da mesma janela. Se ele nao mudou, a janela cortou por "
+            "contagem"
+        )
+
+    def test_A_JANELA_CORTA_A_PARTIR_DA_AMOSTRA_MAIS_RECENTE(self):
+        """Uma sequencia de dez minutos, olhada por uma janela de um minuto."""
+        passos = passos_da_sequencia(
+            sequencia_regular(n=601, passo_em_segundos=1.0)
+        )
+
+        recortados = passos_da_janela(passos, janela_em_segundos=60.0)
+
+        assert len(recortados) == 60
+        assert recortados[-1] is passos[-1], (
+            "a janela sai da amostra MAIS RECENTE para tras, e nao do comeco "
+            "da sequencia para a frente"
+        )
+
+
+class TestALacunaSaiDoDenominadorEEContadaAParte:
+    """CTX-2: vinte minutos de cegueira nao viram taxa baixa."""
+
+    def test_COM_LACUNA_E_SEM_LACUNA_A_TAXA_POR_HORA_E_A_MESMA(self):
+        """O par que discrimina, e ele precisa das DUAS metades.
+
+        Uma implementacao que ignorasse lacunas passaria numa; outra que
+        ignorasse tudo passaria na outra. So as duas juntas dizem que o tempo
+        cego saiu do denominador e foi contado a parte.
+        """
+        sem_buraco = passos_da_sequencia(
+            sequencia_regular(n=21, passo_em_segundos=30.0)
+        )
+
+        primeira = sequencia_regular(n=11, passo_em_segundos=30.0)
+        segunda = sequencia_regular(
+            n=10,
+            passo_em_segundos=30.0,
+            comeco=primeira[-1].carimbo + 1_230.0,
+            exp_inicial=primeira[-1].exp + 1_000,
+            adena_inicial=primeira[-1].adena + 5_000,
+        )
+        com_buraco = passos_da_sequencia(primeira + segunda)
+
+        a = taxa_por_hora(
+            sem_buraco,
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+        b = taxa_por_hora(
+            com_buraco,
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert a.por_hora == b.por_hora == 120_000, (
+            "vinte minutos de cegueira no meio da noite nao podem mudar a taxa "
+            "por hora: os minutos cegos NAO foram farmados do ponto de vista da "
+            "medicao, e dividir por eles produz um numero baixo que o usuario "
+            f"nao tem como distinguir de 'o farm piorou'. {a.por_hora} != "
+            f"{b.por_hora}"
+        )
+        assert a.lacunas_excluidas == 0
+        assert b.lacunas_excluidas == 1
+        assert b.segundos_em_lacuna == 1_230.0
+        assert a.segundos_em_lacuna == 0.0
+
+    def test_DUAS_LACUNAS_CONTAM_DUAS_E_OS_SEGUNDOS_SOMAM(self):
+        primeira = sequencia_regular(n=8, passo_em_segundos=30.0)
+        segunda = sequencia_regular(
+            n=8,
+            passo_em_segundos=30.0,
+            comeco=primeira[-1].carimbo + 600.0,
+            exp_inicial=primeira[-1].exp + 1_000,
+            adena_inicial=primeira[-1].adena + 5_000,
+        )
+        terceira = sequencia_regular(
+            n=8,
+            passo_em_segundos=30.0,
+            comeco=segunda[-1].carimbo + 900.0,
+            exp_inicial=segunda[-1].exp + 1_000,
+            adena_inicial=segunda[-1].adena + 5_000,
+        )
+
+        taxa = taxa_por_hora(
+            passos_da_sequencia(primeira + segunda + terceira),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert taxa.lacunas_excluidas == 2
+        assert taxa.segundos_em_lacuna == 1_500.0
+        assert taxa.por_hora == 120_000
+
+    def test_UMA_SEQUENCIA_INTEIRA_DENTRO_DE_UMA_LACUNA_NAO_TEM_TAXA(self):
+        """Duas amostras separadas por meia hora nao sao uma taxa por hora."""
+        amostras = [
+            leitura(nivel=67, exp=100_000, adena=10_000_000, carimbo=0.0),
+            leitura(nivel=67, exp=190_000, adena=10_500_000, carimbo=1_800.0),
+        ]
+
+        taxa = taxa_por_hora(
+            passos_da_sequencia(amostras),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS_DESLIGADO,
+            piso_da_janela_em_segundos=PISO_DA_JANELA_DESLIGADO,
+        )
+
+        assert taxa.por_hora is None, (
+            "nao ha denominador: o unico passo da sequencia e uma lacuna, e "
+            "dividir o ganho de meia hora por zero segundo farmado nao produz "
+            "um numero grande — produz nenhum"
+        )
+        assert taxa.motivo_da_ausencia is not None
+        assert taxa.lacunas_excluidas == 1
+        assert taxa.janela_farmada_em_segundos == 0.0
+
+
+class TestAsDuasTaxasENaoUma:
+    """CTX-4: apresentar so uma MENTE POR OMISSAO.
+
+    Medido em campo: a media de 8h45 deu ~226 mil adena/h e a janela curta deu
+    466 mil/h. A diferenca inteira e TEMPO PARADO — e as duas respondem perguntas
+    diferentes: "o que esta acontecendo agora" e "o que a noite rendeu".
+    """
+
+    def test_A_JANELA_E_A_SESSAO_SAO_DIFERENTES_QUANDO_HOUVE_TEMPO_PARADO(self):
+        devagar = sequencia_regular(
+            n=20, passo_em_segundos=30.0, exp_por_passo=1_000
+        )
+        depressa = sequencia_regular(
+            n=20,
+            passo_em_segundos=30.0,
+            comeco=devagar[-1].carimbo + 1_800.0,
+            exp_por_passo=5_000,
+            exp_inicial=devagar[-1].exp + 5_000,
+            adena_inicial=devagar[-1].adena + 5_000,
+        )
+
+        duas = as_duas_taxas(
+            passos_da_sequencia(devagar + depressa),
+            grandeza=GRANDEZA_DO_EXP,
+            janela_em_segundos=600.0,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert duas.janela.por_hora == 600_000
+        assert duas.sessao.por_hora == 360_000
+        assert duas.janela.por_hora != duas.sessao.por_hora, (
+            "as duas taxas respondem perguntas DIFERENTES e nesta sequencia elas "
+            "tem de divergir: a janela curta ve so o trecho recente e a sessao "
+            "inteira carrega o trecho fraco de antes da pausa. Apresentar so uma "
+            "mente por omissao"
+        )
+        assert (
+            duas.sessao.janela_farmada_em_segundos
+            > duas.janela.janela_farmada_em_segundos
+        )
+
+    def test_CONTROLE_SEM_TEMPO_PARADO_AS_DUAS_SAO_IGUAIS(self):
+        """Sem ele, uma implementacao que devolvesse dois numeros QUAISQUER
+        diferentes passaria no teste acima."""
+        duas = as_duas_taxas(
+            passos_da_sequencia(sequencia_regular(n=40, passo_em_segundos=30.0)),
+            grandeza=GRANDEZA_DO_EXP,
+            janela_em_segundos=3_600.0,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert duas.janela.por_hora == duas.sessao.por_hora == 120_000
+        assert (
+            duas.janela.janela_farmada_em_segundos
+            == duas.sessao.janela_farmada_em_segundos
+        )
+
+
+class TestAAncoraEOReinicio:
+    """REG-02 / C-7: reiniciar nao inventa nem apaga renda."""
+
+    def test_A_PRIMEIRA_AMOSTRA_E_ANCORA_E_NAO_ENTRA_EM_DENOMINADOR_NENHUM(self):
+        passos = passos_da_sequencia(
+            sequencia_regular(n=21, passo_em_segundos=30.0)
+        )
+
+        assert passos[0].descontinuidade == DESCONTINUIDADE_DA_ANCORA
+        assert passos[0].intervalo_em_segundos is None
+
+        for grandeza in (GRANDEZA_DO_EXP, GRANDEZA_DA_ADENA):
+            taxa = taxa_por_hora(
+                passos,
+                grandeza=grandeza,
+                piso_de_amostras=PISO_DE_AMOSTRAS,
+                piso_da_janela_em_segundos=PISO_DA_JANELA,
+            )
+            assert taxa.evidencia.n == 20, (
+                f"a ancora entrou no denominador da grandeza {grandeza!r}: sao "
+                "21 amostras e 20 PASSOS, porque a primeira nao tem anterior"
+            )
+
+    def test_SESSAO_1_REINICIO_SESSAO_2_SOMA_OS_DOIS_TRECHOS(self):
+        """O criterio 4 do roadmap: reiniciar nao inventa nem apaga renda.
+
+        Nenhum estado atravessa o reinicio — cada sessao vira passos por conta
+        propria, exatamente como o processo novo faria. O ganho total tem de ser
+        a SOMA dos dois trechos, e nunca um delta atravessando o buraco.
+        """
+        primeira = sequencia_regular(n=11, passo_em_segundos=30.0)
+        segunda = sequencia_regular(
+            n=11,
+            passo_em_segundos=30.0,
+            comeco=primeira[-1].carimbo + 3_600.0,
+            exp_inicial=500_000,
+            adena_inicial=20_000_000,
+        )
+
+        passos_1 = passos_da_sequencia(primeira)
+        passos_2 = passos_da_sequencia(segunda)
+
+        ganho_1 = sum(
+            p.ganho_de_exp_em_decimos for p in passos_1 if p.aceito
+        )
+        ganho_2 = sum(
+            p.ganho_de_exp_em_decimos for p in passos_2 if p.aceito
+        )
+
+        assert ganho_1 == ganho_2 == 10_000
+        assert ganho_1 + ganho_2 == 20_000, (
+            "o ganho de duas sessoes e a SOMA das duas, e o criterio 4 do "
+            "roadmap chama isso de 'reiniciar nao inventa nem apaga renda'"
+        )
+
+        atravessando = segunda[0].exp - primeira[-1].exp
+        assert atravessando == 390_000
+        assert ganho_1 + ganho_2 != atravessando, (
+            "existe um delta ATRAVESSANDO o reinicio, e ele e "
+            f"{atravessando} decimos que ninguem farmou. A primeira amostra "
+            "depois do arranque e ANCORA e nao delta — e e dai, e nao de indice "
+            "em disco, que sai a garantia do REG-02 (criterio 4 do roadmap)"
+        )
+
+        assert passos_2[0].descontinuidade == DESCONTINUIDADE_DA_ANCORA
+        assert passos_2[0].ganho_de_exp_em_decimos is None
+
+
+class TestOsDoisPisosDizemQualFaltou:
+    """Um motivo generico obrigaria quem desenha a adivinhar."""
+
+    def test_ABAIXO_DO_PISO_DE_AMOSTRAS_O_MOTIVO_NOMEIA_AS_AMOSTRAS(self):
+        taxa = taxa_por_hora(
+            passos_da_sequencia(sequencia_regular(n=3, passo_em_segundos=50.0)),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert taxa.por_hora is None
+        assert "amostras_minimas_para_taxa" in taxa.motivo_da_ausencia
+        assert taxa.evidencia.faltam == 6
+
+    def test_ABAIXO_DO_PISO_DE_JANELA_O_MOTIVO_NOMEIA_A_JANELA(self):
+        taxa = taxa_por_hora(
+            passos_da_sequencia(sequencia_regular(n=9, passo_em_segundos=1.0)),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert taxa.por_hora is None
+        assert "janela_minima_para_taxa_segundos" in taxa.motivo_da_ausencia
+        assert taxa.evidencia.suficiente is True, (
+            "este e o caso que o piso de amostras NAO pega: oito passos em oito "
+            "segundos sao ruido com cara de taxa horaria, e o criterio 1 do "
+            "roadmap manda anuncia-lo como ruido"
+        )
+
+    def test_OS_DOIS_MOTIVOS_SAO_TEXTOS_DIFERENTES(self):
+        """Um teste que so afirme "motivo nao vazio" nos dois nao vale."""
+        poucas = taxa_por_hora(
+            passos_da_sequencia(sequencia_regular(n=3, passo_em_segundos=50.0)),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+        curta = taxa_por_hora(
+            passos_da_sequencia(sequencia_regular(n=9, passo_em_segundos=1.0)),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert poucas.motivo_da_ausencia != curta.motivo_da_ausencia, (
+            "os dois pisos sao dois FATOS diferentes: oito amostras em quarenta "
+            "segundos e oito amostras em duas horas nao valem o mesmo, e quem "
+            "desenha precisa poder dizer QUAL faltou"
+        )
+
+
+class TestARecenciaEAUnidadeViajamJUNTO:
+    """REND-06: a taxa nunca e um numero nu."""
+
+    def test_ATE_SAI_PREENCHIDO_MESMO_QUANDO_POR_HORA_E_NULO(self):
+        amostras = sequencia_regular(n=9, passo_em_segundos=1.0)
+        taxa = taxa_por_hora(
+            passos_da_sequencia(amostras),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert taxa.por_hora is None
+        assert taxa.ate == amostras[-1].carimbo, (
+            "a recencia e um fato SEPARADO do valor: mesmo sem numero a dizer, "
+            "quem desenha precisa saber de quando e a ultima amostra que entrou"
+        )
+
+    def test_A_UNIDADE_DA_JANELA_VIAJA_ESCRITA(self):
+        taxa = taxa_por_hora(
+            passos_da_sequencia(sequencia_regular(n=21, passo_em_segundos=30.0)),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert taxa.unidade_da_janela == "minutos farmados"
+        assert UNIDADE_DA_JANELA == "minutos farmados", (
+            "`minutos farmados` e um fato diferente de `minutos de relogio`, e "
+            "sem a palavra viajando junto do numero quem desenha a tela le a "
+            "taxa como se o denominador fosse o relogio"
+        )
+
+
+class TestAAritmeticaEExata:
+    """Nenhum `float` participa de diferenca ou de acumulo (T-02-13)."""
+
+    def test_POR_HORA_E_POR_MINUTO_SAO_FRACTION(self):
+        taxa = taxa_por_hora(
+            passos_da_sequencia(sequencia_regular(n=21, passo_em_segundos=30.0)),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert isinstance(taxa.por_hora, Fraction)
+        assert isinstance(taxa.por_minuto, Fraction)
+        assert taxa.por_minuto * 60 == taxa.por_hora
+        assert taxa.por_minuto == 2_000
+
+    def test_SEM_TAXA_OS_DOIS_SAO_NULOS_JUNTOS(self):
+        taxa = taxa_por_hora(
+            passos_da_sequencia(sequencia_regular(n=3, passo_em_segundos=50.0)),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert taxa.por_hora is None
+        assert taxa.por_minuto is None
+
+    def test_NENHUMA_CONVERSAO_A_PONTO_FLUTUANTE_NO_MODULO(self):
+        assert chamadas_de(FONTE_DA_CONTA, {"float", "total_seconds"}) == [], (
+            "a arvore ja mediu `total_seconds()` devolvendo `69713.696` onde o "
+            "inteiro dizia `69713`. Diferenca sobre binario de ponto flutuante "
+            "acumula erro que ninguem consegue ver depois de gravado — a divisao "
+            "e `Fraction` e o resto e inteiro escalado"
+        )
+
+    def test_O_MODULO_TEM_DOCSTRING(self):
+        assert rc.__doc__ is not None
+
+
+# ---------------------------------------------------------------------------
+# A DISPONIBILIDADE MEDIDA, e ela e o portao que discrimina
+# ---------------------------------------------------------------------------
+#
+# AS TRES TAXAS DE RECUSA SAO RECEITA DE CONSTRUCAO DA ENTRADA, E NUNCA VALOR
+# ESPERADO DA SAIDA. Elas vem de `02-CONTEXT.md:150` — nivel 79%, adena 21%, EXP
+# 0%, sobre um denominador de 14 amostras, escrito na mesma linha. Mover 79% para
+# 70% amanha nao muda nenhuma assercao deste teste: o que se afirma e que a taxa
+# SAI e qual e o `n`.
+#
+# AS MASCARAS SAO DETERMINISTICAS POR CONSTRUCAO e nao por semente: `(i * 37) %
+# 100 < 21` acerta exatamente 21 presencas a cada 100 indices, porque 37 e primo
+# com 100 e o produto percorre todos os cem residuos. `(i * 53) % 100 < 79` faz o
+# mesmo com 79. Os dois multiplicadores sao diferentes para que as duas recusas
+# NAO andem em lockstep — se andassem, "o nivel recusou" e "a adena recusou"
+# seriam o mesmo evento e o teste nao mediria o que afirma medir.
+#
+# Um portao que falha uma vez a cada dez execucoes e ruido, e ruido e o que este
+# workstream existe para nao produzir.
+AMOSTRAS_DA_DISPONIBILIDADE = 600
+PRESENCA_DO_NIVEL_EM_CEM = 21
+PRESENCA_DA_ADENA_EM_CEM = 79
+
+
+def o_nivel_leu(indice: int) -> bool:
+    return (indice * 37) % 100 < PRESENCA_DO_NIVEL_EM_CEM
+
+
+def a_adena_leu(indice: int) -> bool:
+    return (indice * 53) % 100 < PRESENCA_DA_ADENA_EM_CEM
+
+
+def sequencia_da_disponibilidade(*, comeco: float = 1_700_000_000.0):
+    """Dez minutos a ~1 Hz sob as recusas MEDIDAS. `(campos, carimbo)`.
+
+    Ela e construida para NAO acionar por acidente nenhuma das outras guardas:
+    nivel constante onde presente, EXP subindo dentro da mesma faixa e sem
+    chegar perto dos 100 pontos percentuais, adena subindo sem salto de ordem de
+    grandeza, e carimbos a exatamente 1 s — bem abaixo do limiar de lacuna.
+    """
+    return [
+        (
+            campos(
+                nivel=67 if o_nivel_leu(indice) else None,
+                exp=100_000 + indice * 100,
+                adena=(
+                    10_000_000 + indice * 5_000 if a_adena_leu(indice) else None
+                ),
+            ),
+            comeco + indice * 1.0,
+        )
+        for indice in range(AMOSTRAS_DA_DISPONIBILIDADE)
+    ]
+
+
+class TestADisponibilidadeMedida:
+    """O criterio 1 do roadmap sob a disponibilidade REAL, e nao sob a total.
+
+    Um teste que so usasse amostras completas provaria o criterio num mundo em
+    que o nivel sempre le — e ele le em ~21% dos tiques (`02-CONTEXT.md:150`,
+    sobre 14 amostras).
+    """
+
+    def test_AS_MASCARAS_ENTREGAM_AS_RECUSAS_MEDIDAS(self):
+        """A receita e conferida ANTES de o teste principal se apoiar nela."""
+        niveis = sum(1 for i in range(AMOSTRAS_DA_DISPONIBILIDADE) if o_nivel_leu(i))
+        adenas = sum(1 for i in range(AMOSTRAS_DA_DISPONIBILIDADE) if a_adena_leu(i))
+
+        assert niveis == 126, "21 presencas a cada 100 indices, em 600 indices"
+        assert adenas == 474, "79 presencas a cada 100 indices, em 600 indices"
+        assert niveis != adenas, (
+            "as duas mascaras nao podem andar em lockstep, senao 'o nivel "
+            "recusou' e 'a adena recusou' viram o mesmo evento"
+        )
+
+    def test_O_EXP_SAI_COM_TODOS_OS_INTERVALOS_APESAR_DO_NIVEL_RECUSADO(self):
+        passos = passos_dos_campos(sequencia_da_disponibilidade())
+
+        taxa = taxa_por_hora(
+            passos,
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert taxa.por_hora is not None, taxa.motivo_da_ausencia
+        assert taxa.evidencia.n == 599, (
+            "ESTE E O NUMERO QUE DISCRIMINA. A recusa de EXP e 0% "
+            "(`02-CONTEXT.md:150`, sobre 14 amostras), entao TODOS os 599 "
+            "intervalos de 600 amostras tem de contar. Sob a regra que caiu — "
+            "passo de EXP so quando os DOIS lados trazem nivel — sobrariam "
+            "0,21 x 0,21 = 4,4% dos pares, ou seja `n` da ordem de 26 e janela "
+            "farmada de ~26 s, ABAIXO do piso de 120 s, e `por_hora` sairia "
+            "`None`. Uma assercao que so pedisse 'nao nulo' passaria nas duas "
+            f"regras e nao provaria nada. Saiu n={taxa.evidencia.n}"
+        )
+        assert taxa.janela_farmada_em_segundos == 599.0
+        assert taxa.lacunas_excluidas == 0
+        assert taxa.segundos_em_lacuna == 0.0
+
+    def test_A_ADENA_SAI_COM_OS_PARES_EM_QUE_ELA_FOI_LIDA_DOS_DOIS_LADOS(self):
+        passos = passos_dos_campos(sequencia_da_disponibilidade())
+
+        taxa = taxa_por_hora(
+            passos,
+            grandeza=GRANDEZA_DA_ADENA,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        # DERIVADO DA MESMA MASCARA que construiu a sequencia, e nunca escrito a
+        # mao: um numero copiado aqui envelheceria em silencio se a receita
+        # mudasse, e o teste continuaria verde medindo outra coisa.
+        pares_com_adena = sum(
+            1
+            for i in range(1, AMOSTRAS_DA_DISPONIBILIDADE)
+            if a_adena_leu(i - 1) and a_adena_leu(i)
+        )
+
+        assert taxa.por_hora is not None, taxa.motivo_da_ausencia
+        assert taxa.evidencia.n == pares_com_adena, (
+            "o `n` da adena e o numero de pares em que ela foi lida DOS DOIS "
+            f"LADOS: {pares_com_adena}. Saiu {taxa.evidencia.n}"
+        )
+        assert taxa.evidencia.n >= PISO_DE_AMOSTRAS
+        assert taxa.janela_farmada_em_segundos >= PISO_DA_JANELA, (
+            "dez minutos de farm a ~1 Hz tem de produzir janela farmada acima "
+            "do piso tambem para a adena, com a recusa de 21% medida"
+        )
+
+    def test_O_NIVEL_RECUSADO_NAO_REDUZ_O_N_DO_EXP_EM_UM_UNICO_PASSO(self):
+        """O mesmo `n` com e sem o nivel: 599 dos dois jeitos.
+
+        O CONTROLE que prova que a assercao de cima nao passa por acidente: uma
+        sequencia identica com o nivel SEMPRE presente da o mesmo `n`. Se a
+        guarda tivesse virado supressao, os dois numeros divergiriam.
+        """
+        com_recusa = taxa_por_hora(
+            passos_dos_campos(sequencia_da_disponibilidade()),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+        sem_recusa = taxa_por_hora(
+            passos_dos_campos(
+                [
+                    (
+                        campos(
+                            nivel=67,
+                            exp=100_000 + indice * 100,
+                            adena=10_000_000 + indice * 5_000,
+                        ),
+                        1_700_000_000.0 + indice * 1.0,
+                    )
+                    for indice in range(AMOSTRAS_DA_DISPONIBILIDADE)
+                ]
+            ),
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert com_recusa.evidencia.n == sem_recusa.evidencia.n == 599
+        assert com_recusa.por_hora == sem_recusa.por_hora, (
+            "o nivel recusado em 79% dos tiques nao pode mudar a taxa de EXP: "
+            "com o EXP subindo nao existe level up a supor, e o ganho e o mesmo "
+            "com e sem o nivel"
+        )
+
+
+class TestODenominadorEPorGrandeza:
+    """A `janela_farmada` de uma grandeza nao e a da outra, e isso e o desenho."""
+
+    def test_A_JANELA_DA_ADENA_E_MAIOR_QUE_A_DO_EXP_QUANDO_O_EXP_CAIU(self):
+        """Passos com o nivel recusado e o EXP caindo saem do denominador do EXP
+        e CONTINUAM no da adena, e as duas taxas saem da MESMA sequencia."""
+        pares = []
+        exp = 500_000
+        adena = 10_000_000
+        for indice in range(40):
+            # Um em cada quatro tiques o EXP cai (morte), e o nivel nunca le.
+            if indice % 4 == 3:
+                exp = exp - 20_000
+            else:
+                exp = exp + 1_000
+            adena = adena + 5_000
+            pares.append(
+                (campos(nivel=None, exp=exp, adena=adena), indice * 5.0)
+            )
+
+        passos = passos_dos_campos(pares)
+
+        do_exp = taxa_por_hora(
+            passos,
+            grandeza=GRANDEZA_DO_EXP,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+        da_adena = taxa_por_hora(
+            passos,
+            grandeza=GRANDEZA_DA_ADENA,
+            piso_de_amostras=PISO_DE_AMOSTRAS,
+            piso_da_janela_em_segundos=PISO_DA_JANELA,
+        )
+
+        assert da_adena.janela_farmada_em_segundos > do_exp.janela_farmada_em_segundos, (
+            "o denominador e POR GRANDEZA: os passos em que o EXP caiu com o "
+            "nivel recusado sairam do denominador do EXP, e a adena daqueles "
+            "mesmos passos e perfeitamente boa. Adena: "
+            f"{da_adena.janela_farmada_em_segundos}s, EXP: "
+            f"{do_exp.janela_farmada_em_segundos}s"
+        )
+        assert do_exp.por_hora is not None
+        assert da_adena.por_hora is not None
+        assert da_adena.evidencia.n == 39
+        assert do_exp.evidencia.n == 39 - 10
