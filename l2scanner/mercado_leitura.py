@@ -1714,15 +1714,39 @@ class TravaDaRecusa:
         string vazia atravessaria um `if texto:` distraido e registraria uma
         linha em branco por tick — o mesmo ruido, com outra cara.
 
-        O TEXTO E BYTE-IDENTICO ao que `log.warning` renderizava antes desta
-        trava existir. Ha teste vivo lendo essa string, e mudar a forma
-        quebraria forense de campo por nada.
+        O TEXTO MUDOU EM 2026-09-02, E A PROMESSA ANTIGA CAIU COM ELE. Ate
+        aquele dia esta docstring prometia forma BYTE-IDENTICA ao que
+        `log.warning` renderizava antes desta trava existir, e a forma era
+        `linha {indice} RECUSADA ({motivo}): {detalhe}`. A promessa quebrou
+        sozinha na primeira vez que o usuario leu o log de perto: a linha
+        `linha 7 RECUSADA (cruzamento): ... n=3 residuo=1000` apontava para a
+        OITAVA linha da tela, porque o indice e base 0
+        (`mercado_pagina.py:1049-1050`). A forma estavel apontava para a linha
+        errada, e o `scanner.log` e a UNICA forense pos-farm do projeto — a
+        evidencia mentia justamente para quem finalmente a lia.
+
+        A MUDANCA FOI FEITA *PARA* A FORENSE, E NAO CONTRA ELA. O texto agora
+        diz AS DUAS: `linha {indice + 1} (indice {indice}) RECUSADA (...)`. A
+        posicao na tela e o numero que o usuario confere olhando o jogo; o
+        indice e o numero que viaja no `Descarte`, na chave desta trava e nos
+        testes. Trocar tudo para base 1 e SUMIR com o indice foi RECUSADO:
+        trocaria uma armadilha por outra, e quem depura o codigo perderia o
+        unico numero que casa com a estrutura de dados.
+
+        A NUMERACAO INTERNA NAO MUDOU. A chave continua
+        `(int(indice), motivo, detalhe)` em base 0, porque a identidade da
+        recusa nunca dependeu do texto. O que mudou foi a frase, e so ela.
         """
         chave = (int(indice), motivo, detalhe)
         if chave in self.ja_recusadas:
             return None
         self.ja_recusadas.add(chave)
-        return f"linha {indice} RECUSADA ({motivo}): {detalhe}"
+        # As duas numeracoes na mesma frase, na ordem em que sao usadas: a
+        # posicao na tela primeiro, porque e ela que o usuario confere.
+        return (
+            f"linha {indice + 1} (indice {indice}) "
+            f"RECUSADA ({motivo}): {detalhe}"
+        )
 
 
 # ---------------------------------------------------------------------------
