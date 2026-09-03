@@ -214,8 +214,24 @@ append-only em `.renda/`**, escrito no dialeto que o workstream `dashboard` já 
 **Depends on**: Phase 1 — a conta é sobre amostras, e amostra é o que a Fase 1 produz. Enquanto
 a leitura não recusar direito, gravar é gravar veneno.
 
-**Requirements**: REND-01, REND-02, REND-03, REND-04, REND-05, REND-06, REG-01, REG-02, REG-03,
-REG-04
+**Requirements**: REND-01, REND-02, REND-03, REND-04, REND-05, REND-06, **REND-08**,
+**REND-09**, REG-01, REG-02, REG-03, REG-04
+
+> **REND-08 e REND-09 entraram em 2026-09-02, do usuário e por medição.** Ele leu o painel dizer
+> "6,43 pontos percentuais por hora" e respondeu: *"não entendi a contagem da xp em pontos — XP é
+> isso que aparece no chat e sobe a porcentagem, mas preciso do número do chat"*. Ele está certo,
+> e a fase tem de entregar XP **absoluto**.
+>
+> O caminho está medido e **não é somar o chat**: a 0,8 s de amostragem o chat entregou 55,4% da
+> adena que a barra viu; a 2,0 s, 29,8%. São 6 linhas visíveis a ~104 abates/min. A ponte é uma
+> constante por nível — `XP por ponto percentual = XP por abate ÷ pp por abate` — em que o
+> **chat** dá o numerador (não precisa ser completo, só representativo) e a **barra** dá o
+> denominador (precisa ser completo, e é). Medido na Faerlina no nível 67: 387 XP por abate,
+> 0,001011 pp por abate, **383.124 XP por ponto percentual, 38,3 milhões no nível inteiro**.
+>
+> E a convenção do parênteses ficou resolvida por medição, não por leitura de documentação:
+> `363 XP (bonus: 299)` é **363 no total**, porque `363/(363−299) = 5,67` e a barra exibe
+> **562%** como multiplicador de XP do personagem. Dez de onze linhas caem em 562–567%.
 
 **As duas armadilhas, e por que cada uma ganhou critério próprio**: as duas foram levantadas
 pelo spike, e as duas têm o mesmo formato — **um delta negativo que não é renda negativa**.
