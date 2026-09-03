@@ -3142,6 +3142,16 @@ def main() -> int:
             "nenhum: so le o painel e grava em .mercado/. Exige --janela."
         ),
     )
+    parser.add_argument(
+        "--renda",
+        action="store_true",
+        help=(
+            "roda SO a leitura da renda, como QUARTA invocacao ao lado das "
+            "duas de party e da do mercado. NAO vigia a party, NAO envia "
+            "alerta nenhum e NAO le o mercado: so le a barra inferior e grava "
+            "em .renda/. Exige --janela."
+        ),
+    )
     parser.add_argument("-v", "--verboso", action="store_true", help="log detalhado")
 
     args = parser.parse_args()
@@ -3167,6 +3177,22 @@ def main() -> int:
             "--mercado exige --janela: o painel do World Exchange e procurado "
             "na JANELA INTEIRA porque ele anda, e so o caminho da janela a "
             "expoe como unidade."
+        )
+    # O PORTAO E O MESMO DO IRMAO E A RAZAO E OUTRA, e ela vai escrita. La o
+    # motivo e que o painel do World Exchange ANDA dentro da janela; aqui e que
+    # EXP e adena sao DO PERSONAGEM, e o usuario roda DUAS instancias lado a
+    # lado na mesma maquina. Sem mira o scanner leria a instancia errada e
+    # gravaria a renda de um char no arquivo do outro — e o pior e que ele nao
+    # deixaria de funcionar: medido (M-F), o retangulo do vizinho devolve `349`
+    # ou `112`, numeros plausiveis que passam por qualquer validacao.
+    #
+    # Copiar a frase do mercado seria dar a razao ERRADA para o portao certo.
+    if args.renda and not args.janela:
+        parser.error(
+            "--renda exige --janela: a EXP e a adena sao do PERSONAGEM, e o "
+            "titulo da janela e de onde sai de quem elas sao. Com duas "
+            "instancias abertas na mesma maquina, sem mira o scanner le a "
+            "instancia errada e grava a renda de um char no arquivo do outro."
         )
 
     # A JANELA VAI JUNTO, e e o que da um arquivo de log a cada instancia.
@@ -3269,6 +3295,16 @@ def main() -> int:
         from .mercado_modo import laco_do_mercado
 
         return laco_do_mercado(args, cal)
+
+    # O `--renda` entra pela MESMA porta e pela mesma razao ja escrita no
+    # comentario acima: ele tambem OLHA para a tela, e sair antes duplicaria a
+    # verdade sobre como a janela e escolhida. O import e adiado como o do
+    # irmao — `renda_laco` arrasta `renda_leitura`, e quem roda so a party nao
+    # paga por isso.
+    if args.renda:
+        from .renda_laco import laco_da_renda
+
+        return laco_da_renda(args, cal)
 
     # DEPOIS da calibracao e da resolucao do --janela AUTO, e nao junto do
     # --testar-agenda: diferente da agenda, esta ferramenta precisa das duas.
