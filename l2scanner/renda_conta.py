@@ -288,6 +288,9 @@ UNIDADE_DA_JANELA = "minutos farmados"
 # no fonte enquanto os cinco limiares nao podem.
 SEGUNDOS_POR_HORA = 3_600
 
+# A mesma coisa, e pela mesma razao: sessenta minutos por hora nao e calibravel.
+MINUTOS_POR_HORA = 60
+
 # Um nivel inteiro sao 100 pontos percentuais de EXP. Tambem UNIDADE e nao
 # limiar: e a definicao da barra, e nao uma escolha nossa.
 PONTOS_PERCENTUAIS_DE_UM_NIVEL = 100
@@ -831,6 +834,12 @@ class TaxaDaRenda:
     fatos que SAIRAM do denominador, e eles ficam visiveis para que "a taxa
     caiu" nunca seja confundido com "o scanner nao viu".
 
+    `por_minuto` E `por_hora / 60` E VIAJA JUNTO, e nao e conveniencia: as duas
+    respondem a mesma pergunta em escalas que o usuario usa em momentos
+    diferentes — "quanto rende esta noite" e por hora, "quanto rendeu este mob"
+    e por minuto. Deixar a divisao para quem exibe convidaria um `float` a
+    entrar na conta bem no fim, depois de toda a disciplina de `Fraction`.
+
     `ate` E A RECENCIA, E ELA E SEPARADA DO VALOR (REND-06). Um numero bom de
     quarenta minutos atras continua sendo um numero bom; ele so nao e o de
     agora, e quem exibe precisa poder dizer as duas coisas em campos diferentes.
@@ -842,6 +851,7 @@ class TaxaDaRenda:
     grandeza: str
     evidencia: Evidencia
     por_hora: Fraction | None
+    por_minuto: Fraction | None
     motivo_da_ausencia: str | None
     janela_farmada_em_segundos: float
     unidade_da_janela: str
@@ -932,6 +942,7 @@ def taxa_por_hora(
             grandeza=grandeza,
             evidencia=evidencia,
             por_hora=None,
+            por_minuto=None,
             motivo_da_ausencia=motivo,
             janela_farmada_em_segundos=janela_farmada,
             unidade_da_janela=UNIDADE_DA_JANELA,
@@ -967,14 +978,107 @@ def taxa_por_hora(
     for passo in aceitos:
         ganho = ganho + ganho_do_passo(passo, grandeza)
 
+    por_hora = Fraction(ganho) * SEGUNDOS_POR_HORA / Fraction(janela_farmada)
+
     return TaxaDaRenda(
         grandeza=grandeza,
         evidencia=evidencia,
-        por_hora=Fraction(ganho) * SEGUNDOS_POR_HORA / Fraction(janela_farmada),
+        por_hora=por_hora,
+        por_minuto=por_hora / MINUTOS_POR_HORA,
         motivo_da_ausencia=None,
         janela_farmada_em_segundos=janela_farmada,
         unidade_da_janela=UNIDADE_DA_JANELA,
         lacunas_excluidas=len(lacunas),
         segundos_em_lacuna=segundos_em_lacuna,
         ate=ate,
+    )
+
+
+# ---------------------------------------------------------------------------
+# A JANELA MOVEL, E ELA E POR TEMPO (CTX-1)
+# ---------------------------------------------------------------------------
+
+
+def passos_da_janela(
+    passos: Sequence[PassoDaRenda], *, janela_em_segundos: float
+) -> tuple[PassoDaRenda, ...]:
+    """Os passos dentro da janela, contada A PARTIR DO MAIS RECENTE PARA TRAS.
+
+    A JANELA E POR TEMPO E NAO POR CONTAGEM, e a alternativa vai registrada aqui
+    porque ela e o PADRAO SILENCIOSO — alguem a implementa sem perceber.
+    "Ultimos dez minutos" e o que o usuario entende; "ultimas quarenta amostras"
+    muda de significado toda vez que a cadencia muda, e a Fase 3 tem cadencia
+    variavel POR NATUREZA: o OCR custa dezenas de milissegundos e o jogo as vezes
+    some da tela. Uma janela por contagem encolheria em segundos exatamente
+    quando o scanner esta com dificuldade — que e quando o usuario mais precisa
+    do numero estar certo.
+
+    O CORTE E `>` E NAO `>=`: um passo cujo carimbo cai EXATAMENTE no limite da
+    janela pertence ao instante anterior a ela. Com a janela igual ao vao inteiro
+    da sequencia isso deixa a ancora de fora, que e o desfecho certo — ela nao
+    tem intervalo e nao entraria em denominador nenhum de qualquer jeito.
+
+    A SEQUENCIA E ASSUMIDA CRONOLOGICA, que e como o laco de captura a produz.
+    Ordenar aqui esconderia um relogio embaralhado — e o relogio embaralhado tem
+    nome proprio nesta fase (`relogio-andou-para-tras`) e nao pode ser corrigido
+    em silencio.
+    """
+    if not passos:
+        return ()
+    limite = passos[-1].carimbo - janela_em_segundos
+    return tuple(passo for passo in passos if passo.carimbo > limite)
+
+
+@dataclass(frozen=True)
+class AsDuasTaxas:
+    """A da JANELA MOVEL e a da SESSAO INTEIRA, e as duas saem juntas (CTX-4).
+
+    ELAS RESPONDEM PERGUNTAS DIFERENTES: a janela responde "o que esta
+    acontecendo agora" e a sessao responde "o que a noite rendeu". Apresentar so
+    uma MENTE POR OMISSAO, e o tamanho da mentira esta medido: a media de 8h45
+    deu ~226 mil adena/h e a janela curta deu 466 mil/h — um fator de dois, e a
+    diferenca inteira e TEMPO PARADO.
+
+    As duas carregam a propria `Evidencia`, a propria janela farmada e a propria
+    recencia, porque sao duas medicoes e nao duas vistas da mesma.
+    """
+
+    janela: TaxaDaRenda
+    sessao: TaxaDaRenda
+
+
+def as_duas_taxas(
+    passos: Sequence[PassoDaRenda],
+    *,
+    grandeza: str,
+    janela_em_segundos: float,
+    piso_de_amostras: int,
+    piso_da_janela_em_segundos: float,
+) -> AsDuasTaxas:
+    """As duas taxas da mesma sequencia, com janelas diferentes.
+
+    A DA SESSAO E A SEQUENCIA INTEIRA e nao "desde que o processo subiu": a
+    sessao e delimitada por LACUNA e nunca por processo (herdado do `02-01`), e e
+    quem monta a sequencia que decide onde ela comeca. Este modulo nao sabe o que
+    e um processo, e nao deve saber.
+
+    `janela_em_segundos` NAO TEM VALOR DE FABRICA, pela mesma regra dos outros
+    limiares: ele e `janela_movel_minutos` da secao `[renda]` do `config.toml`,
+    convertido a segundos por quem le o arquivo. O `02-01` deixou aquela chave
+    lida e validada e SEM CONSUMIDOR, com "AINDA NAO FAZ NADA" escrito ao lado —
+    este e o consumidor.
+    """
+    return AsDuasTaxas(
+        janela=taxa_por_hora(
+            passos_da_janela(passos, janela_em_segundos=janela_em_segundos),
+            grandeza=grandeza,
+            piso_de_amostras=piso_de_amostras,
+            piso_da_janela_em_segundos=piso_da_janela_em_segundos,
+        ),
+        sessao=taxa_por_hora(
+            passos,
+            grandeza=grandeza,
+            piso_de_amostras=piso_de_amostras,
+            piso_da_janela_em_segundos=piso_da_janela_em_segundos,
+        ),
     )
