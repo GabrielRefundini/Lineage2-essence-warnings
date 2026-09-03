@@ -748,6 +748,48 @@ class Calibracao:
     # metade trocaria uma recusa nomeada por uma ferramenta que nao abre.
     renda_moldes_da_barra: dict | None = None
 
+    # A PONTE XP <-> PORCENTAGEM: quantos pontos de XP vale UM ponto percentual
+    # do nivel (REND-08, CTX-8).
+    #
+    # A FORMA e por personagem E POR NIVEL:
+    #
+    #     {"Faerlina": {"67": {"xp_por_ponto": 388700,
+    #                          "medido_em": "2026-09-02",
+    #                          "n_abates": 114,
+    #                          "n_linhas_de_chat": 240,
+    #                          "janela_em_segundos": 150,
+    #                          "observacao": "<a procedencia por extenso>"}}}
+    #
+    # POR NIVEL porque o custo do nivel MUDA, e a constante do 66 aplicada ao
+    # 67 produz um numero com a mesma cara e errado. POR PERSONAGEM porque o
+    # multiplicador de XP e do personagem — a barra da Faerlina exibe 562% ao
+    # lado do EXP, e outra instancia com outro multiplicador tem outra
+    # constante para o MESMO nivel.
+    #
+    # A PROCEDENCIA VIAJA JUNTO E NAO E OPCIONAL, e a razao esta na CTX-8: uma
+    # constante medida em seis minutos e uma medida em tres horas parecem o
+    # mesmo numero e nao valem o mesmo. Sem `n_abates`, `n_linhas_de_chat` e
+    # `janela_em_segundos` ao lado, ninguem consegue auditar depois qual das
+    # duas esta no arquivo. E a mesma disciplina de `n` e recencia que o
+    # `--mercado` aplica a todo numero que vai a tela, aplicada a um numero que
+    # vai ao `calibration.json`.
+    #
+    # A ARMADILHA DESTA FORMA E A CHAVE DE NIVEL, E ELA NAO LEVANTA. JSON nao
+    # tem chave inteira: `{67: ...}` gravado sai `{"67": ...}`. Um leitor que
+    # comparasse o inteiro 67 com a chave de texto nao daria erro nenhum — ele
+    # so devolveria nada, e o painel diria "XP absoluto indisponivel" para
+    # sempre sem ninguem entender por que. Quem normaliza e `ponte_do_nivel`,
+    # em um lugar so, e ha teste prendendo os dois lados.
+    #
+    # A `VERSAO_DO_ESQUEMA` FICA EM 2: a chave e opcional, ausente e o estado
+    # legitimo de "nao medi a ponte deste nivel", e a Fase 1 ja provou este
+    # caminho duas vezes com as duas irmas acima. Ninguem e obrigado a
+    # recalibrar — e o arquivo do usuario carrega treze moldes de glifo e as
+    # assinaturas de nome, que so a mao dele produz.
+    #
+    # Guardada como dict CRU, sem reconstrucao, no molde exato das irmas.
+    renda_ponte_de_xp: dict | None = None
+
     versao: int = VERSAO_DO_ESQUEMA
 
     def regiao_do_nome(self, indice: int) -> Regiao:
@@ -904,7 +946,7 @@ class Calibracao:
                 self.mercado_folga_de_cola_do_glifo
             ),
             "mercado_layouts": self.mercado_layouts,
-            # As duas da renda, no MESMO trilho condicional das irmas: um campo
+            # As TRES da renda, no MESMO trilho condicional das irmas: um campo
             # nao preenchido vira `null` e o `.get` do `carregar` o devolve como
             # None, sem migracao. Guardadas como dict CRU, sem reconstrucao
             # campo a campo — e e isso que faz uma sub-chave que este codigo
@@ -912,6 +954,7 @@ class Calibracao:
             # calada no dia em que o calibrador gravar uma a mais.
             "renda_por_personagem": self.renda_por_personagem,
             "renda_moldes_da_barra": self.renda_moldes_da_barra,
+            "renda_ponte_de_xp": self.renda_ponte_de_xp,
         }
         # ESCRITA ATOMICA, NO LUGAR ONDE TODOS OS ESCRITORES HERDAM.
         #
@@ -1071,11 +1114,12 @@ class Calibracao:
             mercado_layouts=dados.get("mercado_layouts"),
             # `.get` e nao indexacao, pela MESMA razao das irmas de mercado:
             # TODO `calibration.json` que existe hoje no mundo esta sem estas
-            # duas chaves, entao uma indexacao mataria o arranque de cada
+            # tres chaves, entao uma indexacao mataria o arranque de cada
             # instalacao ate a proxima recalibracao — e levaria junto os moldes
             # de glifo e as ancoras que so a mao do usuario produz.
             renda_por_personagem=dados.get("renda_por_personagem"),
             renda_moldes_da_barra=dados.get("renda_moldes_da_barra"),
+            renda_ponte_de_xp=dados.get("renda_ponte_de_xp"),
             versao=versao,
         )
 
@@ -1102,6 +1146,45 @@ class Calibracao:
         if not self.renda_por_personagem or not nome:
             return None
         entrada = self.renda_por_personagem.get(nome)
+        return entrada if isinstance(entrada, dict) else None
+
+    def ponte_do_nivel(self, nome: str | None, nivel: int | None) -> dict | None:
+        """A ponte XP<->porcentagem DESTE personagem NESTE nivel, ou nada.
+
+        A PROIBICAO DE QUEDA MORA EM UM LUGAR SO, como na irma acima, e aqui
+        ela e o defeito que a CTX-8 proibe com todas as letras: **nunca a
+        constante do nivel anterior**. O custo do nivel muda justamente entre
+        um nivel e o seguinte, e a constante do 66 aplicada ao 67 nao produz um
+        campo vazio que alguem nota — produz um XP absoluto com a mesma cara de
+        certo e alguns por cento errado, que ninguem consegue distinguir de um
+        certo depois de gravado.
+
+        A disciplina e a do cambio XM->BRL do `dashboard`: sem taxa informada,
+        mostra a moeda de origem e DIZ que a outra esta indisponivel. Aqui:
+        sem constante para o nivel atual, o painel mostra pontos percentuais e
+        diz por que o absoluto nao esta la. Quem transforma este `None` em
+        recusa NOMEADA e `renda_ponte`.
+
+        A CHAVE DO NIVEL E TEXTO NO JSON, e a normalizacao mora aqui. JSON nao
+        tem chave inteira: uma entrada gravada com o inteiro `67` volta do
+        disco como `"67"`. Um `.get(nivel)` cru nao levantaria erro nenhum — so
+        devolveria nada, e o painel diria "indisponivel" para sempre. As duas
+        formas sao aceitas: a de texto, que e a que volta do disco, e a
+        inteira, que e a que existe em memoria antes do primeiro `salvar`.
+
+        `None` quando a ponte nao foi medida, quando o nome nao veio, quando o
+        nivel nao veio, quando o personagem nao esta no arquivo e quando o
+        NIVEL daquele personagem nao esta no arquivo. Os cinco sao "nao sei
+        converter esta tela", e o consumidor os separa por motivo.
+        """
+        if not self.renda_ponte_de_xp or not nome or nivel is None:
+            return None
+        do_personagem = self.renda_ponte_de_xp.get(nome)
+        if not isinstance(do_personagem, dict):
+            return None
+        entrada = do_personagem.get(str(nivel))
+        if entrada is None:
+            entrada = do_personagem.get(nivel)
         return entrada if isinstance(entrada, dict) else None
 
     def conferir_geometria_do_mercado(self, largura: int, altura: int) -> None:
@@ -1612,20 +1695,152 @@ def _conferir_os_moldes_da_barra(conjunto) -> None:
             )
 
 
+# Os TRES numeros de procedencia que toda entrada da ponte carrega.
+#
+# ELES SAO OBRIGATORIOS E NAO OPCIONAIS, e a razao e a CTX-8: uma constante
+# medida em seis minutos e uma medida em tres horas sao o mesmo numero na tela e
+# nao valem o mesmo. Sem os denominadores ao lado, ninguem consegue auditar
+# depois qual das duas esta no arquivo — e uma constante que ninguem consegue
+# auditar e um chute com cara de medicao.
+PROCEDENCIA_DA_PONTE = ("n_abates", "n_linhas_de_chat", "janela_em_segundos")
+
+
+def _conferir_uma_entrada_da_ponte(entrada, onde: str) -> None:
+    """`xp_por_ponto` positivo mais a procedencia inteira. FORMA, nunca plausibilidade.
+
+    O validador nao tem como saber se 388.700 e o numero certo para o nivel 67
+    — isso e medicao de campo. O que ele sabe e que uma entrada sem
+    `xp_por_ponto`, com `xp_por_ponto` zero, ou sem os denominadores da
+    procedencia nao e uma constante: e um lugar onde alguem ia escrever uma.
+    """
+    if not isinstance(entrada, dict):
+        raise CalibracaoInvalida(
+            f"{onde} precisa ser um objeto com `xp_por_ponto` e a procedencia, "
+            f"veio {type(entrada).__name__}. {CONSERTO_DA_RENDA}"
+        )
+
+    if "xp_por_ponto" not in entrada:
+        raise CalibracaoInvalida(
+            f"{onde} esta sem `xp_por_ponto`. E o unico numero que a ponte "
+            f"converte: sem ele a entrada existe e nao serve para nada, o que e "
+            f"pior que a entrada ausente — a ausente desliga o XP absoluto com "
+            f"motivo nomeado. {CONSERTO_DA_RENDA}"
+        )
+    # `bool` recusado ANTES do teste de inteiro, e a razao e que `True` e um
+    # `int` de valor 1: uma ponte de 1 XP por ponto percentual converteria 8
+    # pontos de nivel em 8 XP e passaria calada por qualquer teste de "e um
+    # inteiro positivo".
+    xp = _inteiro_da_renda(entrada["xp_por_ponto"], f"{onde}.xp_por_ponto")
+    if xp <= 0:
+        raise CalibracaoInvalida(
+            f"{onde}.xp_por_ponto={xp} nao e positivo. Uma ponte de zero ou "
+            f"menos converteria todo ganho de EXP em zero XP, que e um numero "
+            f"perfeitamente formatado e sempre errado. {CONSERTO_DA_RENDA}"
+        )
+
+    if "medido_em" not in entrada:
+        raise CalibracaoInvalida(
+            f"{onde} esta sem `medido_em`. QUANDO a constante foi medida e "
+            f"procedencia tanto quanto com quantos abates: uma ponte de tres "
+            f"level ups atras descreve outro personagem. {CONSERTO_DA_RENDA}"
+        )
+    if not isinstance(entrada["medido_em"], str) or not entrada["medido_em"]:
+        raise CalibracaoInvalida(
+            f"{onde}.medido_em precisa ser uma data em texto (AAAA-MM-DD), "
+            f"veio {type(entrada['medido_em']).__name__} "
+            f"({entrada['medido_em']!r}). {CONSERTO_DA_RENDA}"
+        )
+
+    for campo in PROCEDENCIA_DA_PONTE:
+        if campo not in entrada:
+            raise CalibracaoInvalida(
+                f"{onde} esta sem `{campo}`. A PROCEDENCIA E OBRIGATORIA: uma "
+                f"constante medida em seis minutos e uma medida em tres horas "
+                f"sao o mesmo numero na tela e nao valem o mesmo, e sem o "
+                f"denominador ao lado ninguem consegue saber qual e qual. "
+                f"{CONSERTO_DA_RENDA}"
+            )
+        valor = _inteiro_da_renda(entrada[campo], f"{onde}.{campo}")
+        if valor <= 0:
+            raise CalibracaoInvalida(
+                f"{onde}.{campo}={valor} nao e positivo. Zero abate, zero "
+                f"linha de chat ou zero segundo de janela nao e procedencia: e "
+                f"ausencia com cara de numero. {CONSERTO_DA_RENDA}"
+            )
+
+
+def _conferir_a_ponte_de_xp(ponte) -> None:
+    """A ponte XP<->porcentagem, por personagem e por nivel, conferida no ARRANQUE.
+
+    A REGRA DE AUSENCIA E A DAS IRMAS: a chave inteira ausente ou `None` PASSA
+    — e o estado legitimo de "ainda nao medi a ponte", e o consumidor o
+    transforma em recusa NOMEADA. Uma entrada PRESENTE porem malformada e
+    recusada alto, aqui, com o usuario olhando o console.
+
+    E ELA CONFERE SO O QUE CONHECE. Uma sub-chave que este codigo ainda nao
+    conhece atravessa sem ser tocada e sobrevive a ida e volta, porque o dict e
+    reemitido cru pelo `salvar`.
+    """
+    if ponte is None:
+        return
+    if not isinstance(ponte, dict):
+        raise CalibracaoInvalida(
+            f"renda_ponte_de_xp precisa ser um objeto com uma entrada por nome "
+            f"de personagem, veio {type(ponte).__name__}. {CONSERTO_DA_RENDA}"
+        )
+
+    for nome, por_nivel in ponte.items():
+        if not isinstance(nome, str) or not nome:
+            raise CalibracaoInvalida(
+                f"renda_ponte_de_xp tem uma chave que nao e nome de personagem "
+                f"({nome!r}). O multiplicador de XP e do PERSONAGEM — a barra "
+                f"da Faerlina exibe 562% —, entao a constante nao existe sem "
+                f"saber de quem ela e. {CONSERTO_DA_RENDA}"
+            )
+        onde_do_nome = f"renda_ponte_de_xp[{nome!r}]"
+        if not isinstance(por_nivel, dict):
+            raise CalibracaoInvalida(
+                f"{onde_do_nome} precisa ser um objeto com uma entrada por "
+                f"NIVEL, veio {type(por_nivel).__name__}. A constante e por "
+                f"nivel porque o custo do nivel muda. {CONSERTO_DA_RENDA}"
+            )
+
+        for chave, entrada in por_nivel.items():
+            # `bool` fora antes de tudo: `True` e um `int`, e `str(True)` seria
+            # a chave `'True'` — um nivel que nao existe entrando calado.
+            if isinstance(chave, bool) or not isinstance(chave, (str, int)):
+                raise CalibracaoInvalida(
+                    f"{onde_do_nome} tem uma chave de nivel que nao e numero "
+                    f"({chave!r}). Esperava-se o NIVEL do personagem, como "
+                    f"`\"67\"`. {CONSERTO_DA_RENDA}"
+                )
+            texto = str(chave)
+            if not texto.isdigit() or int(texto) <= 0:
+                raise CalibracaoInvalida(
+                    f"{onde_do_nome} tem uma chave de nivel que nao e numero "
+                    f"({chave!r}). Esperava-se o NIVEL do personagem, como "
+                    f"`\"67\"`. {CONSERTO_DA_RENDA}"
+                )
+            _conferir_uma_entrada_da_ponte(
+                entrada, f"{onde_do_nome}[{texto!r}]"
+            )
+
+
 def _conferir_as_chaves_da_renda(dados: dict) -> None:
-    """As duas chaves da renda sao ENTRADA NAO CONFIAVEL, como as do mercado.
+    """As tres chaves da renda sao ENTRADA NAO CONFIAVEL, como as do mercado.
 
     Mora AQUI, ao lado do portao de versao, e nao no consumidor, pela razao que
     `_conferir_as_chaves_de_mercado` ja escreveu: e no arranque que a mensagem
     ainda pode dizer "recalibre" com o usuario olhando para o console. O
     consumidor roda as duas da manha, no meio do farm.
 
-    As duas chaves ausentes ou `None` passam: e o estado legitimo de "nao
-    calibrei a renda", e uma instalacao sem ela precisa continuar subindo
+    As tres chaves ausentes ou `None` passam: e o estado legitimo de "nao
+    calibrei a renda", e uma instalacao sem elas precisa continuar subindo
     igual — com a `VERSAO_DO_ESQUEMA` intacta em 2.
     """
     _conferir_a_renda_por_personagem(dados.get("renda_por_personagem"))
     _conferir_os_moldes_da_barra(dados.get("renda_moldes_da_barra"))
+    _conferir_a_ponte_de_xp(dados.get("renda_ponte_de_xp"))
 
 
 # O CONSERTO, escrito uma vez e citado por toda recusa da leitura de pagina.
