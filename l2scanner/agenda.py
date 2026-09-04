@@ -345,10 +345,7 @@ def texto_do_aviso(aviso: Aviso, loot: str | None = None) -> str:
     hora = f"{aviso.alvo.hour:02d}:{aviso.alvo.minute:02d}"
     if aviso.tipo is TipoDeAviso.ANTES:
         faltam = int((aviso.alvo - aviso.devido_em).total_seconds() // 60)
-        texto = (
-            f"{aviso.evento} comeca em {faltam} minutos, as {hora}. "
-            f"Hora de voltar para a cidade e se preparar."
-        )
+        texto = f"{aviso.evento} comeca em {faltam} minutos, as {hora}."
         if loot:
             texto += f" Loot: {loot}."
         return texto
