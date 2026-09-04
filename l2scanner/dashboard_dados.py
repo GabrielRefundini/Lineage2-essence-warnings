@@ -311,9 +311,32 @@ FRASE_DE_SEM_ITENS_CONFIGURADOS = (
 # SEM TAXA DA ADENA NAO HA COMO CONVERTER O PRECO DO NPC. A frase diz qual das
 # duas metades falta, e nao "sem dados": o preço do NPC pode estar perfeitamente
 # configurado, e o que falta e o outro lado.
+#
+# ATE 2026-09-03 ELA ERA UMA FRASE FIXA e dizia, por extenso, *"Sem leitura da
+# Adena"*. **Ela passou a ser um MOLDE porque a antiga virou falsa no caso
+# novo**: com o piso do veredito valendo tambem para a serie da Adena (ver
+# `_bloco_da_calculadora`), o bloco pode entrar neste estado com QUATRO ofertas
+# lidas — e afirmar que nao ha leitura nenhuma seria uma frase mentindo sobre o
+# proprio estado que ela nomeia, que e pior do que nao ter frase.
+#
+# ELA DIZ AGORA QUANTAS FALTAM, com os dois numeros da `Evidencia` (`n` e
+# `piso`) e o `faltam` derivado — o mesmo trio que `frase_de_piso_da_tipica` ja
+# usa, e pela mesma razao: quem exibe nao faz conta de cabeca.
+#
+# **O NOME CONTINUA `FRASE_`, E A TENSAO FICA REGISTRADA.** A convencao desta
+# casa e `MOLDE_` para texto com `{campo}` e `FRASE_` para texto fixo, e por ela
+# esta constante deveria ter sido renomeada. Ela NAO foi, e a razao e concreta:
+# o nome dela esta citado por extenso no comentario da regiao correspondente do
+# `index.html`, e este plano nao toca arquivo web nenhum. Renomear aqui deixaria
+# um simbolo inexistente citado la — um erro de FATO, que e pior que um prefixo
+# fora da convencao, porque o prefixo se desmente no primeiro `.format` do sitio
+# de uso e o simbolo fantasma nao se desmente nunca. No dia em que a marcacao
+# for mexida por outro motivo, os dois se renomeiam juntos.
 FRASE_DE_SEM_TAXA_DA_ADENA = (
-    "Sem leitura da Adena, não dá para converter o preço do NPC em XM. Deixe o "
-    "vigiar-mercado.bat rodando e abra a aba Adena da World Exchange uma vez."
+    "Ainda não dá para converter o preço do NPC em XM: a série da Adena tem "
+    "{n} de {piso} ofertas distintas, faltam {faltam}. Deixe o "
+    "vigiar-mercado.bat rodando e abra a aba Adena da World Exchange mais "
+    "algumas vezes."
 )
 
 # O ITEM QUE NUNCA APARECEU NO CSV. Ele NAO some da tela: sumir seria
@@ -385,6 +408,90 @@ MOLDE_DA_LEITURA_DA_CONFIGURACAO = (
 # montada por divisão inteira — nunca por `float`, pelo mesmo motivo que
 # `formatar_centesimos` usa `divmod`.
 MOLDE_DA_DIFERENCA_PERCENTUAL = "{valor}%"
+
+# A DIFERENÇA EM R$, com a marca OBRIGATÓRIA de informado por você.
+#
+# É o irmão de `MOLDE_DO_VALOR_EM_REAIS`, e a diferença entre os dois é a
+# UNIDADE: aquele fala por 5 milhões de adena (é uma taxa), este fala por
+# unidade do item (é um preço). Um molde só para os dois obrigaria a escolher a
+# unidade por parâmetro, e a primeira chamada que esquecesse o parâmetro
+# imprimiria a escala errada sem quebrar nada — o mesmo argumento que fez
+# `formatar_taxa_derivada` e `formatar_unitario_derivado` nascerem duas.
+MOLDE_DA_DIFERENCA_EM_REAIS = (
+    "R$ {valor} por unidade (derivado do câmbio informado por você em {quando})"
+)
+
+# NÃO EXISTE `MOLDE_DA_DIFERENCA_EM_XM`, E A AUSÊNCIA É DELIBERADA.
+#
+# A diferença em XM já sai COMPLETA de `formatador_do_unitario`: ele entrega
+# `"58,86 por unidade (derivado)"` — com a unidade e a marca de derivado
+# dentro. Um molde em volta disso seria `"{valor}"`, que não acrescenta nada, ou
+# acrescentaria texto — e aí seriam DUAS autoridades sobre como um número em
+# centésimos se escreve, que é exatamente o segundo formatador que o DASH-03
+# recusa. O plano deste trabalho pedia os três moldes; dois deles existem e o
+# terceiro está registrado aqui como escolha, com a razão.
+
+# O NÚMERO QUE NÃO CABE EM DUAS CASAS, DITO COM PALAVRA.
+#
+# **O LIMIAR ESTÁ MEDIDO, COM A FUNÇÃO DE PRODUÇÃO.** Na taxa da Adena do CSV
+# real de 2026-09-03 (`Fraction(9, 10000)` centésimos de XM por adena), um preço
+# de NPC de até **555 adena** por unidade faz o unitário arredondar para ZERO
+# centésimos — a fronteira exata é `(1/2) / taxa`, que dá `Fraction(5000, 9)`,
+# ou 555,5(5) adena. Um NPC que venda algo por 400 adena imprimiria `0,00 por
+# unidade (derivado)` com toda a confiança do mundo.
+#
+# (O plano 02-02 estimava "~555,6 adena". A medição pela produção CONFIRMA o
+# número, e o teste `test_MEDICAO_o_limiar_sai_da_funcao_de_PRODUCAO` o
+# recalcula a cada rodada em vez de o repetir escrito.)
+#
+# É A MESMA FAMÍLIA DE DEFEITO que a docstring de `formatar_taxa_derivada` já
+# documenta para a taxa por unidade — a segunda vez que ela aparece nesta
+# árvore, e por isso a guarda nasce nomeada em vez de virar um `if` local.
+#
+# **A GUARDA NÃO É UM FORMATADOR NOVO COM MAIS CASAS.** Um terceiro formatador
+# é exatamente o que o DASH-03 proíbe, e ele divergiria do console na primeira
+# correção. Ela é: quando o unitário arredondado vale zero, o campo de TEXTO
+# daquele lado recebe esta frase — **e a comparação continua acontecendo em
+# `Fraction` exata**. O veredito não muda; só a forma de exibir aquele lado.
+# Perder essa segunda metade transformaria uma guarda de exibição numa mudança
+# de resultado.
+FRASE_DE_UNITARIO_INEXIBIVEL = "menos de um centésimo por unidade"
+
+# O MESMO, do lado do R$: menos de um centavo por unidade.
+#
+# SÃO DUAS FRASES E NÃO UMA COM SINALIZADOR, pela razão que
+# `formatar_taxa_derivada` já escreveu neste projeto: "um default é uma chamada
+# que alguém esquece de passar; duas funções com nomes diferentes são duas
+# coisas que ninguém confunde por omissão". E as unidades são de fato outras —
+# centésimo de XM de um lado, centavo de real do outro.
+FRASE_DE_REAIS_INEXIBIVEL = "menos de um centavo por unidade"
+
+# O ITEM QUE É A PRÓPRIA ADENA. Ele NÃO some da tela, pela mesma razão dos
+# outros estados de quebra: sumir seria indistinguível de "esqueci de
+# configurar".
+#
+# A frase diz o que ACONTECERIA se o dashboard obedecesse — comparar adena com
+# adena — porque sem isso o usuário lê a recusa como defeito.
+MOLDE_DE_ITEM_QUE_E_A_ADENA = (
+    "{item} é a própria Adena: comparar a rota do NPC com ela mesma daria um "
+    "número perfeitamente calculado e sem significado nenhum. Troque o nome "
+    "no config.toml pelo item que você quer comparar."
+)
+
+# O ITEM COM SÉRIE, COM PREÇO, E SEM EVIDÊNCIA QUE SUSTENTE UMA ELEIÇÃO.
+#
+# ELE É DIFERENTE DO ITEM NUNCA VISTO, e a diferença muda o que o usuário tem
+# de fazer: lá ele precisa abrir a aba do item no cliente; aqui ele JÁ ABRIU, e
+# o que falta é o scanner ver mais ofertas. Mandar quem já fez a coisa certa
+# fazer de novo é o defeito que esta segunda frase evita.
+#
+# OS TRÊS NÚMEROS SAEM DA `Evidencia` (`n`, `piso` e o `faltam` derivado) — quem
+# exibe não faz conta de cabeça.
+MOLDE_DE_ITEM_SEM_EVIDENCIA = (
+    "{item} tem {n} de {piso} ofertas distintas — faltam {faltam} para o "
+    "dashboard eleger uma rota. Até lá ele não vai chutar um vencedor sobre "
+    "evidência rala."
+)
 
 
 @dataclass(frozen=True)
@@ -1184,6 +1291,69 @@ def _valor_em_reais(taxa: Fraction, cambio) -> str:
     )
 
 
+def _diferenca_em_reais(diferenca: Fraction, cambio) -> str:
+    """A diferenca em R$ POR UNIDADE, com a marca de informado por voce.
+
+    MOLDE LITERAL DE `_valor_em_reais`, com UMA diferenca: aqui nao ha escala de
+    exibicao no meio, porque a diferenca ja esta por UNIDADE.
+
+    A CONTA, ESCRITA POR EXTENSO, com os numeros reais medidos nesta arvore:
+
+        diferenca = Fraction(11773, 2) centesimos de XM POR UNIDADE
+          -> x R$ 0,50 por XM = Fraction(11773, 4) CENTAVOS de R$ por unidade
+          -> 2.943,25 centavos = R$ 29,43 por unidade
+
+    **CENTESIMOS-DE-XM VEZES REAIS-POR-XM DA CENTAVOS-DE-R$ DIRETAMENTE**,
+    porque as duas escalas de centesimo se cancelam. Dividir por cem no meio e
+    multiplicar por cem no fim introduziria dois arredondamentos onde zero
+    bastam — e a mesma frase que `_valor_em_reais` ja carrega, pela mesma razao.
+
+    `Fraction(cambio.reais_por_xm)` E EXATO: `Fraction` aceita `Decimal` sem
+    passar por ponto flutuante. Converter para `float` aqui reintroduziria erro
+    exatamente onde o portao de duas camadas do `01-03` acabou de garantir um
+    decimal simples — e sobre dinheiro real.
+
+    O ARREDONDAMENTO ACONTECE SO NA ULTIMA LINHA, sobre a fracao exata.
+
+    ABAIXO DE UM CENTAVO A RESPOSTA E PALAVRA, e nao `R$ 0,00`. Ver
+    `FRASE_DE_REAIS_INEXIBIVEL`: um zero com duas casas ao lado de um veredito
+    de empate seria lido como "nao custa nada", que e outra afirmacao.
+    """
+    centavos = round(diferenca * Fraction(cambio.reais_por_xm))
+    if centavos == 0:
+        return FRASE_DE_REAIS_INEXIBIVEL
+    return MOLDE_DA_DIFERENCA_EM_REAIS.format(
+        valor=formatar_centesimos(centavos),
+        quando=cambio.informado_em.strftime("%d/%m %H:%M"),
+    )
+
+
+def _texto_do_unitario(chave: str, valor: Fraction) -> str:
+    """O UNICO ponto por onde um numero em centesimos vira texto nesta regiao.
+
+    ELE NAO E UM FORMATADOR NOVO: ele CHAMA `formatador_do_unitario(chave)`, que
+    continua sendo a unica decisao entre as duas irmas. O que ele acrescenta e a
+    guarda do zero — e ela mora aqui, num lugar so, porque os TRES textos desta
+    regiao (o lado do NPC, o lado do mercado e a diferenca) tem o mesmo modo de
+    falha e tres `if` espalhados divergiriam no primeiro conserto.
+
+    O CRITERIO E `round(valor) == 0`, E ELE E O CRITERIO DO PROPRIO FORMATADOR:
+    `formatar_unitario_derivado` imprime `formatar_centesimos(round(unitario))`,
+    entao perguntar se o arredondamento zera e perguntar se ele imprimiria
+    `0,00`. Nao ha uma segunda regra aqui — ha a mesma regra, lida antes.
+
+    **A ADENA NAO CHEGA A ESTA FUNCAO**, e por isso o criterio pode ser esse: um
+    item cuja chave resolve para a serie da Adena e recusado antes, com estado
+    proprio (`ROTA_E_A_PROPRIA_ADENA`). Se um dia ela chegasse, o criterio teria
+    de passar a olhar a SAIDA do formatador, porque `formatar_taxa_derivada`
+    multiplica pela escala antes de arredondar — e esta frase esta escrita
+    justamente para que essa mudanca nao aconteca calada.
+    """
+    if round(valor) == 0:
+        return FRASE_DE_UNITARIO_INEXIBIVEL
+    return formatador_do_unitario(chave)(valor)
+
+
 def _percentual_em_texto(fracao: Fraction) -> str:
     """Uma `Fraction` de um -> `12,3`. O arredondamento acontece SO aqui.
 
@@ -1209,7 +1379,7 @@ def _lado_da_rota(custo, chave: str) -> dict:
     de decisao entre as duas irmas, criado para que quatro `if` espalhados nao
     divergissem.
     """
-    return {"texto": formatador_do_unitario(chave)(custo.unitario)}
+    return {"texto": _texto_do_unitario(chave, custo.unitario)}
 
 
 def _bloco_da_calculadora(
@@ -1218,6 +1388,7 @@ def _bloco_da_calculadora(
     menor_da_adena,
     agora: datetime,
     itens_lidos_em: datetime | None,
+    cambio=None,
 ) -> dict:
     """A quarta regiao do payload: as duas rotas de cada item configurado.
 
@@ -1229,12 +1400,36 @@ def _bloco_da_calculadora(
     veredito — sem que nada quebrasse em voz alta. Uma autoridade so sobre a
     taxa.
 
-    O CRITERIO DE "SEM TAXA" NESTA FATIA E `menor.unitario is None`, ou seja o
-    piso do menor, que vale UM. **ESTA PERGUNTA ESTA EM ABERTO E QUEM A FECHA E O
-    PLANO 02-02:** falta decidir se o veredito herda tambem a EVIDENCIA da taxa —
-    isto e, se uma taxa apoiada numa unica oferta deve enfraquecer o veredito do
-    mesmo jeito que enfraquece o destaque. Deixar a pergunta escrita e diferente
-    de deixa-la calada: o proximo plano tem de encontra-la, e nao redescobri-la.
+    **A PERGUNTA QUE O PLANO 02-01 DEIXOU ESCRITA AQUI FOI RESPONDIDA: SIM, O
+    VEREDITO HERDA A EVIDENCIA DA TAXA.**
+    ==========================================================================
+    O criterio de "sem taxa" era `menor.unitario is None` — ou seja o piso do
+    MENOR, que vale UM. Ele guardava so um dos dois lados da comparacao. Mas a
+    rota do NPC e `preco_em_adena x taxa`, e a taxa sai de `menor_pedido_visivel`
+    sobre a serie da Adena: **uma taxa apoiada numa unica oferta vira o veredito
+    com a mesma facilidade com que um preco de item apoiado numa unica oferta
+    vira**. Exigir cinco de um lado enquanto se aceita um do outro e uma regra
+    que ninguem consegue justificar depois.
+
+    O QUE SE DECIDIU: os dois lados da comparacao respondem ao MESMO piso,
+    `dashboard_rotas.N_MINIMO_PARA_O_VEREDITO`. A `Evidencia` da taxa e
+    construida aqui com esse piso, sobre o `n` que o `payload` ja tem em maos —
+    e nao com uma segunda leitura da serie da Adena.
+
+    A ALTERNATIVA RECUSADA, E POR QUE ELA ERA DEFENSAVEL: deixar a taxa no piso
+    do menor tinha um argumento de pe — o menor da Adena e um FATO OBSERVADO
+    sobre a serie mais densa do arquivo. **Medido em 2026-09-03: `adena#` tem
+    n=50 contra n=8 do item mais visto.** O argumento e verdadeiro hoje e **nao
+    e uma regra**: ele descreve o arquivo DESTA SEMANA, e nao o de uma maquina
+    em que alguem abriu a aba da Adena uma vez.
+
+    O QUE A DECISAO CUSTA HOJE: **nada**. Com n=50 contra um piso de 5, nenhum
+    comportamento visivel muda nesta arvore. Ela existe para a maquina em que a
+    aba da Adena foi aberta uma vez — que e precisamente a maquina em que
+    ninguem estaria olhando para a tela desconfiando do numero.
+
+    E E POR ISSO QUE ELA ESTA SENDO ESCRITA AGORA: com n=50 o assunto nunca mais
+    seria revisitado, e a assimetria sobreviveria calada.
 
     A ORDEM DE PRECEDENCIA DO BLOCO E `ESTADOS_DA_CALCULADORA`: sem taxa vence
     sem itens, porque sem taxa nao ha conta possivel nem que houvesse cem itens —
@@ -1248,10 +1443,22 @@ def _bloco_da_calculadora(
     """
     taxa = menor_da_adena.unitario
 
-    if taxa is None:
+    # A EVIDENCIA DA TAXA, COM O PISO DO VEREDITO — ver a decisao na docstring.
+    # O `n` vem do MESMO `MenorPedidoVisivel` que o destaque exibe; so o piso e
+    # outro, e `piso` e um campo da `Evidencia` justamente para isto.
+    evidencia_da_taxa = Evidencia(
+        n=menor_da_adena.evidencia.n,
+        piso=dashboard_rotas.N_MINIMO_PARA_O_VEREDITO,
+    )
+
+    if taxa is None or not evidencia_da_taxa.suficiente:
         return {
             "estado": CALCULADORA_SEM_TAXA,
-            "aviso": FRASE_DE_SEM_TAXA_DA_ADENA,
+            "aviso": FRASE_DE_SEM_TAXA_DA_ADENA.format(
+                n=evidencia_da_taxa.n,
+                piso=evidencia_da_taxa.piso,
+                faltam=evidencia_da_taxa.faltam,
+            ),
             "itens_lidos_em": None,
             "itens": [],
         }
@@ -1284,17 +1491,43 @@ def _bloco_da_calculadora(
         "estado": CALCULADORA_COM_ITENS,
         "aviso": None,
         "itens_lidos_em": lidos_em,
-        "itens": [_linha_da_rota(veredito, agora) for veredito in vereditos],
+        "itens": [
+            _linha_da_rota(veredito, agora, cambio) for veredito in vereditos
+        ],
     }
 
 
-def _linha_da_rota(veredito, agora: datetime) -> dict:
+def _mediana_no_payload(veredito, chave: str | None) -> dict:
+    """A mediana ao lado do veredito — CONTEXTO, e nunca decisao.
+
+    ELA TEM O PROPRIO PISO E A PROPRIA FRASE DE FALTA, e por isso a frase sai de
+    `frase_de_piso_da_tipica` — a MESMA que o destaque e o grafico ja usam para
+    a linha da mediana. Espelhar aqui uma redacao propria faria a tela discordar
+    de si mesma sobre o mesmo numero.
+
+    O `n` DELA PODE DIFERIR DO `n` DA LINHA no dia em que os dois pisos deixarem
+    de ser o mesmo, e e por isso que ele viaja junto em vez de a tela reusar o
+    de cima.
+    """
+    if veredito.mediana.unitario is None or chave is None:
+        texto = frase_de_piso_da_tipica(veredito.mediana.evidencia)
+    else:
+        texto = _texto_do_unitario(chave, veredito.mediana.unitario)
+    return {"texto": texto, "n": veredito.mediana.evidencia.n}
+
+
+def _linha_da_rota(veredito, agora: datetime, cambio=None) -> dict:
     """UM item no payload. Todo texto ja formatado; o navegador so escreve.
 
-    OS DOIS ESTADOS DE QUEBRA SAIEM COM `npc` E `mercado` NULOS E UM `aviso`
-    PROPRIO. Um `null` mudo obrigaria quem desenha a adivinhar entre "nunca vi
-    este item" e "o nome esta ambiguo", e as duas coisas se escrevem diferente na
-    tela — a mesma objecao que faz `MargemDeCraft` carregar um `motivo`.
+    OS QUATRO ESTADOS DE QUEBRA SAEM COM `npc` E `mercado` NULOS E UM `aviso`
+    PROPRIO. Um `null` mudo obrigaria quem desenha a adivinhar entre as quatro
+    causas, e as quatro se escrevem diferente na tela — a mesma objecao que faz
+    `MargemDeCraft` carregar um `motivo`.
+
+    **AS CHAVES SAO AS MESMAS NOS DOIS RAMOS**, e a igualdade e deliberada: uma
+    linha que perdesse chaves conforme o estado obrigaria o navegador a testar
+    por existencia antes de cada leitura, e a primeira leitura que esquecesse o
+    teste quebraria a pagina inteira num estado raro.
     """
     if veredito.estado == dashboard_rotas.ROTA_NOME_AMBIGUO:
         aviso = MOLDE_DE_NOME_AMBIGUO.format(
@@ -1304,8 +1537,19 @@ def _linha_da_rota(veredito, agora: datetime) -> dict:
         )
     elif veredito.estado == dashboard_rotas.ROTA_NUNCA_VISTA:
         aviso = MOLDE_DE_ITEM_NUNCA_VISTO.format(item=veredito.item)
+    elif veredito.estado == dashboard_rotas.ROTA_E_A_PROPRIA_ADENA:
+        aviso = MOLDE_DE_ITEM_QUE_E_A_ADENA.format(item=veredito.item)
+    elif veredito.estado == dashboard_rotas.ROTA_SEM_EVIDENCIA:
+        aviso = MOLDE_DE_ITEM_SEM_EVIDENCIA.format(
+            item=veredito.nome_exibido,
+            n=veredito.evidencia.n,
+            piso=veredito.evidencia.piso,
+            faltam=veredito.evidencia.faltam,
+        )
     else:
         aviso = None
+
+    mediana = _mediana_no_payload(veredito, veredito.chave)
 
     if veredito.npc is None or veredito.mercado is None:
         return {
@@ -1316,7 +1560,12 @@ def _linha_da_rota(veredito, agora: datetime) -> dict:
             "mercado": None,
             "vencedora": None,
             "diferenca": None,
-            "n": None,
+            "mediana": mediana,
+            # O MOTIVO VEM DO `dashboard_rotas`, e nao e remontado aqui: ele e
+            # o rotulo TECNICO da quebra, enquanto o `aviso` acima e a copia de
+            # interface. Duas coisas diferentes, e por isso duas chaves.
+            "motivo": veredito.motivo,
+            "n": None if veredito.evidencia is None else veredito.evidencia.n,
             "recencia": None,
             "velho": False,
             "aviso": aviso,
@@ -1341,14 +1590,32 @@ def _linha_da_rota(veredito, agora: datetime) -> dict:
     # veredito quente, sobre a MESMA leitura.
     velho = veredito.idade is not None and veredito.idade > LIMIAR_DE_FRESCOR
 
+    # A DIFERENCA NAS TRES FORMAS, E A DE R$ SOME SOZINHA.
+    #
+    # **O ACHADO DE PRODUTO DESTA FASE ESTA AQUI:** a `vencedora`, a diferenca
+    # em XM e a diferenca percentual **nao dependem do cambio**, porque as duas
+    # rotas terminam multiplicadas pelo mesmo `reais_por_xm` e ele CANCELA na
+    # comparacao. No dia em que o cambio estiver vazio ou velho — que e o dia em
+    # que o usuario mais precisa da resposta — o veredito continua inteiro na
+    # tela e so o "quanto em R$" some.
+    #
+    # E E A MESMA REGRA ORTOGONAL QUE O CARTAO DE R$ DO DESTAQUE JA OBEDECE: o
+    # campo so EXISTE quando ha cambio informado; na ausencia ele e nulo, e
+    # nunca zero nem cadeia vazia. Um cambio chutado vira decisao de dinheiro
+    # real errada, e o numero errado nao se anuncia.
     diferenca = {
-        "xm": formatador_do_unitario(chave)(veredito.diferenca_por_unidade),
+        "xm": _texto_do_unitario(chave, veredito.diferenca_por_unidade),
         "percentual": (
             None
             if veredito.diferenca_percentual is None
             else MOLDE_DA_DIFERENCA_PERCENTUAL.format(
                 valor=_percentual_em_texto(veredito.diferenca_percentual)
             )
+        ),
+        "reais": (
+            None
+            if cambio is None
+            else _diferenca_em_reais(veredito.diferenca_por_unidade, cambio)
         ),
     }
 
@@ -1360,6 +1627,8 @@ def _linha_da_rota(veredito, agora: datetime) -> dict:
         "mercado": _lado_da_rota(veredito.mercado, chave),
         "vencedora": veredito.vencedora,
         "diferenca": diferenca,
+        "mediana": mediana,
+        "motivo": veredito.motivo,
         # TODO NUMERO VIAJA COM `n` E RECENCIA AO LADO — a mesma disciplina do
         # destaque, pela mesma razao: estatistica sem `n` e adivinhacao com cara
         # de numero.
@@ -1540,8 +1809,11 @@ def payload(
         # testes sobre payloads reais prendendo-a, e o `dashboard.js` acha tres
         # frases por POSICAO. Acrescentar la seria empurrar a linha de R$ para
         # fora do lugar em que o navegador a procura.
+        # O `cambio` ENTRA AQUI SO PARA A LINHA DE R$, e o veredito nunca o ve:
+        # `dashboard_rotas` continua sem parametro de cambio nenhum, e essa
+        # ausencia e a garantia ESTRUTURAL de que ele cancela na comparacao.
         "calculadora": _bloco_da_calculadora(
-            itens, modelo, menor, agora, itens_lidos_em
+            itens, modelo, menor, agora, itens_lidos_em, cambio
         ),
     }
 
