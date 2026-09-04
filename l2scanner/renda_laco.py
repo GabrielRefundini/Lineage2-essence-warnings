@@ -55,10 +55,15 @@ from __future__ import annotations
 import logging
 import sys
 import time
+from dataclasses import replace
 
 from . import renda_console
 from .cliente import nome_do_personagem
-from .config import AgendaInvalida, ler_ajustes_da_renda
+from .config import (
+    CHAVE_DO_TAMANHO_DO_PACK,
+    AgendaInvalida,
+    ler_ajustes_da_renda,
+)
 from .frames import Regiao
 from .mercado_console import OrcamentoDoTick
 from .renda_conta import (
@@ -74,6 +79,7 @@ from .renda_conta import (
 from .recaptura import FonteRecuperavel
 from .renda_console import (
     RECORTE_DO_EXP_SEM_LEITURA,
+    _grafia_da_adena,
     aviso_da_transicao,
     linha_do_tique,
     resumo_da_sessao_da_renda,
@@ -650,6 +656,64 @@ def _tempo_ate_o_nivel(campos, passos, ajustes):
     )
 
 
+def _com_o_pack_da_linha_de_comando(ajustes, args):
+    """`--pack-de-adena` vence a chave do arquivo, E O LOG DIZ QUEM VENCEU.
+
+    O MOLDE E O DO `config.local.toml` VENCENDO O `config.toml`: quando duas
+    fontes discordam, uma vence e o aviso NOMEIA o vencedor. A precedencia
+    silenciosa e a pior das saidas — pior que recusar a flag e pior que ignorar
+    o arquivo —, porque o usuario ve na tela um numero que ele nao pediu e nao
+    tem por onde comecar a procurar. O aviso mostra OS DOIS numeros pela mesma
+    razao: so o vencedor o obrigaria a abrir o `config.toml` para descobrir o
+    que ele perdeu.
+
+    SEM DISCORDANCIA NAO HA ANUNCIO. Uma linha por sessao dizendo "o pack e
+    5.000.000" repetiria o que o painel ja escreve a cada intervalo, e uma linha
+    que aparece toda vez e uma linha que o olho aprende a pular — a mesma razao
+    do latch de transicao do `03-02` e da secao de piso do `03-03`.
+
+    O ACESSO E POR `getattr` COM DEFAULT, e nao direto. Os `argparse.Namespace`
+    montados em `tests/test_renda_laco.py` e em `tests/test_renda_cegueira.py`
+    carregam so o que aqueles testes precisam; um acesso direto derrubaria o
+    laco com `AttributeError` num caminho que nao tem nada a ver com pack. E
+    `None` ali e o DADO — "nao pedi nada nesta rodada" —, e nao a ausencia dele.
+
+    ZERO E NEGATIVO RECUSAM O ARRANQUE, com a mesma frase da secao: a linha de
+    comando nao pode ser mais frouxa que o arquivo, senao ela vira o buraco por
+    onde o valor que o arquivo rejeita entra.
+    """
+    pedido = getattr(args, "pack_de_adena", None)
+    if pedido is None:
+        return ajustes
+
+    if int(pedido) <= 0:
+        raise AgendaInvalida(
+            f"--pack-de-adena precisa ser MAIOR que zero (recebi {pedido}). "
+            "Um pack de tamanho zero nao tem 'proximo multiplo', e um negativo "
+            "produziria um alvo ABAIXO da adena que voce ja tem."
+        )
+
+    do_arquivo = ajustes.tamanho_do_pack_de_adena
+    if int(pedido) == int(do_arquivo):
+        return ajustes
+
+    # A GRAFIA E A DA CASA E NAO UMA SEGUNDA: `_grafia_da_adena` ja escreve o
+    # separador de milhar que o JOGO usa, e e ela que escreve a adena na linha
+    # do tique e no bloco. Repetir `f"{v:,}".replace(",", ".")` aqui criaria uma
+    # segunda gramatica de milhar nesta arvore -- exatamente o que a docstring
+    # dela proibe, e a mesma razao que fez `duracao_curta` virar publica no
+    # `03-02`. `renda_modo.py:192` ja importa este mesmo nome privado.
+    log.info(
+        "PACK DE ADENA: vale %s, pedido em --pack-de-adena. A chave "
+        "'%s' da secao [renda] do config.toml diz %s, e ela perde NESTA "
+        "RODADA - o arquivo continua intacto.",
+        _grafia_da_adena(pedido),
+        CHAVE_DO_TAMANHO_DO_PACK,
+        _grafia_da_adena(do_arquivo),
+    )
+    return replace(ajustes, tamanho_do_pack_de_adena=int(pedido))
+
+
 def laco_da_renda(
     args,
     cal,
@@ -732,19 +796,25 @@ def laco_da_renda(
     # — a mesma razao escrita em `mercado_modo.py:522-524`.
     #
     # E UM `[renda]` TORTO RECUSA O ARRANQUE em vez de degradar para os
-    # defaults: os cinco numeros sao uma CONTA, e uma conta torta que caisse no
-    # padrao entregaria uma taxa perfeitamente formatada e diferente da que o
-    # usuario pediu, sem uma linha em lugar nenhum dizendo por que.
+    # defaults: cinco dos seis numeros sao uma CONTA, e uma conta torta que
+    # caisse no padrao entregaria uma taxa perfeitamente formatada e diferente da
+    # que o usuario pediu, sem uma linha em lugar nenhum dizendo por que.
+    #
+    # A FLAG `--pack-de-adena` E LIDA NO MESMO PONTO E PELA MESMA RAZAO: uma vez,
+    # no arranque, com o vencedor anunciado. E ela recusa o arranque igual, para
+    # que a linha de comando nao seja o buraco por onde o valor que o arquivo
+    # rejeita entra.
     try:
-        ajustes = ler_ajustes_da_renda()
+        ajustes = _com_o_pack_da_linha_de_comando(ler_ajustes_da_renda(), args)
     except AgendaInvalida as erro:
         return _recusar(
             [
-                "MODO RENDA NAO VAI SUBIR: a secao [renda] do config.toml nao "
-                "serve.",
+                "MODO RENDA NAO VAI SUBIR: a secao [renda] do config.toml (ou "
+                "a flag que a vence) nao serve.",
                 str(erro),
-                "Os cinco numeros dali governam a conta inteira. Conserte a "
-                "secao, ou comente-a para o modo subir com os padroes.",
+                "Cinco dos seis numeros dali governam a conta inteira. "
+                "Conserte a secao, ou comente-a para o modo subir com os "
+                "padroes.",
             ]
         )
 

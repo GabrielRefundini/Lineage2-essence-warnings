@@ -3152,6 +3152,24 @@ def main() -> int:
             "em .renda/. Exige --janela."
         ),
     )
+    # O DEFAULT E `None` E NAO `5000000`, E ISSO E O DESENHO INTEIRO. Com um
+    # default numerico a linha de comando venceria SEMPRE, e a chave
+    # `tamanho_do_pack_de_adena` que o usuario escreveu no `config.toml` nunca
+    # chegaria — sem uma linha em lugar nenhum dizendo por que. `None` e o dado:
+    # ele significa "nao pedi nada nesta rodada, vale o arquivo".
+    parser.add_argument(
+        "--pack-de-adena",
+        dest="pack_de_adena",
+        type=int,
+        default=None,
+        metavar="ADENA",
+        help=(
+            "SO com --renda: de quanto em quanto o painel conta um 'pack' de "
+            "adena (padrao 5000000, a coluna `5 mln increment` do jogo). Ele "
+            "vence a chave tamanho_do_pack_de_adena da secao [renda] do "
+            "config.toml NESTA RODADA, e o log diz qual dos dois venceu."
+        ),
+    )
     parser.add_argument("-v", "--verboso", action="store_true", help="log detalhado")
 
     args = parser.parse_args()
