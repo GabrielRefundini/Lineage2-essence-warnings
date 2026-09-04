@@ -481,17 +481,28 @@ function darUmaVolta() {
 // <<< COMPONENTE-DE-SERIE
 
 // As três larguras que o payload traz, e o alcance visível até o qual cada uma
-// serve. `null` é a série CRUA, um ponto por instante de leitura (CTX-1).
+// serve.
 //
-// ESTES LIMITES SÃO ESCOLHA, E NÃO MEDIÇÃO, e dizer isso é mais honesto do que
-// deixar o leitor supor que houve um experimento: um dia de janela visível ainda
-// desenha poucos pontos por pixel com o volume de hoje, e daí para cima a
-// agregação começa a valer. Se um dia isto ficar denso demais, o número muda
-// aqui — e nada mais no arquivo precisa saber.
+// ATÉ 2026-09-03 HAVIA UMA QUARTA ENTRADA AQUI: `{ nome: null, ate:
+// SEGUNDOS_POR_DIA }`, a série CRUA — um ponto por instante de leitura
+// (CTX-1), usada sempre que a janela visível cabia num dia. ELA FOI RETIRADA
+// PORQUE O PRÓPRIO USUÁRIO MEDIU O DEFEITO NA TELA REAL: subir e descer de
+// andar faz o painel ser relido várias vezes em poucos minutos, e a série crua
+// desenhava cada releitura como se fosse outra oferta — o mínimo balançando
+// para cima e para baixo entre pontos vizinhos, sem que o mercado tivesse
+// mudado. `cinco_minutos` já existia (as três larguras chegam prontas do
+// Python) e já resolve isso: dentro do balde, o valor exibido é o `median_low`
+// das releituras daquela janela, e CTX-1 continua valendo — cada elemento do
+// balde é um ponto que existiu, só que agora o zoom mais fechado também
+// agrega em vez de desenhar cada instante cru.
+//
+// ESTES LIMITES CONTINUAM SENDO ESCOLHA, E NÃO MEDIÇÃO — só o de baixo (a
+// série crua) tinha virado medição, e a medição reprovou ele. Se um dia
+// `cinco_minutos` também ficar denso demais, o número muda aqui — e nada mais
+// no arquivo precisa saber.
 const SEGUNDOS_POR_HORA = 3600;
 const SEGUNDOS_POR_DIA = 24 * SEGUNDOS_POR_HORA;
 const RESOLUCOES = [
-  { nome: null, ate: SEGUNDOS_POR_DIA },
   { nome: "cinco_minutos", ate: SEGUNDOS_POR_DIA * 7 },
   { nome: "uma_hora", ate: SEGUNDOS_POR_DIA * 60 },
   { nome: "um_dia", ate: Infinity },
@@ -1134,9 +1145,17 @@ function desenharUmaSerie(serie) {
   escadasDoEixo = serie.escadas_do_eixo;
 
   if (grafico === null) {
-    resolucaoAtual = null;
-    textosDoGrafico = cru.textos;
-    grafico = new biblioteca(opcoesDoGrafico(serie, area), cru.dados, area);
+    // A PRIMEIRA PINTURA PASSA PELA MESMA ESCOLHA DE RESOLUÇÃO QUE O ZOOM
+    // USA — nunca crua por padrão. Não dá para deixar `ajustarAResolucao`
+    // decidir sozinha aqui: o gancho `setScale` da biblioteca já dispara
+    // DURANTE `new biblioteca(...)`, antes desta atribuição terminar, e a
+    // trava de `grafico === null` faria aquele primeiro disparo sair sem
+    // fazer nada — foi assim que a série crua virava o padrão silencioso até
+    // o usuário mexer no zoom uma vez.
+    resolucaoAtual = resolucaoPara(alcanceTotal.max - alcanceTotal.min);
+    const inicial = conjuntoNaResolucao(serie, resolucaoAtual);
+    textosDoGrafico = inicial.textos;
+    grafico = new biblioteca(opcoesDoGrafico(serie, area), inicial.dados, area);
     ligarOZoomEODeslocamento(grafico);
     ligarADica(grafico);
     return;
