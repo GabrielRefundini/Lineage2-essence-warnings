@@ -1,4 +1,11 @@
-"""Os cinco numeros da secao `[renda]`, e o arranque recusando cada um mal escrito.
+"""Os SEIS numeros da secao `[renda]`, e o arranque recusando cada um mal escrito.
+
+ERAM CINCO ATE 2026-09-04, e o sexto tem casa diferente dos outros: os cinco
+primeiros governam a CONTA (o que e "agora", o que e cegueira, o que e digito
+ganho, os dois pisos), e `tamanho_do_pack_de_adena` governa uma META DO USUARIO —
+de quanto em quanto ele quer ser avisado. As tres regras de leitura e o portao de
+booleano valem igual para os seis, e por isso o sexto entrou aqui em vez de
+inventar secao propria.
 
 O QUE ESTE ARQUIVO EXISTE PARA IMPEDIR
 ======================================
@@ -18,8 +25,8 @@ O molde e `ler_ajustes_do_aprendiz` (`l2scanner/config.py:1516`), cuja secao
 `config.toml` ate hoje. Um leitor que exigisse a secao teria derrubado o scanner
 no dia em que nasceu. Daí:
 
-1. `config.toml` **ausente** nao e erro: devolve os cinco defaults.
-2. Secao `[renda]` **ausente** nao e erro: devolve os cinco defaults.
+1. `config.toml` **ausente** nao e erro: devolve os seis defaults.
+2. Secao `[renda]` **ausente** nao e erro: devolve os seis defaults.
 3. Chave ausente devolve o default **DAQUELA** chave, e nao o conjunto inteiro.
    Quem escreveu so `lacuna_maxima_segundos` nao esta pedindo para os outros
    quatro voltarem ao padrao.
@@ -54,20 +61,24 @@ from l2scanner.config import (
     CHAVE_DO_FATOR_DE_SALTO,
     CHAVE_DO_PISO_DA_JANELA,
     CHAVE_DO_PISO_DE_AMOSTRAS,
+    CHAVE_DO_TAMANHO_DO_PACK,
     SECAO_DA_RENDA,
     AgendaInvalida,
     AjustesDaRenda,
     ler_ajustes_da_renda,
 )
 
-# As cinco chaves, derivadas do modulo e nunca reescritas a mao: uma lista
-# escrita aqui envelheceria em silencio no dia em que uma sexta nascesse.
-AS_CINCO = (
+# As chaves, derivadas do modulo e nunca reescritas a mao. A tupla se chamava
+# `AS_CINCO` ate 2026-09-04 e o comentario dizia *"uma lista escrita aqui
+# envelheceria em silencio no dia em que uma sexta nascesse"* — a sexta nasceu, e
+# como os nomes vem do modulo o unico ajuste foi acrescentar a linha.
+AS_SEIS = (
     CHAVE_DA_JANELA_MOVEL,
     CHAVE_DA_LACUNA,
     CHAVE_DO_FATOR_DE_SALTO,
     CHAVE_DO_PISO_DE_AMOSTRAS,
     CHAVE_DO_PISO_DA_JANELA,
+    CHAVE_DO_TAMANHO_DO_PACK,
 )
 
 
@@ -80,11 +91,28 @@ def escrever(tmp_path, texto: str):
 class TestOsTresEstadosLegITIMOS:
     """Arquivo ausente, secao ausente e chave ausente. Nenhum dos tres e erro."""
 
-    def test_ARQUIVO_AUSENTE_DEVOLVE_OS_CINCO_DEFAULTS(self, tmp_path):
+    def test_ARQUIVO_AUSENTE_DEVOLVE_OS_SEIS_DEFAULTS(self, tmp_path):
         ajustes = ler_ajustes_da_renda(tmp_path / "nunca-existiu.toml")
         assert ajustes == AjustesDaRenda()
 
-    def test_SECAO_AUSENTE_NUM_ARQUIVO_REAL_DEVOLVE_OS_CINCO_DEFAULTS(
+    def test_O_PACK_PADRAO_E_O_DE_CINCO_MILHOES_QUE_O_USUARIO_PEDIU(
+        self, tmp_path
+    ):
+        """`5.000.000` e a escala em que o proprio jogo fala de adena.
+
+        O usuario pediu *"o prox pack de adena de +5kk"*, e a coluna do World
+        Exchange se chama `5 mln increment`. O default nao e escolha nossa; o
+        que e escolha e o usuario poder muda-lo, e por isso ele e chave e nao
+        constante.
+        """
+        assert (
+            ler_ajustes_da_renda(
+                tmp_path / "nunca-existiu.toml"
+            ).tamanho_do_pack_de_adena
+            == 5_000_000
+        )
+
+    def test_SECAO_AUSENTE_NUM_ARQUIVO_REAL_DEVOLVE_OS_SEIS_DEFAULTS(
         self, tmp_path
     ):
         """O precedente e literal: a `[identidade]` nunca foi preenchida."""
@@ -94,7 +122,7 @@ class TestOsTresEstadosLegITIMOS:
         )
         assert ler_ajustes_da_renda(caminho) == AjustesDaRenda()
 
-    def test_UMA_CHAVE_ESCRITA_NAO_ARRASTA_AS_OUTRAS_QUATRO(self, tmp_path):
+    def test_UMA_CHAVE_ESCRITA_NAO_ARRASTA_AS_OUTRAS_CINCO(self, tmp_path):
         """Chave ausente devolve o default DAQUELA chave, e nao o conjunto."""
         padroes = AjustesDaRenda()
         caminho = escrever(
@@ -114,8 +142,11 @@ class TestOsTresEstadosLegITIMOS:
             ajustes.janela_minima_para_taxa_segundos
             == padroes.janela_minima_para_taxa_segundos
         )
+        assert (
+            ajustes.tamanho_do_pack_de_adena == padroes.tamanho_do_pack_de_adena
+        )
 
-    def test_AS_CINCO_CHAVES_ESCRITAS_CHEGAM_TODAS(self, tmp_path):
+    def test_AS_SEIS_CHAVES_ESCRITAS_CHEGAM_TODAS(self, tmp_path):
         caminho = escrever(
             tmp_path,
             f"[{SECAO_DA_RENDA}]\n"
@@ -123,7 +154,8 @@ class TestOsTresEstadosLegITIMOS:
             f"{CHAVE_DA_LACUNA} = 30\n"
             f"{CHAVE_DO_FATOR_DE_SALTO} = 20\n"
             f"{CHAVE_DO_PISO_DE_AMOSTRAS} = 4\n"
-            f"{CHAVE_DO_PISO_DA_JANELA} = 300\n",
+            f"{CHAVE_DO_PISO_DA_JANELA} = 300\n"
+            f"{CHAVE_DO_TAMANHO_DO_PACK} = 10000000\n",
         )
 
         assert ler_ajustes_da_renda(caminho) == AjustesDaRenda(
@@ -132,13 +164,36 @@ class TestOsTresEstadosLegITIMOS:
             fator_de_salto_da_adena=20,
             amostras_minimas_para_taxa=4,
             janela_minima_para_taxa_segundos=300,
+            tamanho_do_pack_de_adena=10_000_000,
         )
+
+    def test_A_SEXTA_CHAVE_APARECE_NO_EXEMPLO_QUE_A_RECUSA_MOSTRA(
+        self, tmp_path
+    ):
+        """O exemplo e a coisa que o usuario COPIA, e ele tem de estar inteiro.
+
+        Uma mensagem que mostra cinco das seis chaves ensina o usuario a apagar
+        a sexta. O exemplo e escrito UMA vez no fonte e viaja em toda recusa da
+        secao; este teste prende as duas pontas.
+        """
+        caminho = escrever(
+            tmp_path, f"[{SECAO_DA_RENDA}]\n{CHAVE_DA_LACUNA} = true\n"
+        )
+
+        with pytest.raises(AgendaInvalida) as erro:
+            ler_ajustes_da_renda(caminho)
+
+        for chave in AS_SEIS:
+            assert chave in str(erro.value), (
+                f"a chave {chave} sumiu do exemplo que a recusa mostra. Saiu: "
+                f"{erro.value}"
+            )
 
 
 class TestOBooleanoNaoPassaPorInteiro:
     """`True` E um `int` de valor 1 em Python, e essa armadilha e classica."""
 
-    @pytest.mark.parametrize("chave", AS_CINCO)
+    @pytest.mark.parametrize("chave", AS_SEIS)
     def test_TRUE_NUMA_CHAVE_INTEIRA_E_RECUSADO_COM_O_NOME_DA_CHAVE(
         self, tmp_path, chave
     ):
@@ -152,7 +207,7 @@ class TestOBooleanoNaoPassaPorInteiro:
             f"aberto e precisa saber qual linha consertar. Saiu: {erro.value}"
         )
 
-    @pytest.mark.parametrize("chave", AS_CINCO)
+    @pytest.mark.parametrize("chave", AS_SEIS)
     def test_CONTROLE_O_INTEIRO_1_NO_MESMO_LUGAR_PASSA(self, tmp_path, chave):
         """Sem o par, um validador que recusasse TUDO passaria no teste de cima.
 
@@ -168,9 +223,16 @@ class TestOBooleanoNaoPassaPorInteiro:
 
 
 class TestZeroENegativoSaoRecusadosNoArranque:
-    """Nenhum dos cinco faz sentido em zero, e nenhum faz sentido negativo."""
+    """Nenhum dos seis faz sentido em zero, e nenhum faz sentido negativo.
 
-    @pytest.mark.parametrize("chave", AS_CINCO)
+    O sexto pela sua propria razao: um pack de tamanho zero nao tem "proximo
+    multiplo", e um negativo produziria um alvo ABAIXO da adena que o usuario ja
+    tem — faltas negativas com cara de conta. `tempo_ate_o_pack` tambem levanta,
+    e os dois portoes existem porque o modulo puro pode ser chamado por outro
+    caminho que nao o `config.toml`.
+    """
+
+    @pytest.mark.parametrize("chave", AS_SEIS)
     @pytest.mark.parametrize("valor", [0, -1, -600])
     def test_A_MENSAGEM_NOMEIA_A_CHAVE(self, tmp_path, chave, valor):
         caminho = escrever(tmp_path, f"[{SECAO_DA_RENDA}]\n{chave} = {valor}\n")
@@ -201,7 +263,7 @@ class TestZeroENegativoSaoRecusadosNoArranque:
 class TestOsOutrosDoisJeitosDeEscreverErrado:
     """Texto onde se espera numero, e um arquivo que nem TOML e."""
 
-    @pytest.mark.parametrize("chave", AS_CINCO)
+    @pytest.mark.parametrize("chave", AS_SEIS)
     def test_TEXTO_ONDE_SE_ESPERA_NUMERO_TRAZ_O_TIPO_QUE_VEIO(
         self, tmp_path, chave
     ):
