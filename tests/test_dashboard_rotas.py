@@ -28,6 +28,7 @@ from __future__ import annotations
 import importlib
 import re
 from datetime import datetime
+from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 
@@ -40,9 +41,26 @@ from l2scanner import (
     mercado_registro,
 )
 from l2scanner.config import ItemDeRota
+from l2scanner.dashboard_cambio import Cambio
 from l2scanner.mercado_analise import ModeloDeMercado
 from l2scanner.mercado_catalogo import CHAVE_DA_SERIE_DA_ADENA, SEPARADOR
+from l2scanner.mercado_console import (
+    formatar_centesimos,
+    formatar_unitario_derivado,
+)
 from l2scanner.mercado_registro import ObservacaoLida
+
+# A SONDA DO NUMERO ZERADO E IMPORTADA, E NAO COPIADA. Uma segunda copia do
+# molde divergiria da primeira na correcao seguinte, e uma das duas ficaria
+# verde por engano -- o mesmo argumento com que o tracer importa as sondas de
+# marcacao do `test_dashboard_js.py`.
+#
+# ELA E POR **TOKEN** E NAO POR SUBSTRING, e a razao esta MEDIDA no
+# `01-02-SUMMARY.md`: por substring, `"0,00"` reprova
+# `"30,00 XM por 5 milhoes de adena"`, que e um valor legitimo -- toda taxa
+# terminada em zero cairia junto. A proibicao do UI-SPEC e sobre o NUMERO
+# INTEIRO ser zero.
+from tests.test_dashboard_dados import MOLDE_DE_NUMERO
 
 TERMINADOR = "\r\n"
 AGORA = datetime(2026, 9, 1, 15, 0, 0)
@@ -518,3 +536,332 @@ class TestOsDoisLadosRespondemAoMesmoPiso:
         """
         fonte = Path(dashboard_dados.__file__).read_text(encoding="utf-8")
         assert fonte.count("n=50") >= 1
+
+
+# ===========================================================================
+# A DIFERENCA EM XM, EM % E EM R$ -- E O R$ SUMINDO SOZINHO
+# ===========================================================================
+
+CAMBIO = Cambio(
+    reais_por_xm=Decimal("0.50"), informado_em=datetime(2026, 9, 1, 12, 0, 0)
+)
+
+
+def _todas_as_strings(no):
+    """Todo valor de string do objeto, recursivamente. Chave nao conta."""
+    if isinstance(no, str):
+        yield no
+    elif isinstance(no, dict):
+        for valor in no.values():
+            yield from _todas_as_strings(valor)
+    elif isinstance(no, (list, tuple)):
+        for valor in no:
+            yield from _todas_as_strings(valor)
+
+
+def _numeros_zerados(no) -> list:
+    """Os tokens numericos IGUAIS a zero com duas casas. A SONDA."""
+    achados = []
+    for texto in _todas_as_strings(no):
+        achados.extend(
+            token for token in MOLDE_DE_NUMERO.findall(texto) if token == "0,00"
+        )
+    return achados
+
+
+class TestOCambioCANCELA:
+    """A PROVA DO CALC-03, E ELA E UM PAR.
+
+    As duas rotas terminam multiplicadas pelo MESMO `reais_por_xm`, entao ele
+    CANCELA na comparacao. O veredito nao depende do cambio -- so o "quanto em
+    R$" depende. **Um teste que so olhasse o caso sem cambio nao provaria
+    isso:** ele mostraria que o veredito EXISTE, e nao que ele e o MESMO.
+    """
+
+    def _dois_blocos(self, pasta):
+        _escrever_csv(
+            pasta, _linhas_da_adena(_piso()) + _linhas_do_item(_piso())
+        )
+        com = dashboard_dados.payload(pasta, AGORA, CAMBIO, [_item()], AGORA)[
+            "calculadora"
+        ]["itens"][0]
+        sem = dashboard_dados.payload(pasta, AGORA, None, [_item()], AGORA)[
+            "calculadora"
+        ]["itens"][0]
+        return com, sem
+
+    def test_o_veredito_e_IDENTICO_campo_a_campo_com_e_sem_cambio(self, pasta):
+        com, sem = self._dois_blocos(pasta)
+        assert com["vencedora"] == sem["vencedora"]
+        assert com["vencedora"] is not None
+        assert com["diferenca"]["xm"] == sem["diferenca"]["xm"]
+        assert com["diferenca"]["percentual"] == sem["diferenca"]["percentual"]
+        assert com["estado"] == sem["estado"]
+
+    def test_so_a_diferenca_em_REAIS_e_que_some(self, pasta):
+        """Ausente. Nao zerada, nao vazia: ausente."""
+        com, sem = self._dois_blocos(pasta)
+        assert isinstance(com["diferenca"]["reais"], str)
+        assert sem["diferenca"]["reais"] is None
+
+    def test_o_valor_em_reais_carrega_a_marca_de_informado_por_voce(
+        self, pasta
+    ):
+        """Nenhum valor em R$ sai da tela sem procedencia. Quem copiar a linha
+        para o WhatsApp precisa que ela viaje junto."""
+        com, _ = self._dois_blocos(pasta)
+        texto = com["diferenca"]["reais"]
+        assert "informado por" in texto
+        assert CAMBIO.informado_em.strftime("%d/%m %H:%M") in texto
+        assert "R$" in texto
+
+    def test_a_conta_em_reais_e_a_diferenca_vezes_o_cambio_EXATA(self, pasta):
+        """A derivacao, presa como numero.
+
+        A diferenca ja esta em centesimos de XM por unidade; multiplicada por
+        reais-por-XM ela vira CENTAVOS de R$ por unidade diretamente, porque as
+        duas escalas de centesimo se cancelam.
+        """
+        com, _ = self._dois_blocos(pasta)
+        veredito = dashboard_rotas.veredito_de_uma_rota(
+            _item(), _modelo_do_item(), TAXA_MEDIDA, AGORA
+        )
+        centavos = round(
+            veredito.diferenca_por_unidade * Fraction(CAMBIO.reais_por_xm)
+        )
+        assert formatar_centesimos(centavos) in com["diferenca"]["reais"]
+
+
+class TestNenhumNumeroZERADOSaiDoBloco:
+    """A sonda por TOKEN sobre o bloco inteiro, em TODOS os estados.
+
+    `0,00` como valor exibido e a mentira mais convincente deste projeto: o
+    numero continua com a forma certa e so o significado fica errado.
+    """
+
+    def _montagens(self):
+        return {
+            "sem_taxa": (_linhas_do_item(_piso()), [_item()]),
+            "sem_itens": (_linhas_da_adena(_piso()), []),
+            "decidida": (
+                _linhas_da_adena(_piso()) + _linhas_do_item(_piso()),
+                [_item()],
+            ),
+            "sem_evidencia": (
+                _linhas_da_adena(_piso()) + _linhas_do_item(1),
+                [_item()],
+            ),
+            "nunca_vista": (
+                _linhas_da_adena(_piso()) + _linhas_do_item(_piso()),
+                [_item(nome="Gemstone Z")],
+            ),
+            "propria_adena": (
+                _linhas_da_adena(_piso()) + _linhas_do_item(_piso()),
+                [_item(nome="Adena")],
+            ),
+            "ambiguo": (
+                _linhas_da_adena(_piso())
+                + _linhas_do_item(_piso())
+                + [
+                    _linha(
+                        "gemstone-c#9",
+                        "gemstone  c",
+                        datetime(2026, 9, 1, 14, 10, 0),
+                        7000,
+                        1,
+                    )
+                ],
+                [_item()],
+            ),
+            # EMPATE CRAVADO: as duas rotas em 9 centesimos por unidade. E o
+            # caso em que a DIFERENCA arredonda para zero -- o `0,00` que esta
+            # sonda existe para nao deixar passar.
+            "empatada": (
+                _linhas_da_adena(_piso()) + _linhas_do_item(_piso(), menor=9),
+                [_item(preco=10000)],
+            ),
+            # O UNITARIO INEXIBIVEL: 400 adena por unidade, abaixo do limiar
+            # MEDIDO de 555.
+            "inexibivel": (
+                _linhas_da_adena(_piso()) + _linhas_do_item(_piso()),
+                [_item(preco=400)],
+            ),
+        }
+
+    def _todos_os_blocos(self, tmp_path: Path):
+        blocos = []
+        de_bloco = set()
+        de_linha = set()
+        for nome, (linhas, itens) in self._montagens().items():
+            destino = tmp_path / nome
+            destino.mkdir()
+            _escrever_csv(destino, linhas)
+            for cambio in (None, CAMBIO):
+                bloco = dashboard_dados.payload(
+                    destino, AGORA, cambio, itens, AGORA
+                )["calculadora"]
+                blocos.append(bloco)
+                de_bloco.add(bloco["estado"])
+                for linha in bloco["itens"]:
+                    de_linha.add(linha["estado"])
+        return blocos, de_bloco, de_linha
+
+    def test_a_sonda_cobre_TODOS_os_estados_de_bloco_e_de_linha(
+        self, tmp_path: Path
+    ):
+        """Sem esta metade, a sonda poderia estar cega justamente para o estado
+        que vaza -- e um verde sobre um conjunto vazio nao mede nada."""
+        _, de_bloco, de_linha = self._todos_os_blocos(tmp_path)
+        assert de_bloco == set(dashboard_dados.ESTADOS_DA_CALCULADORA)
+        assert de_linha == set(dashboard_rotas.ESTADOS_DA_ROTA)
+
+    def test_NENHUM_numero_zerado_em_estado_nenhum(self, tmp_path: Path):
+        blocos, _, _ = self._todos_os_blocos(tmp_path)
+        for bloco in blocos:
+            assert _numeros_zerados(bloco) == [], bloco
+
+    def test_CONTROLE_a_sonda_ACUSA_um_zero_de_verdade(self):
+        """Sem este controle, a sonda poderia nao acusar nada nunca.
+
+        Ela e mais frouxa que a de substring de proposito; se a frouxidao for
+        demais, este controle e o que denuncia.
+        """
+        assert _numeros_zerados({"t": "30,00 por unidade (derivado)"}) == []
+        assert _numeros_zerados({"t": "1.000,00 por unidade"}) == []
+        assert _numeros_zerados({"t": "0,00 por unidade (derivado)"}) == ["0,00"]
+        assert _numeros_zerados({"a": [{"b": "R$ 0,00 por unidade"}]}) == [
+            "0,00"
+        ]
+
+
+class TestOUnitarioInexibivel:
+    """O limiar MEDIDO com codigo de producao, e a guarda que ele obriga.
+
+    Na taxa da Adena do CSV real (`Fraction(9, 10000)` centesimos de XM por
+    adena), um preco de NPC de ate **555** adena por unidade faz o unitario
+    arredondar para ZERO centesimos. A fronteira exata e `(1/2) / taxa`, que da
+    `Fraction(5000, 9)` -- 555,5(5) adena. O plano deste trabalho estimava
+    "~555,6 adena", e a medicao pela funcao de PRODUCAO **confirma**: o maior
+    inteiro que zera e 555.
+
+    E a mesma familia de defeito que a docstring de `formatar_taxa_derivada` ja
+    documenta para a taxa por unidade. Esta e a SEGUNDA vez que ela aparece
+    nesta arvore.
+    """
+
+    def test_MEDICAO_o_limiar_sai_da_funcao_de_PRODUCAO(self):
+        """Recalculado a cada rodada, e nunca escrito a mao.
+
+        Se a taxa da fixtura ou o formatador mudarem, este numero muda junto e o
+        que estiver escrito no fonte tem de acompanhar (regra 6 do CLAUDE.md).
+        """
+        maior_zerado = None
+        for preco in range(1, 2000):
+            unitario = dashboard_rotas.custo_da_rota_do_npc(
+                _item(preco=preco), TAXA_MEDIDA
+            ).unitario
+            if round(unitario) == 0:
+                maior_zerado = preco
+            else:
+                break
+        assert maior_zerado == 555
+        assert Fraction(1, 2) / TAXA_MEDIDA == Fraction(5000, 9)
+
+        # E a prova de que o formatador de PRODUCAO imprimiria as duas casas
+        # zeradas, com toda a confianca do mundo, se a guarda nao existisse.
+        zerado = dashboard_rotas.custo_da_rota_do_npc(
+            _item(preco=maior_zerado), TAXA_MEDIDA
+        ).unitario
+        assert formatar_unitario_derivado(zerado).startswith("0,00")
+
+    def _linha_barata(self, pasta):
+        _escrever_csv(
+            pasta, _linhas_da_adena(_piso()) + _linhas_do_item(_piso())
+        )
+        return dashboard_dados.payload(
+            pasta, AGORA, None, [_item(preco=400)], AGORA
+        )["calculadora"]["itens"][0]
+
+    def test_o_lado_do_NPC_sai_como_FRASE_e_nao_como_duas_casas_zeradas(
+        self, pasta
+    ):
+        linha = self._linha_barata(pasta)
+        assert (
+            linha["npc"]["texto"]
+            == dashboard_dados.FRASE_DE_UNITARIO_INEXIBIVEL
+        )
+        assert "0,00" not in MOLDE_DE_NUMERO.findall(linha["npc"]["texto"])
+
+    def test_a_linha_do_PACOTE_continua_trazendo_um_numero_de_verdade(
+        self, pasta
+    ):
+        """E ela que salva a linha de ficar sem informacao nenhuma -- o outro
+        motivo de a decisao do `02-CONTEXT` pedir o custo do pacote ao lado."""
+        linha = self._linha_barata(pasta)
+        assert "400 de adena" in linha["npc"]["pacote_texto"]
+
+    def test_IRMAO_o_VEREDITO_do_mesmo_item_continua_CERTO(self, pasta):
+        """A guarda e de EXIBICAO, e a comparacao continua em `Fraction` exata.
+
+        Perder esta metade transformaria uma guarda de exibicao numa mudanca de
+        RESULTADO -- que e outra coisa, e muito pior.
+        """
+        linha = self._linha_barata(pasta)
+        assert linha["estado"] == dashboard_rotas.ROTA_DECIDIDA
+        assert linha["vencedora"] == dashboard_rotas.VENCEDORA_NPC
+
+        veredito = dashboard_rotas.veredito_de_uma_rota(
+            _item(preco=400), _modelo_do_item(), TAXA_MEDIDA, AGORA
+        )
+        assert veredito.npc.unitario == Fraction(400 * 9, 10000)
+        assert veredito.diferenca_por_unidade == 5900 - Fraction(360, 1000)
+
+
+class TestAListaAvisosNaoSeMoveu:
+    """A ordem de `avisos` virou contrato no `01-07`, com quatro testes sobre
+    payloads reais prendendo-a. NADA desta fase escreve nela."""
+
+    def _cinco_estados(self, tmp_path: Path):
+        montagens = {
+            dashboard_dados.ESTADO_SEM_LEITURA: _linhas_do_item(1),
+            dashboard_dados.ESTADO_ABAIXO_DO_PISO: _linhas_da_adena(2),
+            dashboard_dados.ESTADO_SERIE_PRESENTE: (
+                _linhas_da_adena(_piso()) + _linhas_do_item(_piso())
+            ),
+        }
+        pastas = []
+        for nome, linhas in montagens.items():
+            destino = tmp_path / nome
+            destino.mkdir()
+            _escrever_csv(destino, linhas)
+            pastas.append(destino)
+
+        # O quarto: cabecalho trocado.
+        quebrado = tmp_path / dashboard_dados.ESTADO_ERRO_DE_CONTRATO
+        quebrado.mkdir()
+        (quebrado / mercado_registro.ARQUIVO_DE_OBSERVACOES).write_text(
+            "coluna_errada" + TERMINADOR, encoding="utf-8", newline=""
+        )
+        pastas.append(quebrado)
+
+        # O quinto: arquivo ausente.
+        ausente = tmp_path / dashboard_dados.ESTADO_ARQUIVO_AUSENTE
+        ausente.mkdir()
+        pastas.append(ausente)
+        return pastas
+
+    def test_avisos_IDENTICOS_com_e_sem_itens_nos_CINCO_estados(
+        self, tmp_path: Path
+    ):
+        vistos = set()
+        for destino in self._cinco_estados(tmp_path):
+            sem = dashboard_dados.payload(destino, AGORA)
+            com = dashboard_dados.payload(
+                destino, AGORA, None, [_item()], AGORA
+            )
+            vistos.add(sem["estado"])
+            # COMPARACAO DA LISTA INTEIRA, e nao de um item dela: a ordem e
+            # metade do contrato, e o `dashboard.js` acha tres frases por
+            # POSICAO.
+            assert sem["avisos"] == com["avisos"], destino.name
+        assert vistos == set(dashboard_dados.ESTADOS)
