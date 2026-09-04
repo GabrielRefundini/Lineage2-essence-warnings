@@ -46,6 +46,8 @@ from datetime import datetime
 from . import console
 from .mercado_console import LARGURA_DO_AVISO
 from .renda_conta import (
+    MOTIVO_DA_TAXA_DE_ADENA_NEGATIVA,
+    MOTIVO_DA_TAXA_DE_ADENA_ZERADA,
     MOTIVO_DA_TAXA_DE_EXP_NEGATIVA,
     MOTIVO_DA_TAXA_DE_EXP_ZERADA,
 )
@@ -354,6 +356,26 @@ TEXTO_DA_TAXA_NEGATIVA = (
 )
 TEXTO_SEM_EVIDENCIA = "sem previsao: ainda nao da para dizer."
 
+# Os DOIS textos proprios da adena, e o terceiro caso reusa `TEXTO_SEM_EVIDENCIA`
+# — porque "ainda nao da para dizer" e a mesma frase para as duas grandezas, e
+# duplica-la so criaria duas copias para divergir.
+#
+# O DA TAXA NEGATIVA NAO E O ESPELHO DO DO EXP, E A DIFERENCA E MEDIDA. Perder
+# EXP e coisa que o jogo faz (morrer), entao la o conserto e do usuario: *"pare
+# de morrer"*. Perder adena NAO chega ate aqui: `renda_conta._adena_do_par`
+# devolve ganho e gasto os DOIS positivos ou zero (CTX-6), e ele e o unico
+# produtor de `ganho_de_adena`. Se esta linha aparecer na tela, o defeito e do
+# SCANNER e nao do farm — e e isso que ela precisa dizer, senao manda o usuario
+# consertar uma coisa que nao esta quebrada.
+TEXTO_DA_TAXA_DE_ADENA_ZERADA = (
+    "sem previsao: voce nao esta ganhando adena. Va farmar."
+)
+TEXTO_DA_TAXA_DE_ADENA_NEGATIVA = (
+    "sem previsao: a taxa BRUTA de adena saiu negativa, e ela nao deveria "
+    "poder. Isto e defeito do scanner (gasto entrando como ganho), e nao do "
+    "seu farm."
+)
+
 
 def duracao_curta(segundos: float) -> str:
     """`17520.696` -> `4h52`. Inteiro, e a partir de EPOCHS SUBTRAIDOS.
@@ -518,11 +540,115 @@ def _linhas_do_eta(eta, campos, agora) -> list[str]:
     return [_linha(rotulo, TEXTO_SEM_EVIDENCIA)] + _dobrar(motivo)
 
 
+# O titulo da secao do pack, com o tamanho configurado dentro dele. Ele e uma
+# constante de FORMATO e nao de texto pronto: o tamanho e do usuario.
+TITULO_DO_PACK = "O PROXIMO PACK DE ADENA (pack de {tamanho}):"
+
+ROTULO_DA_ADENA_DE_AGORA = "adena de agora"
+ROTULO_DO_ALVO_DO_PACK = "o proximo pack fecha em"
+ROTULO_DO_QUE_FALTA_JUNTAR = "falta juntar"
+# A MESMA GRAMATICA de `falta para o nivel 69`, e nao uma parecida: as duas
+# previsoes sao a mesma pergunta com grandezas diferentes, e o olho tem de
+# reconhecer isso sem ler.
+ROTULO_DO_TEMPO_ATE_O_PACK = "falta para o proximo pack"
+
+
+def _linha_dobrada(rotulo: str, texto: str) -> list[str]:
+    """Rotulo sozinho + o texto INTEIRO em continuacao. Nunca truncado.
+
+    E o molde de `_linhas_de_uma_taxa` quando nao ha numero, e ele existe por
+    MEDICAO e nao por estetica: `_linha(rotulo, texto)` acolchoa o rotulo a 32 e
+    soma o texto inteiro depois, e os textos de ausencia estouram as 76 colunas
+    ali. Medido em 2026-09-04, chamando `_linha` de producao com o rotulo do ETA
+    do nivel:
+
+        TEXTO_DA_TAXA_ZERADA    52 chars  -> 87 colunas   ESTOURA
+        TEXTO_DA_TAXA_NEGATIVA  53 chars  -> 88 colunas   ESTOURA
+        TEXTO_SEM_EVIDENCIA     38 chars  -> 73 colunas   cabe
+
+    Os dois estouros sao de `_linhas_do_eta`, sao PRE-EXISTENTES ao pack e nao
+    sao consertados aqui (estao no `deferred-items.md`) — mas as linhas novas
+    passam por aqui justamente para nao repeti-los. `_dobrar` quebra por
+    `textwrap` contra `LARGURA_DO_BLOCO`, entao o teto vale por construcao.
+    """
+    return [_linha(rotulo, "").rstrip()] + _dobrar(texto)
+
+
+def _texto_da_ausencia_do_pack(motivo: str) -> list[str]:
+    """UM dos tres, e os tres pedem consertos diferentes."""
+    if motivo == MOTIVO_DA_TAXA_DE_ADENA_ZERADA:
+        return _linha_dobrada(
+            ROTULO_DO_TEMPO_ATE_O_PACK, TEXTO_DA_TAXA_DE_ADENA_ZERADA
+        )
+    if motivo == MOTIVO_DA_TAXA_DE_ADENA_NEGATIVA:
+        return _linha_dobrada(
+            ROTULO_DO_TEMPO_ATE_O_PACK, TEXTO_DA_TAXA_DE_ADENA_NEGATIVA
+        )
+    # O TERCEIRO HERDA O MOTIVO em vez de escrever um novo, como o gemeo do
+    # nivel: a previsao nao pode ser mais confiante que o numero de que ela sai.
+    return _linha_dobrada(
+        ROTULO_DO_TEMPO_ATE_O_PACK, TEXTO_SEM_EVIDENCIA
+    ) + _dobrar(motivo)
+
+
+def _linhas_do_pack(pack) -> list[str]:
+    """A CONTA INTEIRA do proximo pack, e nao so a resposta.
+
+    QUATRO LINHAS E NAO UMA, e a razao e o D-02 desta casa: um numero que o
+    usuario nao pode conferir e um numero que ele nao pode confiar. Com
+    `27.309.465` na bolsa e pack de `5.000.000`, ele le
+
+        adena de agora                   27.309.465
+        o proximo pack fecha em          30.000.000
+        falta juntar                     2.690.535
+        falta para o proximo pack        5h46
+
+    e refaz a subtracao de cabeca. Um `5h46` sozinho seria uma afirmacao sem
+    recibo — e o alvo `30.000.000` e exatamente o numero que alguem pode achar
+    que deveria ser `25.000.000`, entao ele precisa estar a vista junto do que
+    falta.
+
+    O TAMANHO DO PACK VAI NO TITULO porque `30.000.000` nao diz nada sem ele: o
+    pack e configuravel (`[renda] tamanho_do_pack_de_adena`, e a flag
+    `--pack-de-adena` que a vence), e uma tela que esconde a unidade obriga o
+    usuario a abrir o `config.toml` para interpretar o proprio painel.
+
+    SEM ADENA LIDA NAO HA ALVO A INVENTAR. Quando a casca manda um `pack` sem
+    `alvo` — a adena DESTE tique recusou —, saem o titulo e o motivo herdado, e
+    nenhuma das tres linhas de numero. Um alvo calculado sobre a ultima adena
+    conhecida seria um numero certo sobre um instante errado.
+    """
+    linhas = [
+        "",
+        TITULO_DO_PACK.format(tamanho=_grafia_curta(pack.tamanho_do_pack)),
+    ]
+
+    if pack.alvo is None:
+        return linhas + _dobrar(pack.motivo_da_ausencia or "")
+
+    linhas += [
+        _linha(ROTULO_DA_ADENA_DE_AGORA, _grafia_da_adena(pack.adena_atual)),
+        _linha(ROTULO_DO_ALVO_DO_PACK, _grafia_da_adena(pack.alvo)),
+        _linha(ROTULO_DO_QUE_FALTA_JUNTAR, _grafia_da_adena(pack.faltam)),
+    ]
+
+    if pack.segundos is not None:
+        return linhas + [
+            _linha(
+                ROTULO_DO_TEMPO_ATE_O_PACK,
+                duracao_curta(float(pack.segundos)),
+            )
+        ]
+
+    return linhas + _texto_da_ausencia_do_pack(pack.motivo_da_ausencia or "")
+
+
 def bloco_da_renda(
     campos,
     taxas_de_exp,
     taxas_de_adena,
     eta,
+    pack,
     contagem,
     *,
     desde: float,
@@ -551,6 +677,13 @@ def bloco_da_renda(
 
     `contagem` viaja para os dois numeros que SAO dela — passos aceitos e
     lacunas — e para o `03-03`, que acrescenta o piso usado.
+
+    `pack` E POSICIONAL E **SEM DEFAULT**, ao contrario de `pisos_em_uso`, e a
+    diferenca e o que cada ausencia significaria. "Nenhum campo fora do piso
+    gravado" e um estado legitimo e comum; "nao ha pack" nao e estado nenhum —
+    o tamanho vem do `config.toml` (com default) e a adena vem do tique, entao a
+    previsao SEMPRE existe, nem que seja como motivo. Um default aqui so
+    esconderia um chamador que esqueceu de passa-la.
 
     `pisos_em_uso` E O QUE O `03-03` ACRESCENTOU (LEIT-10): `campo -> (piso em
     uso, piso gravado)`, somente dos campos cujo piso SAIU do gravado. Ele tem
@@ -627,6 +760,11 @@ def bloco_da_renda(
             rotulo_base, _sufixo_da_sessao(duas.sessao), duas.sessao, agora
         )
     linhas += _linhas_do_eta(eta, campos, agora)
+
+    # A SECAO DO PACK VEM LOGO DEPOIS DO ETA DO NIVEL, e nao no fim do bloco:
+    # sao as DUAS previsoes, o usuario pediu as duas na mesma frase, e uma
+    # separada da outra por quinze linhas de contagem faria o olho procurar.
+    linhas += _linhas_do_pack(pack)
 
     # O QUE SAIU DO DENOMINADOR. Sem estes dois numeros, "a taxa caiu" e "o
     # scanner nao viu" ficam indistinguiveis — e sao consertos opostos.

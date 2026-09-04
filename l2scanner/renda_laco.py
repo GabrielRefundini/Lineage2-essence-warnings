@@ -71,10 +71,12 @@ from .renda_conta import (
     GRANDEZA_DO_EXP,
     ContagemDaRenda,
     TempoAteONivel,
+    TempoAteOPack,
     as_duas_taxas,
     contar_o_passo,
     passo_entre_campos,
     tempo_ate_o_nivel,
+    tempo_ate_o_pack,
 )
 from .recaptura import FonteRecuperavel
 from .renda_console import (
@@ -653,6 +655,47 @@ def _tempo_ate_o_nivel(campos, passos, ajustes):
     )
     return tempo_ate_o_nivel(
         exp_atual_em_decimos=int(campos.exp.valor), taxa=taxas.janela
+    )
+
+
+def _tempo_ate_o_pack(campos, passos, ajustes):
+    """O gemeo do de cima, com a adena no lugar do EXP. As duas escolhas iguais.
+
+    A TAXA E A DA JANELA E NAO A DA SESSAO, pela mesma razao ja escrita ali: a
+    pergunta e *"quando fecha o proximo pack, NO RITMO DE AGORA"*. Com a taxa da
+    sessao inteira a previsao carregaria o tempo parado do jantar dentro dela —
+    e a diferenca esta medida: 466 mil adena/h na janela contra 226 mil na
+    sessao, um fator de dois.
+
+    SEM A ADENA LIDA NAO HA PONTO DE PARTIDA, e a ausencia herda o motivo da
+    recusa em vez de inventar um: um alvo calculado sobre a ultima adena
+    conhecida seria um numero certo sobre um instante errado. E o `alvo` sai
+    `None` junto — inventar um alvo sem saber a adena seria pior que nao ter.
+    """
+    if isinstance(campos.adena, RecusaDaRenda):
+        return TempoAteOPack(
+            tamanho_do_pack=ajustes.tamanho_do_pack_de_adena,
+            adena_atual=None,
+            alvo=None,
+            faltam=None,
+            segundos=None,
+            motivo_da_ausencia=(
+                f"a adena deste tique recusou ({campos.adena.motivo}), e sem o "
+                "ponto de partida nao ha o que subtrair"
+            ),
+        )
+
+    taxas = as_duas_taxas(
+        passos,
+        grandeza=GRANDEZA_DA_ADENA,
+        janela_em_segundos=ajustes.janela_movel_minutos * SEGUNDOS_POR_MINUTO,
+        piso_de_amostras=ajustes.amostras_minimas_para_taxa,
+        piso_da_janela_em_segundos=ajustes.janela_minima_para_taxa_segundos,
+    )
+    return tempo_ate_o_pack(
+        adena_atual=int(campos.adena.valor),
+        tamanho_do_pack=ajustes.tamanho_do_pack_de_adena,
+        taxa=taxas.janela,
     )
 
 
@@ -1321,6 +1364,7 @@ def laco_da_renda(
                             ),
                         ),
                         _tempo_ate_o_nivel(campos, passos, ajustes),
+                        _tempo_ate_o_pack(campos, passos, ajustes),
                         contagem,
                         desde=desde,
                         agora=agora,

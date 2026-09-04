@@ -1001,6 +1001,35 @@ class TestOPackDaLinhaDeComandoVenceOArquivo:
 
         assert "--pack-de-adena" in str(erro.value)
 
+    def test_o_pack_da_flag_CHEGA_ATE_A_TELA_e_nao_so_ate_o_objeto(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        """A costura inteira: flag -> ajustes -> `_tempo_ate_o_pack` -> bloco.
+
+        E o criterio que os outros deste bloco nao dao: eles medem o objeto que
+        sai do resolvedor. Este mede o que o USUARIO le. Sem ele, um laco que
+        resolvesse o pack certo e passasse outro para `bloco_da_renda` passaria
+        em tudo.
+
+        A conta, com a adena de `campos_de()` (17.592.060) e pack de 4.000.000:
+        quatro packs fechados (16.000.000), o QUINTO fecha em 20.000.000, e
+        faltam 2.407.940.
+        """
+        with caplog.at_level(logging.INFO):
+            rodar(
+                cal,
+                tmp_path,
+                sequencia=[campos_de()],
+                carimbos=[100, 101, 102, 103],
+                ticks=4,
+                status_a_cada=0.0,
+                pack_de_adena=4_000_000,
+            )
+
+        assert "4,00 M" in caplog.text, "o tamanho pedido na flag, no titulo"
+        assert "20.000.000" in caplog.text, "o alvo calculado sobre ele"
+        assert "2.407.940" in caplog.text, "o que falta juntar"
+
     def test_um_Namespace_SEM_o_campo_nao_derruba_o_laco(
         self, cal, tmp_path
     ) -> None:

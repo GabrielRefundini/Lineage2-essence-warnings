@@ -577,16 +577,21 @@ class TestOProximoPackDeAdena:
         chegam ate a TELA, e nao so ate o objeto.
         """
         de_cinco = "\n".join(self.linhas_do_pack(bloco()))
-        de_dez = "\n".join(
-            self.linhas_do_pack(bloco(pack=pack(tamanho=10_000_000)))
+        de_quatro = "\n".join(
+            self.linhas_do_pack(bloco(pack=pack(tamanho=4_000_000)))
         )
 
         assert "5,00 M" in de_cinco
-        assert "10,00 M" in de_dez
-        assert "40.000.000" in de_dez, (
-            "com pack de 10 milhoes e 27.309.465 na bolsa, dois packs estao "
-            "fechados e o TERCEIRO fecha em 40.000.000"
-        )
+        assert "4,00 M" in de_quatro
+        # O TAMANHO ESCOLHIDO PARA O CONTROLE E `4.000.000` E NAO `10.000.000`,
+        # e a razao e uma refutacao medida: com pack de 10 milhoes e 27.309.465
+        # na bolsa, o alvo tambem sai `30.000.000` e o `falta juntar` tambem sai
+        # `2.690.535` — IGUAIS aos do pack de cinco. O primeiro rascunho deste
+        # teste afirmava `40.000.000` ali, por uma conta a mao errada, e teria
+        # sido um controle que nao controla nada. Com `4.000.000` sao seis packs
+        # fechados (24.000.000) e o SETIMO fecha em 28.000.000, faltando 690.535.
+        assert "28.000.000" in de_quatro
+        assert "690.535" in de_quatro
 
     def test_SEM_TAXA_A_LINHA_DIZ_POR_QUE_e_NUNCA_UM_NUMERO(self) -> None:
         textos = set()
