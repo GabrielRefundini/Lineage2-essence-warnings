@@ -158,7 +158,8 @@ Logo **"qual é mais barata" se responde sem câmbio nenhum informado** — bast
 2. **Sem nenhum câmbio XM→BRL informado**, o veredito continua aparecendo; só o "quanto em R$" some. Provado por teste, não por intenção. — CALC-03
 3. Quando o preço de mercado do item está **abaixo do piso de evidência** (`N_MINIMO_*`, que já existem), a tela diz que ainda não dá para responder, com a frase de falta vinda do Python — **nunca um veredito chutado sobre `n=1`**. — CALC-04
 4. Acrescentar um terceiro item (ex.: Soulstone) é **uma entrada de configuração**, sem código novo de cálculo nem de tela — provado instanciando um terceiro no teste. — CALC-05
-5. O preço de NPC aparece na tela declarado como informado por você e quando, do mesmo jeito que o câmbio. — CALC-02
+5. O preço de NPC aparece na tela declarado como **informado por você**, com **de onde ele veio e quando o programa o leu**. — CALC-02
+   **Emendado em 2026-09-03, no planejamento.** A redação anterior era *"informado por você e quando, do mesmo jeito que o câmbio"*, e ela não é entregável: o `cambio.json` tem data porque **o programa o escreve**, e o `config.toml` não. Fabricar o "quando" a partir da data de modificação do arquivo diria algo falso sobre o preço toda vez que outra seção do mesmo arquivo fosse editada. O que a tela mostra no lugar é o instante da **leitura** no arranque — um fato do programa, que ainda por cima responde "o dashboard que está rodando já conhece a minha correção?", pergunta que esta fase cria ao ler a configuração uma vez só. A razão inteira, com as três candidatas e o destino de cada uma, está no CALC-02 do `REQUIREMENTS.md`.
 6. A comparação é em `Fraction`, e o arredondamento acontece só na formatação — um veredito que vira do lado errado por meio centavo é o defeito que essa disciplina existe para impedir. — CALC-01
 
 ### Riscos e decisões que o planejamento tem que encarar

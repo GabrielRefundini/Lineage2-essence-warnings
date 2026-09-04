@@ -59,8 +59,23 @@
 
 - [ ] **CALC-02**: O preço do NPC **em adena é configuração**, escrita uma vez, porque não
       existe segunda fonte em tela para o scanner ler (decisão do usuário, 2026-09-02). Ele
-      recebe o mesmo tratamento do câmbio XM→BRL: aparece declarado como **informado por você e
-      quando**, nunca como medido.
+      recebe o mesmo tratamento do câmbio XM→BRL: aparece declarado como **informado por você**,
+      nunca como medido, e a tela diz **de onde ele veio e quando o programa o leu**.
+
+      **Emenda de 2026-09-03, no planejamento da fase — a redação anterior dizia "informado por
+      você *e quando*", pelo espelho do câmbio, e ela não é entregável como estava.** O
+      `cambio.json` guarda um histórico com data porque **o programa o escreve**; o `config.toml`
+      é escrito à mão e o programa não tem como saber quando aquele preço foi digitado. As três
+      candidatas foram consideradas: (1) derivar o "quando" da data de modificação do arquivo —
+      **recusada**, porque mexer em qualquer outra seção do mesmo arquivo mudaria a data sem
+      ninguém ter tocado no preço, e a frase seria plausível e falsa ao mesmo tempo; (2) não
+      exibir quando nenhum — **recusada**, porque descarta um fato que o programa sabe; (3) exibir
+      o instante em que o dashboard **leu** a configuração no arranque — **adotada**. Ela é um
+      fato do programa e responde à pergunta que esta fase cria: a configuração é lida uma vez, no
+      arranque, então quem corrigir um preço e recarregar o navegador veria o número velho sem
+      nenhum sinal. O que a tela **não** faz é chamar o instante da leitura de instante do
+      informe: são dois fatos com nomes parecidos, e trocar um pelo outro é mentir com cara de
+      número — a mesma armadilha que `recencia_do_preco` já documenta no `mercado_analise`.
 
 - [ ] **CALC-03**: O **veredito não depende do câmbio XM→BRL**. As duas rotas terminam
       multiplicadas pelo mesmo `reais_por_xm`, que portanto cancela na comparação — "qual é mais
