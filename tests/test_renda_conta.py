@@ -48,8 +48,11 @@ esperado da SAIDA. Mover 79% para 70% nao muda nenhuma assercao daquele teste.
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
+
+import pytest
 
 import l2scanner.renda_conta as rc
 import l2scanner.renda_leitura as rl
@@ -2017,3 +2020,251 @@ class TestAContagemDaRenda:
         assert contagem.descontinuidades_por_motivo == {
             DESCONTINUIDADE_DA_ANCORA: 1
         }
+
+
+# ===========================================================================
+# O TEMPO ATE O PROXIMO PACK DE ADENA
+# ===========================================================================
+#
+# O pedido do usuario, nas palavras dele: *"expectativa de quando upar ou quando
+# fechar o prox pack de adena de +5kk do valor que ja tem"*. O primeiro ja existe
+# (`TestOTempoAteOProximoNivel`, acima); o segundo e este bloco.
+
+# A taxa de adena MEDIDA no `02-CONTEXT.md:145-153` — 466 mil/h na janela curta.
+# Ela aparece aqui como RECEITA DE CONSTRUCAO DA ENTRADA e nunca como valor
+# esperado da saida, na mesma excecao escopada que `TestADisponibilidadeMedida`
+# ja abre: o numero que os testes afirmam sai da conta a mao sobre a taxa que a
+# PRODUCAO devolveu, e nao de um `466` escrito na assercao.
+#
+# `4.660 a cada 36 s` sao `466.000` por hora EXATOS, e nao aproximados — e essa e
+# a unica razao de o passo ser de 36 s. Uma cadencia que nao fechasse em inteiro
+# obrigaria o teste a ter tolerancia, e ai ele mediria a tolerancia em vez da conta.
+ADENA_POR_PASSO_DE_36S = 4_660
+PASSO_DE_36S = 36.0
+
+# A adena real da tela do usuario no dia do pedido, e o pack de que ele falou.
+ADENA_DO_PEDIDO = 27_309_465
+PACK_DE_CINCO_MILHOES = 5_000_000
+
+# Cinco packs fechados (25.000.000); o SEXTO fecha em 30.000.000.
+ALVO_DO_PEDIDO = 30_000_000
+FALTAM_NO_PEDIDO = 2_690_535
+
+
+def taxa_de_adena(passos):
+    """A taxa de adena de uma sequencia de passos, com os pisos reais."""
+    return taxa_por_hora(
+        passos,
+        grandeza=GRANDEZA_DA_ADENA,
+        piso_de_amostras=PISO_DE_AMOSTRAS,
+        piso_da_janela_em_segundos=PISO_DA_JANELA,
+    )
+
+
+def taxa_de_466_mil_por_hora():
+    """A taxa medida em campo, saida de uma sequencia de VERDADE.
+
+    Vinte passos de 36 s com 4.660 de adena cada: 720 s de janela farmada (acima
+    do piso de 120) e n=20 passos aceitos (acima do piso de 8).
+    """
+    return taxa_de_adena(
+        passos_da_sequencia(
+            sequencia_regular(
+                n=21,
+                passo_em_segundos=PASSO_DE_36S,
+                adena_por_passo=ADENA_POR_PASSO_DE_36S,
+            )
+        )
+    )
+
+
+def taxa_de_adena_zerada():
+    """ADENA PARADA: o usuario na cidade, ou so gastando.
+
+    Ela sai de uma sequencia de verdade e nao de um objeto montado a mao — a
+    adena repetida em todo tique e o caso do usuario parado no vilarejo com o
+    scanner ligado.
+    """
+    return taxa_de_adena(
+        passos_da_sequencia(
+            sequencia_regular(
+                n=21, passo_em_segundos=PASSO_DE_36S, adena_por_passo=0
+            )
+        )
+    )
+
+
+def taxa_de_adena_magra():
+    """Tres amostras: abaixo dos DOIS pisos, e sem numero a dizer."""
+    return taxa_de_adena(
+        passos_da_sequencia(sequencia_regular(n=3, passo_em_segundos=50.0))
+    )
+
+
+def previsao_do_pack(taxa, *, adena=ADENA_DO_PEDIDO, pack=PACK_DE_CINCO_MILHOES):
+    return rc.tempo_ate_o_pack(
+        adena_atual=adena, tamanho_do_pack=pack, taxa=taxa
+    )
+
+
+class TestOTempoAteOProximoPackDeAdena:
+    """"Quando fecha o proximo pack" tem resposta OU tem motivo — nunca um zero.
+
+    E o GEMEO de `tempo_ate_o_nivel`: mesma forma, mesmos tres casos de ausencia,
+    mesma disciplina de `Fraction`. Inventar uma segunda maneira de expressar um
+    ETA faria a mesma pergunta ser respondida de dois jeitos na mesma tela.
+    """
+
+    def test_O_ALVO_E_O_PROXIMO_MULTIPLO_E_O_ETA_SAI_EM_SEGUNDOS(self):
+        taxa = taxa_de_466_mil_por_hora()
+        assert taxa.por_hora == 466_000
+
+        previsao = previsao_do_pack(taxa)
+
+        # A conta a mao, com os numeros a vista: com 27.309.465 na bolsa, cinco
+        # packs de 5.000.000 estao fechados (25.000.000) e o SEXTO fecha em
+        # 30.000.000. Faltam 2.690.535, a 466.000 por hora.
+        a_mao = Fraction(FALTAM_NO_PEDIDO * 3_600, 466_000)
+
+        assert previsao.motivo_da_ausencia is None
+        assert previsao.adena_atual == ADENA_DO_PEDIDO
+        assert previsao.alvo == ALVO_DO_PEDIDO
+        assert previsao.faltam == FALTAM_NO_PEDIDO
+        assert previsao.tamanho_do_pack == PACK_DE_CINCO_MILHOES
+        assert previsao.segundos == a_mao, (
+            "as duas contas lado a lado: o modulo devolveu "
+            f"{previsao.segundos} e a conta a mao da {a_mao} segundos "
+            f"(= {FALTAM_NO_PEDIDO} x 3600 / 466.000, ou ~5h46 de farm). Se "
+            "elas divergem, ou o alvo deixou de ser o proximo multiplo ou a "
+            "taxa deixou de ser a que entrou"
+        )
+        assert isinstance(previsao.segundos, Fraction)
+
+    def test_COM_UM_PACK_JA_FECHADO_O_ALVO_E_O_SEGUINTE_E_NUNCA_ZERO(self):
+        """O teste que mata a implementacao com teto (`ceil`).
+
+        Com EXATAMENTE 25.000.000 na bolsa, um teto devolveria 25.000.000,
+        `faltam = 0` e um ETA de ZERO SEGUNDO — uma previsao com cara de certa
+        dizendo que o usuario ja tem o pack que ele ainda nao tem. O alvo e o
+        proximo multiplo ESTRITAMENTE MAIOR, e por isso `faltam` nunca e zero.
+        """
+        previsao = previsao_do_pack(taxa_de_466_mil_por_hora(), adena=25_000_000)
+
+        assert previsao.alvo == 30_000_000, (
+            "com um pack exatamente fechado o alvo e o SEGUINTE, e nunca o que "
+            f"ja esta na bolsa. Saiu {previsao.alvo}"
+        )
+        assert previsao.faltam == PACK_DE_CINCO_MILHOES
+        assert previsao.segundos is not None and previsao.segundos > 0
+
+    def test_COM_ZERO_NA_BOLSA_O_PRIMEIRO_PACK_AINDA_E_UM_PACK_INTEIRO(self):
+        previsao = previsao_do_pack(taxa_de_466_mil_por_hora(), adena=0)
+
+        assert previsao.alvo == PACK_DE_CINCO_MILHOES
+        assert previsao.faltam == PACK_DE_CINCO_MILHOES
+
+    def test_COM_A_TAXA_DE_ADENA_ZERADA_O_MOTIVO_E_NOMEADO_E_NAO_HA_DIVISAO(self):
+        taxa = taxa_de_adena_zerada()
+        assert taxa.por_hora == 0
+
+        previsao = previsao_do_pack(taxa)
+
+        assert previsao.segundos is None, (
+            "com taxa zero o painel diz 'voce nao esta ganhando adena', e nunca "
+            f"'faltam infinitas horas'. Saiu {previsao.segundos}"
+        )
+        assert previsao.motivo_da_ausencia == rc.MOTIVO_DA_TAXA_DE_ADENA_ZERADA
+
+    def test_COM_A_TAXA_NEGATIVA_O_MOTIVO_E_OUTRO_E_O_RAMO_E_GUARDA(self):
+        """O UNICO caso deste bloco em que a taxa nao vem inteira da producao.
+
+        E a razao vai dita em voz alta: `_adena_do_par` devolve `(ganho, gasto)`
+        com os DOIS positivos ou zero, e ele e o unico produtor de
+        `ganho_de_adena` nos dois caminhos que existem — pelo par completo
+        (`renda_conta.py:549`) e pelo caminho de campos (`:742`). Logo uma taxa
+        de adena NEGATIVA e, HOJE, inalcancavel pela producao: o gasto e campo
+        proprio, e nao renda negativa (CTX-6).
+
+        O ramo existe como GUARDA ESTRUTURAL e nao como caso de uso: um divisor
+        negativo devolveria um ETA negativo, que e uma previsao apontando para o
+        passado — pior que a ausencia com motivo. No dia em que alguem deixar o
+        gasto entrar no numerador, este ramo e o que impede o estrago.
+
+        A taxa sai da producao e SO O SINAL e trocado, com `replace`. Montar o
+        objeto inteiro a mao deixaria de medir a conta e passaria a medir a copia.
+        """
+        real = taxa_de_466_mil_por_hora()
+        negativa = replace(
+            real, por_hora=-real.por_hora, por_minuto=-real.por_minuto
+        )
+        assert negativa.por_hora < 0
+
+        previsao = previsao_do_pack(negativa)
+
+        assert previsao.segundos is None
+        assert previsao.motivo_da_ausencia == rc.MOTIVO_DA_TAXA_DE_ADENA_NEGATIVA
+
+    def test_COM_EVIDENCIA_INSUFICIENTE_O_MOTIVO_HERDA_O_DA_TAXA(self):
+        """A previsao nao pode ser mais confiante que o numero de que ela sai."""
+        taxa = taxa_de_adena_magra()
+        assert taxa.por_hora is None
+
+        previsao = previsao_do_pack(taxa)
+
+        assert previsao.segundos is None
+        assert previsao.motivo_da_ausencia == taxa.motivo_da_ausencia
+        assert "amostras_minimas_para_taxa" in previsao.motivo_da_ausencia
+
+    def test_OS_TRES_MOTIVOS_DE_AUSENCIA_SAO_TEXTOS_DIFERENTES(self):
+        """Os tres pedem consertos DIFERENTES, como os tres do EXP.
+
+        taxa zerada -> va farmar; taxa negativa -> o scanner esta somando gasto
+        como ganho; sem evidencia -> espere mais um pouco.
+        """
+        real = taxa_de_466_mil_por_hora()
+        motivos = {
+            previsao_do_pack(taxa).motivo_da_ausencia
+            for taxa in (
+                taxa_de_adena_zerada(),
+                replace(real, por_hora=-real.por_hora, por_minuto=-real.por_minuto),
+                taxa_de_adena_magra(),
+            )
+        }
+
+        assert len(motivos) == 3, motivos
+        assert None not in motivos
+
+    def test_ALVO_E_FALTAM_EXISTEM_MESMO_SEM_ETA(self):
+        """A conta que o painel SABE fazer nao some porque a outra faltou.
+
+        `alvo` e `faltam` saem so da adena e do tamanho do pack — nenhum dos
+        dois depende da taxa. Apaga-los junto com o ETA esconderia do usuario
+        uma resposta que ja estava pronta.
+        """
+        previsao = previsao_do_pack(taxa_de_adena_zerada())
+
+        assert previsao.segundos is None
+        assert previsao.alvo == ALVO_DO_PEDIDO
+        assert previsao.faltam == FALTAM_NO_PEDIDO
+        assert previsao.adena_atual == ADENA_DO_PEDIDO
+
+    def test_UM_PACK_DE_TAMANHO_INVALIDO_LEVANTA_E_NAO_DIVIDE(self):
+        """Quem sabe que a conta nao pode ser feita nao a faz.
+
+        A secao `[renda]` ja recusa zero e negativo na leitura do arquivo; este
+        e o cinto do modulo puro, para quem chamar a conta por outro caminho que
+        nao o `config.toml`.
+        """
+        for tamanho in (0, -5_000_000):
+            with pytest.raises(ValueError) as erro:
+                previsao_do_pack(taxa_de_466_mil_por_hora(), pack=tamanho)
+            assert "tamanho_do_pack" in str(erro.value)
+
+    def test_O_PORTAO_DO_INFINITO_VALE_PARA_AS_DUAS_CONTAS(self):
+        """`nomes_de` varre o modulo INTEIRO, e a conta nova mora nele.
+
+        O portao ja existe em `TestOTempoAteOProximoNivel`; esta repeticao existe
+        para que a razao esteja escrita do lado de CADA uma das duas contas que
+        ele protege — quem mexer nesta aqui le a regra sem ter de achar a outra.
+        """
+        assert nomes_de(FONTE_DA_CONTA, {"inf", "ZeroDivisionError"}) == []
