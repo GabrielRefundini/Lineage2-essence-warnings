@@ -1112,7 +1112,7 @@ def texto_de_encerramento(janela: JanelaDeSilencio) -> str:
     """
     return (
         f"{janela.evento} encerrado. Os convites de party estao sendo "
-        f"reenviados — fiquem atentos. Voltei a vigiar o grupo."
+        f"reenviados, fiquem atentos. Voltei a vigiar o grupo."
     )
 
 
@@ -1295,7 +1295,7 @@ def responder_silenciamento(
     evento = next((e for e in eventos if e.nome == nome), None)
     if evento is None:
         return (
-            f"Nao achei {nome} na agenda do config.toml — nao ha aviso nenhum "
+            f"Nao achei {nome} na agenda do config.toml: nao ha aviso nenhum "
             f"desse evento para desligar nem para religar."
         )
 
@@ -1314,14 +1314,14 @@ def responder_silenciamento(
             # estado que o disco nao guardou faz o usuario parar de esperar
             # avisos que vao continuar chegando.
             return (
-                f"Nao consegui gravar o desligamento do {nome} — o disco "
+                f"Nao consegui gravar o desligamento do {nome}: o disco "
                 f"recusou. Os avisos CONTINUAM saindo; mande "
                 f"/desativarsoloboss de novo."
             )
         return (
             f"{quem} desativou os avisos do {nome}: "
             f"nem {_lista_em_prosa(avisos, ', nem ')}. "
-            f"Nada disso volta sozinho — nem reiniciando o scanner. "
+            f"Nada disso volta sozinho, nem reiniciando o scanner. "
             f"Mande /ativarsoloboss para religar tudo de uma vez."
         )
 
@@ -1333,7 +1333,7 @@ def responder_silenciamento(
         # continua em disco e o boss continua calado. Quem leu isto e a unica
         # pessoa capaz de perceber, entao a frase nao pode soar como sucesso.
         return (
-            f"Nao consegui apagar o desligamento do {nome} — o disco recusou. "
+            f"Nao consegui apagar o desligamento do {nome}: o disco recusou. "
             f"Os avisos CONTINUAM desativados; mande /ativarsoloboss de novo."
         )
     return (
@@ -1382,13 +1382,13 @@ def responder_lista_de_presenca(
     evento = next((e for e in eventos if e.nome == nome), None)
     if evento is None:
         return (
-            f"Nao achei {nome} na agenda do config.toml — nao ha lista de "
+            f"Nao achei {nome} na agenda do config.toml: nao ha lista de "
             f"presenca desse evento para desligar nem para religar."
         )
 
     if evento.chamar_minutos_antes <= 0:
         return (
-            f"O {nome} nao tem lista de presenca — falta chamar_minutos_antes "
+            f"O {nome} nao tem lista de presenca: falta chamar_minutos_antes "
             f"no [[evento]] do config.toml. Nao ha o que desligar."
         )
 
@@ -1404,7 +1404,7 @@ def responder_lista_de_presenca(
             # NADA mudou. Anunciar um estado que o disco nao guardou faria o
             # usuario parar de esperar a chamada que vai continuar saindo.
             return (
-                f"Nao consegui gravar o desligamento da lista do {nome} — o "
+                f"Nao consegui gravar o desligamento da lista do {nome}: o "
                 f"disco recusou. A chamada CONTINUA saindo e o /entrar "
                 f"continua anotando; mande /desativarlista de novo."
             )
@@ -1452,7 +1452,7 @@ def responder_lista_de_presenca(
         # continua em disco e a lista continua desligada. Quem leu isto e a
         # unica pessoa capaz de perceber.
         return (
-            f"Nao consegui apagar o desligamento da lista do {nome} — o disco "
+            f"Nao consegui apagar o desligamento da lista do {nome}: o disco "
             f"recusou. A lista CONTINUA desligada; mande /ativarlista de novo."
         )
     return (
