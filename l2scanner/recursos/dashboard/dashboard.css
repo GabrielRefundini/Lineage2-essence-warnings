@@ -810,7 +810,72 @@ body {
 .rota__diferenca {
   margin: 0;
   display: flex;
+  flex-wrap: wrap;
   gap: var(--sp-sm);
+  font-size: 14px;
+  color: var(--cor-texto-fraco);
+}
+
+/*
+  AS TRÊS PARTES DA DIFERENÇA — as duas numéricas com o MESMO papel numérico dos
+  valores das rotas. Duas colunas de número que não alinham são duas colunas que
+  o olho não compara, e comparar é a única coisa que esta região faz.
+
+  O percentual fica de fora do papel numérico de propósito: ele é uma leitura da
+  diferença, e não uma quantia que se compara com outra na vertical.
+*/
+.rota__diferenca-xm,
+.rota__diferenca-reais {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+  A PROCEDÊNCIA DO PREÇO DO NPC, POR LINHA. O texto mora na marcação (é o
+  CALC-02 na tela); aqui só o desenho, no mesmo papel de rodapé que a procedência
+  dos cartões do destaque já usa.
+*/
+.rota__procedencia-npc,
+.rota__mediana {
+  margin: 0;
+  font-size: 14px;
+  color: var(--cor-texto-fraco);
+}
+
+.rota__mediana {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-xs);
+}
+
+/*
+  A FRASE DE FALTA — ela ocupa o LUGAR DO VEREDITO, e por isso lê com o peso do
+  veredito. NÃO HÁ VENCEDOR CINZA: uma vencedora apagada continua sendo uma
+  vencedora, e o usuário a lê como tal. Onde não dá para eleger, o que aparece é
+  a frase do Python dizendo o que faltou — nunca um lado marcado de leve.
+*/
+.rota__falta {
+  font-weight: 700;
+}
+
+/*
+  O EMPATE NASCE ESCONDIDO E O ESTADO DA LINHA O MOSTRA — o mesmo mecanismo da
+  marca de vencedora, pela mesma razão: a decisão de tela mora no CSS, e o JS só
+  troca o valor de um atributo.
+*/
+.rota__empate {
+  margin: 0;
+  display: none;
+  font-size: 14px;
+  color: var(--cor-texto-fraco);
+}
+
+/*
+  A LEGENDA DA REGIÃO. Ela diz o que a mediana é ANTES de o número aparecer — a
+  mesma função da legenda das duas linhas na região do gráfico.
+*/
+#rotas-mediana-legenda {
+  margin: 0 0 var(--sp-md);
   font-size: 14px;
   color: var(--cor-texto-fraco);
 }
@@ -819,6 +884,118 @@ body {
   margin: 0 0 var(--sp-md);
   font-size: 14px;
   color: var(--cor-texto-fraco);
+}
+
+/* --- OS SEIS ESTADOS DE UMA LINHA ---------------------------------------- */
+/*
+  ELES NÃO SÃO UM SEXTO ITEM DA PRECEDÊNCIA DA FASE 1 — VIVEM UM NÍVEL ABAIXO.
+  ==========================================================================
+  A Fase 1 fechou cinco estados numa ordem, e o primeiro que casa manda no
+  destaque e no gráfico. Os estados da calculadora são PRÓPRIOS e moram DENTRO
+  da quarta região. A regra que concilia os dois níveis é esta, e ela vale
+  inteira:
+
+    erro de contrato      -> a região SOME, junto com as outras três; já
+                             acontece porque ela é um `.painel`
+    arquivo ausente       -> some, pelo mesmo motivo
+    sem leitura da serie  -> aparece, no estado de bloco "sem taxa"
+    abaixo do piso        -> aparece, TAMBÉM no estado de bloco "sem taxa"
+    série presente        -> aparece normalmente, e cada linha desenha o próprio
+                             estado
+
+  A QUARTA LINHA MUDOU NO PLANO 02-02, E A MUDANÇA É A DECISÃO DELE. A leitura
+  ingênua seria "o veredito usa o MENOR da série do topo, e o menor já existe
+  nesse estado, então a calculadora responde normalmente". Ela está errada: o piso do
+  menor vale UM, e uma taxa apoiada numa única oferta vira o veredito com a mesma
+  facilidade com que um preço de item apoiado numa única oferta vira. Os dois
+  lados da comparação respondem ao MESMO piso — e por isso "abaixo do piso" e
+  "sem taxa" passaram a coincidir, não por acaso: são a mesma pergunta sobre a
+  mesma série, feita com o mesmo número.
+
+  E NENHUMA REGRA NOVA DE FALHA FECHADA ENTRA AQUI. As duas que já existiam
+  retiram `.painel` da tela, e a quarta região é um `.painel`. Acrescentar
+  `#rotas` à lista daquelas duas seria escrever uma segunda verdade sobre um fato
+  que já tem uma — e há sonda desta fase afirmando que a lista de seletores
+  daquelas duas regras continua IDÊNTICA à de antes deste plano.
+
+  CADA ESTADO TEM REGRA PRÓPRIA, e a lista dos seis é a de
+  `dashboard_rotas.ESTADOS_DA_ROTA` — o teste a IMPORTA em vez de copiá-la, então
+  um sétimo estado que ninguém desenhasse deixaria a suite vermelha.
+*/
+
+/*
+  O NOME QUE VOCÊ ESCREVEU É O DEFEITO — nos dois casos, e por isso os dois
+  recebem o mesmo tratamento: o nome em cor de alerta. Num deles o nome aponta
+  para mais de uma série; no outro ele aponta para a série SENTINELA, que é o
+  denominador da conta — e a comparação seria a mesma série contra ela mesma,
+  produzindo um número perfeitamente calculado e sem significado nenhum. Nos dois
+  o conserto é no `config.toml`, e é para lá que a cor manda o olho.
+
+  O SEGUNDO SELETOR CASA POR PREFIXO, E A RAZÃO É UMA COLISÃO REAL ENTRE DUAS
+  REGRAS DA CASA — ela fica escrita aqui porque quem a encontrar de novo vai
+  querer "consertar" o seletor.
+  ==========================================================================
+  O vocabulário de estados é UM SÓ, e ele vem do Python; a tela não inventa
+  apelido para estado (é o que impede os dois lados de divergirem). Mas o token
+  desse estado CONTÉM o nome da série sentinela — e o DASH-05 proíbe esse nome de
+  aparecer neste arquivo, em qualquer lugar, comentário inclusive. A proibição é
+  literal de propósito: um comentário que explica uma regra "para o caso daquela
+  série" é o primeiro passo para um seletor que só serve para ela, e há duas
+  sondas na suite cobrando isso.
+
+  As saídas eram três, e duas foram recusadas: renomear o token no Python (mexe
+  num módulo fora deste plano e quebraria o vocabulário partilhado por um
+  problema de folha de estilo), e deixar este estado SEM regra (ele viraria o
+  único dos seis sem desenho próprio, que é o retângulo mudo que esta fase
+  proíbe). A adotada é o casamento por prefixo: ele designa exatamente o mesmo
+  estado, sem escrever a palavra.
+
+  O QUE ELE CUSTA, DITO POR EXTENSO: um sétimo estado que começasse com as mesmas
+  palavras herdaria esta regra em silêncio. Hoje ele é o único, e o teste que
+  cobra uma regra por estado casa o seletor CONTRA A LISTA DO PYTHON — então o
+  dia em que dois estados casarem com este prefixo é um dia em que alguém está
+  lendo esta linha.
+*/
+.rota[data-estado="nome ambiguo"] .rota__item,
+.rota[data-estado^="e a propria"] .rota__item {
+  color: var(--cor-alerta);
+}
+
+/*
+  AQUI O NOME ESTÁ CERTO e o que falta é leitura — o oposto do caso acima, e por
+  isso a cor é OUTRA. Mandar o usuário corrigir um nome que está correto é o
+  defeito que esta distinção evita.
+*/
+.rota[data-estado="nunca vista"] .rota__item {
+  color: var(--cor-texto-fraco);
+}
+
+/*
+  ABAIXO DO PISO, O QUE FALTA É `n` — e é o `n` que fica em cor de alerta, e não
+  o nome nem o número. O usuário já fez a coisa certa (abriu a aba do item); o
+  que falta é o scanner ver mais ofertas.
+*/
+.rota[data-estado="sem evidencia"] .rota__n {
+  color: var(--cor-alerta);
+}
+
+/*
+  O EMPATE PRECISA DE PALAVRA. `vencedora` é nula e `aviso` é nulo neste estado —
+  o Python tem os dois números e não tem o que explicar. Sem esta regra a linha
+  mostraria duas rotas, uma diferença pequena e NENHUMA marca, e seria lida como
+  tela quebrada. Um retângulo mudo é o que a placa do estado vazio da Fase 1
+  proibiu.
+*/
+.rota[data-estado="empatada"] .rota__empate {
+  display: block;
+}
+
+/*
+  DECIDIDA: a diferença É a resposta, e por isso ela sai da cor de rodapé e lê na
+  cor de corpo. Nos outros estados ela é contexto ou está vazia.
+*/
+.rota[data-estado="decidida"] .rota__diferenca {
+  color: var(--cor-texto);
 }
 
 /* ========================================================================= */
@@ -915,8 +1092,25 @@ body[data-estado="sem_leitura"] .serie__legenda-rotulo--tipica {
   O cartão de R$ SAI DA TELA. Ele não fica cinza e não fica zerado: um valor
   apagado ainda é um valor, e um zero é uma posição no eixo. A ausência migra
   para o rodapé, escrita com palavra, logo acima do campo que a resolve.
+
+  A LINHA DE R$ DA DIFERENÇA SAI PELO MESMO SELETOR, NO MESMO AGRUPAMENTO — e
+  isto é uma regra a mais aqui dentro, e NÃO um mecanismo novo.
+  ==========================================================================
+  É a mesma ausência (não há câmbio informado) respondida no mesmo lugar. Dois
+  mecanismos para a mesma ausência divergiriam no primeiro ajuste, e o usuário
+  veria o cartão sumir lá em cima e a linha de R$ ficar aqui embaixo, sobre o
+  MESMO câmbio que não existe. Há teste desta fase exigindo que os dois apareçam
+  no mesmo agrupamento de seletores — um teste que apenas verificasse "existe
+  alguma regra escondendo a linha" passaria sobre um mecanismo paralelo, que é
+  exatamente o que não se quer.
+
+  E O VEREDITO NÃO SE MOVE (CALC-03): a vencedora, a diferença em XM e a
+  percentual continuam na tela, porque as duas rotas terminam multiplicadas pelo
+  mesmo `reais_por_xm` e ele cancela na comparação. O dia sem câmbio é o dia em
+  que o usuário mais precisa da resposta.
 */
-body[data-cambio="ausente"] #cartao-reais {
+body[data-cambio="ausente"] #cartao-reais,
+body[data-cambio="ausente"] .rota__diferenca-reais {
   display: none;
 }
 
@@ -951,6 +1145,25 @@ body[data-velho="sim"] .cartao__recencia {
 
 body[data-velho="sim"] .destaque__aviso-velho {
   display: block;
+}
+
+/*
+  A RECÊNCIA DE UMA LINHA DA CALCULADORA ESFRIA PELO MESMO VOCABULÁRIO E PELO
+  MESMO TOKEN — e o atributo fica NA LINHA, e não no `<body>`.
+  ==========================================================================
+  O `data-velho` do `<body>` responde por UMA pergunta: a série que o destaque
+  exibe está velha? Cada linha da calculadora responde à sua própria, sobre a
+  série do item dela. Pendurar as duas no mesmo atributo esfriaria todas as
+  linhas por causa da série do topo, o que é uma afirmação falsa sobre cada
+  item.
+
+  O QUE É COMPARTILHADO É O QUE TEM DE SER: o nome do atributo (uma só palavra
+  para o mesmo conceito), o limiar (o `LIMIAR_DE_FRESCOR` do destaque, aplicado
+  no Python) e o token de cor. E o NÚMERO NUNCA SAI DA TELA — o que esfria é a
+  afirmação de "agora", exatamente como acontece lá em cima.
+*/
+.rota[data-velho="sim"] .rota__recencia {
+  color: var(--cor-frio);
 }
 
 /* --- ORTOGONAL: servidor mudo -------------------------------------------- */

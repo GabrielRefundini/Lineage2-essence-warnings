@@ -32,10 +32,11 @@ que o DASH-03 recusa.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
-from l2scanner import dashboard_dados
+from l2scanner import dashboard_dados, dashboard_rotas
 from tests.test_dashboard_rotas_tracer import (  # noqa: F401
     ARQUIVO_DO_CSS,
     ARQUIVO_DO_HTML,
@@ -44,6 +45,10 @@ from tests.test_dashboard_rotas_tracer import (  # noqa: F401
     ID_DO_INSTANTE,
     ID_DO_MOLDE,
     _Arvore,
+    regras_do_css,
+    sonda_da_falha_fechada,
+    sonda_da_marca_da_vencedora,
+    sonda_do_lado_perdedor_escondido,
 )
 
 # As letras acentuadas de que as sondas precisam, montadas por escape para o
@@ -297,3 +302,427 @@ class TestALegendaDizQueAMedianaEhContexto:
         texto = sem_comentario(html[inicio : html.index("</p>", inicio)])
         assert "contexto" in texto.lower()
         assert "veredito" in texto.lower()
+
+
+# ===========================================================================
+# TAREFA 2 — O TEMA DOS SEIS ESTADOS, E A ROTA PERDEDORA QUE NAO PODE SUMIR
+# ===========================================================================
+#
+# O CONJUNTO DE RECONHECIMENTO, ENUMERADO. Uma regra de CSS aposenta um elemento
+# por MUITOS caminhos, e um controle unico so estabelece discriminacao para o
+# caminho que ele usa. As sete formas que a sonda reconhece:
+#
+#   1. `display: none`         — retira da caixa
+#   2. `visibility: hidden`    — esconde, mantendo o espaco
+#   3. `opacity: 0`            — invisivel, ainda ocupando lugar
+#   4. `width`/`height` zerada — colapsa a caixa
+#   5. `content-visibility: hidden` — o navegador pula a pintura
+#   6. `clip-path` recortando a nada — `inset(100%)`, `circle(0)`
+#   7. posicionamento que joga o elemento para fora da tela — `left: -9999px`
+#
+# O CONJUNTO MORA EM `_SOME_DA_TELA`, no arquivo do tracer, e e UM SO. Ele nao e
+# copiado para ca; as sondas sao IMPORTADAS. Aqui ficam os CONTROLES — um por
+# forma, e cada um tem de ser ACUSADO.
+A_FRONTEIRA_DESTA_VARREDURA = (
+    "regra escrita dentro de uma consulta de midia: a varredura nao interpreta "
+    "`@media`, entao uma regra que esconda o lado perdedor so numa largura de "
+    "tela passa por ela sem ser vista",
+    "classe aplicada por OUTRO seletor: a sonda le o texto do CSS, e quem "
+    "resolve `.rota__lado.oculto` e o navegador, com uma classe que so existe "
+    "em tempo de execucao",
+    "valor vindo de propriedade personalizada de nome opaco: `display: "
+    "var(--modo-do-lado)` nao diz o que faz, e o valor mora em outro lugar",
+)
+
+
+class TestAFronteiraDestaVarreduraEstaDECLARADA:
+    """Uma reserva de verificacao que nao esta escrita nao existe.
+
+    E a mesma disciplina do cabecalho de `PRIMITIVAS` em
+    `tests/test_firewall_dashboard.py`, que declara ser uma varredura LITERAL e
+    nomeia o que escapa dela. Sem isto, o verde daqui e lido como prova de mais
+    do que ele mede.
+    """
+
+    def test_a_fronteira_nomeia_TRES_formas_que_a_sonda_NAO_pega(self):
+        assert len(A_FRONTEIRA_DESTA_VARREDURA) == 3
+        assert all(limite.strip() for limite in A_FRONTEIRA_DESTA_VARREDURA)
+
+    def test_o_conjunto_de_reconhecimento_tem_SETE_formas(self):
+        """Eram TRES no 02-01. Se alguem apagar uma forma, este numero cai."""
+        from tests.test_dashboard_rotas_tracer import _SOME_DA_TELA
+
+        assert len(_SOME_DA_TELA) == 7
+
+
+# Uma folha de MENTIRA por forma. Cada uma esconde o lado perdedor por um
+# caminho diferente, e a sonda tem de ACUSAR as sete.
+_ALVO = '.rota[data-vencedora="npc"] .rota__lado--mercado'
+MENTIRAS_POR_FORMA = {
+    "display": _ALVO + " { display: none; }",
+    "visibility": _ALVO + " { visibility: hidden; }",
+    "opacity": _ALVO + " { opacity: 0; }",
+    "largura-zero": _ALVO + " { width: 0; }",
+    "altura-zero": _ALVO + " { height: 0px; }",
+    "content-visibility": _ALVO + " { content-visibility: hidden; }",
+    "clip-path": _ALVO + " { clip-path: inset(100%); }",
+    "fora-da-tela": _ALVO + " { position: absolute; left: -9999px; }",
+}
+
+
+class TestAsDuasRotasFicamSEMPREVisiveis:
+    """Esconder a perdedora impede conferir a conta, e esta conta e sobre
+    dinheiro real — decisao travada do `02-CONTEXT`."""
+
+    def test_NENHUMA_regra_do_css_real_esconde_o_lado_perdedor(self, css: str):
+        assert sonda_do_lado_perdedor_escondido(css) == []
+
+    @pytest.mark.parametrize("forma", sorted(MENTIRAS_POR_FORMA))
+    def test_CONTROLE_a_sonda_ACUSA_a_folha_de_mentira_de_CADA_forma(
+        self, forma: str
+    ):
+        """UM CONTROLE POR FORMA, e nao um controle unico.
+
+        Um controle so estabelece discriminacao para o caminho que ele usa: com
+        apenas o de `display`, uma regra que zerasse a largura do lado perdedor
+        passaria pela sonda e pelo teste, e o numero sumiria da tela com a suite
+        verde.
+        """
+        assert sonda_do_lado_perdedor_escondido(MENTIRAS_POR_FORMA[forma]) == [
+            _ALVO
+        ], forma
+
+    def test_CONTROLE_a_sonda_NAO_acusa_a_regra_que_MANTEM_os_dois_lados(self):
+        """O outro sentido, e ele quase caiu.
+
+        `.rota__lado` usa `min-width: 0` para poder encolher — sem o lookbehind
+        do conjunto de reconhecimento, a sonda leria isso como "largura zero" e
+        acusaria justamente a regra que mantem os dois lados na tela. Uma sonda
+        que acusa tudo nao discrimina nada.
+        """
+        honesta = ".rota__lado { display: flex; flex: 1 1 0; min-width: 0; }"
+        assert sonda_do_lado_perdedor_escondido(honesta) == []
+
+
+class TestAMarcaDaVencedoraNaoEhSoCOR:
+    def test_existe_regra_ligando_o_ATRIBUTO_de_vencedora_a_marca(self, css: str):
+        assert sonda_da_marca_da_vencedora(css)
+
+    def test_a_marca_NASCE_ESCONDIDA_e_o_atributo_a_MOSTRA(self, css: str):
+        """As DUAS metades do mecanismo, e a primeira e a que quase faltou.
+
+        A PRIMEIRA VERSAO DESTE TESTE CAIU NUMA PROVA DE MUTACAO, E O REGISTRO
+        FICA AQUI. Ela perguntava "existe alguma regra que fale de
+        `rota__marca` e declare uma propriedade que nao seja de cor?". Isso e
+        VERDADE mesmo numa folha quebrada: a regra do atributo declara
+        `display: block`, entao a busca a encontrava e passava. Medido: com a
+        regra base reduzida a `.rota__marca { margin: 0; color: ... }` — ou
+        seja, com a marca "mais barato" VISIVEL NOS DOIS LADOS ao mesmo tempo —
+        a suite inteira ficava VERDE (52 passed).
+
+        O que este teste mede agora e o MECANISMO: a marca nasce fora da tela, e
+        e o atributo da linha que a traz. Esse e o canal que nao e cor — e por
+        isso ele sobrevive a daltonismo, a monitor mal calibrado e ao gama do
+        cliente, que e o mesmo argumento que o UI-SPEC ja fez para as duas
+        linhas do grafico. A cor dourada e reforco.
+        """
+        assert self._regras_que_escondem_a_marca(css), (
+            "a marca da vencedora nao nasce escondida: ela apareceria nos DOIS "
+            "lados, e a linha marcaria as duas rotas como mais baratas"
+        )
+        assert sonda_da_marca_da_vencedora(css), (
+            "nenhuma regra liga o atributo de vencedora a exibicao da marca"
+        )
+
+    @staticmethod
+    def _regras_que_escondem_a_marca(css: str) -> list[str]:
+        """A regra BASE da marca — a que nao depende do atributo de vencedora.
+
+        O conjunto de reconhecimento e o mesmo `_SOME_DA_TELA` das outras
+        sondas: uma autoridade so sobre o que "sumiu da tela" quer dizer.
+        """
+        from tests.test_dashboard_rotas_tracer import _SOME_DA_TELA
+
+        return [
+            seletor
+            for seletor, corpo in regras_do_css(css)
+            if "rota__marca" in seletor
+            and "data-vencedora" not in seletor
+            and any(sonda.search(corpo) for sonda in _SOME_DA_TELA)
+        ]
+
+    def test_CONTROLE_ACUSA_a_folha_em_que_a_marca_esta_SEMPRE_visivel(self):
+        """A folha exata da mutacao que derrubou a versao anterior deste teste."""
+        mentira = (
+            ".rota__marca { margin: 0; color: var(--cor-ouro); }\n"
+            '.rota[data-vencedora="npc"] .rota__lado--npc .rota__marca '
+            "{ display: block; }\n"
+        )
+        assert self._regras_que_escondem_a_marca(mentira) == []
+        # E a outra metade continua verde na mentira — que e precisamente por
+        # que ela sozinha nao provava nada.
+        assert sonda_da_marca_da_vencedora(mentira)
+
+    def test_CONTROLE_ACUSA_a_folha_em_que_a_marca_NUNCA_aparece(self):
+        """O outro sentido: escondida e nunca revelada."""
+        mentira = ".rota__marca { display: none; }"
+        assert self._regras_que_escondem_a_marca(mentira)
+        assert sonda_da_marca_da_vencedora(mentira) == []
+
+
+class TestAQuartaRegiaoNaoCompeteComAPrecedenciaDaFase1:
+    def test_a_lista_de_seletores_de_falha_fechada_esta_INALTERADA(
+        self, css: str
+    ):
+        """Ela some pelas duas regras de `.painel` que JA existiam.
+
+        Uma regra propria para a quarta regiao seria uma segunda verdade sobre
+        um fato que ja tem uma — e as duas divergiriam no primeiro ajuste.
+        """
+        seletores = sonda_da_falha_fechada(css)
+        assert seletores == [
+            'body[data-estado="erro_de_contrato"] .painel, '
+            'body[data-estado="arquivo_ausente"] .painel'
+        ]
+        assert ID_DA_REGIAO not in " ".join(seletores)
+
+    def test_CONTROLE_a_sonda_ACUSA_uma_regra_NOVA_de_falha_fechada(self):
+        mentira = (
+            'body[data-estado="erro_de_contrato"] .painel { display: none; }\n'
+            'body[data-estado="arquivo_ausente"] #rotas { display: none; }\n'
+        )
+        assert len(sonda_da_falha_fechada(mentira)) == 2
+
+
+# O seletor de atributo, com o OPERADOR — e nao so o valor.
+#
+# POR QUE O OPERADOR IMPORTA AQUI: um dos seis estados nao pode ser escrito por
+# extenso no `dashboard.css`. O token dele CONTEM o nome da serie sentinela, e o
+# DASH-05 proibe esse nome de aparecer naquele arquivo em qualquer lugar,
+# comentario inclusive — ha duas sondas na suite cobrando isso, e elas ACUSARAM
+# a primeira versao desta fase. A saida foi casar por PREFIXO no CSS, com a
+# colisao escrita ao lado da regra.
+#
+# ENTAO ESTE TESTE NAO PODE SER UMA BUSCA LITERAL: ele PERGUNTA se existe regra
+# que se APLICA aquele estado, que e a coisa que a truth afirma. Uma busca por
+# `data-estado="<valor>"` reprovaria uma folha correta, e o conserto obvio seria
+# afrouxar a proibicao do DASH-05 — trocar um guarda por outro.
+_SELETOR_DE_ESTADO = re.compile(
+    r"data-estado\s*(=|\^=|\*=|\$=)\s*\"([^\"]*)\""
+)
+
+
+def estados_cobertos_por(css: str, estados) -> dict:
+    """Para cada estado, os seletores de LINHA cujo casamento o inclui."""
+    cobertura = {estado: [] for estado in estados}
+    for seletor, _ in regras_do_css(css):
+        if ".rota[" not in seletor:
+            continue
+        for operador, valor in _SELETOR_DE_ESTADO.findall(seletor):
+            for estado in estados:
+                casa = (
+                    estado == valor
+                    if operador == "="
+                    else estado.startswith(valor)
+                    if operador == "^="
+                    else valor in estado
+                    if operador == "*="
+                    else estado.endswith(valor)
+                )
+                if casa:
+                    cobertura[estado].append(seletor)
+    return cobertura
+
+
+class TestOsSEISEstadosTemDesenho:
+    def test_cada_estado_da_lista_do_PYTHON_tem_ao_menos_uma_regra(
+        self, css: str
+    ):
+        """A lista dos seis vem do modulo Python, IMPORTADA.
+
+        Copia-la para dentro do teste faria um setimo estado novo — que ninguem
+        desenhasse — passar despercebido, porque a copia nao cresceria junto.
+        """
+        cobertura = estados_cobertos_por(css, dashboard_rotas.ESTADOS_DA_ROTA)
+        sem_regra = [estado for estado, regras in cobertura.items() if not regras]
+        assert sem_regra == [], sem_regra
+
+    def test_a_lista_do_python_tem_mesmo_SEIS(self):
+        """A metade que impede o teste acima de passar por vacuidade: com a
+        tupla vazia, `sem_regra` sairia vazio sobre qualquer folha."""
+        assert len(dashboard_rotas.ESTADOS_DA_ROTA) == 6
+
+    def test_o_casamento_por_PREFIXO_cobre_UM_estado_so(self, css: str):
+        """O custo do seletor por prefixo, MEDIDO em vez de suposto.
+
+        Ele designa hoje um unico estado. No dia em que dois estados comecarem
+        com as mesmas palavras, um deles herdaria o desenho do outro em silencio
+        — e este teste fica vermelho antes disso chegar a tela.
+        """
+        por_prefixo = [
+            seletor
+            for seletor, _ in regras_do_css(css)
+            if ".rota[" in seletor and 'data-estado^="' in seletor
+        ]
+        for seletor in por_prefixo:
+            (valor,) = re.findall(r"data-estado\^=\"([^\"]*)\"", seletor)
+            casados = [
+                estado
+                for estado in dashboard_rotas.ESTADOS_DA_ROTA
+                if estado.startswith(valor)
+            ]
+            assert len(casados) == 1, (seletor, casados)
+
+    def test_CONTROLE_a_busca_ACUSA_uma_folha_que_desenha_so_UM_estado(self):
+        so_um = '.rota[data-estado="decidida"] .rota__diferenca { color: red; }'
+        cobertura = estados_cobertos_por(so_um, dashboard_rotas.ESTADOS_DA_ROTA)
+        sem_regra = [estado for estado, regras in cobertura.items() if not regras]
+        assert len(sem_regra) == 5
+
+    def test_CONTROLE_o_casador_NAO_confunde_um_prefixo_com_uma_igualdade(self):
+        """Sem esta metade, um casador que devolvesse SEMPRE tudo passaria nos
+        dois testes acima."""
+        estados = ("decidida", "e a propria coisa")
+        exato = '.rota[data-estado="e a propria"] .rota__item { color: red; }'
+        assert estados_cobertos_por(exato, estados)["e a propria coisa"] == []
+
+        prefixo = '.rota[data-estado^="e a propria"] .rota__item { color: red; }'
+        assert estados_cobertos_por(prefixo, estados)["e a propria coisa"]
+        assert estados_cobertos_por(prefixo, estados)["decidida"] == []
+
+
+class TestOReaisSomePeloMESMOSeletorDoCartao:
+    def test_os_dois_estao_no_MESMO_agrupamento_de_seletores(self, css: str):
+        """A prova e que os dois aparecem na MESMA regra.
+
+        Um teste que so verificasse "existe alguma regra escondendo a linha"
+        passaria sobre um mecanismo paralelo — e dois mecanismos para a mesma
+        ausencia divergem no primeiro ajuste, com o cartao sumindo la em cima e a
+        linha ficando aqui embaixo, sobre o MESMO cambio que nao existe.
+        """
+        juntos = [
+            seletor
+            for seletor, corpo in regras_do_css(css)
+            if "#cartao-reais" in seletor
+            and "rota__diferenca-reais" in seletor
+            and "display" in corpo
+        ]
+        assert juntos, (
+            "a linha de R$ da diferenca nao esta no mesmo agrupamento de "
+            "seletores que o cartao de R$ do destaque"
+        )
+
+    def test_o_seletor_de_estado_dos_dois_e_o_MESMO_ortogonal(self, css: str):
+        (seletor,) = [
+            seletor
+            for seletor, corpo in regras_do_css(css)
+            if "#cartao-reais" in seletor and "rota__diferenca-reais" in seletor
+        ]
+        assert seletor.count('body[data-cambio="ausente"]') == 2
+
+    def test_CONTROLE_a_busca_ACUSA_um_mecanismo_PARALELO(self):
+        """Duas regras separadas, cada uma escondendo um dos dois: e o defeito
+        que este par de testes existe para pegar, e ele passaria num teste que so
+        perguntasse "a linha some?"."""
+        mentira = (
+            'body[data-cambio="ausente"] #cartao-reais { display: none; }\n'
+            ".rota__diferenca-reais:empty { display: none; }\n"
+        )
+        juntos = [
+            seletor
+            for seletor, _ in regras_do_css(mentira)
+            if "#cartao-reais" in seletor and "rota__diferenca-reais" in seletor
+        ]
+        assert juntos == []
+
+
+class TestNenhumHexadecimalNovoEntrou:
+    def test_a_contagem_de_literais_de_cor_FORA_dos_tokens_continua_ZERO(
+        self, css: str
+    ):
+        """O valor de antes deste plano: ZERO fora do bloco de tokens, e 14
+        dentro dele.
+
+        A medicao e sobre os CORPOS das regras, e nao sobre o texto cru — assim
+        um identificador como `#cartao-reais` no seletor nunca e lido como cor.
+        """
+        fora = []
+        for seletor, corpo in regras_do_css(css):
+            if seletor.strip() == ":root":
+                continue
+            fora.extend(re.findall(r"#[0-9A-Fa-f]{3,8}\b", corpo))
+        assert fora == [], fora
+
+    def test_o_bloco_de_tokens_continua_com_os_MESMOS_14_hexadecimais(
+        self, css: str
+    ):
+        """A outra metade: sem ela, apagar o bloco de tokens inteiro deixaria o
+        teste acima verde."""
+        dentro = [
+            achado
+            for seletor, corpo in regras_do_css(css)
+            if seletor.strip() == ":root"
+            for achado in re.findall(r"#[0-9A-Fa-f]{3,8}\b", corpo)
+        ]
+        assert len(dentro) == 14, dentro
+
+
+class TestUmaAutoridadeSoSobreCadaInvarianteDeCSS:
+    """Duas copias divergentes tambem passam — ate o dia em que uma para de
+    passar sozinha, e alguem apaga a que incomoda.
+
+    Por isso o criterio aqui NAO e "as duas sondas passam", e sim "existe UMA
+    definicao de cada sonda na suite inteira, e os dois arquivos a chamam".
+    """
+
+    NOMES = (
+        "sonda_do_lado_perdedor_escondido",
+        "sonda_da_marca_da_vencedora",
+        "sonda_da_falha_fechada",
+    )
+
+    @staticmethod
+    def _fontes():
+        pasta = Path(__file__).parent
+        return {
+            arquivo.name: arquivo.read_text(encoding="utf-8")
+            for arquivo in sorted(pasta.glob("test_*.py"))
+        }
+
+    @pytest.mark.parametrize("nome", NOMES)
+    def test_o_CORPO_de_cada_sonda_aparece_UMA_VEZ_na_suite_inteira(
+        self, nome: str
+    ):
+        definicoes = {
+            arquivo: len(
+                re.findall(r"^def " + nome + r"\(", fonte, flags=re.MULTILINE)
+            )
+            for arquivo, fonte in self._fontes().items()
+        }
+        assert sum(definicoes.values()) == 1, definicoes
+
+    @pytest.mark.parametrize("nome", NOMES)
+    def test_os_DOIS_arquivos_de_teste_CHAMAM_a_mesma_sonda(self, nome: str):
+        chamam = {
+            arquivo
+            for arquivo, fonte in self._fontes().items()
+            if re.search(r"(?<!def )" + nome + r"\(", fonte)
+        }
+        assert "test_dashboard_rotas_tracer.py" in chamam, chamam
+        assert "test_dashboard_calculadora_pagina.py" in chamam, chamam
+
+    def test_CONTROLE_a_contagem_de_definicoes_ACUSA_uma_SEGUNDA_copia(self):
+        """Sem o controle, a contagem passaria tambem sobre uma expressao que
+        nunca casasse com nada."""
+        fabricado = (
+            "def sonda_do_lado_perdedor_escondido(css):\n"
+            "    return []\n"
+            "def sonda_do_lado_perdedor_escondido(css):\n"
+            "    return []\n"
+        )
+        achados = re.findall(
+            r"^def sonda_do_lado_perdedor_escondido\(",
+            fabricado,
+            flags=re.MULTILINE,
+        )
+        assert len(achados) == 2
