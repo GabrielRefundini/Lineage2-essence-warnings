@@ -296,12 +296,16 @@ from l2scanner.mercado_console import (  # noqa: E402
 from l2scanner.renda_conta import (  # noqa: E402
     GRANDEZA_DA_ADENA,
     GRANDEZA_DO_EXP,
+    MOTIVO_DA_TAXA_DE_ADENA_NEGATIVA,
+    MOTIVO_DA_TAXA_DE_ADENA_ZERADA,
     MOTIVO_DA_TAXA_DE_EXP_NEGATIVA,
     MOTIVO_DA_TAXA_DE_EXP_ZERADA,
     UNIDADE_DA_JANELA,
     AsDuasTaxas,
     TaxaDaRenda,
     TempoAteONivel,
+    TempoAteOPack,
+    tempo_ate_o_pack,
 )
 from l2scanner.renda_console import (  # noqa: E402
     bloco_da_renda,
@@ -347,6 +351,35 @@ def duas(janela, sessao) -> AsDuasTaxas:
     return AsDuasTaxas(janela=janela, sessao=sessao)
 
 
+# A ADENA REAL DA TELA DO USUARIO NO DIA DO PEDIDO, e o pack de que ele falou.
+# Ela e DIFERENTE de `ADENA_REAL` (17.592.060, do `03-CONTEXT.md`) de proposito:
+# aquela mede a largura da linha do tique, esta e a que aparece na conversa que
+# gerou o pack — 27.309.465, com cinco packs de 5.000.000 fechados e o sexto
+# fechando em 30.000.000.
+ADENA_DO_PEDIDO = 27_309_465
+PACK_DE_CINCO_MILHOES = 5_000_000
+
+
+def pack(
+    por_hora: int | None = 466_000,
+    *,
+    adena_atual: int = ADENA_DO_PEDIDO,
+    tamanho: int = PACK_DE_CINCO_MILHOES,
+    motivo: str | None = None,
+):
+    """A previsao do pack, feita pela CONTA DE PRODUCAO e nao montada a mao.
+
+    Este arquivo desenha; quem calcula e `renda_conta.tempo_ate_o_pack`. Montar
+    um `TempoAteOPack` a mao aqui mediria o desenho de um objeto que a producao
+    talvez nunca produza — e o alvo e o `faltam` deixariam de ser conferiveis.
+    """
+    return tempo_ate_o_pack(
+        adena_atual=adena_atual,
+        tamanho_do_pack=tamanho,
+        taxa=taxa(GRANDEZA_DA_ADENA, por_hora, n=88, farmada=600.0, motivo=motivo),
+    )
+
+
 def bloco(**trocas) -> str:
     base = {
         "campos": campos(),
@@ -361,6 +394,7 @@ def bloco(**trocas) -> str:
         "eta": TempoAteONivel(
             segundos=Fraction(3 * 3600 + 20 * 60), motivo_da_ausencia=None
         ),
+        "pack": pack(),
         "contagem": ContagemDaRenda(aceitas=3210, lacunas=2),
         "desde": DESDE,
         "agora": AGORA,
@@ -501,6 +535,141 @@ class TestOTempoAteONivel:
             "os tres motivos de ausencia do ETA colapsaram em menos de tres "
             "mensagens"
         )
+
+
+class TestOProximoPackDeAdena:
+    """O pedido do usuario: *"quando fechar o prox pack de adena de +5kk"*.
+
+    A SECAO MOSTRA A CONTA E NAO SO A RESPOSTA (D-02). O usuario le
+    `27.309.465`, `30.000.000`, `2.690.535` e `5h46` em quatro linhas e confere
+    a subtracao de cabeca; um `5h46` sozinho seria um numero que ele nao tem
+    como checar.
+    """
+
+    def linhas_do_pack(self, texto: str) -> list[str]:
+        """So as linhas da secao do pack, do titulo ate a linha em branco."""
+        linhas = texto.splitlines()
+        comeco = next(i for i, l in enumerate(linhas) if "PACK" in l)
+        fim = next(
+            (
+                i
+                for i, l in enumerate(linhas[comeco + 1 :], comeco + 1)
+                if not l.strip()
+            ),
+            len(linhas),
+        )
+        return linhas[comeco:fim]
+
+    def test_A_CONTA_INTEIRA_APARECE_E_NAO_SO_A_RESPOSTA(self) -> None:
+        texto = "\n".join(self.linhas_do_pack(bloco()))
+
+        assert "27.309.465" in texto, "a adena de agora, o ponto de partida"
+        assert "30.000.000" in texto, "o alvo: o SEXTO pack, e nao o quinto"
+        assert "2.690.535" in texto, "o que falta juntar"
+        # 2.690.535 x 3600 / 466.000 = 20.785,25 s = 5h46m25s. A grafia TRUNCA,
+        # e por isso e `5h46` e nao `5h47` -- truncar nunca superestima a renda.
+        assert "5h46" in texto, "o tempo, na mesma grafia do ETA do nivel"
+
+    def test_O_TAMANHO_DO_PACK_CONFIGURADO_APARECE(self) -> None:
+        """Sem ele o `30.000.000` nao diz de que pack a tela esta falando.
+
+        E ele e o que prova que a chave do `config.toml` (e a flag que a vence)
+        chegam ate a TELA, e nao so ate o objeto.
+        """
+        de_cinco = "\n".join(self.linhas_do_pack(bloco()))
+        de_dez = "\n".join(
+            self.linhas_do_pack(bloco(pack=pack(tamanho=10_000_000)))
+        )
+
+        assert "5,00 M" in de_cinco
+        assert "10,00 M" in de_dez
+        assert "40.000.000" in de_dez, (
+            "com pack de 10 milhoes e 27.309.465 na bolsa, dois packs estao "
+            "fechados e o TERCEIRO fecha em 40.000.000"
+        )
+
+    def test_SEM_TAXA_A_LINHA_DIZ_POR_QUE_e_NUNCA_UM_NUMERO(self) -> None:
+        textos = set()
+        for previsao in (
+            pack(0),
+            pack(-466_000),
+            pack(None, motivo="amostras abaixo do piso: 3 passo(s) aceito(s)"),
+        ):
+            texto = "\n".join(self.linhas_do_pack(bloco(pack=previsao)))
+            assert "5h46" not in texto
+            assert "inf" not in texto.lower()
+            textos.add(texto)
+
+        assert len(textos) == 3, (
+            "os tres motivos colapsaram: taxa zerada pede 'va farmar', taxa "
+            "negativa e defeito do scanner, e sem evidencia pede esperar. Sao "
+            f"consertos diferentes. Saiu: {textos}"
+        )
+
+    def test_MESMO_SEM_ETA_O_ALVO_E_O_QUE_FALTA_CONTINUAM_NA_TELA(self) -> None:
+        """A conta que o painel SABE fazer nao some porque a outra faltou."""
+        texto = "\n".join(self.linhas_do_pack(bloco(pack=pack(0))))
+
+        assert "30.000.000" in texto
+        assert "2.690.535" in texto
+
+    def test_COM_A_ADENA_RECUSADA_A_SECAO_DIZ_QUE_FOI_A_LEITURA(self) -> None:
+        """Sem ponto de partida nao ha alvo a inventar.
+
+        Este e o caso que a CASCA monta (`renda_laco._tempo_ate_o_pack`): a
+        adena DESTE tique recusou, e o motivo e HERDADO da recusa.
+        """
+        sem_partida = TempoAteOPack(
+            tamanho_do_pack=PACK_DE_CINCO_MILHOES,
+            adena_atual=None,
+            alvo=None,
+            faltam=None,
+            segundos=None,
+            motivo_da_ausencia=(
+                "a adena deste tique recusou (campo-vazio), e sem o ponto de "
+                "partida nao ha o que subtrair"
+            ),
+        )
+
+        texto = "\n".join(self.linhas_do_pack(bloco(pack=sem_partida)))
+
+        assert "campo-vazio" in texto, "o motivo herdado nomeia a recusa"
+        assert "30.000.000" not in texto, (
+            "sem adena lida nao ha alvo, e um alvo inventado seria um numero "
+            "que nao saiu de medicao nenhuma"
+        )
+
+    def test_NENHUMA_LINHA_NOVA_PASSA_DE_76_COLUNAS(self) -> None:
+        """Os QUATRO casos, e nao so o feliz.
+
+        O motivo de ausencia mede ate ~95 caracteres e o rotulo come 33 colunas:
+        somados num `_linha` so eles estouram. Por isso as linhas de ausencia
+        DOBRAM, como as das taxas ja fazem.
+        """
+        for previsao in (
+            pack(),
+            pack(0),
+            pack(-466_000),
+            pack(
+                None,
+                motivo=(
+                    "amostras abaixo do piso: 3 passo(s) aceito(s) e o piso "
+                    "'amostras_minimas_para_taxa' e 8. Faltam 5."
+                ),
+            ),
+        ):
+            for linha in self.linhas_do_pack(bloco(pack=previsao)):
+                assert len(linha) <= LARGURA_DO_AVISO, (
+                    f"{len(linha)} colunas:\n  {linha}"
+                )
+
+    def test_A_SECAO_FICA_NO_BLOCO_E_NUNCA_NA_LINHA_DO_TIQUE(self) -> None:
+        """A linha do tique ja mede 75 das 76 colunas com os cinco estados do
+        `03-02`; acrescentar ali trunca o fim, que e onde a contagem mora."""
+        linha = linha_do_tique(campos(), ContagemDaRenda())
+
+        assert "pack" not in linha.lower()
+        assert len(linha) <= LARGURA_DO_AVISO
 
 
 class TestHaQuantoTempoASessaoCorre:
