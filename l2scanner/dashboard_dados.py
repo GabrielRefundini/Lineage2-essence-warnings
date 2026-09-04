@@ -45,7 +45,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from . import mercado_registro
+from . import dashboard_rotas, mercado_registro
 from .mercado_analise import (
     Evidencia,
     ModeloDeMercado,
@@ -71,6 +71,7 @@ from .mercado_catalogo import CHAVE_DA_SERIE_DA_ADENA
 from .mercado_console import (
     UNIDADE_DA_TAXA,
     _recencia_em_duas_formas,
+    descrever_a_quantidade,
     formatador_do_unitario,
     formatar_centesimos,
     formatar_taxa_derivada,
@@ -80,7 +81,11 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "ArquivoRecortado",
+    "CALCULADORA_COM_ITENS",
+    "CALCULADORA_SEM_ITENS",
+    "CALCULADORA_SEM_TAXA",
     "ESTADOS",
+    "ESTADOS_DA_CALCULADORA",
     "FRASES_PROIBIDAS",
     "LARGURAS_DE_BALDE",
     "LIMIAR_DE_FRESCOR",
@@ -270,6 +275,116 @@ ESTADOS = (
 # tempo uma taxa da Adena leva para envelhecer — nao ha serie em campo para
 # medir. Se na pratica a tela calar demais, este numero sobe, e e uma linha.
 LIMIAR_DE_FRESCOR = timedelta(hours=1)
+
+
+# ===========================================================================
+# A CALCULADORA DE ROTAS — os tres estados do BLOCO e as frases dele
+# ===========================================================================
+#
+# OS ESTADOS DO BLOCO SAO TRES, E ELES NAO SE MISTURAM COM OS QUATRO DA LINHA.
+# O bloco responde "da para calcular alguma coisa?"; a linha responde "o que
+# aconteceu com ESTE item". Um vocabulario so para os dois seria um `if` a mais
+# em toda tela que os lesse.
+CALCULADORA_COM_ITENS = "com_itens"
+CALCULADORA_SEM_ITENS = "sem_itens"
+CALCULADORA_SEM_TAXA = "sem_taxa"
+
+ESTADOS_DA_CALCULADORA = (
+    CALCULADORA_SEM_TAXA,
+    CALCULADORA_SEM_ITENS,
+    CALCULADORA_COM_ITENS,
+)
+
+# NENHUM ITEM CONFIGURADO. A regiao NAO fica um retangulo mudo: um painel vazio
+# e indistinguivel de um painel quebrado, e este e o estado em que TODO usuario
+# comeca — a secao nasce comentada no `config.toml`.
+#
+# A frase diz O QUE FAZER, com o nome da secao e os tres campos, na anatomia de
+# mensagem da casa (a mesma de `conferir_o_cabecalho`): o que ha, o que falta, e
+# o passo que liga a coisa.
+FRASE_DE_SEM_ITENS_CONFIGURADOS = (
+    "Nenhum item configurado. Para comparar as duas rotas de compra, abra o "
+    "config.toml e descomente um bloco [[dashboard.item]] com nome, "
+    "preco_npc_adena e quantidade_do_pacote — e reinicie o dashboard."
+)
+
+# SEM TAXA DA ADENA NAO HA COMO CONVERTER O PRECO DO NPC. A frase diz qual das
+# duas metades falta, e nao "sem dados": o preço do NPC pode estar perfeitamente
+# configurado, e o que falta e o outro lado.
+FRASE_DE_SEM_TAXA_DA_ADENA = (
+    "Sem leitura da Adena, não dá para converter o preço do NPC em XM. Deixe o "
+    "vigiar-mercado.bat rodando e abra a aba Adena da World Exchange uma vez."
+)
+
+# O ITEM QUE NUNCA APARECEU NO CSV. Ele NAO some da tela: sumir seria
+# indistinguível de "esqueci de configurar", e o usuário ficaria procurando um
+# bloco que já está lá (decisão travada do 02-CONTEXT).
+#
+# O NOME QUE APARECE É O QUE O USUÁRIO ESCREVEU, e não a chave da série — é o
+# texto dele que ele vai procurar no `config.toml` para conferir.
+MOLDE_DE_ITEM_NUNCA_VISTO = (
+    "O preço de NPC de {item} já está configurado, mas o scanner ainda não viu "
+    "esse item no World Exchange. Abra a aba dele no cliente uma vez."
+)
+
+# O NOME QUE CASA COM DUAS SÉRIES. O dashboard LISTA e não escolhe: escolher
+# daria um número plausível e errado — a mesma disciplina de
+# `mercado_analise.margem_de_craft`.
+MOLDE_DE_NOME_AMBIGUO = (
+    "{item} casa com {quantas} séries ao mesmo tempo: {candidatas}. O dashboard "
+    "não vai escolher uma por você — renomeie o item no config.toml para o nome "
+    "exato de uma delas."
+)
+
+# COMO O NPC REALMENTE VENDE, ao lado do unitário derivado. Sem esta linha, o
+# "13,50 por unidade" não tem como ser conferido na janela do NPC, que mostra o
+# preço do PACOTE.
+#
+# AS DUAS METADES SAEM DE FORMATADORES QUE JÁ EXISTEM —
+# `descrever_a_quantidade` dos dois lados, uma vez com a chave da Adena (que dá
+# "15.000 de adena") e uma vez com a chave da série do item (que dá "1 unidade").
+# Nenhum número é montado aqui.
+MOLDE_DO_PACOTE_DO_NPC = "{preco} por {quantidade}"
+
+# O INSTANTE EM QUE O PROGRAMA LEU O ARQUIVO — e NUNCA o instante em que o
+# usuário informou o preço.
+#
+# AS DUAS COISAS TÊM NOMES PARECIDOS E SÃO FATOS DIFERENTES, e trocar uma pela
+# outra é mentir com a forma de um número: o preço pode estar no `config.toml`
+# há meses, e a leitura ser de dois minutos atrás. A escolha da palavra é o
+# requisito aqui, e não redação — o plano 02-03 traz a razão inteira com a
+# alternativa recusada.
+#
+# POR QUE ELE EXISTE: esta fase cria um modo de falha que a Fase 1 não tinha. A
+# configuração é lida UMA vez, no arranque. Quem corrigir um preço no
+# `config.toml` e recarregar o navegador vê o número VELHO, sem nenhum sinal de
+# que o processo não releu o arquivo. Com o instante da leitura na tela, a
+# pergunta "o dashboard que está rodando já conhece a minha correção?" tem
+# resposta.
+#
+# O `{recencia}` VEM PRONTO de `_recencia_em_duas_formas` — a relativa e a
+# absoluta juntas. Remontar "há 8 h (31/08 10:00)" aqui seria o segundo
+# formatador de tempo, e o navegador não tem o direito de compor uma segunda
+# forma de tempo.
+MOLDE_DA_LEITURA_DA_CONFIGURACAO = (
+    "Preços de NPC lidos do config.toml {recencia}. Corrigiu o arquivo? "
+    "Reinicie o dashboard."
+)
+
+# A DIFERENÇA EM PORCENTAGEM, com UMA casa decimal.
+#
+# ESTE É O PRIMEIRO FORMATADOR DE PORCENTAGEM DA CAMADA DE EXIBIÇÃO, e não um
+# segundo: não havia nenhum. O único lugar do projeto que imprime porcentagem é
+# `mercado_analise.frase_da_tendencia`, que a monta inline com `:+.1f%` para o
+# console — e ele é console (ASCII, com sinal) enquanto este é página (acento,
+# sem sinal, com vírgula decimal). O que os dois compartilham é a PRECISÃO: uma
+# casa. Duas casas afirmariam sobre um número que repousa em UMA oferta uma
+# precisão que ele não tem.
+#
+# O ARREDONDAMENTO ACONTECE SÓ AQUI, sobre a `Fraction` exata, e a vírgula é
+# montada por divisão inteira — nunca por `float`, pelo mesmo motivo que
+# `formatar_centesimos` usa `divmod`.
+MOLDE_DA_DIFERENCA_PERCENTUAL = "{valor}%"
 
 
 @dataclass(frozen=True)
@@ -1024,6 +1139,13 @@ def _falha_fechada(estado: str, arquivo: Path, agora: datetime, avisos: list) ->
         "avisos": avisos,
         "destaque": None,
         "series": [],
+        # A CALCULADORA CAI JUNTO, e pela MESMA razao que o destaque e a serie:
+        # quando o programa acabou de dizer que nao entende o arquivo, ele nao
+        # pode oferecer um veredito sobre dinheiro tirado dele. A rota do NPC
+        # ate existiria (o preco esta no `config.toml`, que continua legivel),
+        # mas ela sozinha nao e comparacao nenhuma — e uma coluna solta com cara
+        # de resposta.
+        "calculadora": None,
     }
 
 
@@ -1062,7 +1184,203 @@ def _valor_em_reais(taxa: Fraction, cambio) -> str:
     )
 
 
-def payload(pasta_do_mercado: Path, agora: datetime, cambio=None) -> dict:
+def _percentual_em_texto(fracao: Fraction) -> str:
+    """Uma `Fraction` de um -> `12,3`. O arredondamento acontece SO aqui.
+
+    A DIVISAO E INTEIRA E A VIRGULA E MONTADA A MAO, e nao `f"{float(x):.1f}"`,
+    pelo mesmo motivo que `formatar_centesimos` usa `divmod`: converter para
+    `float` no ultimo passo reintroduziria erro de representacao exatamente onde
+    a fase inteira gastou `Fraction` para nao ter nenhum. `round` sobre a fracao
+    exata e depois aritmetica de inteiro nao perde um bit.
+    """
+    decimos = round(fracao * 1000)
+    inteiro, resto = divmod(decimos, 10)
+    return f"{inteiro},{resto}"
+
+
+def _lado_da_rota(custo, chave: str) -> dict:
+    """Um lado da comparacao no payload, com o texto JA formatado.
+
+    O FORMATADOR E `formatador_do_unitario(chave)` NOS DOIS LADOS, e isso e o
+    ponto: as duas rotas terminam na MESMA unidade (centesimos de XM por
+    unidade), entao elas TEM de sair do mesmo formatador. Escolher um formatador
+    diferente por lado faria duas colunas em unidades diferentes ficarem lado a
+    lado com a mesma cara — e `formatador_do_unitario` e justamente o UNICO ponto
+    de decisao entre as duas irmas, criado para que quatro `if` espalhados nao
+    divergissem.
+    """
+    return {"texto": formatador_do_unitario(chave)(custo.unitario)}
+
+
+def _bloco_da_calculadora(
+    itens: Sequence,
+    modelo: ModeloDeMercado,
+    menor_da_adena,
+    agora: datetime,
+    itens_lidos_em: datetime | None,
+) -> dict:
+    """A quarta regiao do payload: as duas rotas de cada item configurado.
+
+    **A TAXA E O `unitario` DO MESMO `MenorPedidoVisivel` QUE O DESTAQUE EXIBE**,
+    e nunca uma segunda chamada de `menor_pedido_visivel` sobre a serie da Adena.
+    A razao nao e economia: duas leituras da mesma serie DENTRO DO MESMO PAYLOAD
+    poderiam divergir no dia em que alguem mudasse uma delas, e a pagina passaria
+    a mostrar dois valores para a mesma adena — um no destaque, outro dentro do
+    veredito — sem que nada quebrasse em voz alta. Uma autoridade so sobre a
+    taxa.
+
+    O CRITERIO DE "SEM TAXA" NESTA FATIA E `menor.unitario is None`, ou seja o
+    piso do menor, que vale UM. **ESTA PERGUNTA ESTA EM ABERTO E QUEM A FECHA E O
+    PLANO 02-02:** falta decidir se o veredito herda tambem a EVIDENCIA da taxa —
+    isto e, se uma taxa apoiada numa unica oferta deve enfraquecer o veredito do
+    mesmo jeito que enfraquece o destaque. Deixar a pergunta escrita e diferente
+    de deixa-la calada: o proximo plano tem de encontra-la, e nao redescobri-la.
+
+    A ORDEM DE PRECEDENCIA DO BLOCO E `ESTADOS_DA_CALCULADORA`: sem taxa vence
+    sem itens, porque sem taxa nao ha conta possivel nem que houvesse cem itens —
+    e mandar o usuario configurar itens nesse momento seria mandar ele fazer
+    trabalho que nao vai produzir nada.
+
+    **NADA DAQUI ENTRA NA LISTA `avisos` DO PAYLOAD.** A ordem daquela lista virou
+    contrato no `01-07`: o `dashboard.js` acha tres frases por POSICAO, e quatro
+    testes prendem isso sobre payloads reais. As frases desta fase viajam DENTRO
+    deste bloco, cada uma no campo `aviso` do seu dono.
+    """
+    taxa = menor_da_adena.unitario
+
+    if taxa is None:
+        return {
+            "estado": CALCULADORA_SEM_TAXA,
+            "aviso": FRASE_DE_SEM_TAXA_DA_ADENA,
+            "itens_lidos_em": None,
+            "itens": [],
+        }
+
+    # O INSTANTE DA LEITURA E DE NIVEL DE BLOCO, e nao de linha. A configuracao
+    # inteira foi lida UMA vez, no arranque; repeti-lo dentro de cada item
+    # imprimiria a mesma frase N vezes e criaria a impressao falsa de que cada
+    # item foi lido num instante proprio.
+    #
+    # Ele so aparece quando ha item configurado: sem item nenhum, "li o arquivo
+    # ha 3 min" nao qualifica coisa nenhuma.
+    lidos_em = (
+        None
+        if itens_lidos_em is None
+        else MOLDE_DA_LEITURA_DA_CONFIGURACAO.format(
+            recencia=_recencia_em_duas_formas(itens_lidos_em, agora)
+        )
+    )
+
+    if not itens:
+        return {
+            "estado": CALCULADORA_SEM_ITENS,
+            "aviso": FRASE_DE_SEM_ITENS_CONFIGURADOS,
+            "itens_lidos_em": None,
+            "itens": [],
+        }
+
+    vereditos = dashboard_rotas.vereditos_das_rotas(itens, modelo, taxa, agora)
+    return {
+        "estado": CALCULADORA_COM_ITENS,
+        "aviso": None,
+        "itens_lidos_em": lidos_em,
+        "itens": [_linha_da_rota(veredito, agora) for veredito in vereditos],
+    }
+
+
+def _linha_da_rota(veredito, agora: datetime) -> dict:
+    """UM item no payload. Todo texto ja formatado; o navegador so escreve.
+
+    OS DOIS ESTADOS DE QUEBRA SAIEM COM `npc` E `mercado` NULOS E UM `aviso`
+    PROPRIO. Um `null` mudo obrigaria quem desenha a adivinhar entre "nunca vi
+    este item" e "o nome esta ambiguo", e as duas coisas se escrevem diferente na
+    tela — a mesma objecao que faz `MargemDeCraft` carregar um `motivo`.
+    """
+    if veredito.estado == dashboard_rotas.ROTA_NOME_AMBIGUO:
+        aviso = MOLDE_DE_NOME_AMBIGUO.format(
+            item=veredito.item,
+            quantas=len(veredito.candidatas),
+            candidatas=", ".join(veredito.candidatas),
+        )
+    elif veredito.estado == dashboard_rotas.ROTA_NUNCA_VISTA:
+        aviso = MOLDE_DE_ITEM_NUNCA_VISTO.format(item=veredito.item)
+    else:
+        aviso = None
+
+    if veredito.npc is None or veredito.mercado is None:
+        return {
+            "estado": veredito.estado,
+            "item": veredito.item,
+            "nome_exibido": veredito.nome_exibido,
+            "npc": None,
+            "mercado": None,
+            "vencedora": None,
+            "diferenca": None,
+            "n": None,
+            "recencia": None,
+            "velho": False,
+            "aviso": aviso,
+        }
+
+    chave = veredito.chave
+    npc = _lado_da_rota(veredito.npc, chave)
+    # COMO O NPC REALMENTE VENDE, ao lado do unitario derivado. As duas metades
+    # saem de `descrever_a_quantidade`, uma com a chave da Adena e outra com a
+    # chave da serie do item — e por isso as palavras nunca discordam do que a
+    # linha esta contando.
+    npc["pacote_texto"] = MOLDE_DO_PACOTE_DO_NPC.format(
+        preco=descrever_a_quantidade(
+            CHAVE_DA_SERIE_DA_ADENA, veredito.npc.preco_em_adena
+        ),
+        quantidade=descrever_a_quantidade(chave, veredito.npc.quantidade),
+    )
+
+    # O DADO VELHO USA O MESMO `LIMIAR_DE_FRESCOR` DO DESTAQUE, e nao um limiar
+    # proprio: dois limiares sobre a mesma pergunta divergiriam na primeira vez
+    # que alguem mudasse um deles, e a tela mostraria o destaque frio ao lado do
+    # veredito quente, sobre a MESMA leitura.
+    velho = veredito.idade is not None and veredito.idade > LIMIAR_DE_FRESCOR
+
+    diferenca = {
+        "xm": formatador_do_unitario(chave)(veredito.diferenca_por_unidade),
+        "percentual": (
+            None
+            if veredito.diferenca_percentual is None
+            else MOLDE_DA_DIFERENCA_PERCENTUAL.format(
+                valor=_percentual_em_texto(veredito.diferenca_percentual)
+            )
+        ),
+    }
+
+    return {
+        "estado": veredito.estado,
+        "item": veredito.item,
+        "nome_exibido": veredito.nome_exibido,
+        "npc": npc,
+        "mercado": _lado_da_rota(veredito.mercado, chave),
+        "vencedora": veredito.vencedora,
+        "diferenca": diferenca,
+        # TODO NUMERO VIAJA COM `n` E RECENCIA AO LADO — a mesma disciplina do
+        # destaque, pela mesma razao: estatistica sem `n` e adivinhacao com cara
+        # de numero.
+        "n": veredito.evidencia.n,
+        "recencia": (
+            None
+            if veredito.recencia is None
+            else _recencia_em_duas_formas(veredito.recencia, agora)
+        ),
+        "velho": velho,
+        "aviso": aviso,
+    }
+
+
+def payload(
+    pasta_do_mercado: Path,
+    agora: datetime,
+    cambio=None,
+    itens: Sequence = (),
+    itens_lidos_em: datetime | None = None,
+) -> dict:
     """O dicionario que vira o JSON de `GET /dados`, com a ordem FECHADA.
 
     A PRECEDENCIA E A DE `ESTADOS`, e o primeiro que casar manda. Varios podem
@@ -1073,6 +1391,18 @@ def payload(pasta_do_mercado: Path, agora: datetime, cambio=None) -> dict:
     torna a recencia afirmavel por teste sem congelar o relogio do processo. A
     casa ja faz isso em `mercado_console`, que recebe `agora` em toda funcao de
     desenho.
+
+    `itens` E `itens_lidos_em` ENTRAM POR PARAMETRO COM DEFAULT, e a assinatura
+    antiga continua valendo — exatamente como aconteceu quando o `cambio` entrou.
+    Quem le o `config.toml` e o ARRANQUE do servidor, uma vez; este modulo
+    continua sem tocar em TOML e sem saber o que e um `[[dashboard.item]]`: ele
+    consome objetos com tres atributos, pelo mesmo contrato por FORMA com que
+    consome o cambio.
+
+    **`itens_lidos_em` E O INSTANTE DA LEITURA DO ARQUIVO, E NUNCA O INSTANTE EM
+    QUE O USUARIO INFORMOU O PRECO.** As duas coisas tem nomes parecidos e sao
+    fatos diferentes: o numero pode estar no `config.toml` ha meses e a leitura
+    ser de dois minutos atras. Ver `MOLDE_DA_LEITURA_DA_CONFIGURACAO`.
 
     O `cambio` TAMBEM ENTRA POR PARAMETRO, e nao por import de `dashboard_cambio`.
     E o que mantem este modulo puro e testavel sem disco: a conta de R$ e uma
@@ -1205,6 +1535,14 @@ def payload(pasta_do_mercado: Path, agora: datetime, cambio=None) -> dict:
             serie_para_o_grafico(chave, modelo.observacoes_de(chave), agora)
             for chave in modelo.series()
         ],
+        # A QUARTA REGIAO. Ela e um BLOCO PROPRIO e nao mais uma entrada em
+        # `avisos`: a ordem daquela lista virou contrato no `01-07`, com quatro
+        # testes sobre payloads reais prendendo-a, e o `dashboard.js` acha tres
+        # frases por POSICAO. Acrescentar la seria empurrar a linha de R$ para
+        # fora do lugar em que o navegador a procura.
+        "calculadora": _bloco_da_calculadora(
+            itens, modelo, menor, agora, itens_lidos_em
+        ),
     }
 
-
+
