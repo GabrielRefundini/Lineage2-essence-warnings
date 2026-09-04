@@ -4101,6 +4101,27 @@ class TestOTetoNaoConsertaADuplicacao:
             "desfazer aquilo com 28 mascaras de uma sessao nao e medir"
         )
 
+    def test_o_modulo_diz_que_a_proposta_FOI_medida_e_recusada(self):
+        """O desfecho de 2026-09-04, e os numeros que o sustentam.
+
+        A proposta acima deixou de ser "falta dado": ela foi medida sobre 57
+        assinaturas reais e recusada. Sem estes numeros escritos, a proxima
+        pessoa remede tudo — ou, pior, implementa o veto achando que ninguem
+        tinha olhado.
+        """
+        fonte = _docstring_do_aprendiz()
+
+        assert "0.619" in fonte, "o melhor par ERRADO sob deslizamento de +-6"
+        assert "0.598" in fonte, "o melhor par ERRADO no alinhamento de hoje"
+        assert "1.000" in fonte, (
+            "a faixa de 5 linhas da 1.000 para DUAS PESSOAS: e por isso que a "
+            "familia de maior margem esta recusada"
+        )
+        assert "aferir_duplicatas" in fonte, (
+            "a tabela precisa ter onde ser reproduzida, senao ela e uma "
+            "afirmacao e nao uma medida"
+        )
+
     def test_a_coroa_ja_foi_consertada_e_isso_esta_escrito(self):
         """Duas das oito ja caem pelo segundo passe do ornamento.
 
