@@ -25,6 +25,7 @@ import numpy as np
 import pytest
 
 from l2scanner.calibracao import Calibracao
+from l2scanner.config import AgendaInvalida, AjustesDaRenda
 from l2scanner.frames import Frame, SaudeDoFrame
 from l2scanner.relogio import Relogio
 from l2scanner.renda_conta import (
@@ -37,6 +38,7 @@ from l2scanner.renda_laco import (
     ERROS_SEGUIDOS_PARA_DESISTIR,
     SAIDA_CEGA,
     SAIDA_RECUSADA,
+    _com_o_pack_da_linha_de_comando,
     laco_da_renda,
 )
 from l2scanner.renda_leitura import (
@@ -914,3 +916,134 @@ class TestOPortaoDoRelogio:
 
         assert "now" not in chamados
         assert "agora_epoch" in chamados
+
+
+# ---------------------------------------------------------------------------
+# A PRECEDENCIA DO PACK: a linha de comando vence o arquivo, e DIZ que venceu
+# ---------------------------------------------------------------------------
+#
+# O molde e a regra que `ler_receitas` ja aplica ao `config.local.toml`: quando
+# duas fontes discordam, uma vence E O AVISO NOMEIA O VENCEDOR. Uma precedencia
+# silenciosa e a pior das tres saidas — pior que recusar e pior que ignorar a
+# flag —, porque o usuario ve um numero que ele nao pediu e nao tem por onde
+# comecar a procurar.
+
+
+class TestOPackDaLinhaDeComandoVenceOArquivo:
+    def test_SEM_a_flag_o_valor_e_o_do_ARQUIVO_e_nada_e_logado(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        do_arquivo = AjustesDaRenda(tamanho_do_pack_de_adena=7_000_000)
+
+        with caplog.at_level(logging.INFO):
+            usado = _com_o_pack_da_linha_de_comando(
+                do_arquivo, argumentos()
+            )
+
+        assert usado == do_arquivo, (
+            "sem a flag nada se substitui, e o objeto sai IGUAL — nem um campo "
+            "vizinho pode mudar de carona"
+        )
+        assert "pack" not in caplog.text.lower(), (
+            "sem discordancia nao ha vencedor a anunciar, e uma linha por "
+            f"sessao que nao diz nada vira ruido. Saiu: {caplog.text}"
+        )
+
+    def test_COM_a_flag_o_valor_e_o_DELA_e_o_aviso_NOMEIA_os_dois_numeros(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        do_arquivo = AjustesDaRenda(tamanho_do_pack_de_adena=7_000_000)
+
+        with caplog.at_level(logging.INFO):
+            usado = _com_o_pack_da_linha_de_comando(
+                do_arquivo, argumentos(pack_de_adena=3_000_000)
+            )
+
+        assert usado.tamanho_do_pack_de_adena == 3_000_000
+        assert usado.janela_movel_minutos == do_arquivo.janela_movel_minutos, (
+            "so o pack muda: `replace` de um campo nao pode arrastar os outros"
+        )
+        assert "3000000" in caplog.text.replace(".", "").replace(",", "")
+        assert "7000000" in caplog.text.replace(".", "").replace(",", ""), (
+            "o aviso mostra os DOIS numeros. So o vencedor faria o usuario "
+            f"conferir o config.toml a mao para saber o que ele perdeu. Saiu: "
+            f"{caplog.text}"
+        )
+
+    def test_a_flag_com_o_MESMO_valor_do_arquivo_nao_anuncia_nada(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        """Nao ha vencedor onde nao ha disputa."""
+        do_arquivo = AjustesDaRenda(tamanho_do_pack_de_adena=5_000_000)
+
+        with caplog.at_level(logging.INFO):
+            usado = _com_o_pack_da_linha_de_comando(
+                do_arquivo, argumentos(pack_de_adena=5_000_000)
+            )
+
+        assert usado.tamanho_do_pack_de_adena == 5_000_000
+        assert caplog.text == ""
+
+    @pytest.mark.parametrize("valor", [0, -5_000_000])
+    def test_um_pack_ZERO_ou_NEGATIVO_na_linha_de_comando_e_RECUSADO(
+        self, cal, tmp_path, valor
+    ) -> None:
+        """A linha de comando nao pode ser mais frouxa que o arquivo.
+
+        `[renda] tamanho_do_pack_de_adena = 0` derruba o arranque com a chave
+        nomeada; a mesma coisa escrita na flag tem de derrubar igual, senao a
+        flag vira o buraco por onde o valor invalido entra.
+        """
+        with pytest.raises(AgendaInvalida) as erro:
+            _com_o_pack_da_linha_de_comando(
+                AjustesDaRenda(), argumentos(pack_de_adena=valor)
+            )
+
+        assert "--pack-de-adena" in str(erro.value)
+
+    def test_o_pack_da_flag_CHEGA_ATE_A_TELA_e_nao_so_ate_o_objeto(
+        self, cal, tmp_path, caplog
+    ) -> None:
+        """A costura inteira: flag -> ajustes -> `_tempo_ate_o_pack` -> bloco.
+
+        E o criterio que os outros deste bloco nao dao: eles medem o objeto que
+        sai do resolvedor. Este mede o que o USUARIO le. Sem ele, um laco que
+        resolvesse o pack certo e passasse outro para `bloco_da_renda` passaria
+        em tudo.
+
+        A conta, com a adena de `campos_de()` (17.592.060) e pack de 4.000.000:
+        quatro packs fechados (16.000.000), o QUINTO fecha em 20.000.000, e
+        faltam 2.407.940.
+        """
+        with caplog.at_level(logging.INFO):
+            rodar(
+                cal,
+                tmp_path,
+                sequencia=[campos_de()],
+                carimbos=[100, 101, 102, 103],
+                ticks=4,
+                status_a_cada=0.0,
+                pack_de_adena=4_000_000,
+            )
+
+        assert "4,00 M" in caplog.text, "o tamanho pedido na flag, no titulo"
+        assert "20.000.000" in caplog.text, "o alvo calculado sobre ele"
+        assert "2.407.940" in caplog.text, "o que falta juntar"
+
+    def test_um_Namespace_SEM_o_campo_nao_derruba_o_laco(
+        self, cal, tmp_path
+    ) -> None:
+        """`getattr` com default, e nao acesso direto.
+
+        Os `argparse.Namespace` montados nos testes deste arquivo e nos de
+        `test_renda_cegueira.py` nao tem `pack_de_adena` — eles nascem de
+        `argumentos()`, que so poe o que o teste precisa. Um acesso direto
+        derrubaria o laco com `AttributeError` num caminho que nao tem nada a
+        ver com pack.
+        """
+        padroes = AjustesDaRenda()
+
+        assert (
+            _com_o_pack_da_linha_de_comando(padroes, argparse.Namespace())
+            == padroes
+        )

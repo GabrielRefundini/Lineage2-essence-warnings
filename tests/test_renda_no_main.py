@@ -185,7 +185,11 @@ class TestODespacho:
     ) -> None:
         """C-4 e P-4: `--intervalo` e `--status-a-cada` ja existem de graca.
 
-        Nenhuma SEXTA chave entra na secao `[renda]` do `config.toml`.
+        Nenhuma chave de CADENCIA entra na secao `[renda]` do `config.toml` —
+        ela ja tem duas flags, e a chave duplicaria a verdade sobre elas. (A
+        frase aqui dizia "nenhuma SEXTA chave" ate 2026-09-04, quando uma sexta
+        entrou: `tamanho_do_pack_de_adena`, que nao e cadencia e nao tinha outra
+        casa. A cerca continua de pe, e ela e sobre cadencia.)
         """
         vistos = []
         monkeypatch.setattr(
@@ -222,6 +226,40 @@ class TestODespacho:
 
         assert vistos[0].intervalo == pytest.approx(2.5)
         assert vistos[0].status_a_cada == pytest.approx(90.0)
+
+    def test_SEM_a_flag_do_pack_o_valor_e_None_e_o_config_manda(
+        self, monkeypatch
+    ) -> None:
+        """`None` e o dado, e nao a ausencia dele.
+
+        Um default de `5_000_000` no `argparse` faria a linha de comando SEMPRE
+        vencer o `config.toml`, e a chave que o usuario escreveu no arquivo
+        nunca chegaria — o pior desfecho possivel, porque ele nao teria como
+        saber por que.
+        """
+        vistos = []
+        monkeypatch.setattr(
+            "l2scanner.renda_laco.laco_da_renda",
+            lambda args, cal: (vistos.append(args), 0)[1],
+        )
+
+        _rodar_main(monkeypatch, ["--renda", "--janela", JANELA])
+
+        assert vistos[0].pack_de_adena is None
+
+    def test_o_pack_pedido_na_linha_de_comando_CHEGA(self, monkeypatch) -> None:
+        vistos = []
+        monkeypatch.setattr(
+            "l2scanner.renda_laco.laco_da_renda",
+            lambda args, cal: (vistos.append(args), 0)[1],
+        )
+
+        _rodar_main(
+            monkeypatch,
+            ["--renda", "--janela", JANELA, "--pack-de-adena", "3000000"],
+        )
+
+        assert vistos[0].pack_de_adena == 3_000_000
 
 
 # ---------------------------------------------------------------------------
@@ -319,8 +357,24 @@ class TestOMontador:
 
 
 class TestNadaMaisEntra:
-    def test_a_secao_renda_continua_com_CINCO_chaves(self) -> None:
-        """C-4: `--intervalo` e `--status-a-cada` sao o caminho barato."""
+    def test_a_secao_renda_tem_SEIS_chaves_e_a_sexta_tem_nome(self) -> None:
+        """A cerca e de CONJUNTO EXATO, e ela caiu uma vez — em 2026-09-04.
+
+        ATE ENTAO ELA DIZIA **CINCO**, com esta razao ao lado: *"uma SEXTA chave
+        entrou em `[renda]`. A cadencia ja tem dois argumentos de linha de
+        comando (`--intervalo`, `--status-a-cada`) e inventar a chave duplicaria
+        a verdade sobre ela."* A razao continua verdadeira e continua valendo —
+        ela e sobre CADENCIA.
+
+        `tamanho_do_pack_de_adena` nao e cadencia: ele e a META DO USUARIO ("de
+        quanto em quanto eu quero ser avisado"), nao tinha nenhuma outra casa, e
+        sem ele o numero seria constante magica dentro de `l2scanner/*.py`. Ele
+        tem uma flag (`--pack-de-adena`) que o vence NAQUELA RODADA, e a
+        precedencia e medida em `tests/test_renda_laco.py` — as duas nao sao a
+        mesma verdade escrita duas vezes: uma persiste, a outra e desta vez.
+
+        A cerca segue de conjunto exato: uma SETIMA chave ainda a derruba.
+        """
         from dataclasses import fields
 
         from l2scanner.config import AjustesDaRenda
@@ -333,10 +387,12 @@ class TestNadaMaisEntra:
             "fator_de_salto_da_adena",
             "amostras_minimas_para_taxa",
             "janela_minima_para_taxa_segundos",
+            "tamanho_do_pack_de_adena",
         }, (
-            "uma SEXTA chave entrou em `[renda]`. A cadencia ja tem dois "
-            "argumentos de linha de comando (`--intervalo`, `--status-a-cada`) "
-            "e inventar a chave duplicaria a verdade sobre ela."
+            "uma SETIMA chave entrou em `[renda]`. Antes de aceita-la: ela "
+            "governa a CONTA, uma META do usuario, ou a CADENCIA? Se for "
+            "cadencia, ela ja tem `--intervalo` e `--status-a-cada` e a chave "
+            "duplicaria a verdade sobre eles."
         )
 
     def test_o_despacho_do_renda_fica_AO_LADO_do_do_mercado(self) -> None:

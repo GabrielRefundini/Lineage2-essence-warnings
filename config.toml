@@ -593,12 +593,12 @@ respawn_horas_max = 10
 # quanta amostra ele se sente no direito de dizer um numero.
 #
 # ESTA SECAO E OPCIONAL. Sem ela o scanner usa os padroes abaixo, que sao os
-# valores certos para a esmagadora maioria das farmadas. Os cinco numeros entram
+# valores certos para a esmagadora maioria das farmadas. Os seis numeros entram
 # COMENTADOS de proposito: um numero escrito no arquivo e um numero que alguem
 # vai achar que precisa ajustar.
 #
 # QUALQUER UM DELES ESCRITO ERRADO DERRUBA O ARRANQUE COM O NOME DA CHAVE NA
-# MENSAGEM. Os cinco sao inteiros MAIORES QUE ZERO. `true` e recusado de
+# MENSAGEM. Os seis sao inteiros MAIORES QUE ZERO. `true` e recusado de
 # proposito: em Python `true` valeria 1, e um fator de salto valendo 1 recusaria
 # calado toda amostra em que a adena mudou — ou seja, a noite inteira.
 #
@@ -652,8 +652,21 @@ respawn_horas_max = 10
 #                            de verdade. Quando um dos dois falta, o scanner diz
 #                            QUAL faltou.
 #
-# SE VOCE MEXER EM UM SO, OS OUTROS QUATRO CONTINUAM NO PADRAO. Nao e preciso
-# escrever os cinco.
+#   tamanho_do_pack_de_adena
+#                            de quanto em quanto o painel conta um "pack" de
+#                            adena. Padrao 5000000 — a mesma escala em que o
+#                            proprio jogo fala, na coluna `5 mln increment` do
+#                            World Exchange. Com 27.309.465 na bolsa e este
+#                            padrao, o painel diz que o proximo pack fecha em
+#                            30.000.000 e que faltam 2.690.535. ESTE E O UNICO
+#                            DOS SEIS QUE NAO ENTRA EM CONTA NENHUMA: ele so
+#                            decide de quanto em quanto voce quer ser avisado.
+#                            Para trocar so por uma noite, sem editar este
+#                            arquivo: `--pack-de-adena 10000000` na linha de
+#                            comando (o log diz qual dos dois venceu).
+#
+# SE VOCE MEXER EM UM SO, OS OUTROS CINCO CONTINUAM NO PADRAO. Nao e preciso
+# escrever os seis.
 #
 # [renda]
 # janela_movel_minutos = 10
@@ -661,3 +674,4 @@ respawn_horas_max = 10
 # fator_de_salto_da_adena = 10
 # amostras_minimas_para_taxa = 8
 # janela_minima_para_taxa_segundos = 120
+# tamanho_do_pack_de_adena = 5000000

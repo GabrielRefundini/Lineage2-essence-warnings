@@ -1189,6 +1189,150 @@ def tempo_ate_o_nivel(
 
 
 # ---------------------------------------------------------------------------
+# O TEMPO ATE O PROXIMO PACK DE ADENA
+# ---------------------------------------------------------------------------
+#
+# A MESMA PERGUNTA DO NIVEL, COM OUTRA GRANDEZA, e por isso a forma e a MESMA:
+# um numero ou um motivo, nunca infinito, nunca negativo, `Fraction` ate a borda.
+# O usuario pediu as duas juntas — *"expectativa de quando upar ou quando fechar
+# o prox pack de adena de +5kk do valor que ja tem"* —, e duas maneiras
+# diferentes de expressar um ETA na mesma tela fariam a mesma pergunta ser
+# respondida em dois idiomas.
+#
+# OS TRES CASOS SEM RESPOSTA SAO OS MESMOS TRES, com os consertos trocados:
+#
+#   taxa zerada    -> "voce nao esta ganhando adena" ... va farmar
+#   taxa negativa  -> o scanner esta somando GASTO como ganho ... e defeito
+#   sem evidencia  -> "ainda nao da para dizer" ......... espere mais um pouco
+#
+# O DO MEIO E DIFERENTE DO IRMAO DO EXP, E ISSO VAI DITO: perder EXP e coisa que
+# o jogo faz (morrer), entao la o conserto e do usuario. Perder adena NAO chega
+# aqui como taxa negativa — `_adena_do_par` devolve ganho e gasto os DOIS
+# positivos ou zero (CTX-6), e ele e o unico produtor de `ganho_de_adena` nos
+# dois caminhos que existem. Logo este ramo e GUARDA ESTRUTURAL e nao caso de
+# uso: hoje ele nao dispara, e o dia em que disparar sera porque alguem deixou o
+# gasto entrar no numerador. Ele fica porque um divisor negativo devolveria um
+# ETA NEGATIVO — uma previsao apontando para o passado, pior que a ausencia.
+MOTIVO_DA_TAXA_DE_ADENA_ZERADA = "taxa-de-adena-zerada"
+MOTIVO_DA_TAXA_DE_ADENA_NEGATIVA = "taxa-de-adena-negativa"
+
+
+@dataclass(frozen=True)
+class TempoAteOPack:
+    """Quantos segundos faltam para fechar o proximo pack — E A CONTA INTEIRA.
+
+    ELA CARREGA OS QUATRO NUMEROS E NAO SO A RESPOSTA, e isso e o D-02 desta
+    casa: um numero que o usuario nao pode conferir e um numero que ele nao pode
+    confiar. `adena_atual`, `alvo` e `faltam` sao os tres termos de que
+    `segundos` saiu; quem desenha mostra a subtracao junto do resultado, e o
+    usuario confere de cabeca.
+
+    `alvo` E `faltam` NAO DEPENDEM DA TAXA, e por isso eles continuam
+    preenchidos nos tres casos em que `segundos` e `None`. Apaga-los junto
+    esconderia uma resposta que o painel ja tinha pronta.
+
+    Eles sao `int | None` mesmo assim porque existe um quarto caso, e ele mora
+    na CASCA: quando a adena DESTE tique recusou, nao ha ponto de partida e nao
+    ha alvo a inventar. Quem monta esse caso e `renda_laco`, com o motivo
+    HERDADO da recusa — a previsao nao pode ser mais confiante que a leitura de
+    que ela sai.
+
+    `tamanho_do_pack` VIAJA DENTRO, pela mesma razao que `unidade_da_janela`
+    viaja dentro de `TaxaDaRenda`: o alvo `30.000.000` nao significa nada sem
+    saber de que pack se esta falando, e o tamanho e configuravel.
+
+    NUNCA INFINITO, NUNCA NEGATIVO, NUNCA ZERO. Os dois primeiros pela razao ja
+    escrita em `TempoAteONivel`; o zero porque o alvo e o proximo multiplo
+    ESTRITAMENTE MAIOR, e nao um teto.
+    """
+
+    tamanho_do_pack: int
+    adena_atual: int | None
+    alvo: int | None
+    faltam: int | None
+    segundos: Fraction | None
+    motivo_da_ausencia: str | None
+
+
+def tempo_ate_o_pack(
+    *, adena_atual: int, tamanho_do_pack: int, taxa: TaxaDaRenda
+) -> TempoAteOPack:
+    """`(proximo multiplo do pack - a adena de agora) / (adena por hora)`.
+
+    O ALVO E O PROXIMO MULTIPLO **ESTRITAMENTE MAIOR**, E NAO UM TETO, e a
+    diferenca aparece exatamente no caso que parece nao importar: com
+    25.000.000 na bolsa e pack de 5.000.000, um teto (`ceil`) devolveria
+    25.000.000, `faltam = 0` e um ETA de ZERO SEGUNDO — uma previsao com cara de
+    certa dizendo que o usuario ja tem o pack que ele ainda nao tem. Com o
+    multiplo estritamente maior, `faltam` e SEMPRE >= 1, e o zero no numerador
+    nao existe para ser dividido.
+
+    ELE NAO PRECISA DE TABELA DE PRECO NEM DE NADA DO MERCADO. A conta e
+    aritmetica sobre o contador de adena que a barra ja entrega, e por isso ela
+    mora aqui e nao em `mercado_analise`. Os `5_000_000` de
+    `mercado_console.UNIDADE_DA_TAXA` e de `mercado_leitura.ADENA_POR_INCREMENTO`
+    valem o mesmo numero e sao OUTROS DOIS FATOS — a escala em que a taxa se fala
+    e o incremento que o World Exchange vende. Este aqui e a META DO USUARIO, e e
+    o unico dos tres que ele ajusta; por isso o tamanho entra por PARAMETRO, do
+    `config.toml`, e nunca por import de um dos outros dois.
+
+    O TAMANHO INVALIDO LEVANTA em vez de degradar: um pack de zero nao tem
+    "proximo multiplo", e um de tamanho negativo produziria um alvo ABAIXO da
+    adena atual — faltas negativas com cara de conta. A secao `[renda]` ja
+    recusa os dois na leitura do arquivo; este e o cinto do modulo puro.
+
+    OS TRES CASOS DE AUSENCIA SAO TRATADOS **ANTES** DA DIVISAO, na mesma ordem
+    do gemeo — evidencia, zero, negativo. Ha portao de arvore de sintaxe negando
+    `math.inf` e a captura de `ZeroDivisionError` neste modulo.
+    """
+    if int(tamanho_do_pack) <= 0:
+        raise ValueError(
+            "tamanho_do_pack precisa ser MAIOR que zero (recebi "
+            f"{tamanho_do_pack!r}): sem ele nao ha 'proximo multiplo' a fechar."
+        )
+
+    tamanho = int(tamanho_do_pack)
+    adena = int(adena_atual)
+
+    # O PROXIMO MULTIPLO ESTRITAMENTE MAIOR, em duas linhas e nao numa.
+    # `packs_ja_fechados` tem nome para que o caso que separa esta conta de um
+    # teto fique visivel no fonte: com 25.000.000 e pack de 5.000.000 sao CINCO
+    # fechados, e o alvo e o SEXTO — um teto pararia no quinto e diria que faltam
+    # zero. O `+ 1` esta a vista, e nao escondido dentro de um `-(-a // b)`.
+    packs_ja_fechados = adena // tamanho
+    alvo = (packs_ja_fechados + 1) * tamanho
+    faltam = alvo - adena
+
+    def _sem_numero(motivo: str) -> TempoAteOPack:
+        # `alvo` e `faltam` SOBREVIVEM a ausencia do ETA: eles sairam da adena e
+        # do tamanho do pack, e nenhum dos dois depende da taxa.
+        return TempoAteOPack(
+            tamanho_do_pack=tamanho,
+            adena_atual=adena,
+            alvo=alvo,
+            faltam=faltam,
+            segundos=None,
+            motivo_da_ausencia=motivo,
+        )
+
+    if taxa.por_hora is None:
+        return _sem_numero(taxa.motivo_da_ausencia)
+    if taxa.por_hora == 0:
+        return _sem_numero(MOTIVO_DA_TAXA_DE_ADENA_ZERADA)
+    if taxa.por_hora < 0:
+        return _sem_numero(MOTIVO_DA_TAXA_DE_ADENA_NEGATIVA)
+
+    return TempoAteOPack(
+        tamanho_do_pack=tamanho,
+        adena_atual=adena,
+        alvo=alvo,
+        faltam=faltam,
+        segundos=Fraction(faltam) * SEGUNDOS_POR_HORA / taxa.por_hora,
+        motivo_da_ausencia=None,
+    )
+
+
+# ---------------------------------------------------------------------------
 # A CONTAGEM: por que a taxa desta hora tem o `n` que tem
 # ---------------------------------------------------------------------------
 

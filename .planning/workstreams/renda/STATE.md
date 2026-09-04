@@ -118,6 +118,18 @@ não na soma. Medido no spike, não suposto.
   o EXP parado — `SaudeDoFrame` diria "saudável". Frame congelado e valor congelado são sinais
   diferentes e não podem colapsar no mesmo aviso.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commits | Directory |
+|---|-------------|------|---------|-----------|
+| 1 | O ETA do próximo pack de adena no painel do `--renda` — a conta inteira (adena, alvo, o que falta, o tempo), com o tamanho do pack configurável em `[renda]` e a flag `--pack-de-adena` que a vence | 2026-09-04 | `8fb336b`, `a120c96`, `6e3318d`, `06e12a9`, `61c1e20`, `c449d51` | `.planning/quick/20260904-eta-do-pack-de-adena/` |
+
+> **Nota sobre o cabeçalho deste arquivo (2026-09-04).** O frontmatter ainda diz
+> `current_phase: 01` e `status: planning`, e isso está **velho**: a Fase 3 já tem quatro
+> planos com SUMMARY em disco. A tarefa rápida acima não mexeu nesses campos — corrigi-los é
+> trabalho do fluxo de fase, não de um quick, e reescrevê-los daqui inventaria um estado que
+> este agente não mediu.
+
 ## Session Continuity
 
 **Stopped At:** Roadmap criado, aguardando planejamento da Fase 1

@@ -1577,7 +1577,16 @@ def ler_ajustes_do_aprendiz(caminho: Path | None = None) -> AjustesDoAprendiz:
 
 
 # ---------------------------------------------------------------------------
-# A SECAO `[renda]` — os cinco numeros que governam a conta da Fase 2
+# A SECAO `[renda]` — os SEIS numeros da conta da Fase 2 e da meta do usuario
+#
+# ERAM CINCO ATE 2026-09-04, e a linha acima dizia "os cinco numeros que
+# governam a conta da Fase 2". O sexto — `tamanho_do_pack_de_adena` — nao governa
+# a conta: ele e uma META do usuario, "de quanto em quanto eu quero ser avisado".
+# Ele entrou aqui, e nao numa secao propria, porque as tres regras de leitura e o
+# portao de booleano valem para ele identicos; e entrou como CHAVE, e nao como
+# constante de fonte, porque ele e o unico dos tres `5.000.000` desta arvore que
+# o usuario ajusta (os outros dois — `mercado_console.UNIDADE_DA_TAXA` e
+# `mercado_leitura.ADENA_POR_INCREMENTO` — sao formato do jogo).
 #
 # O MOLDE E `ler_ajustes_do_aprendiz`, LITERALMENTE, e nao por simetria: aquela
 # secao o usuario NUNCA preencheu — ela esta comentada no `config.toml` ate
@@ -1607,11 +1616,12 @@ CHAVE_DA_LACUNA = "lacuna_maxima_segundos"
 CHAVE_DO_FATOR_DE_SALTO = "fator_de_salto_da_adena"
 CHAVE_DO_PISO_DE_AMOSTRAS = "amostras_minimas_para_taxa"
 CHAVE_DO_PISO_DA_JANELA = "janela_minima_para_taxa_segundos"
+CHAVE_DO_TAMANHO_DO_PACK = "tamanho_do_pack_de_adena"
 
 
 @dataclass(frozen=True)
 class AjustesDaRenda:
-    """Os cinco numeros da conta da renda, com o default e a razao DO default.
+    """Os SEIS numeros da renda, com o default e a razao DO default.
 
     `janela_movel_minutos` = 10. **ESCOLHA, E NAO MEDICAO.** E o que o usuario
     entende por "agora" numa farmada, e e a mesma ordem de grandeza da diferenca
@@ -1662,6 +1672,23 @@ class AjustesDaRenda:
     exato: com o par de EXP livre do nivel, mover a recusa de 79% para 60% ou
     para 90% nao muda se a taxa sai — muda so o `n` da adena. Um desenho que
     dependesse do numero exato estaria apoiado numa medicao que ninguem refez.
+
+    `tamanho_do_pack_de_adena` = 5.000.000. **O DEFAULT NAO E ESCOLHA NOSSA; O
+    AJUSTE E QUE E.** Cinco milhoes e a escala em que o proprio jogo fala de
+    adena — a coluna do World Exchange se chama `5 mln increment` —, e e o numero
+    que o usuario usou ao pedir isto: *"quando fechar o prox pack de adena de
+    +5kk do valor que ja tem"*. Ele e o UNICO dos seis que nao entra em conta
+    nenhuma da Fase 2: ele so decide de quanto em quanto o painel diz "falta
+    tanto para fechar o proximo". Por isso ele tambem tem uma flag —
+    `--pack-de-adena` — que o vence NAQUELA RODADA: trocar a meta para uma noite
+    nao deveria custar uma edicao de arquivo, e o vencedor vai NOMEADO no log.
+
+    OS OUTROS DOIS `5_000_000` DA ARVORE CONTINUAM SEPARADOS DESTE, e a decisao
+    ja foi tomada uma vez (`quick/260903-bd8`): `mercado_console.UNIDADE_DA_TAXA`
+    e a escala em que a taxa se FALA, `mercado_leitura.ADENA_POR_INCREMENTO` e o
+    incremento que o mercado VENDE, e este e a META DE FARM. Sao tres fatos com o
+    mesmo valor; importar um no lugar do outro faria a meta do usuario mudar
+    sozinha no dia em que o jogo virasse `10 mln`.
     """
 
     janela_movel_minutos: int = 10
@@ -1669,6 +1696,7 @@ class AjustesDaRenda:
     fator_de_salto_da_adena: int = 10
     amostras_minimas_para_taxa: int = 8
     janela_minima_para_taxa_segundos: int = 120
+    tamanho_do_pack_de_adena: int = 5_000_000
 
 
 # O exemplo que toda recusa desta secao mostra, escrito UMA vez. Uma mensagem
@@ -1681,7 +1709,8 @@ _EXEMPLO_DA_RENDA = (
     f"    {CHAVE_DA_LACUNA} = 60\n"
     f"    {CHAVE_DO_FATOR_DE_SALTO} = 10\n"
     f"    {CHAVE_DO_PISO_DE_AMOSTRAS} = 8\n"
-    f"    {CHAVE_DO_PISO_DA_JANELA} = 120"
+    f"    {CHAVE_DO_PISO_DA_JANELA} = 120\n"
+    f"    {CHAVE_DO_TAMANHO_DO_PACK} = 5000000"
 )
 
 
@@ -1701,10 +1730,12 @@ def _inteiro_da_renda(
     `10.5` seria uma regra que o usuario descobre por tentativa — a mesma razao
     ja escrita em `_inteiro_positivo` da receita.
 
-    ZERO E NEGATIVO SAO RECUSADOS NOS CINCO porque nenhum dos cinco faz sentido
+    ZERO E NEGATIVO SAO RECUSADOS NOS SEIS porque nenhum dos seis faz sentido
     ali: janela de zero minuto, lacuna de zero segundo, fator zero e pisos zero
     sao todos "desligue a conta em silencio", que e o contrario do que uma
-    secao de ajuste existe para permitir.
+    secao de ajuste existe para permitir. E o sexto pela sua propria razao: um
+    pack de tamanho zero nao tem "proximo multiplo", e um negativo produziria um
+    alvo ABAIXO da adena que o usuario ja tem.
     """
     bruto = secao.get(chave)
     if bruto is None:
@@ -1724,7 +1755,7 @@ def _inteiro_da_renda(
 
 
 def ler_ajustes_da_renda(caminho: Path | None = None) -> AjustesDaRenda:
-    """Os cinco numeros que governam a conta da renda. As tres regras valem.
+    """Os SEIS numeros da renda — cinco de conta, um de meta. As tres regras valem.
 
     ARQUIVO AUSENTE NAO E ERRO, E SECAO AUSENTE TAMBEM NAO. O `[renda]` do
     `config.toml` entra COMENTADO, como o `[identidade]`, e o scanner tem de
@@ -1789,6 +1820,12 @@ def ler_ajustes_da_renda(caminho: Path | None = None) -> AjustesDaRenda:
             CHAVE_DO_PISO_DA_JANELA,
             caminho.name,
             padroes.janela_minima_para_taxa_segundos,
+        ),
+        tamanho_do_pack_de_adena=_inteiro_da_renda(
+            secao,
+            CHAVE_DO_TAMANHO_DO_PACK,
+            caminho.name,
+            padroes.tamanho_do_pack_de_adena,
         ),
     )
 
