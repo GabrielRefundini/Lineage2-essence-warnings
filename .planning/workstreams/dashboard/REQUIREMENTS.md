@@ -28,10 +28,22 @@
       console `--mercado` para o mesmo instante: mesma fonte, mesma conta, **sem um segundo
       parser do CSV**.
 
-- [ ] **DASH-04**: O valor de **agora** fica em destaque: quanto vale 1 milhão de adena, em XM
-      e em R$ — com `n` e **recência** ao lado, como todo número que sai na tela no
+- [ ] **DASH-04**: O valor de **agora** fica em destaque: quanto valem **5 milhões** de adena,
+      em XM e em R$ — com `n` e **recência** ao lado, como todo número que sai na tela no
       `--mercado`. Com o scanner parado, o dashboard continua exibindo o último dado e diz de
       quando ele é; nunca afirma "agora" sobre um número velho.
+
+      **A unidade mudou de 1 milhão para 5 milhões em 2026-09-03, e não foi esta fase que
+      mudou.** Um `/gsd-quick` de outro chat (`f098f7a`, *"a taxa da adena passa a se falar por
+      5 milhoes"*) trocou `UNIDADE_DA_TAXA` em 11 arquivos, com os testes junto, **antes** de a
+      Fase 2 despachar — o executor da Fase 2 herdou a unidade já trocada, corretamente. A razão
+      da troca é a que este projeto respeita: a coluna do jogo se chama literalmente
+      `5 mln increment`, então 5 milhões é a unidade em que o usuário lê o preço na tela, e
+      falar em 1 milhão obrigava a uma conversão mental que a própria tela não pede. **Fica
+      registrado porque o texto anterior deste requisito, o goal da Fase 1 e os critérios de
+      sucesso dela dizem "1 milhão", e a verificação da Fase 1 rodou contra aquela redação** —
+      quem reler aqueles documentos vai encontrar a unidade antiga e precisa saber que ela caiu,
+      e por quê, em vez de achar que o código divergiu do plano.
 
 - [ ] **DASH-05**: A visualização é um **componente de série genérico**, e a Adena é a
       primeira instância — não um caso especial no código. Instanciar uma segunda série
