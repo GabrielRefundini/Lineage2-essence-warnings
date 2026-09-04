@@ -442,6 +442,38 @@ class ConfigChatwoot:
     etiqueta_de_comando: str = ""
 
 
+def conversa_do_dono(config: ConfigChatwoot) -> str | None:
+    """A conversa privada para onde vai a pergunta do batismo, ou None.
+
+    POR QUE A DE COMANDO, E NAO A DE AVISO
+
+    As de AVISO sao o grupo. A pergunta do batismo pede uma ACAO
+    (`/batizar 0dcf6f Fulano`) que so o DONO consegue executar: `/batizar` esta
+    fora de `COMANDOS_DE_MEMBRO`, porque nome errado e corrupcao duravel num
+    acervo que nunca e podado. No grupo ela e ruido para 4 a 8 pessoas que nao
+    podem agir sobre ela — e e a unica mensagem do produto que leva IMAGEM,
+    entao e tambem a mais pesada do canal.
+
+    As de COMANDO sao a definicao operacional de "o privado do dono" que este
+    projeto tem: e exatamente de la que a resposta pode chegar. Nao ha um
+    segundo estado novo aqui, e isso e deliberado — uma chave de `.env` so para
+    o destino da pergunta poderia discordar de `CHATWOOT_CONVERSAS_COMANDO`, e
+    a discordancia apareceria como uma pergunta mandada para uma conversa que
+    nao aceita a resposta.
+
+    A PRIMEIRA, quando ha varias. Todas sao canais de comando do mesmo dono,
+    entao nenhuma delas e a pessoa errada — o pior caso e ele ler no canal que
+    listou primeiro. Mandar para as N repetiria a mensagem mais pesada do
+    produto N vezes, e o marcador de D-04 e queimado uma vez so.
+
+    E `None` NAO CAI NO GRUPO. Quem chama trata o None calando: ver a trava em
+    `sessao._perguntar_um_batismo`. Uma reserva para as conversas de aviso aqui
+    desfaria o pedido inteiro em silencio no dia em que alguem esvaziasse o
+    `CHATWOOT_CONVERSAS_COMANDO`.
+    """
+    return config.conversas_de_comando[0] if config.conversas_de_comando else None
+
+
 class ErroDeEntrega(Exception):
     """Falhou o envio. Distingue transitorio de definitivo."""
 

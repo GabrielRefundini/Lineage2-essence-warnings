@@ -39,6 +39,15 @@ CHATWOOT_CONVERSAS=
 # grupos nao recebem, e so as conversas privadas recebem. Se for o seu caso,
 # mande o comando no PRIVADO do numero do bot; a resposta continua indo para
 # o grupo normalmente.
+#
+# ELA E TAMBEM PARA ONDE VAI A PERGUNTA DO BATISMO, desde 2026-09-04. Quando o
+# scanner aprende alguem novo, ele manda a IMAGEM do nome e pede
+# ".batizar <apelido> <Nick>". Essa mensagem sai so na PRIMEIRA conversa
+# listada aqui, e nunca no grupo: so voce alcanca o .batizar, entao no grupo
+# ela seria uma imagem que 4 a 8 pessoas nao podem responder.
+#
+# Com esta linha VAZIA o scanner nao pergunta — e nao perde a pergunta: ela
+# fica guardada para o dia em que voce preencher aqui.
 CHATWOOT_CONVERSAS_COMANDO=
 
 # QUEM pode mandar comando. Numeros separados por virgula.

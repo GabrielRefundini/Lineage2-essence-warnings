@@ -216,6 +216,7 @@ class Sessao:
         acervo=None,
         pendentes_de_batismo=(),
         momento_da_ultima_pergunta=None,
+        conversa_do_dono=None,
     ) -> None:
         self.cal = cal
         self.rastreador = rastreador
@@ -319,6 +320,16 @@ class Sessao:
         # isso o primeiro tick mandaria a segunda bolha no mesmo segundo em que
         # o scanner subiu, que e exatamente a rajada que o espacamento desfaz.
         self._momento_da_ultima_pergunta = momento_da_ultima_pergunta
+        # PARA ONDE A PERGUNTA DO BATISMO VAI, e ela e a UNICA mensagem desta
+        # classe com destino proprio.
+        #
+        # `None` aqui nao quer dizer "manda para o padrao": quer dizer NAO
+        # PERGUNTA. O padrao do transporte sao as conversas de AVISO, que sao o
+        # grupo, e foi de la que o usuario pediu a pergunta para fora em
+        # 2026-09-04 — so o dono alcanca `/batizar`, entao no grupo ela e ruido
+        # com imagem para gente que nao pode responder. Ver
+        # `notificador.conversa_do_dono` e a trava em `_perguntar_um_batismo`.
+        self.conversa_do_dono = conversa_do_dono
         # Ja avisamos que o aprendiz explodiu? Uma vez por sessao, e so uma.
         #
         # Mesmo trilho dos dois vizinhos do mercado, e pela mesma razao: um
@@ -1000,6 +1011,15 @@ class Sessao:
         """
         if self.acervo is None or self.despachante is None:
             return
+        # SEM PRIVADO DO DONO NAO SE PERGUNTA, e esta linha e a trava de D-05
+        # estendida — irma exata do `self.despachante is None` logo acima.
+        # `montar_pergunta_com_imagens` MARCA: chama-la aqui queimaria o
+        # marcador de uma pergunta que so poderia sair no grupo, onde ninguem
+        # pode responder `/batizar`. Quem roda sem `CHATWOOT_CONVERSAS_COMANDO`
+        # simplesmente ainda nao perguntou, e vai perguntar no dia em que
+        # configurar o canal de volta.
+        if self.conversa_do_dono is None:
+            return
         if not pode_perguntar(momento, self._momento_da_ultima_pergunta):
             return
 
@@ -1023,6 +1043,7 @@ class Sessao:
             self._despachar(
                 pergunta.texto,
                 Categoria.SEMPRE,
+                conversa_alvo=self.conversa_do_dono,
                 resultado=resultado,
                 anexos=pergunta.imagens,
                 texto_sem_anexos=pergunta.texto_sem_imagens,

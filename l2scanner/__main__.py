@@ -111,6 +111,7 @@ from .notificador import (  # noqa: E402
     Despachante,
     NotificadorChatwoot,
     NotificadorDeConsole,
+    conversa_do_dono,
     formatar_console,
 )
 from .presenca import (  # noqa: E402
@@ -322,6 +323,29 @@ def montar_despachante(args: argparse.Namespace) -> Despachante | None:
         arquivo_outbox=ARQUIVO_OUTBOX,
         ao_falhar=avisar_falha,
     )
+
+
+def privado_do_dono(args: argparse.Namespace) -> str | None:
+    """A conversa para onde a pergunta do batismo vai, ou None se nao ha uma.
+
+    MESMO TRILHO DE `montar_despachante`: tenta, degrada em silencio, devolve
+    None. Sem `.env` nao ha conversa nenhuma para descobrir — e sem `.env`
+    tambem nao ha despachante, entao o caminho da pergunta ja estava fechado
+    antes desta funcao existir.
+
+    ELA LE O `.env` ATE EM `--dry-run`, e isso e de proposito. A simulacao
+    existe para mostrar o que a execucao de verdade faria; com o `.env` no
+    lugar, o console imprime a pergunta com o mesmo destino que sairia no
+    WhatsApp. Sem `.env`, ela nao imprime a pergunta — que e exatamente o que a
+    execucao de verdade faria tambem.
+
+    A REGRA DE QUAL CONVERSA E do `notificador.conversa_do_dono`, e nao daqui:
+    este arquivo so sabe carregar a configuracao.
+    """
+    try:
+        return conversa_do_dono(config_do_chatwoot())
+    except ConfigAusente:
+        return None
 
 
 def montar_gravador(args, fonte) -> Gravador | None:
@@ -2688,7 +2712,24 @@ def laco_principal(
     # arranque do scanner, uma por reinicio.
     pendentes_de_batismo = pendentes_do_acervo(acervo)
     momento_da_ultima_pergunta = None
-    if despachante is not None:
+    # PARA ONDE A PERGUNTA VAI, e ela e a unica mensagem do produto com destino
+    # proprio. `None` NAO significa "manda para o padrao": significa NAO
+    # PERGUNTA — o padrao do transporte sao as conversas de aviso, que sao o
+    # grupo, e a pergunta saiu do grupo em 2026-09-04 a pedido do usuario. Ver
+    # `notificador.conversa_do_dono`.
+    privado = privado_do_dono(args)
+    if despachante is not None and privado is None and pendentes_de_batismo:
+        # DIZER POR QUE NADA VAI CHEGAR. Um recurso ligado que nunca produz
+        # nada e degradacao silenciosa; sem esta linha, o dono com assinaturas
+        # anonimas no disco esperaria uma pergunta que este processo decidiu
+        # nao fazer, e nao teria como saber disso.
+        log.warning(
+            "Ha %d assinatura(s) sem nome no acervo, mas nao ha conversa "
+            "privada configurada: preencha CHATWOOT_CONVERSAS_COMANDO no .env. "
+            "Nenhuma pergunta foi queimada — elas saem quando o canal existir.",
+            len(pendentes_de_batismo),
+        )
+    if despachante is not None and privado is not None:
         pergunta = montar_pergunta_com_imagens(acervo, pendentes_de_batismo)
         if pergunta:
             log.info(
@@ -2709,6 +2750,7 @@ def laco_principal(
             despachante.despachar(
                 pergunta.texto,
                 Categoria.SEMPRE,
+                conversa_alvo=privado,
                 anexos=pergunta.imagens,
                 texto_sem_anexos=pergunta.texto_sem_imagens,
             )
@@ -2774,6 +2816,12 @@ def laco_principal(
         # contar dali. Sem ele o primeiro tick mandaria a segunda bolha no
         # mesmo segundo em que o scanner subiu.
         momento_da_ultima_pergunta=momento_da_ultima_pergunta,
+        # E O DESTINO DELAS. Sem esta linha a `Sessao` recebe `None`, e `None`
+        # ali quer dizer NAO PERGUNTA: as pendentes que a varredura de arranque
+        # deixou nunca sairiam, em silencio, com a fila e o relogio certos ao
+        # lado. E a mesma familia de defeito que o comentario de `membros=`
+        # descreve — a fiacao faltando com todo o resto verde.
+        conversa_do_dono=privado,
     )
 
     ultimo_status = 0.0
