@@ -230,12 +230,55 @@ fase e real e alcancavel, nao teorica.
 
 ---
 
+## Phase 3: O item pela tela
+
+**Goal**: escolher o item **pela tela**, com o nome vindo do que o scanner já leu, os campos que o programa conhece preenchidos sozinhos, e um modo de simulação para responder *"e se o NPC cobrasse outro preço?"* sem estragar o que está salvo.
+
+**Depends on**: Fase 2 (a calculadora, a região e o cálculo já existem; esta fase troca a porta de entrada dos itens).
+
+### O que o usuário pediu, e o atrito que originou (2026-09-04)
+
+Ele configurou a Gemstone e bateu de frente em três coisas, todas de uma vez: **não sabia o nome exato** que o OCR tinha gravado (o casamento é exato de propósito, para não juntar Gemstone B com C), teve de **editar um arquivo e reiniciar** para ver o resultado, e não tinha como **testar outro número** sem sobrescrever o preço de verdade. As três somem com uma caixa de escolha e um campo editável.
+
+### As decisões (2026-09-04)
+
+- **As duas coisas: salvo E simulação.** Um item salvo pela tela vira linha permanente; além dele existe um modo *"e se…"* que muda os números só na tela, marcado como simulação, e **some ao recarregar** — um número de teste que sobrevive vira um veredito errado amanhã.
+- **A tela preenche só o que o programa sabe:** o nome exato como o OCR gravou, o preço de mercado em XM, o `n` e a recência. **O preço do NPC e o tamanho do pacote nascem vazios**, porque o programa não tem como saber — e um campo pré-preenchido é um campo que alguém esquece de conferir. Sugerir um preço "parecido" foi recusado explicitamente.
+
+### A consequência que decide a arquitetura
+
+O critério que separou `cambio.json` de `config.toml` nesta árvore é **quem escreve**: navegador escreve JSON, humano escreve TOML (que tem comentário, para anotar de qual NPC veio o preço). Se o navegador passa a gravar item, **ele grava em JSON** — reescrever o TOML apagaria os comentários do usuário.
+
+E isso arrasta um segundo fato já medido: `config.toml` é lido **uma vez no arranque** (`dashboard.py:799`), enquanto `ler_o_cambio` roda **dentro do manipulador de requisição** (`dashboard.py:543`). Logo item salvo pela tela **aparece sem reiniciar**, e item do TOML continua exigindo reinício. **A tela tem de dizer qual é qual**, senão o usuário edita um, não vê mudar, e conclui que a feature quebrou.
+
+**Requirements**: ITEM-01 a ITEM-05
+
+### Success Criteria (o que tem que ser VERDADE)
+
+1. Digitando parte do nome, a tela oferece **as séries que o scanner realmente já leu**, e escolher uma preenche o nome exato — o usuário nunca digita a string que o casamento exige. — ITEM-01
+2. Escolhido o item, preço de mercado, `n` e recência aparecem sozinhos; **preço do NPC e pacote ficam vazios**. Nenhum número de NPC é sugerido, nunca. — ITEM-02
+3. Um item salvo pela tela persiste entre sessões, **em JSON escrito pelo navegador**, e o `config.toml` do usuário não é reescrito nem perde comentário. — ITEM-03
+4. O modo simulação muda o veredito na tela, fica **visivelmente marcado como simulação**, e desaparece ao recarregar sem ter tocado no que está salvo. — ITEM-04
+5. Item salvo pela tela aparece **sem reiniciar**; item do `config.toml` continua exigindo reinício, e **a tela diz de onde cada linha veio**. — ITEM-05
+6. Um item ainda **não visto** no mercado pode ser digitado livre e cai no estado "nunca vi este item" — a caixa de escolha ajuda, não aprisiona. — ITEM-01
+
+### Riscos que o planejamento tem que encarar
+
+- **O mesmo item nos dois lugares.** Se um nome estiver no `config.toml` e no JSON, alguém tem de mandar. Escolher em silêncio é o defeito; a regra e a razão vão para o fonte e para a tela.
+- **A caixa de escolha é uma superfície nova de entrada**, e o portão de origem do `POST` da Fase 1 vale igual aqui — o navegador não é confiável só por ser local.
+- **Simulação que vaza para o disco é o pior desfecho possível** desta fase: um número de teste virando veredito permanente. A separação precisa ser estrutural, não uma flag que alguém esquece.
+
+**Plans:** a definir em `/gsd-plan-phase 3 --ws dashboard`
+
+---
+
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Dashboard do cambio ao vivo | 8/8 | Executed — verificação humana pendente | - |
 | 2. A calculadora de rotas de compra | 4/4 | Executed — verificação humana pendente | - |
+| 3. O item pela tela | 0/? | Not planned | - |
 
 **O que a execução da Fase 2 mediu, e que o planejamento não sabia:**
 

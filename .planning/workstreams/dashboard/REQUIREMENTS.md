@@ -107,6 +107,41 @@
       (exato, com ambiguidade quebrando e listando as candidatas) — um segundo casamento
       inventado aqui faria a Gemstone B virar Gemstone C.
 
+## Fase 3 — o item pela tela
+
+- [ ] **ITEM-01**: O item se escolhe **pela tela**, com autocompletar sobre **as séries que o
+      scanner já leu de verdade** — o nome exato vem do CSV, não da digitação do usuário. Isso
+      remove **estruturalmente** a armadilha que ele encontrou em campo em 2026-09-04: o
+      casamento é exato de propósito (similaridade juntaria Gemstone B com Gemstone C), então
+      digitar `Gemstone C` onde o OCR gravou outra grafia produz a linha "nunca vi este item"
+      com toda a razão — e parece defeito. Um item ainda não visto continua podendo ser digitado
+      livre, e cai naquele mesmo estado: a caixa ajuda, não aprisiona.
+
+- [ ] **ITEM-02**: Escolhido o item, a tela preenche **só o que o programa sabe**: nome exato,
+      preço de mercado em XM, `n` e recência. **O preço do NPC e o tamanho do pacote nascem
+      vazios.** Sugerir um valor "parecido" de outro item foi recusado explicitamente pelo
+      usuário: um campo pré-preenchido é um campo que alguém esquece de conferir, e este decide
+      compra com dinheiro real.
+
+- [ ] **ITEM-03**: Um item salvo pela tela **persiste em JSON escrito pelo navegador**, e não no
+      `config.toml`. O critério é o mesmo que já separou os dois arquivos neste workstream —
+      **quem escreve**: o navegador escreve JSON, o humano escreve TOML, que tem comentário para
+      anotar de qual NPC veio o preço. Reescrever o TOML pelo programa apagaria essa anotação.
+      Os dois convivem, e o `config.toml` do usuário nunca é modificado por esta feature.
+
+- [ ] **ITEM-04**: Existe um **modo simulação** que responde "e se o NPC cobrasse outro preço?"
+      mudando o veredito **só na tela**, visivelmente marcado como simulação, e que **desaparece
+      ao recarregar** sem ter tocado no que está salvo. A separação é estrutural, não uma flag:
+      um número de teste que vaza para o disco vira um veredito errado amanhã, e essa é a pior
+      saída possível desta fase.
+
+- [ ] **ITEM-05**: Item salvo pela tela aparece **sem reiniciar**; item vindo do `config.toml`
+      continua exigindo reinício — e **a tela diz de onde cada linha veio**. A assimetria não é
+      escolha, é consequência medida: `config.toml` é lido uma vez no arranque
+      (`dashboard.py:799`) e `ler_o_cambio` roda dentro do manipulador de requisição
+      (`dashboard.py:543`). Sem a tela declarar isso, o usuário edita um arquivo, não vê mudar, e
+      conclui que a feature quebrou.
+
 ## Restrições herdadas — valem no workstream inteiro
 
 - **FIRE-01 continua valendo**: nenhuma biblioteca de síntese de input entra na árvore.
@@ -132,3 +167,8 @@
 | CALC-03 | Phase 2 | Pending |
 | CALC-04 | Phase 2 | Pending |
 | CALC-05 | Phase 2 | Pending |
+| ITEM-01 | Phase 3 | Pending |
+| ITEM-02 | Phase 3 | Pending |
+| ITEM-03 | Phase 3 | Pending |
+| ITEM-04 | Phase 3 | Pending |
+| ITEM-05 | Phase 3 | Pending |
