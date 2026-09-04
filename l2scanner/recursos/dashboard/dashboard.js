@@ -426,10 +426,22 @@ function montarUmaRota(molde, item) {
     "data-vencedora",
     item.vencedora === null ? "" : item.vencedora
   );
+  // O DADO VELHO DA LINHA É DA LINHA, e não do `<body>`. O atributo tem o mesmo
+  // NOME do ortogonal da Fase 1 — uma só palavra para o mesmo conceito — mas
+  // mora aqui, porque a pergunta "esta leitura está velha?" tem uma resposta por
+  // item. O limiar é o mesmo, e ele já foi aplicado no Python.
+  linha.setAttribute("data-velho", item.velho ? "sim" : "nao");
 
   escreverNoVao(fragmento, "item", item.nome_exibido);
+  // A FRASE DE FALTA É ESTA, e ela ocupa o lugar do veredito na marcação. Nos
+  // quatro estados sem vencedora o Python manda a frase que explica o que
+  // faltou; nos outros dois ela vem nula, o vão fica vazio, e o CSS o retira.
   escreverNoVao(fragmento, "aviso", item.aviso);
 
+  // OS DOIS `if` ABAIXO NÃO SÃO CONDIÇÃO DE TELA — são guarda contra ler
+  // propriedade de `null`. Nos estados de quebra o Python manda os dois lados
+  // NULOS de propósito, e `item.npc.texto` lançaria. Quem decide o que aparece
+  // continua sendo o CSS, pelo atributo de estado que a linha acabou de receber.
   if (item.npc !== null) {
     escreverNoVao(fragmento, "npc-valor", item.npc.texto);
     escreverNoVao(fragmento, "npc-pacote", item.npc.pacote_texto);
@@ -437,9 +449,34 @@ function montarUmaRota(molde, item) {
   if (item.mercado !== null) {
     escreverNoVao(fragmento, "mercado-valor", item.mercado.texto);
   }
+
+  // A MEDIANA É CONTEXTO, e o `n` dela viaja junto em vez de a tela reusar o `n`
+  // da linha: os dois pisos podem deixar de ser o mesmo, e aí os dois números
+  // discordariam sobre a mesma linha.
+  escreverNoVao(fragmento, "mediana", item.mediana.texto);
+  escreverNoVao(
+    fragmento,
+    "mediana-n",
+    item.mediana.n === null ? "" : "n=" + item.mediana.n
+  );
+
   if (item.diferenca !== null) {
     escreverNoVao(fragmento, "diferenca-xm", item.diferenca.xm);
     escreverNoVao(fragmento, "diferenca-percentual", item.diferenca.percentual);
+    // A PARTE DE R$ NÃO GANHA UM `if`, E A AUSÊNCIA DELE É O PONTO.
+    //
+    // Quando não há câmbio informado o Python manda este campo NULO, o
+    // `escreverNoVao` escreve cadeia vazia, e a regra
+    // `body[data-cambio="ausente"]` retira o vão da tela — a MESMA regra, no
+    // mesmo agrupamento de seletores, que já retira o cartão de R$ do destaque.
+    //
+    // Um `if (item.diferenca.reais === null)` aqui seria uma condição de tela
+    // escrita em JavaScript: uma condição que NÃO aparece na folha de estilo. As
+    // duas versões da verdade divergiriam no primeiro ajuste, sem quebrar nada
+    // em voz alta — o cartão sumindo lá em cima e a linha ficando aqui embaixo,
+    // sobre o mesmo câmbio que não existe. Há teste desta fase procurando por
+    // essa comparação, com controle sobre um trecho de mentira que a contém.
+    escreverNoVao(fragmento, "diferenca-reais", item.diferenca.reais);
   }
 
   // O `n=` é um RÓTULO nosso, e não uma reescrita do valor: o número entra do

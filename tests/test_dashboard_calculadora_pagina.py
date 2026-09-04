@@ -32,19 +32,27 @@ que o DASH-03 recusa.
 from __future__ import annotations
 
 import re
+import threading
 from pathlib import Path
 
 import pytest
 
-from l2scanner import dashboard_dados, dashboard_rotas
+from l2scanner import dashboard, dashboard_dados, dashboard_rotas
+from tests.test_dashboard_js import _corpo_da_funcao, _so_o_codigo
 from tests.test_dashboard_rotas_tracer import (  # noqa: F401
+    AGORA,
     ARQUIVO_DO_CSS,
     ARQUIVO_DO_HTML,
     ARQUIVO_DO_JS,
     ID_DA_REGIAO,
     ID_DO_INSTANTE,
     ID_DO_MOLDE,
+    LINHAS_DA_ADENA,
+    LINHAS_DA_GEMSTONE,
     _Arvore,
+    _escrever_csv,
+    _get_dados,
+    _item,
     regras_do_css,
     sonda_da_falha_fechada,
     sonda_da_marca_da_vencedora,
@@ -726,3 +734,345 @@ class TestUmaAutoridadeSoSobreCadaInvarianteDeCSS:
             flags=re.MULTILINE,
         )
         assert len(achados) == 2
+
+
+# ===========================================================================
+# TAREFA 3 — A PROVA SEM NAVEGADOR DE QUE A REGIAO FLUI
+# ===========================================================================
+#
+# CINCO ELOS, no molde de `tests/test_dashboard_serie_generica.py`:
+#
+#   1. DADO      — o payload traz o bloco com itens em MAIS DE UM estado
+#   2. CONTRATO  — todos os itens tem o MESMO conjunto de chaves, seja qual for
+#                  o estado (um estado com menos chaves obrigaria o desenho a ter
+#                  um `if` por estado)
+#   3. SERVIDOR  — os campos atravessam o `GET /dados` sem perder nada
+#   4. MARCACAO  — todo vao que a pintura escreve existe no molde, E todo vao do
+#                  molde e escrito por alguem. AS DUAS DIRECOES: um vao orfao e
+#                  copia morta, e um vao inexistente e escrita silenciosa no
+#                  vazio
+#   5. NAVEGADOR — toda propriedade do bloco que a pintura LE existe no payload
+#                  real, com CONTROLE NEGATIVO no extrator
+#
+# O ELO 5 SO VALE POR CAUSA DO CONTROLE. Sem ele, um extrator que devolvesse
+# conjunto vazio faria `vazio <= qualquer_coisa` ser verdade, e a prova passaria
+# por vacuidade sobre um `dashboard.js` apagado — o risco que o `01-08` registrou
+# por escrito.
+
+
+def propriedades_do_item_consumidas(js: str) -> set:
+    """Os caminhos de propriedade que a pintura de UMA linha LE do payload.
+
+    Devolve tanto o nome de topo (`npc`) quanto o caminho aninhado
+    (`npc.texto`), porque os dois sao leituras de verdade e as duas podem
+    apontar para um campo que nao existe.
+
+    Comentario NAO conta: o `montarUmaRota` explica em prosa varios campos, e
+    colher da prosa faria o elo 5 ficar vermelho por causa de um comentario —
+    o jeito mais rapido de alguem apagar o teste.
+
+    Conjunto VAZIO significa ausencia, e nao cegueira — quem prova isso e
+    `test_CONTROLE_o_extrator_ACUSA_o_que_diz_medir`.
+    """
+    corpo = _so_o_codigo(_corpo_da_funcao(js, "montarUmaRota"))
+    achados = set()
+    for casamento in re.finditer(
+        r"\bitem\.([A-Za-z_$][\w$]*)(?:\.([A-Za-z_$][\w$]*))?", corpo
+    ):
+        achados.add(casamento.group(1))
+        if casamento.group(2):
+            achados.add(casamento.group(1) + "." + casamento.group(2))
+    return achados
+
+
+def vaos_escritos_pela_pintura(js: str) -> set:
+    """Os nomes de vao que a pintura de uma linha escreve."""
+    corpo = _so_o_codigo(_corpo_da_funcao(js, "montarUmaRota"))
+    return set(re.findall(r'escreverNoVao\(\s*\w+\s*,\s*"([^"]+)"', corpo))
+
+
+def caminho_existe(item: dict, caminho: str) -> bool:
+    atual = item
+    for parte in caminho.split("."):
+        if not isinstance(atual, dict) or parte not in atual:
+            return False
+        atual = atual[parte]
+    return True
+
+
+@pytest.fixture(scope="module")
+def bloco() -> dict:
+    """O bloco da calculadora com itens em MAIS DE UM estado.
+
+    Tudo nasce em `tmp_path`; nada aqui toca a `.mercado/` real nem o
+    `config.toml` real.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temporaria:
+        pasta = Path(temporaria) / ".mercado"
+        pasta.mkdir()
+        _escrever_csv(pasta, LINHAS_DA_ADENA, LINHAS_DA_GEMSTONE)
+        dados = dashboard_dados.payload(
+            pasta,
+            AGORA,
+            cambio=None,
+            itens=[_item(), _item(nome="Nao Existe Este Item")],
+            itens_lidos_em=AGORA,
+        )
+        return dados["calculadora"]
+
+
+class TestElo1ODadoTrazMaisDeUmEstado:
+    def test_o_bloco_esta_no_estado_com_itens(self, bloco: dict):
+        assert bloco["estado"] == dashboard_dados.CALCULADORA_COM_ITENS
+
+    def test_os_itens_estao_em_MAIS_DE_UM_estado(self, bloco: dict):
+        """Um payload de um estado so provaria o desenho de um estado so."""
+        estados = {item["estado"] for item in bloco["itens"]}
+        assert len(estados) >= 2, estados
+        assert estados <= set(dashboard_rotas.ESTADOS_DA_ROTA), estados
+
+
+class TestElo2OContratoEPorFORMA:
+    def test_todos_os_itens_tem_o_MESMO_conjunto_de_chaves(self, bloco: dict):
+        """Um estado que devolvesse menos chaves obrigaria o desenho a ter um
+        `if` por estado — e a primeira leitura que esquecesse o teste quebraria
+        a pagina inteira num estado raro."""
+        conjuntos = [frozenset(item) for item in bloco["itens"]]
+        assert len(set(conjuntos)) == 1, [sorted(c) for c in conjuntos]
+
+    def test_o_bloco_tem_o_instante_da_leitura_em_NIVEL_DE_BLOCO(
+        self, bloco: dict
+    ):
+        """Ele e do BLOCO, e nao de cada item — e nenhum item o carrega."""
+        assert bloco["itens_lidos_em"] is not None
+        for item in bloco["itens"]:
+            assert "itens_lidos_em" not in item
+
+
+class TestElo3OsCamposAtravessamOServidor:
+    def test_o_bloco_sai_do_soquete_IDENTICO_ao_do_payload(self, tmp_path: Path):
+        pasta = tmp_path / ".mercado"
+        pasta.mkdir()
+        _escrever_csv(pasta, LINHAS_DA_ADENA, LINHAS_DA_GEMSTONE)
+        itens = [_item(), _item(nome="Nao Existe Este Item")]
+        lidos_em = AGORA
+
+        servidor = dashboard.montar_servidor(
+            porta=0,
+            pasta_do_mercado=pasta,
+            itens=itens,
+            itens_lidos_em=lidos_em,
+        )
+        tarefa = threading.Thread(
+            target=servidor.serve_forever,
+            kwargs={"poll_interval": 0.01},
+            daemon=True,
+        )
+        tarefa.start()
+        try:
+            status, servido = _get_dados(servidor.server_address[1])
+        finally:
+            servidor.shutdown()
+            servidor.server_close()
+            tarefa.join(timeout=5)
+
+        assert status == 200
+        bloco = servido["calculadora"]
+        assert bloco["estado"] == dashboard_dados.CALCULADORA_COM_ITENS
+        assert len(bloco["itens"]) == len(itens)
+        # NENHUMA CHAVE SE PERDE NA SERIALIZACAO. A comparacao e contra o
+        # conjunto que o payload monta em memoria, e nao contra uma lista
+        # escrita a mao aqui — uma lista a mao envelheceria calada.
+        em_memoria = dashboard_dados.payload(
+            pasta, AGORA, cambio=None, itens=itens, itens_lidos_em=lidos_em
+        )["calculadora"]
+        assert set(bloco) == set(em_memoria)
+        for servido_item, memoria_item in zip(bloco["itens"], em_memoria["itens"]):
+            assert set(servido_item) == set(memoria_item)
+
+
+class TestElo4AMarcacaoEOJSCasamNasDUASDirecoes:
+    def test_todo_vao_que_a_pintura_ESCREVE_existe_no_molde(
+        self, js: str, html: str
+    ):
+        """Escrever num vao inexistente e escrita silenciosa no vazio: o
+        `querySelector` devolve `null`, o `escreverNoVao` volta sem fazer nada, e
+        o campo nunca chega a tela sem que nada quebre em voz alta."""
+        escritos = vaos_escritos_pela_pintura(js)
+        assert escritos, "o extrator nao achou vao nenhum na funcao de pintura"
+        no_molde = set(vaos_de(molde_da_linha(html)))
+        assert escritos <= no_molde, sorted(escritos - no_molde)
+
+    def test_todo_vao_do_MOLDE_e_escrito_por_alguem(self, js: str, html: str):
+        """A segunda direcao. Um vao orfao e COPIA MORTA com cara de campo — e
+        foi ela que encontrou o `mercado-pacote`, que existia desde o 02-01 e que
+        ninguem preenchia porque so o NPC vende em pacote fechado."""
+        no_molde = set(vaos_de(molde_da_linha(html)))
+        assert no_molde, "o molde nao tem vao nenhum"
+        escritos = vaos_escritos_pela_pintura(js)
+        assert no_molde <= escritos, sorted(no_molde - escritos)
+
+    def test_CONTROLE_as_duas_direcoes_ACUSAM_o_desencontro(self):
+        """Uma direcao so nao pega os dois defeitos, e o controle mostra qual
+        pega qual."""
+        escritos = {"item", "npc-valor"}
+        no_molde = {"item", "mediana"}
+        # vao inexistente: o JS escreve algo que o molde nao tem
+        assert not escritos <= no_molde
+        assert escritos - no_molde == {"npc-valor"}
+        # vao orfao: o molde tem algo que ninguem escreve
+        assert not no_molde <= escritos
+        assert no_molde - escritos == {"mediana"}
+
+    def test_CONTROLE_o_extrator_de_vaos_ACUSA_o_que_diz_medir(self):
+        fabricado = (
+            "function montarUmaRota(molde, item) {\n"
+            '  escreverNoVao(fragmento, "item", item.nome_exibido);\n'
+            '  escreverNoVao(fragmento, "mediana", item.mediana.texto);\n'
+            "}\n"
+        )
+        assert vaos_escritos_pela_pintura(fabricado) == {"item", "mediana"}
+
+        sem_nenhum = "function montarUmaRota(molde, item) {\n  return null;\n}\n"
+        assert vaos_escritos_pela_pintura(sem_nenhum) == set()
+
+
+class TestElo5OQueONavegadorCONSOME:
+    """O elo que fecha a prova: o lado do desenho, por leitura de fonte."""
+
+    def test_toda_propriedade_LIDA_pela_pintura_existe_no_payload(
+        self, js: str, bloco: dict
+    ):
+        """A assercao de NAO-VAZIO vem ANTES da comparacao, e e obrigatoria.
+
+        Com o conjunto vazio, toda comparacao abaixo passaria — sobre um
+        `dashboard.js` sem funcao de pintura, sobre um arquivo apagado, e sobre
+        um extrator quebrado. Um teste que passa por vacuidade anuncia uma
+        garantia que nao existe.
+        """
+        consumidas = propriedades_do_item_consumidas(js)
+        assert consumidas, (
+            "o extrator nao achou NENHUMA propriedade de item no dashboard.js; "
+            "a comparacao abaixo passaria por vacuidade"
+        )
+
+        itens = bloco["itens"]
+        de_topo = {caminho for caminho in consumidas if "." not in caminho}
+        aninhadas = consumidas - de_topo
+
+        # AS DE TOPO TEM DE EXISTIR EM **TODOS** OS ITENS — e o elo 2 e o que
+        # torna essa exigencia justa.
+        for item in itens:
+            faltando = de_topo - set(item)
+            assert not faltando, (item["estado"], sorted(faltando))
+
+        # AS ANINHADAS, EM **AO MENOS UM** — e a razao esta escrita: nos quatro
+        # estados de quebra o Python manda `npc`, `mercado` e `diferenca` NULOS
+        # de proposito, entao `npc.texto` nao resolve la, e nem deve. O que este
+        # elo prende e que o nome existe onde o objeto existe.
+        for caminho in sorted(aninhadas):
+            assert any(caminho_existe(item, caminho) for item in itens), caminho
+
+    def test_CONTROLE_o_extrator_ACUSA_o_que_diz_medir(self):
+        """CONTROLE NEGATIVO do extrator, nos TRES sentidos."""
+        fabricado = (
+            "function montarUmaRota(molde, item) {\n"
+            '  linha.setAttribute("data-estado", item.estado);\n'
+            '  escreverNoVao(fragmento, "mediana", item.mediana.texto);\n'
+            "}\n"
+        )
+        assert propriedades_do_item_consumidas(fabricado) == {
+            "estado",
+            "mediana",
+            "mediana.texto",
+        }
+
+        # Sem leitura nenhuma, conjunto VAZIO. Sem esta metade, um extrator que
+        # devolvesse SEMPRE o mesmo conjunto tambem passaria na assercao acima.
+        sem_leitura = "function montarUmaRota(molde, item) {\n  return null;\n}\n"
+        assert propriedades_do_item_consumidas(sem_leitura) == set()
+
+        # E comentario nao conta.
+        so_em_comentario = (
+            "function montarUmaRota(molde, item) {\n"
+            "  // esta funcao le item.campo_que_nao_existe\n"
+            "  return item.estado;\n"
+            "}\n"
+        )
+        assert propriedades_do_item_consumidas(so_em_comentario) == {"estado"}
+
+    def test_CONTROLE_um_payload_de_MENTIRA_sem_uma_propriedade_e_ACUSADO(
+        self, js: str, bloco: dict
+    ):
+        """A metade que o `01-08` exige por escrito.
+
+        Sem ela o elo 5 passa por vacuidade: uma comparacao que nunca poderia
+        falhar nao e um guarda. Aqui uma propriedade e ARRANCADA de um item real,
+        e a mesma comparacao tem de ACUSAR.
+        """
+        consumidas = propriedades_do_item_consumidas(js)
+        de_topo = {caminho for caminho in consumidas if "." not in caminho}
+        assert "estado" in de_topo
+
+        mentiroso = dict(bloco["itens"][0])
+        del mentiroso["estado"]
+        assert de_topo - set(mentiroso) == {"estado"}
+
+
+class TestAParteDeReaisNaoTemCondicionalNoJS:
+    """Uma condicao de tela escrita em JavaScript e uma condicao que NAO aparece
+    na folha de estilo, e as duas versoes da verdade divergem no primeiro
+    ajuste, sem quebrar nada em voz alta."""
+
+    @staticmethod
+    def _condicionais_em_volta_do_reais(corpo: str) -> list:
+        return re.findall(
+            r"reais\s*(?:===|!==|==|!=)\s*null"
+            r"|null\s*(?:===|!==|==|!=)\s*[\w.]*reais"
+            r"|if\s*\([^)]*\breais\b[^)]*\)"
+            r"|\breais\s*\?",
+            corpo,
+        )
+
+    def test_NAO_ha_comparacao_contra_nulo_em_volta_do_vao_de_reais(
+        self, js: str
+    ):
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "montarUmaRota"))
+        assert "diferenca-reais" in corpo, (
+            "a pintura nem escreve o vao de R$; nao ha o que medir"
+        )
+        assert self._condicionais_em_volta_do_reais(corpo) == []
+
+    def test_CONTROLE_a_sonda_ACUSA_um_trecho_de_mentira_que_a_contem(self):
+        """As tres formas que o defeito tomaria."""
+        mentiras = (
+            'if (item.diferenca.reais !== null) { escreverNoVao(f, "x", 1); }',
+            "  var texto = item.diferenca.reais === null ? '' : x;",
+            '  escreverNoVao(f, "diferenca-reais", item.diferenca.reais ? y : "");',
+        )
+        for mentira in mentiras:
+            assert self._condicionais_em_volta_do_reais(mentira), mentira
+
+
+class TestOsCamposDeBlocoCONTINUAMSendoEscritos:
+    """O plano manda CONFERIR, e nao presumir: as mudancas desta fase mexeram na
+    funcao ao lado, e um campo de bloco que parasse de ser escrito sumiria da
+    tela sem quebrar nada."""
+
+    def test_o_aviso_de_bloco_e_o_instante_da_leitura_continuam_no_JS(
+        self, js: str
+    ):
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "pintarAsRotas"))
+        assert "rotas-aviso" in corpo
+        assert ID_DO_INSTANTE in corpo
+        assert "itens_lidos_em" in corpo
+
+    def test_eles_NAO_migraram_para_dentro_da_pintura_da_LINHA(self, js: str):
+        """A migracao acidental que esta fase poderia ter causado: repetido por
+        item, o instante sairia N vezes e diria que cada item foi lido num
+        instante proprio."""
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "montarUmaRota"))
+        assert ID_DO_INSTANTE not in corpo
+        assert "itens_lidos_em" not in corpo
