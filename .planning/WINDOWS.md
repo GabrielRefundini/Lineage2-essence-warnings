@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 48
+open_count: 49
 waived_count: 1
 fixed_count: 10
-total_count: 59
-last_updated: 2026-09-03T12:41:58.560Z
+total_count: 60
+last_updated: 2026-09-04T02:36:28.418Z
 ---
 
 # Broken Windows Ledger
@@ -74,6 +74,7 @@ last_updated: 2026-09-03T12:41:58.560Z
 | 57 | 3 | stub | l2scanner/renda_console.py |  | linha_do_tique aceita estado= e ele ainda nao faz nada em producao: e o seam que o 03-02 usa para PAUSADO/PARADO | open |  | 2026-09-03T12:41:36.157Z |  |
 | 58 | 3 | stub | l2scanner/renda_laco.py |  | o laco captura com capturar() mas ainda NAO le frame.saude: a classificacao de cegueira e CEGO-01/02 e e do 03-02 | open |  | 2026-09-03T12:41:47.115Z |  |
 | 59 | 3 | deviation | .planning/workstreams/renda/phases/03-o-modo-renda-o-painel-ao-vivo-e-a-cegueira-declarada/03-01-PLAN.md |  | verificacao 4 do plano (grep -c capturar_completo <= 1) devolve 5 por causa da docstring; substituida por portao de AST que conta CHAMADAS e devolve 1 | open |  | 2026-09-03T12:41:58.560Z |  |
+| 60 | tiat-02 | todo | tests/test_janela_no_relogio.py | 57 | Fixturas de ancora com data FIXA (2026-08-30) expiram contra a poda de 3 dias de RegistroEmDisco.__init__: em 2026-09-03 dezesseis testes de respawn/sessao/relogio falham por a ancora ser apagada antes de ser lida. Medido: identicas 16 falhas em HEAD sem nenhuma alteracao; com a data da fixtura trocada para hoje, 6 das 8 do arquivo voltam a passar. Conserto = datar as fixturas em relacao a date.today() ou injetar o hoje na poda. | open |  | 2026-09-04T02:36:28.418Z |  |
 
 ````json
 [
@@ -783,6 +784,18 @@ last_updated: 2026-09-03T12:41:58.560Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-03T12:41:58.560Z",
+    "resolved_at": null
+  },
+  {
+    "id": 60,
+    "kind": "todo",
+    "phase": "tiat-02",
+    "file": "tests/test_janela_no_relogio.py",
+    "line": 57,
+    "description": "Fixturas de ancora com data FIXA (2026-08-30) expiram contra a poda de 3 dias de RegistroEmDisco.__init__: em 2026-09-03 dezesseis testes de respawn/sessao/relogio falham por a ancora ser apagada antes de ser lida. Medido: identicas 16 falhas em HEAD sem nenhuma alteracao; com a data da fixtura trocada para hoje, 6 das 8 do arquivo voltam a passar. Conserto = datar as fixturas em relacao a date.today() ou injetar o hoje na poda.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-04T02:36:28.418Z",
     "resolved_at": null
   }
 ]
