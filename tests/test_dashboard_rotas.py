@@ -25,6 +25,7 @@ passaria a medir o numero antigo em silencio.
 
 from __future__ import annotations
 
+import ast
 import importlib
 import re
 from datetime import datetime
@@ -865,3 +866,281 @@ class TestAListaAvisosNaoSeMoveu:
             # POSICAO.
             assert sem["avisos"] == com["avisos"], destino.name
         assert vistos == set(dashboard_dados.ESTADOS)
+
+
+# ===========================================================================
+# A CONTA E GENERICA (CALC-05), E ELA NAO ARREDONDA
+# ===========================================================================
+#
+# O ANALOGO ESTRUTURAL E `tests/test_dashboard_serie_generica.py`, e o que se
+# aprende dele e que **o elo que importa e o NEGATIVO**: contar chaves iguais
+# mostra que um terceiro item ATRAVESSA, e nao que ele atravessa sem um `if`
+# com o nome dele dentro. Um `if` por item passaria na contagem de chaves com
+# folga.
+#
+# **POR QUE AS SONDAS LEEM SO O CODIGO, E ISSO ESTA MEDIDO.** Rodada sobre o
+# texto cru, a sonda de nome de item ACUSA `dashboard_rotas.py` -- e as duas
+# acusacoes estao dentro da docstring da refutacao do corte de similaridade,
+# que explica exatamente por que o casamento exato existe. Uma sonda que pune o
+# arquivo por NOMEAR o defeito que ele evita ensina a apagar a explicacao, e a
+# explicacao e metade do valor do arquivo. E a mesma licao que
+# `test_dashboard_js._so_o_codigo` ja registrou, agora do lado do Python.
+#
+# **E POR QUE ESTE CABECALHO NAO ESCREVE OS NOMES PROCURADOS.** Eles vem das
+# constantes de dado logo abaixo, e nao da prosa: repeti-los aqui faria uma
+# busca futura por "onde este projeto conhece esses nomes" cair num comentario
+# de teste que existe justamente para dizer que o codigo NAO os conhece.
+
+NOMES_DO_ROADMAP = (NOME_DO_ITEM, "Gemstone B")
+NOME_DO_TERCEIRO = "Fafurion Doll"
+CHAVE_DO_TERCEIRO = "fafurion-doll#0"
+
+
+def _so_o_codigo_python(fonte: str) -> str:
+    """O Python sem comentarios e sem docstrings. So o que EXECUTA.
+
+    O caminho e `ast`: a arvore ja nasce sem comentario nenhum, e as docstrings
+    sao a primeira instrucao de modulo, classe ou funcao quando ela e uma
+    string solta. Removidas as duas, `ast.unparse` devolve o codigo.
+
+    ELE E MAIS CONFIAVEL QUE UM REGEX de aspas triplas, e a diferenca importa:
+    um regex erraria em qualquer string de producao que contivesse aspas, e um
+    guarda que erra em silencio nao e guarda.
+    """
+    arvore = ast.parse(fonte)
+    for no in ast.walk(arvore):
+        if isinstance(
+            no,
+            (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
+        ):
+            corpo = no.body
+            if (
+                corpo
+                and isinstance(corpo[0], ast.Expr)
+                and isinstance(corpo[0].value, ast.Constant)
+                and isinstance(corpo[0].value.value, str)
+            ):
+                corpo.pop(0)
+    return ast.unparse(arvore)
+
+
+def _nomes_de_item_no_codigo(fonte: str) -> list:
+    """Os nomes de item que aparecem como LITERAL no codigo. A SONDA."""
+    codigo = _so_o_codigo_python(fonte)
+    procurados = list(NOMES_DO_ROADMAP) + [NOME_DO_TERCEIRO]
+    return [nome for nome in procurados if nome.lower() in codigo.lower()]
+
+
+# O ARREDONDAMENTO INTEIRO DESTA FASE MORA DO LADO DE QUEM FORMATA.
+#
+# `//` ENTRA NA LISTA porque divisao inteira e arredondamento com outro nome, e
+# `float(` entra porque converter para ponto flutuante e o arredondamento mais
+# silencioso de todos -- ele nao aparece como chamada de arredondamento nenhuma.
+SINAIS_DE_ARREDONDAMENTO = (
+    "round(",
+    "int(",
+    "float(",
+    "floor",
+    "ceil",
+    "quantize",
+    "//",
+)
+
+
+def _arredondamentos_no_codigo(fonte: str) -> list:
+    codigo = _so_o_codigo_python(fonte)
+    return [sinal for sinal in SINAIS_DE_ARREDONDAMENTO if sinal in codigo]
+
+
+class TestAContaNaoConheceNomeDeItem:
+    """CALC-05, a metade do calculo. Um `if` por item e o que o requisito
+    recusa, e uma sonda que so contasse chaves nao o veria."""
+
+    def _modelo_dos_tres(self):
+        return ModeloDeMercado.de_observacoes(
+            _serie(
+                CHAVE_DA_SERIE_DA_ADENA,
+                "Adena",
+                [4500 + 100 * i for i in range(_piso())],
+                quantidade=5_000_000,
+            )
+            + _serie(CHAVE_DO_ITEM, NOME_DO_ITEM, _totais_do_item(_piso()))
+            + _serie(
+                "gemstone-b#0", NOMES_DO_ROADMAP[1], _totais_do_item(_piso(), 11800)
+            )
+            + _serie(
+                CHAVE_DO_TERCEIRO,
+                NOME_DO_TERCEIRO,
+                _totais_do_item(_piso(), 3100),
+            )
+        )
+
+    def test_o_TERCEIRO_item_atravessa_com_o_MESMO_conjunto_de_chaves(self):
+        """Ele nao esta em ROADMAP nenhum, e nao muda uma linha de codigo."""
+        itens = [
+            _item(nome=NOMES_DO_ROADMAP[0]),
+            _item(nome=NOMES_DO_ROADMAP[1]),
+            _item(nome=NOME_DO_TERCEIRO),
+        ]
+        vereditos = dashboard_rotas.vereditos_das_rotas(
+            itens, self._modelo_dos_tres(), TAXA_MEDIDA, AGORA
+        )
+        assert len(vereditos) == 3
+        for veredito in vereditos:
+            assert veredito.estado == dashboard_rotas.ROTA_DECIDIDA
+            assert veredito.vencedora is not None
+
+        linhas = [
+            dashboard_dados._linha_da_rota(veredito, AGORA, CAMBIO)
+            for veredito in vereditos
+        ]
+        primeiro = set(linhas[0])
+        for linha in linhas[1:]:
+            assert set(linha) == primeiro
+        assert set(linhas[2]["diferenca"]) == set(linhas[0]["diferenca"])
+        assert set(linhas[2]["npc"]) == set(linhas[0]["npc"])
+
+    def test_NENHUM_nome_de_item_aparece_como_literal_no_codigo(self):
+        """O elo NEGATIVO. Um `if` por item seria exatamente o que o CALC-05
+        recusa, e ele passaria calado numa contagem de chaves."""
+        for modulo in (dashboard_rotas, dashboard_dados):
+            fonte = Path(modulo.__file__).read_text(encoding="utf-8")
+            assert _nomes_de_item_no_codigo(fonte) == [], modulo.__name__
+
+    def test_CONTROLE_a_sonda_ACUSA_um_if_por_nome_de_item(self):
+        """Sem este controle, a sonda passaria sobre um arquivo vazio."""
+        mentira = (
+            "def preco(item):\n"
+            f'    if item.nome == "{NOMES_DO_ROADMAP[0]}":\n'
+            "        return 1\n"
+            "    return 2\n"
+        )
+        assert _nomes_de_item_no_codigo(mentira) == [NOMES_DO_ROADMAP[0]]
+
+    def test_CONTROLE_a_sonda_NAO_acusa_o_nome_citado_so_na_PROSA(self):
+        """A metade que protege a explicacao.
+
+        MEDIDO: o `dashboard_rotas.py` real cita os dois nomes do ROADMAP dentro
+        da docstring que explica por que o corte de similaridade os juntaria --
+        e e por isso que ele NAO pode ser recusado por cita-los.
+        """
+        so_na_prosa = (
+            f'"""A refutacao: o corte juntaria {NOMES_DO_ROADMAP[0]} com '
+            f'{NOMES_DO_ROADMAP[1]}."""\n'
+            f"# E tambem {NOME_DO_TERCEIRO}, em comentario.\n"
+            "def preco(item):\n"
+            "    return item.preco_npc_adena\n"
+        )
+        assert _nomes_de_item_no_codigo(so_na_prosa) == []
+
+        # E a prova de que o arquivo real DEPENDE dessa metade: sobre o texto
+        # cru, a sonda acusa.
+        cru = Path(dashboard_rotas.__file__).read_text(encoding="utf-8")
+        assert [
+            nome
+            for nome in list(NOMES_DO_ROADMAP) + [NOME_DO_TERCEIRO]
+            if nome.lower() in cru.lower()
+        ] == list(NOMES_DO_ROADMAP)
+
+
+class TestAContaNaoARREDONDA:
+    """O arredondamento inteiro desta fase mora do lado de quem FORMATA."""
+
+    def test_o_dashboard_rotas_NAO_arredonda_em_lugar_nenhum(self):
+        fonte = Path(dashboard_rotas.__file__).read_text(encoding="utf-8")
+        assert _arredondamentos_no_codigo(fonte) == []
+
+    def test_CONTROLE_a_sonda_ACUSA_um_trecho_que_arredonda(self):
+        mentira = (
+            "def unitario(total, quantidade):\n"
+            "    return round(total / quantidade)\n"
+        )
+        assert "round(" in _arredondamentos_no_codigo(mentira)
+
+        # E o outro sentido: arredondamento so na PROSA nao conta.
+        so_na_prosa = (
+            '"""O arredondamento acontece so no formatador: round(x)."""\n'
+            "def unitario(total, quantidade):\n"
+            "    return total / quantidade\n"
+        )
+        assert _arredondamentos_no_codigo(so_na_prosa) == []
+
+
+class TestAComparacaoEEXATA:
+    """O CALC-01 por extenso: *um veredito que vira de lado por meio centavo e
+    o defeito que essa disciplina existe para impedir*.
+
+    **ESTA CLASSE FECHA PELA SAIDA (b) DO CRITERIO, E O REGISTRO E ESTE.**
+
+    O QUE JA FOI TENTADO -- E NAO SE REPETE AQUI DE PROPOSITO
+    =========================================================
+    O plano 02-01 gastou tres buscas somando **2,7 milhoes de sorteios** com o
+    lado exato saindo de `custo_da_rota_do_npc` e o lado float espelhando as
+    MESMAS operacoes: 400 mil pares em faixas realistas (**0 inversoes de
+    vencedora**), 300 mil procurando "diferenca exata nao nula com diferenca em
+    float zero" (**0 casos**), e 2 milhoes procurando divergencia de
+    arredondamento (**0 casos**). Repetir a busca custaria segundos de suite a
+    cada rodada para reencontrar o mesmo zero.
+
+    POR QUE A SAIDA (a) E ESTRUTURALMENTE INALCANCAVEL -- as duas razoes ja
+    estao MEDIDAS como teste no `test_dashboard_rotas_tracer.py`: converter
+    `Fraction` para `float` e MONOTONICO (0 violacoes em 200 mil pares), entao
+    uma implementacao que convertesse e comparasse nao CONSEGUE inverter uma
+    vencedora; e a grade de precos do mercado e `1/quantidade`, treze ordens de
+    grandeza mais larga que o erro relativo de `1e-16` do `float`.
+
+    **UMA BUSCA NOVA FOI FEITA NESTE PLANO, E ELA TAMBEM DEU ZERO** -- fica
+    registrada porque um numero que nao se sustentou tem de dizer que nao se
+    sustentou (regra 6 do `CLAUDE.md`). Procurou-se o par que faria a GUARDA
+    NOVA mudar de estado: exato caindo na frase de inexibivel e float caindo num
+    numero. Varrendo `d` de 1 a 20.000 com `taxa = 1/(2d)` e `preco = d` (o
+    unitario exato cravado em `1/2`, que e a fronteira do arredondamento):
+    **0 casos**. O erro do `float` ali e de um lado so.
+
+    A PROPRIEDADE PINADA NO LUGAR, E ELA E VISIVEL NA TELA
+    ======================================================
+    O par e DERIVADO de `1/98` nao ser representavel em binario, e nao escolhido
+    a dedo. Ele atravessa `_texto_do_unitario`, que e o ponto por onde TODO
+    numero desta regiao vira texto: a conta exata imprime **um centesimo a mais**
+    do que a mesma conta em ponto flutuante.
+
+    A forma fraca -- "a implementacao usa `Fraction`" -- nao aparece em teste
+    nenhum desta classe, de proposito: ela nao exercita diferenca nenhuma.
+    """
+
+    D = 49
+    TAXA_DERIVADA = Fraction(1, 2 * D)
+
+    def test_o_CENTESIMO_EXIBIDO_difere_entre_a_conta_exata_e_a_em_float(self):
+        """Pelo ponto de PRODUCAO por onde o numero vira texto."""
+        preco = 3 * self.D  # unitario exato = 3/2, a fronteira do arredondamento
+        exato = dashboard_rotas.custo_da_rota_do_npc(
+            _item(preco=preco), self.TAXA_DERIVADA
+        ).unitario
+        # A MESMA conta que uma implementacao em ponto flutuante teria escrito.
+        flutuante = Fraction(preco * (1 / (2 * self.D)) / 1)
+
+        assert exato == Fraction(3, 2)
+        assert flutuante != Fraction(3, 2)
+
+        texto_exato = dashboard_dados._texto_do_unitario(CHAVE_DO_ITEM, exato)
+        texto_float = dashboard_dados._texto_do_unitario(
+            CHAVE_DO_ITEM, flutuante
+        )
+        assert texto_exato != texto_float
+        assert texto_exato.startswith("0,02")
+        assert texto_float.startswith("0,01")
+
+    def test_MEDICAO_a_busca_pelo_par_que_muda_a_GUARDA_deu_zero(self):
+        """A busca nova deste plano, presa como teste em vez de so escrita.
+
+        Se um dia ela deixar de dar zero, este teste fica VERMELHO -- que e o
+        desfecho certo, porque nesse dia o registro acima passa a estar errado.
+        """
+        achados = 0
+        for d in range(1, 20000):
+            exato = Fraction(d) * Fraction(1, 2 * d)
+            flutuante = Fraction(d * (1 / (2 * d)))
+            if round(exato) == 0 and round(flutuante) != 0:
+                achados += 1
+        assert achados == 0
