@@ -190,11 +190,36 @@ nenhuma leitura de tela nova — a fase compoe modulos que a Fase 1 ja pesquisou
    nenhum veredito. O piso do veredito fica **ligado** a `N_MINIMO_PARA_MEDIANA` — um piso que ja
    existe —, com a razao escrita no fonte: o piso do menor guarda um numero OBSERVADO, e este
    guarda uma ELEICAO de rota com dinheiro real.
-2. **A procedencia do preco do NPC nao carrega carimbo, e isso e honestidade e nao omissao.** O
-   CALC-02 pede "informado por voce **e quando**", pelo espelho do cambio — mas o `cambio.json`
-   guarda historico com data e o `config.toml` nao e escrito pelo programa. A tela diz de ONDE o
-   numero veio, que e o que existe, e **nao inventa um quando**. A divergencia fica escrita na
-   marcacao.
+2. **A procedencia do preco do NPC declara de onde o numero veio e QUANDO O PROGRAMA O LEU — nunca
+   quando o usuario o escreveu.**
+
+   **Esta redacao substituiu outra, no mesmo dia, e a antiga fica aqui porque um numero que caiu
+   precisa dizer que caiu.** A primeira versao dizia: *"A procedencia do preco do NPC nao carrega
+   carimbo, e isso e honestidade e nao omissao. (...) A tela diz de ONDE o numero veio, que e o que
+   existe, e nao inventa um quando."* Ela recusava corretamente a fabricacao, mas parava cedo
+   demais: **considerou duas candidatas quando existiam tres.**
+
+   - **(1) derivar o "quando" da data de modificacao do arquivo — RECUSADA**, e continua recusada:
+     mexer em qualquer outra secao do `config.toml` moveria a data sem ninguem ter tocado no preco,
+     e a frase seria plausivel e falsa ao mesmo tempo;
+   - **(2) nao exibir quando nenhum — era a resposta anterior, e foi RECUSADA na revisao**, porque
+     descarta um fato que o programa de fato sabe;
+   - **(3) exibir o instante em que o dashboard LEU a configuracao no arranque — ADOTADA.** E um
+     fato do programa, nao uma inferencia sobre o usuario, e ele responde a pergunta que esta fase
+     cria: a configuracao e lida **uma vez**, no arranque, entao quem corrigir um preco e recarregar
+     o navegador veria o numero velho sem sinal nenhum.
+
+   **O contraste que torna essa necessidade especifica, e ele e medido no fonte da Fase 1:** o
+   servidor e construido uma vez (`dashboard.py:799`), e e la que a configuracao e lida — enquanto
+   `dashboard_cambio.ler_o_cambio` e chamado **dentro do atendimento de cada pedido**
+   (`dashboard.py:543`). Ou seja, o modo de falha de valor velho **existe para o `config.toml` e
+   provavelmente nao existe para o cambio**, e e por isso que o cambio nunca precisou desta linha.
+
+   O que a tela **nao** faz e chamar o instante da leitura de instante do informe: sao dois fatos
+   com nomes parecidos, e trocar um pelo outro e mentir com cara de numero — a mesma armadilha que
+   `recencia_do_preco` ja documenta no `mercado_analise`. O criterio de sucesso 5 desta fase e o
+   CALC-02 do `REQUIREMENTS.md` foram emendados junto, no mesmo commit, e **os tres textos dizem a
+   mesma coisa** — a contradicao entre eles, que existiu por um commit, era o defeito.
 
 **Medido em 2026-09-03, e o que ele muda:** o `.mercado/observacoes.csv` real tem duas series —
 `adena#` (n=50) e `common-fafurion-doll#` (n=8) — e **nenhuma Gemstone**. Com Gemstone C
