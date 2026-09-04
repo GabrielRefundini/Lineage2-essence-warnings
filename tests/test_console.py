@@ -136,10 +136,7 @@ class TestMoldurarParaOWhatsApp:
     grupo da party as duas da manha.
     """
 
-    AVISO = (
-        "Solo Boss comeca em 10 minutos, as 10:00. "
-        "Hora de voltar para a cidade e se preparar. Loot: TioMad."
-    )
+    AVISO = "Solo Boss comeca em 10 minutos, as 10:00. Loot: TioMad."
 
     def test_e_o_formato_que_o_usuario_pediu(self):
         from l2scanner.console import moldurar

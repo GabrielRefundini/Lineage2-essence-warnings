@@ -212,19 +212,24 @@ class AvisoDeBoss:
 
         O nome primeiro porque e a informacao que decide para onde a party se
         desloca; o `TIAT DETECTADO —` da v1 enterrava isso atras de um rotulo.
+
+        O rotulo entre parenteses so IDENTIFICA a origem (chat/alvo/as duas),
+        nao a descreve por extenso: "(chat)", "(alvo)", "(chat e alvo)".
         """
         # O nome interpolado e SEMPRE o do `[[boss]]`, nunca o texto que o OCR
         # leu. E o que garante que nada escrito por um jogador no chat do jogo
         # atravesse para o grupo de WhatsApp (T-01-04): o texto lido serve so
-        # como predicado booleano e e descartado.
+        # como predicado booleano e e descartado. Essa garantia vive no
+        # PRIMEIRO `{self.boss}`, antes do parenteses — o corte do rotulo
+        # entre parenteses (de "visto no chat do jogo" para "chat", de "seu
+        # alvo virou {self.boss}" para "alvo") so encurta a IDENTIFICACAO da
+        # origem, nunca toca nesse primeiro `{self.boss}`, entao nao enfraquece
+        # a garantia.
         if self.origem is OrigemDoAviso.CHAT:
-            return f"{self.boss} nasceu! (visto no chat do jogo)"
+            return f"{self.boss} nasceu! (chat)"
         if self.origem is OrigemDoAviso.ALVO:
-            return f"{self.boss} nasceu! (seu alvo virou {self.boss})"
-        return (
-            f"{self.boss} nasceu! (visto no chat do jogo e seu alvo virou "
-            f"{self.boss})"
-        )
+            return f"{self.boss} nasceu! (alvo)"
+        return f"{self.boss} nasceu! (chat e alvo)"
 
 
 class VigiaDeBosses:

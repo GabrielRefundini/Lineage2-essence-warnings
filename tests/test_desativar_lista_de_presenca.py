@@ -200,7 +200,7 @@ class TestOTextoDaChamada:
     def test_os_outros_dois_textos_nao_mudaram_junto(self):
         antes = texto_do_aviso(_aviso(TipoDeAviso.ANTES, LEMBRETE))
         agora = texto_do_aviso(_aviso(TipoDeAviso.AGORA, ALVO))
-        assert "Hora de voltar para a cidade" in antes
+        assert "comeca em" in antes
         assert "comecou agora" in agora
 
 

@@ -402,10 +402,7 @@ class TestTextoDoAviso:
         """Regressao: toda chamada existente continua valida e identica."""
         alvo = em(21, 50)
         aviso = Aviso("TvT", TipoDeAviso.ANTES, alvo, em(21, 40))
-        assert texto_do_aviso(aviso) == (
-            "TvT comeca em 10 minutos, as 21:50. "
-            "Hora de voltar para a cidade e se preparar."
-        )
+        assert texto_do_aviso(aviso) == "TvT comeca em 10 minutos, as 21:50."
 
     def test_o_aviso_AGORA_nunca_ganha_a_linha(self):
         """So a antecedencia carrega o loot, por decisao do usuario. O Solo
@@ -466,12 +463,10 @@ class TestTextoDoAviso:
         antes = Aviso("Solo Boss", TipoDeAviso.ANTES, alvo, em(19, 50))
         agora = Aviso("Solo Boss", TipoDeAviso.AGORA, alvo, alvo)
         assert texto_do_aviso(antes) == (
-            "Solo Boss comeca em 10 minutos, as 20:00. "
-            "Hora de voltar para a cidade e se preparar."
+            "Solo Boss comeca em 10 minutos, as 20:00."
         )
         assert texto_do_aviso(antes, loot="J4guar") == (
-            "Solo Boss comeca em 10 minutos, as 20:00. "
-            "Hora de voltar para a cidade e se preparar. Loot: J4guar."
+            "Solo Boss comeca em 10 minutos, as 20:00. Loot: J4guar."
         )
         assert texto_do_aviso(agora) == "Solo Boss comecou agora, as 20:00."
 

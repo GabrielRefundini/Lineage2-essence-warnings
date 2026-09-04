@@ -413,7 +413,7 @@ class TestAIdentidadeVemDoConfig:
         assert aviso.boss == "Tiat North"
         assert "dr0p" not in aviso.texto
         assert "T1a7" not in aviso.texto
-        assert aviso.texto == "Tiat North nasceu! (visto no chat do jogo)"
+        assert aviso.texto == "Tiat North nasceu! (chat)"
 
     def test_nem_um_comando_nem_um_endereco_atravessam_para_a_mensagem(self):
         """T-01-04 no formato mais hostil que o chat do jogo permite.
@@ -431,7 +431,7 @@ class TestAIdentidadeVemDoConfig:
 
         aviso = v.avaliar(PIXELS, PIXELS, AGORA)[0]
 
-        assert aviso.texto == "Tiat North nasceu! (visto no chat do jogo)"
+        assert aviso.texto == "Tiat North nasceu! (chat)"
         for vazamento in ("!kick", "@all", "http", "example"):
             assert vazamento not in aviso.texto
 
