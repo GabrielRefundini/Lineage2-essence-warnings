@@ -50,8 +50,19 @@ import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import dashboard_cambio, dashboard_dados, mercado_registro
+from . import config, dashboard_cambio, dashboard_dados, mercado_registro
 from .raiz import RAIZ
+
+# O CUSTO DESTE IMPORT FOI MEDIDO, E ELE NAO E O QUE PARECE. Medido em
+# 2026-09-03, em subprocessos limpos: `import l2scanner.dashboard` sozinho traz
+# **341 modulos, JA COM `cv2` E `numpy`** — eles chegam pela segunda aresta que a
+# docstring de `raiz.py` documenta, e nao por este arquivo. Com `l2scanner.config`
+# junto sao **366 — mais 25 modulos, e NENHUM deles e `cv2` ou `numpy`**.
+#
+# Sem esta linha escrita, a proxima pessoa vai ler este import como o retorno da
+# cadeia pesada que o corte de `RAIZ` cortou (`config -> notificador ->
+# rastreador -> visao -> cv2`) e vai desfaze-lo — trocando uma leitura de TOML no
+# arranque por um caminho tortuoso, para economizar um custo que ja estava pago.
 
 log = logging.getLogger(__name__)
 
@@ -444,7 +455,14 @@ class CacheDaLeitura:
             self._chave = None
             self._pronto = None
 
-    def pronto(self, pasta_do_mercado: Path, agora: datetime, cambio=None) -> dict:
+    def pronto(
+        self,
+        pasta_do_mercado: Path,
+        agora: datetime,
+        cambio=None,
+        itens=(),
+        itens_lidos_em: datetime | None = None,
+    ) -> dict:
         """O payload de `GET /dados`, do cache ou recalculado.
 
         O `gerado_em` E SEMPRE O INSTANTE DE VERDADE, mesmo quando o resto veio
@@ -458,6 +476,17 @@ class CacheDaLeitura:
         continua testavel sem servidor.
         """
         arquivo = pasta_do_mercado / mercado_registro.ARQUIVO_DE_OBSERVACOES
+        # OS ITENS **NAO** ENTRAM NA CHAVE, e a razao e estrutural e nao
+        # economia. Eles sao lidos UMA vez, no arranque, e nao podem mudar sem
+        # reinicio — justamente porque um bloco torto tem de DERRUBAR o arranque.
+        # Poe-los na chave sugeriria que uma releitura e possivel; e reler a cada
+        # pedido moveria aquela derrubada do arranque, onde o usuario esta
+        # olhando o console, para uma volta de polling qualquer no meio da noite.
+        #
+        # O `itens_lidos_em` cai junto, pelo mesmo motivo: ele e constante
+        # enquanto o processo vive. O que o mantem VIVO na tela e o minuto de
+        # `agora`, que ja esta na chave — a frase "ha 3 min" continua envelhecendo
+        # sozinha.
         chave = (
             self._impressao(arquivo),
             _truncado(agora, RESOLUCAO_DO_CACHE),
@@ -465,7 +494,9 @@ class CacheDaLeitura:
         )
         with self._trava:
             if chave != self._chave or self._pronto is None:
-                self._pronto = dashboard_dados.payload(pasta_do_mercado, agora, cambio)
+                self._pronto = dashboard_dados.payload(
+                    pasta_do_mercado, agora, cambio, itens, itens_lidos_em
+                )
                 self._chave = chave
             guardado = self._pronto
         # A copia RASA e a resposta: as chaves aninhadas sao compartilhadas com a
@@ -487,12 +518,21 @@ class Manipulador(http.server.SimpleHTTPRequestHandler):
     server_version = "L2Dashboard"
     sys_version = ""
 
-    def __init__(self, *args, pasta_do_mercado: Path, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        pasta_do_mercado: Path,
+        itens=(),
+        itens_lidos_em: datetime | None = None,
+        **kwargs,
+    ) -> None:
         # ANTES do `super().__init__`, e isto NAO e estilo: o construtor de
         # `BaseHTTPRequestHandler` CHAMA `handle()` dentro dele mesmo, entao
         # qualquer atributo definido depois da chamada nao existiria durante o
         # atendimento do pedido.
         self.pasta_do_mercado = pasta_do_mercado
+        self.itens = itens
+        self.itens_lidos_em = itens_lidos_em
         super().__init__(*args, **kwargs)
 
     def end_headers(self) -> None:
@@ -541,6 +581,11 @@ class Manipulador(http.server.SimpleHTTPRequestHandler):
                     self.pasta_do_mercado,
                     datetime.now(),
                     dashboard_cambio.ler_o_cambio(self.pasta_do_mercado),
+                    # OS ITENS VIAJAM DO ARRANQUE ATE AQUI, e nao sao relidos:
+                    # ver a chave do cache para a razao. O `config.toml` e lido
+                    # UMA vez, e nenhum pedido HTTP toca nele.
+                    self.itens,
+                    self.itens_lidos_em,
                 )
             )
             return
@@ -729,7 +774,12 @@ class Servidor(http.server.ThreadingHTTPServer):
         self.cache = CacheDaLeitura()
 
 
-def montar_servidor(porta: int, pasta_do_mercado: Path) -> Servidor:
+def montar_servidor(
+    porta: int,
+    pasta_do_mercado: Path,
+    itens=(),
+    itens_lidos_em: datetime | None = None,
+) -> Servidor:
     """O servidor pronto para `serve_forever`, sem ainda estar servindo.
 
     ELE NAO SOBE SOZINHO, e e isso que torna a fixture de teste possivel: quem
@@ -749,6 +799,13 @@ def montar_servidor(porta: int, pasta_do_mercado: Path) -> Servidor:
             Manipulador,
             directory=str(PASTA_DOS_ESTATICOS),
             pasta_do_mercado=Path(pasta_do_mercado),
+            # OS ITENS JA CHEGAM LIDOS E VALIDADOS. Esta funcao nao le
+            # `config.toml`: quem le e o `main`, ANTES de chamar aqui, para que
+            # um bloco torto derrube o arranque sem nunca abrir a porta. A
+            # fixture de teste continua podendo montar um servidor sem item
+            # nenhum, que e o default.
+            itens=tuple(itens),
+            itens_lidos_em=itens_lidos_em,
         ),
     )
 
@@ -795,8 +852,50 @@ def main(argv: list[str] | None = None) -> int:
     )
     opcoes = analisador.parse_args(argv)
 
+    # A CONFIGURACAO E LIDA **ANTES DO BIND**, E A ORDEM E O PRODUTO.
+    #
+    # Um `[[dashboard.item]]` torto imprime a mensagem e devolve codigo
+    # nao-zero, e a porta NUNCA CHEGA A SER ABERTA — nao ha meio segundo em que
+    # um dashboard sobe, responde um pedido e so entao morre. A alternativa
+    # (validar depois de subir) deixaria o navegador abrir numa pagina que
+    # some, e o usuario procuraria o erro no lugar errado.
+    #
+    # ELE E CAPTURADO E NAO PROPAGADO, pela mesma razao ja escrita na docstring
+    # desta funcao: quem chama e um `.bat` na frente de um usuario que nao
+    # programa, e um traceback ali esconde a unica linha que interessa.
     try:
-        servidor = montar_servidor(opcoes.porta, mercado_registro.PASTA_DO_MERCADO)
+        itens = config.ler_itens_de_rota()
+    except config.ItemDeRotaInvalido as erro:
+        print(erro)
+        print(
+            "\nO dashboard NAO subiu, e NADA foi alterado. Conserte o bloco no "
+            "config.toml e rode de novo. Enquanto isso, a coleta do "
+            "vigiar-mercado.bat segue rodando: ela nunca dependeu do dashboard."
+        )
+        return 1
+
+    # O INSTANTE DA LEITURA E CAPTURADO **NO MESMO PONTO DA LEITURA**, com o
+    # mesmo relogio que o resto do servidor usa (`datetime.now`), e nunca dentro
+    # de `payload` — que continua puro.
+    #
+    # ELE EXISTE PORQUE ESTA FASE CRIA UM MODO DE FALHA QUE A FASE 1 NAO TINHA:
+    # a configuracao e lida UMA vez, aqui. O usuario que corrigir um preco no
+    # `config.toml` e recarregar o navegador ve o numero VELHO, sem nenhum sinal
+    # de que o processo nao releu o arquivo. Com este instante na tela, a
+    # pergunta "o dashboard que esta rodando ja conhece a minha correcao?" tem
+    # resposta.
+    #
+    # E ELE E O INSTANTE DA **LEITURA**, e nunca o do informe do preco — ver
+    # `dashboard_dados.MOLDE_DA_LEITURA_DA_CONFIGURACAO`.
+    itens_lidos_em = datetime.now()
+
+    try:
+        servidor = montar_servidor(
+            opcoes.porta,
+            mercado_registro.PASTA_DO_MERCADO,
+            itens,
+            itens_lidos_em,
+        )
     except OSError as erro:
         # As duas familias sao SEPARADAS de proposito: ver
         # `MENSAGEM_DE_PORTA_RESERVADA` para a medicao que mostra que elas

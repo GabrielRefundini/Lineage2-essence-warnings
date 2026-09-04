@@ -34,6 +34,18 @@ from .bosses import Boss, BossInvalido
 # ciclo fecharia no primeiro uso.
 from .comandos import DIGITOS_FINAIS_DO_TELEFONE, Membro, so_digitos
 from .loot import NICK_VALIDO, apelido
+
+# `nome_normalizado` VEM DA ANALISE, e a direcao e segura: `mercado_analise`
+# importa SO stdlib (`difflib`, `statistics`, `dataclasses`, `datetime`,
+# `fractions`, `typing`) — nenhum modulo do pacote, e portanto nenhum ciclo
+# possivel. E a mesma direcao com que este arquivo ja puxa `Boss` de `bosses` e
+# `Membro` de `comandos`.
+#
+# ELE VEM DE LA E NAO E REESCRITO AQUI porque o criterio de "dois nomes sao o
+# mesmo item" tem de ser UM SO no projeto inteiro. Uma copia local ficaria
+# calada no dia em que a normalizacao mudasse de um lado: o leitor aceitaria
+# dois blocos que a analise casaria com a MESMA serie.
+from .mercado_analise import nome_normalizado
 from .notificador import ConfigChatwoot
 
 # O DEFAULT DA JANELA DO EPISODIO mora em `respawn.py`, ao lado da medicao de
@@ -1779,3 +1791,379 @@ def ler_ajustes_da_renda(caminho: Path | None = None) -> AjustesDaRenda:
             padroes.janela_minima_para_taxa_segundos,
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# A SECAO `[[dashboard.item]]` — o preco de NPC da calculadora de rotas
+#
+# O MOLDE E `ler_receitas`, LINHA POR LINHA: mesma forma de recusa, mesma regra
+# de `config.local.toml` vencendo com aviso que NOMEIA o vencedor, mesma ordem
+# de guarda de booleano ANTES do teste numerico, mesmo `_EXEMPLO_` viajando nas
+# recusas de sintaxe.
+#
+# A UNICA DIFERENCA ESTRUTURAL E O ACESSO ANINHADO, e ela esta escrita em
+# `_blocos_de_item` porque quem copiar `_blocos_de_receita` sem ler vai chamar
+# `get` UMA vez so e receber `None` para sempre.
+# ---------------------------------------------------------------------------
+
+SECAO_DO_DASHBOARD = "dashboard"
+CHAVE_DOS_ITENS = "item"
+
+# OS DOIS TETOS. Cada um e **ESCOLHA, E NAO MEDICAO**, no molde de
+# `TETO_DE_DIGITOS_INTEIROS` do `dashboard_cambio`.
+#
+# A RAZAO DE EXISTIREM: este numero MULTIPLICA uma decisao de dinheiro real. Um
+# numero colado por acidente de outra janela — um id de conversa, um telefone,
+# um total em centesimos — tem de ser RECUSADO em vez de virar um veredito
+# absurdo perfeitamente formatado. Sem teto, `preco_npc_adena = 5511987654321`
+# produz uma linha na tela dizendo, com toda a confianca do mundo, que o mercado
+# ganha por um trilhao por cento.
+#
+# NINGUEM MEDIU QUANTO UM ITEM DE NPC PODE CUSTAR nesta arvore — nao ha segunda
+# fonte em tela, que e justamente o motivo de o numero ser configuracao. Cem
+# milhoes de adena por UMA unidade e uma ordem de grandeza acima de qualquer
+# consumivel que o usuario descreveu. Se um dia um preco legitimo bater no teto,
+# o numero sobe, e e uma linha.
+#
+# O TETO E INCLUSIVO: o valor igual ao teto PASSA. Um `>=` faria o maior valor
+# legitimo ser recusado por uma mensagem que cita esse mesmo valor como limite.
+TETO_DO_PRECO_DO_NPC = 100_000_000
+
+# Pelo mesmo argumento, do outro lado da divisao: a quantidade do pacote e
+# DENOMINADOR, e um denominador gigante empurra o unitario do NPC para perto de
+# zero — que e o veredito mais atraente e mais falso que esta conta consegue
+# produzir. Cem mil unidades por compra e muito acima do que um NPC vende de
+# uma vez.
+TETO_DA_QUANTIDADE_DO_PACOTE = 100_000
+
+# O exemplo que TODA recusa de SINTAXE desta secao mostra, escrito UMA vez. Uma
+# mensagem que diz "precisa ser uma lista de tabelas" faz o usuario adivinhar a
+# sintaxe do TOML; uma que mostra o bloco pronto ele copia.
+#
+# ELE NAO VIAJA NA RECUSA DE NOME REPETIDO, e isso e deliberado — mesmo
+# precedente de `_recusar_nicks_repetidos` e `_recusar_bosses_repetidos`, que
+# tambem nao mostram exemplo. Nome repetido nao e erro de sintaxe: o usuario ja
+# escreveu o bloco certo, duas vezes. Mostrar o exemplo ali sugeriria acrescentar
+# um TERCEIRO bloco, que e o oposto do conserto.
+_EXEMPLO_DO_ITEM = (
+    "  Exemplo:\n"
+    "    [[dashboard.item]]\n"
+    '    nome = "Gemstone C"\n'
+    "    preco_npc_adena = 15000\n"
+    "    quantidade_do_pacote = 1"
+)
+
+
+class ItemDeRotaInvalido(Exception):
+    """Um bloco `[[dashboard.item]]` nao serve, e o arranque do dashboard para.
+
+    CLASSE PROPRIA, e nao `ReceitaInvalida` reusada. O que separa as duas e o
+    DESTINO DO `except`: a receita e capturada pelo laco do `--mercado`, que
+    segue coletando a noite inteira; esta aqui e lida pelo ARRANQUE do
+    dashboard, que PARA antes de abrir a porta. Uma classe separada e o que
+    permite os dois chamadores tratarem cada caso sem inspecionar texto de
+    mensagem.
+
+    E o mesmo argumento que fez `ReceitaInvalida` nascer separada de
+    `AgendaInvalida`, um nivel acima.
+    """
+
+
+@dataclass(frozen=True)
+class ItemDeRota:
+    """Um item cuja compra o dashboard compara entre as duas rotas.
+
+    `nome` e o nome COMO O USUARIO O LE NA TELA, e a resolucao dele para uma
+    `chave_da_serie` do CSV acontece na analise, nunca aqui: este modulo le TOML
+    e nao sabe o que e uma serie. E a mesma frase que `ComponenteDaReceita` ja
+    carrega, e ela e verdadeira pelo mesmo motivo.
+
+    `FROZEN` porque ninguem reescreve um item depois de le-lo: o `config.toml` e
+    a verdade, e este objeto e uma leitura dele.
+    """
+
+    nome: str
+    preco_npc_adena: int
+    quantidade_do_pacote: int
+
+
+def ler_itens_de_rota(
+    caminho: Path | None = None, caminho_local: Path | None = None
+) -> list[ItemDeRota]:
+    """Le os blocos `[[dashboard.item]]` do config.toml. CALC-01.
+
+    POR QUE ESTE NUMERO MORA NO `config.toml` E NAO NO `cambio.json`
+    ================================================================
+    E CRITERIO, E NAO GOSTO. O `cambio.json` e escrito pelo NAVEGADOR, pelo
+    formulario do dashboard, e por isso e JSON de maquina — um arquivo que o
+    programa reescreve inteiro a cada clique nao pode carregar comentario, e
+    qualquer coisa que o usuario escrevesse la seria apagada na proxima
+    gravacao. O preco do NPC e o contrario: ele e escrito A MAO, UMA vez, e o
+    TOML tem COMENTARIO — que e exatamente onde o usuario anota de qual NPC,
+    em qual cidade, aquele preco veio. Sem esse bilhete, daqui a tres meses o
+    numero e um orfao que ninguem sabe se ainda vale.
+
+    ARQUIVO AUSENTE NAO E ERRO, E SECAO AUSENTE TAMBEM NAO. A secao nasce
+    COMENTADA no `config.toml`: o dashboard inteiro da Fase 1 responde "quanto
+    valem 5 milhoes de adena" sem um unico item configurado, e continua
+    respondendo. Sem `[[dashboard.item]]` a calculadora diz o que escrever no
+    arquivo — ela nao some.
+
+    ARQUIVO PRESENTE E MAL FORMADO E ERRO DE ARRANQUE, e o `main` do dashboard
+    devolve codigo nao-zero sem nunca abrir a porta. E o precedente da
+    `ReceitaInvalida`: a watchlist podia degradar porque so promovia series no
+    console, mas uma CONTA torta que degradasse para "sem resposta" sairia
+    calada — e esta conta e sobre dinheiro real.
+
+    A LISTA VOLTA NA ORDEM ESCRITA, e a tela desenha nessa ordem. Devolver
+    embaralhado esconderia de quem depura o que o arquivo realmente diz.
+
+    O `config.local.toml` VENCE o `config.toml`, pelo precedente ja estabelecido
+    em `ler_membros`, `ler_personagem_do_jogo` e `ler_receitas`. UM ARQUIVO OU O
+    OUTRO, NUNCA A SOMA, e com os dois o arranque avisa nomeando o vencedor.
+
+    UM `caminho` EXPLICITO LE SO AQUELE ARQUIVO, sem procurar vizinho — e o que
+    permite a suite inteira exercitar este leitor sem tocar no arquivo do
+    usuario.
+    """
+    if caminho is None and caminho_local is None:
+        caminho_local = ARQUIVO_CONFIG_LOCAL
+    caminho = caminho or ARQUIVO_CONFIG
+
+    do_versionado = _blocos_de_item(caminho)
+    do_local = _blocos_de_item(caminho_local)
+
+    if do_local is not None and do_versionado is not None:
+        log.warning(
+            "ATENCAO: %s e %s tem [[%s.%s]]. Vale o %s; os blocos do %s estao "
+            "sendo IGNORADOS e nao entram em veredito nenhum. Para voltar a "
+            "usar o %s, apague os [[%s.%s]] do %s.",
+            caminho.name,
+            caminho_local.name,
+            SECAO_DO_DASHBOARD,
+            CHAVE_DOS_ITENS,
+            caminho_local.name,
+            caminho.name,
+            caminho.name,
+            SECAO_DO_DASHBOARD,
+            CHAVE_DOS_ITENS,
+            caminho_local.name,
+        )
+
+    # O VENCEDOR VIAJA COM O NOME DO PROPRIO ARQUIVO: uma recusa que cita
+    # `config.toml` por causa de um bloco do `config.local.toml` manda o usuario
+    # editar o arquivo errado.
+    if do_local is not None:
+        brutos, de_onde = do_local, caminho_local
+    else:
+        brutos, de_onde = do_versionado, caminho
+
+    if brutos is None:
+        return []
+
+    # `item = "solto"` ITERARIA OS CARACTERES e produziria um item por letra.
+    # MEDIDO nesta arvore: `tomllib` devolve a string `'solto'`, e nao uma lista.
+    # E o mesmo defeito que `ler_receitas` e `ler_watchlist_do_mercado` ja
+    # recusam do lado delas, e ele e silenciosamente absurdo em vez de
+    # ruidosamente errado.
+    if not isinstance(brutos, list):
+        raise ItemDeRotaInvalido(
+            f"{de_onde.name}: [[{SECAO_DO_DASHBOARD}.{CHAVE_DOS_ITENS}]] "
+            f"precisa ser um ou mais BLOCOS de item, e nao "
+            f"{type(brutos).__name__}. Um texto solto seria lido letra por "
+            f"letra.\n{_EXEMPLO_DO_ITEM}"
+        )
+
+    itens = [
+        _item_de_dict(bruto, indice, de_onde)
+        for indice, bruto in enumerate(brutos)
+    ]
+    _recusar_itens_repetidos(itens, de_onde)
+    return itens
+
+
+def _blocos_de_item(caminho: Path | None):
+    """Os `[[dashboard.item]]` crus de UM arquivo, ainda sem validar bloco nenhum.
+
+    O ACESSO E ANINHADO EM DOIS NIVEIS, E ESTA E A UNICA DIFERENCA ESTRUTURAL
+    ENTRE ESTE LEITOR E O DA RECEITA. MEDIDO: `[[dashboard.item]]` produz
+    `{"dashboard": {"item": [ {...} ]}}` — a secao por FORA e a lista por
+    DENTRO. O `[[receita]]` e de nivel unico, e por isso `_blocos_de_receita`
+    faz um `get` so. Quem copiar aquela funcao para ca sem ler vai chamar
+    `dados.get("item")` no nivel de cima, receber `None` para sempre, e produzir
+    um leitor que devolve lista vazia em TODA situacao — passando calado em todo
+    teste de "secao ausente". Ha teste de CONTROLE prendendo esta medicao.
+
+    A SECAO E CONFERIDA COMO TABELA ANTES DE SE PROCURAR A CHAVE DENTRO DELA:
+    `dashboard = "ligado"` faria o `get` estourar num acesso de atributo em vez
+    de recusar com uma frase que o usuario entende.
+
+    Separado da validacao pela mesma razao de `_blocos_de_receita`: para saber
+    qual dos dois arquivos manda e preciso primeiro saber quais TEM bloco, e so
+    o VENCEDOR e validado — validar o perdedor derrubaria o arranque por causa
+    de um bloco que ja nao tem efeito nenhum.
+
+    `None` SIGNIFICA "ESTE ARQUIVO NAO TRAZ A SECAO", e e diferente de uma lista
+    vazia, que significa "traz a secao, e ela esta vazia". Os dois casos caem no
+    mesmo lugar no fim, mas so o primeiro deixa o outro arquivo vencer.
+    """
+    if caminho is None or not caminho.exists():
+        return None
+
+    try:
+        with caminho.open("rb") as arquivo:
+            dados = tomllib.load(arquivo)
+    except tomllib.TOMLDecodeError as erro:
+        raise ItemDeRotaInvalido(
+            f"{caminho.name} nao e um TOML valido: {erro}"
+        ) from erro
+
+    secao = dados.get(SECAO_DO_DASHBOARD)
+    if secao is None:
+        return None
+    if not isinstance(secao, dict):
+        raise ItemDeRotaInvalido(
+            f"{caminho.name}: [{SECAO_DO_DASHBOARD}] precisa ser uma SECAO, "
+            f"veio {type(secao).__name__}.\n{_EXEMPLO_DO_ITEM}"
+        )
+
+    return secao.get(CHAVE_DOS_ITENS)
+
+
+def _item_de_dict(bruto: object, indice: int, de_onde: Path) -> ItemDeRota:
+    """Valida um bloco e diz exatamente o que esta errado.
+
+    MESMO PADRAO DE `onde` DO `_receita_de_dict`: cita o NOME sempre que ele
+    existe, porque "o segundo [[dashboard.item]] esta errado" faz o usuario
+    contar blocos e "o item 'Gemstone C' esta sem preco_npc_adena" ele conserta
+    em cinco segundos.
+
+    `de_onde` E O ARQUIVO VENCEDOR, e ele entra em TODA recusa: com dois
+    arquivos em jogo, uma mensagem sem o nome manda o usuario procurar o bloco
+    torto nos dois — e a chance de ele editar o que nao tem efeito e de metade.
+    """
+    if not isinstance(bruto, dict):
+        raise ItemDeRotaInvalido(
+            f"{de_onde.name}: [[{SECAO_DO_DASHBOARD}.{CHAVE_DOS_ITENS}]] "
+            f"#{indice + 1} precisa ser um bloco com nome, preco_npc_adena e "
+            f"quantidade_do_pacote, e nao {type(bruto).__name__}.\n"
+            f"{_EXEMPLO_DO_ITEM}"
+        )
+
+    nome_bruto = bruto.get("nome")
+    nome = str(nome_bruto).strip() if isinstance(nome_bruto, str) else ""
+    onde = (
+        f"{de_onde.name}: item '{nome}'"
+        if nome
+        else (
+            f"{de_onde.name}: "
+            f"[[{SECAO_DO_DASHBOARD}.{CHAVE_DOS_ITENS}]] #{indice + 1}"
+        )
+    )
+
+    if not nome:
+        raise ItemDeRotaInvalido(
+            f"{onde}: falta o campo 'nome'. Escreva o nome do item EXATAMENTE "
+            f"como ele aparece na tela do jogo, com o prefixo de encanto quando "
+            f"houver — e o mesmo nome que o scanner vai procurar entre as "
+            f"series lidas.\n{_EXEMPLO_DO_ITEM}"
+        )
+
+    preco = _inteiro_positivo_do_item(
+        bruto, "preco_npc_adena", onde, TETO_DO_PRECO_DO_NPC
+    )
+    quantidade = _inteiro_positivo_do_item(
+        bruto, "quantidade_do_pacote", onde, TETO_DA_QUANTIDADE_DO_PACOTE
+    )
+    return ItemDeRota(
+        nome=nome, preco_npc_adena=preco, quantidade_do_pacote=quantidade
+    )
+
+
+def _inteiro_positivo_do_item(
+    bruto: dict, campo: str, onde: str, teto: int
+) -> int:
+    """Um numero valido, ou a recusa que nomeia o item, o campo e o teto.
+
+    BOOLEANO RECUSADO EXPLICITAMENTE, E ANTES DO TESTE NUMERICO, porque
+    `isinstance(True, int)` e verdadeiro em Python. Sem esta ordem,
+    `preco_npc_adena = true` passaria como "1 adena por unidade" e o NPC
+    venceria TODA comparacao que existe — um veredito de dinheiro invertido,
+    entregue com a mesma cara de um certo, sem uma linha de erro em lugar
+    nenhum. E o terceiro lugar deste projeto onde este buraco apareceria; a
+    guarda e copiada de `_inteiro_positivo_da_receita` de proposito, e ha teste
+    de CONTROLE que mede o fato da linguagem em vez de afirmar a ordem.
+
+    FRACIONARIO TAMBEM RECUSADO, INCLUSIVE O REDONDO. `preco_npc_adena = 1.5`
+    nao descreve preco de NPC nenhum, e `1.0` cai junto de proposito: aceitar o
+    float redondo e recusar o quebrado seria uma regra que o usuario descobre
+    por tentativa.
+
+    O TETO E INCLUSIVO — ver o bloco de `TETO_DO_PRECO_DO_NPC`.
+    """
+    valor = bruto.get(campo)
+    if valor is None:
+        raise ItemDeRotaInvalido(
+            f"{onde}: falta o campo '{campo}'. Ele e um numero INTEIRO maior "
+            f"que zero.\n{_EXEMPLO_DO_ITEM}"
+        )
+
+    if isinstance(valor, bool):
+        raise ItemDeRotaInvalido(
+            f"{onde}: '{campo}' precisa ser um numero inteiro maior que zero, "
+            f"e nao true/false. Um true seria lido como o numero 1, e o "
+            f"veredito sairia invertido sem nenhum erro no console."
+        )
+    if not isinstance(valor, int):
+        raise ItemDeRotaInvalido(
+            f"{onde}: '{campo}' precisa ser um numero INTEIRO maior que zero "
+            f"(recebi {valor!r}).\n{_EXEMPLO_DO_ITEM}"
+        )
+    if valor <= 0:
+        raise ItemDeRotaInvalido(
+            f"{onde}: '{campo}' precisa ser MAIOR que zero (recebi {valor})."
+        )
+    if valor > teto:
+        raise ItemDeRotaInvalido(
+            f"{onde}: '{campo}' passou do teto de {teto} (recebi {valor}). "
+            f"Este numero multiplica uma decisao de dinheiro real, e um valor "
+            f"colado por acidente de outra janela tem de ser recusado em vez de "
+            f"virar um veredito absurdo bem formatado. Se o preco for MESMO "
+            f"esse, o teto sobe no fonte."
+        )
+    return valor
+
+
+def _recusar_itens_repetidos(itens: list[ItemDeRota], de_onde: Path) -> None:
+    """Dois blocos nao podem dividir o mesmo item. RECUSA DE ARRANQUE.
+
+    A RECEITA NAO TEM ESTA GUARDA E ESTE LEITOR TEM, e a diferenca e o que sai
+    na tela: duas entradas do mesmo item produziriam DUAS LINHAS na calculadora,
+    com dois vereditos possivelmente opostos (os precos de NPC podem ser
+    diferentes), e nenhuma forma de o usuario saber qual vale.
+
+    A COMPARACAO E POR `nome_normalizado`, E NAO POR IGUALDADE CRUA, pelo mesmo
+    motivo que o casamento com a serie usa: caixa dobrada e espacos colapsados.
+    `Gemstone C` e `gemstone  c` sao dois textos diferentes e o MESMO item — sem
+    esta normalizacao os dois passariam, e a tela mostraria o mesmo item duas
+    vezes com precos diferentes.
+
+    ELA NAO E SIMILARIDADE. `Gemstone B` e `Gemstone C` normalizam DIFERENTE e
+    passam os dois, que e o desfecho certo — ha teste de controle prendendo
+    isso. Um corte de similaridade aqui juntaria as duas, e a razao medida de
+    nunca usar similaridade sobre nome digitado esta em
+    `mercado_analise.nome_normalizado`.
+    """
+    vistos: dict[str, str] = {}
+    for item in itens:
+        chave = nome_normalizado(item.nome)
+        anterior = vistos.get(chave)
+        if anterior is not None:
+            raise ItemDeRotaInvalido(
+                f"{de_onde.name}: o item '{item.nome}' colide com "
+                f"'{anterior}' — o casamento ignora maiusculas e espaco "
+                f"repetido, entao os dois blocos falariam do MESMO item e a "
+                f"tela mostraria dois vereditos sem dizer qual vale. Apague o "
+                f"bloco repetido."
+            )
+        vistos[chave] = item.nome

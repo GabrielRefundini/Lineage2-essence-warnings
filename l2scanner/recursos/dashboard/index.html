@@ -274,6 +274,126 @@
       <p class="procedencia__linha procedencia__linha--parcial" id="nota-linha-parcial"></p>
     </section>
 
+    <!-- ================================================================= -->
+    <!-- REGIÃO 4 — A CALCULADORA DE ROTAS                                 -->
+    <!-- ================================================================= -->
+    <!--
+      ELA É UM `.painel`, E ISSO É O DESENHO E NÃO DECORAÇÃO. As duas regras de
+      falha fechada que já existem no CSS (`body[data-estado="erro_de_contrato"]
+      .painel` e `body[data-estado="arquivo_ausente"] .painel`) retiram QUALQUER
+      painel da tela — então esta região entra na precedência de estados da Fase
+      1 sem uma linha de CSS nova, e some junto com as outras três quando o
+      programa diz que não entende o arquivo.
+
+      QUEM TIRAR A CLASSE `painel` DAQUI REINTRODUZ O DEFEITO SEM QUEBRAR TESTE
+      NENHUM da Fase 1: a região sobreviveria ao erro de contrato e ficaria
+      sozinha na tela, exibindo um veredito sobre dinheiro tirado de um arquivo
+      que o programa acabou de recusar. Há teste desta fase afirmando as duas
+      metades — que a classe está aqui, e que a lista de seletores daquelas duas
+      regras continua sendo a mesma de antes desta fase.
+
+      ELA VEM DEPOIS DA PROCEDÊNCIA de propósito. A pergunta do topo continua
+      sendo "quanto valem 5 milhões de adena"; a calculadora é a pergunta
+      seguinte, e não a que compete com ela.
+    -->
+    <section id="rotas" class="painel">
+      <h2 class="painel__titulo">Comprar do NPC ou no mercado?</h2>
+
+      <!--
+        O AVISO DE BLOCO: a frase do Python quando não há item configurado, ou
+        quando não há taxa da Adena para converter. Ela vem pronta
+        (`FRASE_DE_SEM_ITENS_CONFIGURADOS` / `FRASE_DE_SEM_TAXA_DA_ADENA`) e diz
+        O QUE FAZER — a região nunca fica um retângulo mudo.
+      -->
+      <p class="rota__aviso rota__aviso--bloco" id="rotas-aviso"></p>
+
+      <!--
+        O INSTANTE EM QUE O PROGRAMA LEU O `config.toml`. Ele fica em NÍVEL DE
+        REGIÃO, ao lado do aviso, e NUNCA dentro da linha: a configuração inteira
+        foi lida uma vez, no arranque, então é um fato do bloco. Repeti-lo dentro
+        de cada linha imprimiria a mesma frase N vezes e criaria a impressão
+        falsa de que cada item foi lido num instante próprio.
+
+        O QUE É DE CADA LINHA É OUTRA COISA: o rótulo de que aquele preço foi
+        informado por você no `config.toml`, e esse fica lá embaixo, no lado do
+        NPC. Os dois não se confundem porque respondem a perguntas diferentes —
+        "quando o programa leu o arquivo" e "quem escreveu este número".
+
+        A frase vem PRONTA do Python (`MOLDE_DA_LEITURA_DA_CONFIGURACAO`), com a
+        recência nas duas formas. Ela diz que o arquivo foi LIDO naquele
+        instante, e nunca que o valor foi informado naquele instante: o número
+        pode estar no arquivo há meses.
+      -->
+      <p class="rota__lidos-em" id="rotas-lidos-em"></p>
+
+      <ul class="rotas__lista" id="rotas-lista"></ul>
+
+      <!--
+        O MOLDE DE UMA LINHA. **TODA A CÓPIA DE INTERFACE DESTA REGIÃO NASCE
+        AQUI**, na marcação — inclusive os dois rótulos de lado e a palavra da
+        marca de vencedora. O motivo é o que o `01-06` já registrou: cópia que
+        nasce no JS é cópia que nenhum teste de marcação vê, e esta página tem
+        teste sobre o HTML justamente para a cópia continuar conferível.
+
+        O JS clona este conteúdo e preenche cada vão por propriedade de TEXTO. Os
+        vãos são marcados por `data-vao` e NÃO por `id`: um `id` dentro de um
+        molde clonado N vezes viraria N elementos com o mesmo identificador, e o
+        `getElementById` devolveria sempre o primeiro.
+
+        A MOEDA DE CADA ROTA É CABEÇALHO DE COLUNA, AQUI. O texto que vem do
+        Python é o unitário formatado por `formatar_unitario_derivado`, que diz
+        "por unidade (derivado)" e NÃO nomeia moeda — porque no console dele a
+        moeda é implícita. Aqui as duas rotas aparecem lado a lado e a
+        ambiguidade seria real, então a moeda vira rótulo na marcação,
+        conferível por teste sobre o HTML. A alternativa — remontar a string no
+        navegador para enfiar a palavra dentro dela — seria o segundo formatador
+        que o DASH-03 proíbe.
+      -->
+      <template id="molde-da-rota">
+        <li class="rota">
+          <p class="rota__item" data-vao="item"></p>
+
+          <!-- O aviso da LINHA: item nunca visto, ou nome ambíguo. Vem pronto
+               do Python, e o CSS o esconde quando está vazio. -->
+          <p class="rota__aviso" data-vao="aviso"></p>
+
+          <div class="rota__lados">
+            <!--
+              AS DUAS ROTAS FICAM SEMPRE VISÍVEIS, e a perdedora não é escondida
+              nem apagada. Esconder a perdedora impede conferir a conta, e esta
+              conta é sobre dinheiro real (decisão travada do 02-CONTEXT). O que
+              muda entre elas é a MARCA, e só ela.
+            -->
+            <div class="rota__lado rota__lado--npc">
+              <p class="rota__rotulo">NPC — você paga em adena</p>
+              <p class="rota__valor" data-vao="npc-valor"></p>
+              <p class="rota__pacote" data-vao="npc-pacote"></p>
+              <p class="rota__marca">mais barato</p>
+            </div>
+
+            <div class="rota__lado rota__lado--mercado">
+              <p class="rota__rotulo">Mercado — você paga em XM</p>
+              <p class="rota__valor" data-vao="mercado-valor"></p>
+              <p class="rota__pacote" data-vao="mercado-pacote"></p>
+              <p class="rota__marca">mais barato</p>
+            </div>
+          </div>
+
+          <p class="rota__diferenca">
+            <span class="rota__diferenca-xm" data-vao="diferenca-xm"></span>
+            <span class="rota__diferenca-percentual" data-vao="diferenca-percentual"></span>
+          </p>
+
+          <!-- `n` e recência COLADOS no número, sempre — a mesma disciplina do
+               destaque. Estatística sem `n` é adivinhação com cara de número. -->
+          <p class="rota__procedencia">
+            <span class="rota__n" data-vao="n"></span>
+            <span class="rota__recencia" data-vao="recencia"></span>
+          </p>
+        </li>
+      </template>
+    </section>
+
   </main>
 </body>
 </html>

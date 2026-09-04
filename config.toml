@@ -464,6 +464,72 @@ respawn_horas_max = 10
 # ]
 
 # ---------------------------------------------------------------------------
+# CALCULADORA DE ROTAS — sai mais barato comprando do NPC ou no mercado?
+#
+# Para cada item aqui, o dashboard (o dashboard.bat) mostra as DUAS rotas lado a
+# lado e marca a mais barata:
+#
+#   rota do NPC      voce paga em ADENA. O preco esta neste arquivo, escrito por
+#                    voce, porque nao existe segunda fonte: o scanner nao le a
+#                    janela do NPC.
+#   rota do mercado  voce paga em XM. O preco vem do menor pedido visivel que o
+#                    vigiar-mercado.bat leu no World Exchange.
+#
+# AS DUAS VIRAM O MESMO DENOMINADOR — quanto custa UMA unidade do item — e por
+# isso a comparacao vale mesmo quando o NPC vende em pacote e o mercado nao.
+#
+# O VEREDITO NAO DEPENDE DO CAMBIO EM R$, e isso e de proposito: as duas rotas
+# terminam multiplicadas pelo mesmo "reais por XM", entao ele se cancela. Sem
+# cambio informado voce continua sabendo QUAL sai mais barato; o que some e
+# apenas o "quanto em R$".
+#
+# ESTA SECAO E OPCIONAL. Sem nenhum bloco, o dashboard continua respondendo
+# quanto valem 5 milhoes de adena, e a calculadora aparece dizendo o que
+# escrever aqui.
+#
+# UM BLOCO TORTO DERRUBA O ARRANQUE DO DASHBOARD, dizendo qual item e qual campo
+# estao errados, e a janela do navegador nem chega a abrir. E de proposito, e e a
+# mesma regra da receita ali de cima: esta e uma CONTA SOBRE DINHEIRO, e uma
+# conta torta que degradasse para "sem resposta" sairia calada. A coleta do
+# vigiar-mercado.bat nao e afetada — ela nunca dependeu do dashboard.
+#
+# OS TRES CAMPOS
+#
+#   nome                  o nome do item EXATAMENTE como ele aparece na tela do
+#                         jogo, com o prefixo de encanto quando houver. E a
+#                         mesma regra da watchlist e da receita, pelo mesmo
+#                         motivo: cada variante e uma serie de preco
+#                         INDEPENDENTE. Um nome que case com DUAS series
+#                         aparece na tela dizendo isso e listando as candidatas,
+#                         em vez de o dashboard escolher uma por voce; um nome
+#                         que nunca apareceu no CSV tambem aparece dizendo isso,
+#                         para nao ficar indistinguivel de "esqueci de
+#                         configurar".
+#
+#   preco_npc_adena       quanto o NPC cobra por UM PACOTE, em adena. Numero
+#                         inteiro, sem ponto e sem virgula.
+#
+#   quantidade_do_pacote  quantas unidades vem nesse pacote. Se o NPC vende de
+#                         uma em uma, e 1.
+#
+# OS DOIS PRECOS ABAIXO SAO EXEMPLO, E SO EXEMPLO. Ninguem aqui sabe quanto o
+# NPC cobra no seu servidor, e escrever um numero plausivel seria pior que nao
+# escrever nenhum: ele viraria um veredito de dinheiro bem formatado e errado.
+# CONFIRA no NPC antes de descomentar, e troque os dois numeros.
+#
+# UM BLOCO POR ITEM: para um terceiro, repita o bloco inteiro.
+#
+# [[dashboard.item]]
+# nome = "Gemstone C"
+# preco_npc_adena = 15000
+# quantidade_do_pacote = 1
+#
+# [[dashboard.item]]
+# nome = "Gemstone B"
+# preco_npc_adena = 30000
+# quantidade_do_pacote = 1
+
+# ---------------------------------------------------------------------------
 # IDENTIDADE — o scanner aprendendo sozinho quem ele nao conhece
 #
 # Quando uma linha da party window fica varias leituras seguidas SEM casar com
