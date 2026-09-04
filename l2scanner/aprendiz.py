@@ -110,6 +110,14 @@ DUAS, no alinhamento calibrado, o maior valor do triangulo inteiro e 0.72:
 NENHUM par chega ao `LIMIAR_DE_CASAMENTO` de 0.75. D-02 nunca teve nada para
 vetar, porque nenhuma copia parecia com nenhuma outra.
 
+    A ULTIMA FRASE CAIU EM 2026-09-04, e fica no lugar com a correcao ao lado
+    porque um veredito derrubado tem de dizer que foi derrubado. Sobre 57
+    assinaturas (as 23 ativas de hoje, 30 esquecidas da mesma pasta e as 4
+    calibradas), a producao INTEIRA — nao o `_correlacionar` cru, mas a
+    `confianca` de `identificar_linhas`, com os dois passes do ornamento —
+    barra 6 entradas na ordem em que elas nasceram. D-02 tem sim o que vetar; o
+    que ele nao alcanca sao as OUTRAS 47. Ver a tabela mais abaixo.
+
 O que separa as copias e DESLOCAMENTO HORIZONTAL. As mesmas mascaras, deslizadas
 de alguns pixels, casam com folga:
 
@@ -138,19 +146,60 @@ pares. A primeira coluna acesa nao e ancora estavel: uma celula de serrilhado ou
 uma sujeira solta na frente do nome muda a ancora e joga a correlacao fora. Nao
 implementar essa ideia e resultado, e nao omissao.
 
-O QUE SOBRA COMO PROPOSTA, com o numero que falta para decidir. Deslizando livre
-de -25 a +25 px sobre o acervo real:
+O QUE SOBRAVA COMO PROPOSTA, E O QUE A MEDICAO DE 2026-09-04 FEZ COM ELA
 
-    pior par CERTO    0.753
-    pior par ERRADO   0.483
+Em 2026-09-03, deslizando livre de -25 a +25 px sobre as 28 do acervo daquele
+dia, escreveu-se aqui: pior par CERTO 0.753, pior par ERRADO 0.483. Os dois
+numeros CAIRAM, e ficam escritos porque um numero que cai tem de dizer que caiu.
+Sobre 57 assinaturas reais rotuladas uma a uma no olho (as 23 ativas de
+2026-09-04, mais 30 esquecidas da mesma pasta, mais as 4 calibradas), com 236
+pares da MESMA pessoa e 1195 pares de pessoas DIFERENTES:
 
-O limiar de 0.75 cai entre os dois, mas o pior par certo o passa por 0.003, e
-isso nao e margem. O `.max()` sobre 25 deslocamentos foi REMOVIDO deste projeto
-justamente por levar o pior casamento errado de 0.213 a 0.586, e 28 mascaras de
-uma sessao nao sao base para desfazer aquilo. O dado que falta tem nome: gravacao
-multi-frame de campo com a party se movendo, para medir a distribuicao dos pares
-errados sob deslizamento em vez de estima-la em 28 pontos. Ate la, o acervo do
-usuario continua ganhando uma entrada por sessao para quem ele ja conhece, e o
+    criterio             pior CERTO   melhor ERRADO   margem ate 0.75
+    alinhado (producao)      -0.059           0.598             0.152
+    desliza h +-6             0.000           0.619             0.131
+    desliza h +-25            0.000           0.634             0.116
+    faixa 5 linhas h +-6      0.000           1.000            -0.250
+    faixa 8 linhas h +-6      0.000           0.456             0.294
+    faixa 10 linhas h +-6     0.000           0.786            -0.036
+
+O "pior par CERTO 0.753" era artefato da populacao de 28: hoje o pior par certo
+e 0.000 em TODO criterio. Os conjuntos nao se separam, e nao e por pouco.
+
+A LINHA `faixa 8` E A ARMADILHA DESTA TABELA. Ela tem a maior margem do quadro
+e e sorte: isolar a faixa do nome com 5 linhas em vez de 8 da 1.000 para
+Mostarda x PIRULITO, que sao DUAS PESSOAS, e com 10 linhas da 0.786. Um
+parametro cujos vizinhos imediatos produzem veto errado ACIMA do limiar nao e
+regime; e um ponto sortudo em 57 assinaturas.
+
+E O DESLIZAMENTO FUNCIONA E NAO PAGA. Percorrendo o acervo na ordem em que ele
+nasceu, com a producao inteira dentro do laco: ela ja barra 6 das 53 hoje;
+`+-6` barraria 9, e `+-25` barraria 12. Tres perguntas a mais em 53, ao preco
+de o melhor par errado subir de 0.598 para 0.619 — e essa grandeza esta ANDANDO
+PARA CIMA conforme o acervo cresce (0.483 sobre 28 em 2026-09-03, 0.619 sobre 57
+hoje). Trocar 3 perguntas em 53 por uma margem que encolhe, quando o desfecho de
+um veto errado e duas pessoas virarem uma em silencio e para sempre, e o lado
+errado da assimetria que `observar` documenta. NAO IMPLEMENTAR e resultado, e
+nao omissao — a tabela inteira sai de `tools/aferir_duplicatas.py` e os numeros
+estao presos em `tests/test_aferir_duplicatas.py`.
+
+E A RAZAO DE 2026-09-03 CONTINUA DE PE, agora com companhia. O `.max()` sobre 25
+deslocamentos foi REMOVIDO deste projeto por levar o pior casamento errado de
+0.213 a 0.586, e a medicao de hoje nao desfaz aquilo: ela mostra o mesmo efeito
+no mesmo sentido, com o pior errado indo de 0.598 (alinhado) a 0.634 (`+-25`). O
+dado que faltava continua com o mesmo nome — gravacao multi-frame de campo com a
+party se movendo, para medir a distribuicao dos pares errados sob deslizamento
+em vez de estima-la em uma foto do acervo. O que mudou e que agora se sabe o
+tamanho do premio: 3 entradas em 53.
+
+E A CAUSA DA DUPLICATA NAO E SEMELHANCA, E ANCORA. Medido no mesmo acervo: em
+31 das 57 mais de 10% da tinta cai FORA da faixa do nome — e texto de OUTRA
+linha da party window dentro do mesmo recorte — e a faixa de 10 linhas com mais
+tinta comeca na linha 0 em 10 delas e da linha 5 em diante em 46. O que muda
+entre sessoes e onde o recorte comeca, e nenhum criterio de semelhanca
+horizontal alcanca isso. Quem quiser matar a duplicata mexe na ancoragem do
+recorte (ver `reancoragem`), e nao no limiar. Ate la, o acervo do usuario
+continua ganhando uma entrada por sessao para quem ele ja conhece, e o
 `acervo.carregar_identidades` explica por que a resposta NAO e um segundo
 criterio de igualdade posto no olho.
 

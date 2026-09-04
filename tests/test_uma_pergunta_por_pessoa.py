@@ -219,7 +219,14 @@ def montar_sessao(
     identidades=None,
     pendentes_de_batismo=(),
     momento_da_ultima_pergunta=None,
+    conversa_do_dono="1",
 ) -> Sessao:
+    """`conversa_do_dono` NAO E DECORACAO: desde 2026-09-04 a pergunta so sai
+    para o privado do dono, e `None` ali quer dizer NAO PERGUNTA. Os casos
+    deste arquivo afirmam a CADENCIA das perguntas; sem esta linha eles
+    passariam a medir o silencio. ONDE ela sai e assunto de
+    `tests/test_a_pergunta_do_batismo_vai_para_o_privado.py`.
+    """
     return Sessao(
         cal=calibracao,
         rastreador=Rastreador(
@@ -236,6 +243,7 @@ def montar_sessao(
         acervo=acervo,
         pendentes_de_batismo=pendentes_de_batismo,
         momento_da_ultima_pergunta=momento_da_ultima_pergunta,
+        conversa_do_dono=conversa_do_dono,
     )
 
 

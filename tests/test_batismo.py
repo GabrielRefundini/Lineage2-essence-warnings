@@ -316,8 +316,18 @@ def montar_sessao(
     leituras_para_aprender: int = 3,
     identidades=None,
     rastreador=None,
+    conversa_do_dono="1",
 ) -> Sessao:
-    """Uma `Sessao` de verdade, com o aprendiz e o acervo ligados."""
+    """Uma `Sessao` de verdade, com o aprendiz e o acervo ligados.
+
+    `conversa_do_dono` NAO E DECORACAO e nao pode virar `None` por descuido:
+    desde 2026-09-04 a pergunta do batismo so sai para o privado do dono, e
+    `None` ali quer dizer NAO PERGUNTA (ver `sessao._perguntar_um_batismo`).
+    Os casos deste arquivo afirmam que a pergunta SAI; sem esta linha eles
+    passariam a afirmar o silencio sem que ninguem tivesse escrito isso.
+    ONDE ela sai e assunto de
+    `tests/test_a_pergunta_do_batismo_vai_para_o_privado.py`.
+    """
     return Sessao(
         cal=calibracao,
         rastreador=rastreador
@@ -335,6 +345,7 @@ def montar_sessao(
             acervo, AjustesDoAprendiz(leituras_para_aprender=leituras_para_aprender)
         ),
         acervo=acervo,
+        conversa_do_dono=conversa_do_dono,
     )
 
 
