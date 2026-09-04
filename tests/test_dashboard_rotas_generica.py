@@ -1144,3 +1144,214 @@ class TestAFronteiraDestaProvaEstaDECLARADA:
         fonte = ESTE_ARQUIVO.read_text(encoding="utf-8")
         for nome in list(NOMES_DO_ROADMAP) + [NOME_DO_TERCEIRO]:
             assert nome.lower() not in fonte.lower(), nome
+
+
+# ===========================================================================
+# TAREFA 2 — OS GATES DE ESCOPO DESTA FASE
+# ===========================================================================
+#
+# POR QUE ELES SAO TESTE E NAO SO PARAGRAFO DE SUMMARY: um gate que so existe no
+# documento e um gate que ninguem roda de novo. O SUMMARY registra a MEDICAO de
+# uma vez; o teste a refaz a cada rodada, e fica vermelho no dia em que a
+# premissa cair.
+#
+# O QUE NAO CABE EM TESTE, E POR QUE: a atribuicao por COMMIT dos sete arquivos
+# da cerca dura. O `01-08` mediu que **um `git diff` cru contra a base nao mede o
+# que esta fase fez** — a branch e compartilhada com outros workstreams, e o diff
+# cru acusa commits de gente que nao e daqui. A atribuicao correta e por commit,
+# ela mora no SUMMARY com o comando e a saida, e o que sobra para o teste e o que
+# da para afirmar sem git: a DIRECAO da dependencia.
+
+CERCA_DURA = (
+    "rastreador.py",
+    "visao.py",
+    "console.py",
+    "mercado_registro.py",
+    "mercado_analise.py",
+    "mercado_console.py",
+    "mercado_catalogo.py",
+)
+
+MODULOS_DO_DASHBOARD = ("dashboard.py", "dashboard_dados.py", "dashboard_rotas.py")
+
+
+def importa_o_dashboard(fonte: str) -> list:
+    """Os imports de modulo de dashboard que um fonte declara. A SONDA DO GATE 1.
+
+    Ela le so o CODIGO: um comentario do `mercado_analise` que cite o dashboard
+    e prosa, e prosa nao cria dependencia.
+    """
+    codigo = _so_o_codigo_python(fonte)
+    achados = []
+    for modulo in MODULOS_DO_DASHBOARD:
+        nome = modulo[: -len(".py")]
+        if re.search(r"\b(import|from)\s+\.?" + nome + r"\b", codigo):
+            achados.append(modulo)
+    return achados
+
+
+class TestGate1ACercaDuraDoWorkstreamMercado:
+    """Os sete arquivos que este workstream nao pode alterar.
+
+    O QUE ESTA CLASSE MEDE E A DIRECAO DA DEPENDENCIA, e ela e uma invariante de
+    verdade: o dashboard LE a cerca, e a cerca nao conhece o dashboard. Se
+    alguma coisa desta fase tivesse exigido uma mudanca la dentro, o caminho mais
+    barato — e o primeiro que alguem tomaria — seria um import de volta. Ele
+    cairia aqui.
+
+    **O QUE ESTE GATE ACRESCENTA AO QUE O PYTHON JA FAZ, MEDIDO.** A objecao
+    obvia e que um import de volta ja quebra sozinho, e ela e METADE verdadeira:
+    posto no topo de `mercado_analise.py`, um `from . import dashboard_rotas`
+    derruba a COLETA inteira do pytest com `ImportError: cannot import name
+    'N_MINIMO_PARA_MEDIANA' ... (most likely due to a circular import)` — medido
+    em 2026-09-04.
+
+    Mas o mesmo import DENTRO de uma funcao (`resolver_o_nome`) nao cria ciclo
+    nenhum no carregamento do modulo, a suite inteira sobe, e nada quebra. E
+    justamente essa a forma que alguem escreveria: e o conserto que o traceback
+    do ciclo SUGERE. Medido na mesma sessao: com o import diferido, o unico teste
+    vermelho da arvore e
+    `test_o_modulo_da_cerca_NAO_importa_o_dashboard[mercado_analise.py]`.
+    """
+
+    @pytest.mark.parametrize("arquivo", CERCA_DURA)
+    def test_o_modulo_da_cerca_NAO_importa_o_dashboard(self, arquivo: str):
+        fonte = (RAIZ / "l2scanner" / arquivo).read_text(encoding="utf-8")
+        assert importa_o_dashboard(fonte) == [], arquivo
+
+    def test_os_modulos_do_dashboard_REALMENTE_LEEM_a_cerca(self):
+        """A guarda anti-vacuidade do gate 1.
+
+        Sem ela, os sete testes acima passariam sobre uma arvore em que o
+        dashboard e a cerca nao se conhecem em direcao nenhuma — e ai a
+        afirmacao "ele le e nunca escreve" nao estaria sendo feita sobre relacao
+        nenhuma.
+        """
+        lidos = set()
+        for modulo in (dashboard_rotas, dashboard_dados):
+            codigo = _so_o_codigo_python(
+                Path(modulo.__file__).read_text(encoding="utf-8")
+            )
+            for arquivo in CERCA_DURA:
+                nome = arquivo[: -len(".py")]
+                if re.search(r"\b(import|from)\s+\.?" + nome + r"\b", codigo):
+                    lidos.add(arquivo)
+        assert lidos, "nenhum modulo do dashboard importa a cerca dura"
+
+    def test_CONTROLE_a_sonda_ACUSA_um_fonte_que_importa_o_dashboard(self):
+        assert importa_o_dashboard(
+            "from . import dashboard_rotas\n"
+        ) == ["dashboard_rotas.py"]
+        assert importa_o_dashboard("from .dashboard_dados import payload\n") == [
+            "dashboard_dados.py"
+        ]
+
+    def test_CONTROLE_a_sonda_NAO_acusa_a_citacao_em_COMENTARIO(self):
+        """A metade que protege a explicacao, de novo — e ela nao e teorica:
+        `mercado_analise` e `mercado_console` explicam em prosa quem consome
+        cada funcao deles."""
+        assert (
+            importa_o_dashboard(
+                '"""Quem consome isto e o dashboard_dados."""\n'
+                "# ver dashboard_rotas\n"
+                "X = 1\n"
+            )
+            == []
+        )
+
+
+class TestGate2NenhumaDependenciaNova:
+    """O `requirements.txt` nao ganhou uma linha nesta fase.
+
+    O extrator e a lista de distribuicoes sao IMPORTADOS de
+    `tests/test_firewall_dashboard.py`, e nao reescritos: um segundo extrator com
+    um corte de nome ligeiramente diferente seria a forma mais silenciosa de os
+    firewalls discordarem sobre o que e um nome de pacote.
+    """
+
+    @staticmethod
+    def _autoridade():
+        from tests.test_firewall_dashboard import (
+            DISTRIBUICOES_ANTES_DA_FASE_01_DASHBOARD,
+        )
+        from tests.test_firewall_escopo import _nomes_declarados_no_requirements
+
+        return _nomes_declarados_no_requirements, (
+            DISTRIBUICOES_ANTES_DA_FASE_01_DASHBOARD
+        )
+
+    def test_o_requirements_nao_ganhou_linha_nesta_FASE(self):
+        extrair, esperadas = self._autoridade()
+        texto = (RAIZ / "requirements.txt").read_text(encoding="utf-8")
+        assert extrair(texto) == esperadas
+
+    def test_CONTROLE_o_guarda_REPROVA_quando_uma_linha_NOVA_e_declarada(self):
+        """A mutacao acontece no TEXTO entregue ao extrator, e nunca no
+        `requirements.txt` do disco — acrescentar uma dependencia de verdade
+        dentro de um teste seria cometer o que o teste existe para impedir."""
+        extrair, esperadas = self._autoridade()
+        texto = (RAIZ / "requirements.txt").read_text(encoding="utf-8")
+        nomes = extrair(texto + "\nplotly>=6.0\n")
+        assert nomes != esperadas
+        assert "plotly" in nomes
+
+
+class TestGate3ODashboardNuncaEscreveNoCSV:
+    """A promessa central do DASH-01 continua valendo depois desta fase.
+
+    A MEDICAO ACONTECE SOBRE COPIA EM PASTA TEMPORARIA, E NUNCA SOBRE O ARQUIVO
+    REAL. Um teste que medisse o `.mercado/` do usuario para provar que nao
+    escreve nele ja teria falhado em espirito na primeira linha — e um teste que
+    escrevesse la por acidente destruiria o material que este projeto inteiro
+    depende de acumular.
+
+    A IMPRESSAO E DE TRES COMPONENTES (tamanho, `mtime_ns`, sha256), e o
+    extrator vem de `tests/test_dashboard_servidor.py`. A razao dos tres juntos
+    esta escrita la: uma reescrita com bytes identicos nao muda o hash, e
+    "escreveu por cima com o mesmo conteudo" continua sendo escrita.
+    """
+
+    def test_rodar_a_calculadora_NAO_muda_um_byte_do_CSV(
+        self, pasta_do_mercado: Path, itens
+    ):
+        arquivo = next(pasta_do_mercado.glob("*.csv"))
+        antes = _impressao_do_arquivo(arquivo)
+        nomes_antes = {caminho.name for caminho in pasta_do_mercado.iterdir()}
+
+        for _ in range(5):
+            agora = datetime.now()
+            dashboard_dados.payload(
+                pasta_do_mercado,
+                agora,
+                cambio=None,
+                itens=itens,
+                itens_lidos_em=agora,
+            )
+
+        assert _impressao_do_arquivo(arquivo) == antes
+        assert {
+            caminho.name for caminho in pasta_do_mercado.iterdir()
+        } == nomes_antes
+
+    def test_CONTROLE_a_impressao_ACUSA_uma_escrita_de_MESMO_conteudo(
+        self, tmp_path: Path
+    ):
+        """Sem este controle, a assercao acima passaria tambem se
+        `_impressao_do_arquivo` devolvesse uma constante.
+
+        A mutacao escolhida e a MAIS DIFICIL de pegar de proposito: reescrever o
+        arquivo com bytes identicos. E ela que separa a impressao de tres
+        componentes de um sha256 sozinho.
+        """
+        alvo = tmp_path / "observacoes.csv"
+        alvo.write_text("a;b\n", encoding="utf-8", newline="")
+        antes = _impressao_do_arquivo(alvo)
+
+        import os
+        import time
+
+        time.sleep(0.01)
+        alvo.write_text("a;b\n", encoding="utf-8", newline="")
+        os.utime(alvo, ns=(antes[1] + 1_000_000, antes[1] + 1_000_000))
+
+        assert _impressao_do_arquivo(alvo) != antes
