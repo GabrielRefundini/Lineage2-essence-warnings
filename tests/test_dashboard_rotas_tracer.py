@@ -86,18 +86,51 @@ def _obs(chave, nome, quando, total, quantidade) -> ObservacaoLida:
 
 
 def _modelo(*observacoes) -> ModeloDeMercado:
-    return ModeloDeMercado.de_observacoes(list(observacoes))
+    achatadas = []
+    for entrada in observacoes:
+        if isinstance(entrada, ObservacaoLida):
+            achatadas.append(entrada)
+        else:
+            achatadas.extend(entrada)
+    return ModeloDeMercado.de_observacoes(achatadas)
+
+
+# O PISO DO VEREDITO, LIDO DA CONSTANTE E NUNCA ESCRITO A MAO.
+#
+# **POR QUE AS FIXTURAS DESTE ARQUIVO ENGORDARAM EM 2026-09-04.** Ate o plano
+# 02-01 uma serie com UMA oferta produzia veredito, e todas as fixturas daqui
+# tinham exatamente uma. O plano 02-02 pos um piso de evidencia nos DOIS lados
+# da comparacao (`N_MINIMO_PARA_O_VEREDITO`), e uma serie com `n=1` passou a
+# cair em `ROTA_SEM_EVIDENCIA` — que e o desfecho CERTO e o que o CALC-04 pede.
+#
+# AS FIXTURAS FORAM CORRIGIDAS, E NAO OS TESTES: cada serie passou a ter o piso
+# em ofertas distintas, com a MAIS BARATA cravada no valor que os testes ja
+# afirmavam. Assim toda assercao sobre menor pedido, unitario, vencedora e
+# diferenca continua valendo byte a byte — o que mudou foi so a EVIDENCIA, que
+# e exatamente a variavel que o plano novo introduziu.
+def _piso() -> int:
+    return dashboard_rotas.N_MINIMO_PARA_O_VEREDITO
+
+
+def _serie_farta(chave, nome, menor, quantidade=1, quando=None):
+    """`N_MINIMO_PARA_O_VEREDITO` ofertas distintas, com a MAIS BARATA no valor
+    pedido. As demais sao mais caras, entao o menor pedido visivel nao se move."""
+    base = quando or datetime(2026, 9, 1, 14, 30, 0)
+    return [
+        _obs(
+            chave,
+            nome,
+            base.replace(minute=base.minute - indice),
+            menor + 100 * indice,
+            quantidade,
+        )
+        for indice in range(_piso())
+    ]
 
 
 def _modelo_com_gemstone(total=5900, quantidade=1, quando=None):
     return _modelo(
-        _obs(
-            "gemstone-c#0",
-            "Gemstone C",
-            quando or datetime(2026, 9, 1, 14, 30, 0),
-            total,
-            quantidade,
-        )
+        _serie_farta("gemstone-c#0", "Gemstone C", total, quantidade, quando)
     )
 
 
@@ -108,24 +141,53 @@ def _linha(chave, nome, carimbo, total, quantidade) -> str:
 
 
 def _escrever_csv(pasta: Path, *linhas) -> Path:
+    """As linhas do CSV. Aceita uma cadeia OU uma lista delas.
+
+    O ACHATAMENTO ENTROU EM 2026-09-04 junto com o piso do veredito: cada
+    fixtura virou um CONJUNTO de linhas em vez de uma, e achatar aqui manteve os
+    vinte e tantos sitios de chamada existentes intactos, palavra por palavra.
+    """
+    achatadas: list[str] = []
+    for entrada in linhas:
+        if isinstance(entrada, str):
+            achatadas.append(entrada)
+        else:
+            achatadas.extend(entrada)
+
     alvo = pasta / mercado_registro.ARQUIVO_DE_OBSERVACOES
     corpo = SEPARADOR.join(mercado_registro.COLUNAS) + TERMINADOR
-    corpo += "".join(linha + TERMINADOR for linha in linhas)
+    corpo += "".join(linha + TERMINADOR for linha in achatadas)
     alvo.write_text(corpo, encoding="utf-8", newline="")
     return alvo
 
 
-# A ADENA a `Fraction(9, 10000)` por unidade: 45,00 XM por 5.000.000.
-LINHA_DA_ADENA = _linha(
+def _linhas_de_uma_serie(chave, nome, menor, quantidade, base):
+    """O espelho em CSV de `_serie_farta`: o piso em ofertas distintas, com a
+    MAIS BARATA cravada em `menor`."""
+    return [
+        _linha(
+            chave,
+            nome,
+            base.replace(minute=base.minute - indice),
+            menor + 100 * indice,
+            quantidade,
+        )
+        for indice in range(_piso())
+    ]
+
+
+# A ADENA a `Fraction(9, 10000)` por unidade: 45,00 XM por 5.000.000 na oferta
+# MAIS BARATA. As demais sao mais caras, entao a taxa USADA continua a mesma.
+LINHAS_DA_ADENA = _linhas_de_uma_serie(
     CHAVE_DA_SERIE_DA_ADENA,
     "Adena",
-    datetime(2026, 9, 1, 14, 50, 0),
     4500,
     5_000_000,
+    datetime(2026, 9, 1, 14, 50, 0),
 )
-# O item a 59,00 por unidade.
-LINHA_DA_GEMSTONE = _linha(
-    "gemstone-c#0", "Gemstone C", datetime(2026, 9, 1, 14, 30, 0), 5900, 1
+# O item a 59,00 por unidade na oferta mais barata.
+LINHAS_DA_GEMSTONE = _linhas_de_uma_serie(
+    "gemstone-c#0", "Gemstone C", 5900, 1, datetime(2026, 9, 1, 14, 30, 0)
 )
 
 
@@ -530,8 +592,8 @@ class TestOCasamentoDoNome:
         uma devolve UMA, e nunca a outra.
         """
         modelo = _modelo(
-            _obs("gemstone-c#0", "Gemstone C", AGORA, 5900, 1),
-            _obs("gemstone-b#0", "Gemstone B", AGORA, 11800, 1),
+            _serie_farta("gemstone-c#0", "Gemstone C", 5900),
+            _serie_farta("gemstone-b#0", "Gemstone B", 11800),
         )
         c = dashboard_rotas.veredito_de_uma_rota(
             _item(nome="Gemstone C"), modelo, TAXA_MEDIDA, AGORA
@@ -550,10 +612,18 @@ class TestOCasamentoDoNome:
 
 
 class TestAOrdemEFechada:
-    def test_os_QUATRO_estados_estao_na_tupla_e_na_ordem_de_precedencia(self):
+    def test_os_SEIS_estados_estao_na_tupla_e_na_ordem_de_precedencia(self):
+        """ERAM QUATRO ATE O PLANO 02-01, E O NUMERO ANTIGO FICA REGISTRADO.
+
+        O 02-02 acrescentou `ROTA_E_A_PROPRIA_ADENA` e `ROTA_SEM_EVIDENCIA`,
+        cada um com a razao da POSICAO escrita no fonte. A ordem continua sendo
+        a da gravidade da ignorancia.
+        """
         assert dashboard_rotas.ESTADOS_DA_ROTA == (
             dashboard_rotas.ROTA_NOME_AMBIGUO,
             dashboard_rotas.ROTA_NUNCA_VISTA,
+            dashboard_rotas.ROTA_E_A_PROPRIA_ADENA,
+            dashboard_rotas.ROTA_SEM_EVIDENCIA,
             dashboard_rotas.ROTA_EMPATADA,
             dashboard_rotas.ROTA_DECIDIDA,
         )
@@ -636,7 +706,7 @@ class TestOContratoEPorForma:
 
 class TestOBlocoNoPayload:
     def test_sem_item_configurado_o_bloco_diz_O_QUE_ESCREVER(self, pasta):
-        _escrever_csv(pasta, LINHA_DA_ADENA)
+        _escrever_csv(pasta, LINHAS_DA_ADENA)
         bloco = dashboard_dados.payload(pasta, AGORA)["calculadora"]
         assert bloco["estado"] == dashboard_dados.CALCULADORA_SEM_ITENS
         assert bloco["aviso"] == dashboard_dados.FRASE_DE_SEM_ITENS_CONFIGURADOS
@@ -644,12 +714,12 @@ class TestOBlocoNoPayload:
 
     def test_a_regiao_NUNCA_fica_um_retangulo_mudo(self, pasta):
         """Nos tres estados de bloco ha ou uma frase ou uma lista de itens."""
-        _escrever_csv(pasta, LINHA_DA_ADENA)
+        _escrever_csv(pasta, LINHAS_DA_ADENA)
         sem_item = dashboard_dados.payload(pasta, AGORA)["calculadora"]
         com_item = dashboard_dados.payload(
             pasta, AGORA, None, [_item()], AGORA
         )["calculadora"]
-        _escrever_csv(pasta, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_GEMSTONE)
         sem_taxa = dashboard_dados.payload(
             pasta, AGORA, None, [_item()], AGORA
         )["calculadora"]
@@ -658,11 +728,16 @@ class TestOBlocoNoPayload:
             assert bloco["aviso"] or bloco["itens"]
 
     def test_sem_taxa_da_adena_o_bloco_diz_que_nao_da_para_converter(self, pasta):
-        _escrever_csv(pasta, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_GEMSTONE)
         dados = dashboard_dados.payload(pasta, AGORA, None, [_item()], AGORA)
         bloco = dados["calculadora"]
         assert bloco["estado"] == dashboard_dados.CALCULADORA_SEM_TAXA
-        assert bloco["aviso"] == dashboard_dados.FRASE_DE_SEM_TAXA_DA_ADENA
+        # A FRASE VIROU MOLDE EM 2026-09-04, junto com o piso do veredito na
+        # serie da Adena: ela diz agora QUANTAS ofertas distintas faltam, porque
+        # o estado passou a acontecer tambem com o arquivo tendo leitura.
+        assert bloco["aviso"] == dashboard_dados.FRASE_DE_SEM_TAXA_DA_ADENA.format(
+            n=0, piso=_piso(), faltam=_piso()
+        )
         assert bloco["itens"] == []
 
     def test_a_taxa_vem_do_MESMO_objeto_que_o_destaque_exibe(self, pasta):
@@ -678,34 +753,34 @@ class TestOBlocoNoPayload:
         respostas continuariam batendo por acaso — mas o teste seguinte, que
         muda a taxa, mostraria a divergencia.
         """
-        _escrever_csv(pasta, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_GEMSTONE)
         sem = dashboard_dados.payload(pasta, AGORA, None, [_item()], AGORA)
         assert sem["destaque"]["xm"]["n"] == 0
         assert sem["calculadora"]["estado"] == dashboard_dados.CALCULADORA_SEM_TAXA
 
-        _escrever_csv(pasta, LINHA_DA_ADENA, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_ADENA, LINHAS_DA_GEMSTONE)
         com = dashboard_dados.payload(pasta, AGORA, None, [_item()], AGORA)
-        assert com["destaque"]["xm"]["n"] == 1
+        assert com["destaque"]["xm"]["n"] == _piso()
         assert com["calculadora"]["estado"] == dashboard_dados.CALCULADORA_COM_ITENS
 
     def test_a_taxa_USADA_e_a_do_destaque_e_move_o_veredito_junto(self, pasta):
         """A prova que MEDE, e nao afirma: trocar a oferta da Adena por uma dez
         mil vezes mais cara inverte a vencedora. Se o bloco usasse uma taxa
         propria e fixa, o veredito nao se moveria."""
-        _escrever_csv(pasta, LINHA_DA_ADENA, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_ADENA, LINHAS_DA_GEMSTONE)
         barata = dashboard_dados.payload(pasta, AGORA, None, [_item()], AGORA)
         assert barata["calculadora"]["itens"][0]["vencedora"] == (
             dashboard_rotas.VENCEDORA_NPC
         )
 
-        adena_cara = _linha(
+        adena_cara = _linhas_de_uma_serie(
             CHAVE_DA_SERIE_DA_ADENA,
             "Adena",
-            datetime(2026, 9, 1, 14, 50, 0),
             45_000_000,
             5_000_000,
+            datetime(2026, 9, 1, 14, 50, 0),
         )
-        _escrever_csv(pasta, adena_cara, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, adena_cara, LINHAS_DA_GEMSTONE)
         cara = dashboard_dados.payload(pasta, AGORA, None, [_item()], AGORA)
         assert cara["calculadora"]["itens"][0]["vencedora"] == (
             dashboard_rotas.VENCEDORA_MERCADO
@@ -715,7 +790,7 @@ class TestOBlocoNoPayload:
         self, pasta
     ):
         """Nenhum segundo formatador nasce nesta fase."""
-        _escrever_csv(pasta, LINHA_DA_ADENA, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_ADENA, LINHAS_DA_GEMSTONE)
         dados = dashboard_dados.payload(pasta, AGORA, None, [_item()], AGORA)
         linha = dados["calculadora"]["itens"][0]
         assert linha["npc"]["texto"] == formatar_unitario_derivado(Fraction(27, 2))
@@ -724,17 +799,17 @@ class TestOBlocoNoPayload:
         )
 
     def test_o_pacote_do_npc_aparece_como_o_NPC_realmente_vende(self, pasta):
-        _escrever_csv(pasta, LINHA_DA_ADENA, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_ADENA, LINHAS_DA_GEMSTONE)
         dados = dashboard_dados.payload(pasta, AGORA, None, [_item()], AGORA)
         pacote = dados["calculadora"]["itens"][0]["npc"]["pacote_texto"]
         assert "15.000 de adena" in pacote
         assert "1 unidade" in pacote
 
     def test_todo_numero_viaja_com_n_e_recencia(self, pasta):
-        _escrever_csv(pasta, LINHA_DA_ADENA, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_ADENA, LINHAS_DA_GEMSTONE)
         dados = dashboard_dados.payload(pasta, AGORA, None, [_item()], AGORA)
         linha = dados["calculadora"]["itens"][0]
-        assert linha["n"] == 1
+        assert linha["n"] == _piso()
         assert linha["recencia"]
         assert linha["velho"] is False
 
@@ -742,7 +817,7 @@ class TestOBlocoNoPayload:
         self, pasta
     ):
         """Sumir seria indistinguivel de "esqueci de configurar" (D-07)."""
-        _escrever_csv(pasta, LINHA_DA_ADENA)
+        _escrever_csv(pasta, LINHAS_DA_ADENA)
         dados = dashboard_dados.payload(
             pasta, AGORA, None, [_item(nome="Gemstone C")], AGORA
         )
@@ -757,7 +832,7 @@ class TestOBlocoNoPayload:
         self, pasta
     ):
         """O navegador nao tem o direito de compor uma segunda forma de tempo."""
-        _escrever_csv(pasta, LINHA_DA_ADENA, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_ADENA, LINHAS_DA_GEMSTONE)
         lidos_em = AGORA - timedelta(minutes=3)
         bloco = dashboard_dados.payload(
             pasta, AGORA, None, [_item()], lidos_em
@@ -809,7 +884,7 @@ class TestALinhaDeAvisosNaoMudou:
     def test_a_lista_INTEIRA_e_identica_com_e_sem_itens_configurados(self, pasta):
         """A comparacao e da LISTA INTEIRA, e nao do comprimento: uma troca de
         duas frases de lugar tem o mesmo comprimento."""
-        _escrever_csv(pasta, LINHA_DA_ADENA, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_ADENA, LINHAS_DA_GEMSTONE)
         sem = dashboard_dados.payload(pasta, AGORA)["avisos"]
         com = dashboard_dados.payload(pasta, AGORA, None, [_item()], AGORA)[
             "avisos"
@@ -837,7 +912,7 @@ class TestALinhaDeAvisosNaoMudou:
     def test_nenhuma_frase_da_calculadora_vazou_para_a_lista_de_avisos(
         self, pasta
     ):
-        _escrever_csv(pasta, LINHA_DA_ADENA, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_ADENA, LINHAS_DA_GEMSTONE)
         avisos = dashboard_dados.payload(
             pasta, AGORA, None, [_item(nome="Gemstone D")], AGORA
         )["avisos"]
@@ -872,7 +947,7 @@ class TestOTracerDePontaAPonta:
         pasta, e o que sai do soquete e um veredito com as duas rotas e a
         vencedora marcada.
         """
-        _escrever_csv(pasta, LINHA_DA_ADENA, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_ADENA, LINHAS_DA_GEMSTONE)
         servidor = dashboard.montar_servidor(
             porta=0,
             pasta_do_mercado=pasta,
@@ -914,7 +989,7 @@ class TestOTracerDePontaAPonta:
     ):
         """A assinatura antiga continua valendo, exatamente como quando o cambio
         entrou."""
-        _escrever_csv(pasta, LINHA_DA_ADENA)
+        _escrever_csv(pasta, LINHAS_DA_ADENA)
         servidor = dashboard.montar_servidor(porta=0, pasta_do_mercado=pasta)
         tarefa = threading.Thread(
             target=servidor.serve_forever,
@@ -1025,7 +1100,7 @@ class TestOsItensNaoEntramNaChaveDoCache:
         que e o aviso certo, porque essa mudanca move a derrubada do arranque
         para uma volta de polling no meio da noite.
         """
-        _escrever_csv(pasta, LINHA_DA_ADENA, LINHA_DA_GEMSTONE)
+        _escrever_csv(pasta, LINHAS_DA_ADENA, LINHAS_DA_GEMSTONE)
         cache = dashboard.CacheDaLeitura()
 
         primeiro = cache.pronto(pasta, AGORA, None, (_item(),), AGORA)

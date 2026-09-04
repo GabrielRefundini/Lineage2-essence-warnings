@@ -311,9 +311,32 @@ FRASE_DE_SEM_ITENS_CONFIGURADOS = (
 # SEM TAXA DA ADENA NAO HA COMO CONVERTER O PRECO DO NPC. A frase diz qual das
 # duas metades falta, e nao "sem dados": o preço do NPC pode estar perfeitamente
 # configurado, e o que falta e o outro lado.
+#
+# ATE 2026-09-03 ELA ERA UMA FRASE FIXA e dizia, por extenso, *"Sem leitura da
+# Adena"*. **Ela passou a ser um MOLDE porque a antiga virou falsa no caso
+# novo**: com o piso do veredito valendo tambem para a serie da Adena (ver
+# `_bloco_da_calculadora`), o bloco pode entrar neste estado com QUATRO ofertas
+# lidas — e afirmar que nao ha leitura nenhuma seria uma frase mentindo sobre o
+# proprio estado que ela nomeia, que e pior do que nao ter frase.
+#
+# ELA DIZ AGORA QUANTAS FALTAM, com os dois numeros da `Evidencia` (`n` e
+# `piso`) e o `faltam` derivado — o mesmo trio que `frase_de_piso_da_tipica` ja
+# usa, e pela mesma razao: quem exibe nao faz conta de cabeca.
+#
+# **O NOME CONTINUA `FRASE_`, E A TENSAO FICA REGISTRADA.** A convencao desta
+# casa e `MOLDE_` para texto com `{campo}` e `FRASE_` para texto fixo, e por ela
+# esta constante deveria ter sido renomeada. Ela NAO foi, e a razao e concreta:
+# o nome dela esta citado por extenso no comentario da regiao correspondente do
+# `index.html`, e este plano nao toca arquivo web nenhum. Renomear aqui deixaria
+# um simbolo inexistente citado la — um erro de FATO, que e pior que um prefixo
+# fora da convencao, porque o prefixo se desmente no primeiro `.format` do sitio
+# de uso e o simbolo fantasma nao se desmente nunca. No dia em que a marcacao
+# for mexida por outro motivo, os dois se renomeiam juntos.
 FRASE_DE_SEM_TAXA_DA_ADENA = (
-    "Sem leitura da Adena, não dá para converter o preço do NPC em XM. Deixe o "
-    "vigiar-mercado.bat rodando e abra a aba Adena da World Exchange uma vez."
+    "Ainda não dá para converter o preço do NPC em XM: a série da Adena tem "
+    "{n} de {piso} ofertas distintas, faltam {faltam}. Deixe o "
+    "vigiar-mercado.bat rodando e abra a aba Adena da World Exchange mais "
+    "algumas vezes."
 )
 
 # O ITEM QUE NUNCA APARECEU NO CSV. Ele NAO some da tela: sumir seria
@@ -1229,12 +1252,36 @@ def _bloco_da_calculadora(
     veredito — sem que nada quebrasse em voz alta. Uma autoridade so sobre a
     taxa.
 
-    O CRITERIO DE "SEM TAXA" NESTA FATIA E `menor.unitario is None`, ou seja o
-    piso do menor, que vale UM. **ESTA PERGUNTA ESTA EM ABERTO E QUEM A FECHA E O
-    PLANO 02-02:** falta decidir se o veredito herda tambem a EVIDENCIA da taxa —
-    isto e, se uma taxa apoiada numa unica oferta deve enfraquecer o veredito do
-    mesmo jeito que enfraquece o destaque. Deixar a pergunta escrita e diferente
-    de deixa-la calada: o proximo plano tem de encontra-la, e nao redescobri-la.
+    **A PERGUNTA QUE O PLANO 02-01 DEIXOU ESCRITA AQUI FOI RESPONDIDA: SIM, O
+    VEREDITO HERDA A EVIDENCIA DA TAXA.**
+    ==========================================================================
+    O criterio de "sem taxa" era `menor.unitario is None` — ou seja o piso do
+    MENOR, que vale UM. Ele guardava so um dos dois lados da comparacao. Mas a
+    rota do NPC e `preco_em_adena x taxa`, e a taxa sai de `menor_pedido_visivel`
+    sobre a serie da Adena: **uma taxa apoiada numa unica oferta vira o veredito
+    com a mesma facilidade com que um preco de item apoiado numa unica oferta
+    vira**. Exigir cinco de um lado enquanto se aceita um do outro e uma regra
+    que ninguem consegue justificar depois.
+
+    O QUE SE DECIDIU: os dois lados da comparacao respondem ao MESMO piso,
+    `dashboard_rotas.N_MINIMO_PARA_O_VEREDITO`. A `Evidencia` da taxa e
+    construida aqui com esse piso, sobre o `n` que o `payload` ja tem em maos —
+    e nao com uma segunda leitura da serie da Adena.
+
+    A ALTERNATIVA RECUSADA, E POR QUE ELA ERA DEFENSAVEL: deixar a taxa no piso
+    do menor tinha um argumento de pe — o menor da Adena e um FATO OBSERVADO
+    sobre a serie mais densa do arquivo. **Medido em 2026-09-03: `adena#` tem
+    n=50 contra n=8 do item mais visto.** O argumento e verdadeiro hoje e **nao
+    e uma regra**: ele descreve o arquivo DESTA SEMANA, e nao o de uma maquina
+    em que alguem abriu a aba da Adena uma vez.
+
+    O QUE A DECISAO CUSTA HOJE: **nada**. Com n=50 contra um piso de 5, nenhum
+    comportamento visivel muda nesta arvore. Ela existe para a maquina em que a
+    aba da Adena foi aberta uma vez — que e precisamente a maquina em que
+    ninguem estaria olhando para a tela desconfiando do numero.
+
+    E E POR ISSO QUE ELA ESTA SENDO ESCRITA AGORA: com n=50 o assunto nunca mais
+    seria revisitado, e a assimetria sobreviveria calada.
 
     A ORDEM DE PRECEDENCIA DO BLOCO E `ESTADOS_DA_CALCULADORA`: sem taxa vence
     sem itens, porque sem taxa nao ha conta possivel nem que houvesse cem itens —
@@ -1248,10 +1295,22 @@ def _bloco_da_calculadora(
     """
     taxa = menor_da_adena.unitario
 
-    if taxa is None:
+    # A EVIDENCIA DA TAXA, COM O PISO DO VEREDITO — ver a decisao na docstring.
+    # O `n` vem do MESMO `MenorPedidoVisivel` que o destaque exibe; so o piso e
+    # outro, e `piso` e um campo da `Evidencia` justamente para isto.
+    evidencia_da_taxa = Evidencia(
+        n=menor_da_adena.evidencia.n,
+        piso=dashboard_rotas.N_MINIMO_PARA_O_VEREDITO,
+    )
+
+    if taxa is None or not evidencia_da_taxa.suficiente:
         return {
             "estado": CALCULADORA_SEM_TAXA,
-            "aviso": FRASE_DE_SEM_TAXA_DA_ADENA,
+            "aviso": FRASE_DE_SEM_TAXA_DA_ADENA.format(
+                n=evidencia_da_taxa.n,
+                piso=evidencia_da_taxa.piso,
+                faltam=evidencia_da_taxa.faltam,
+            ),
             "itens_lidos_em": None,
             "itens": [],
         }

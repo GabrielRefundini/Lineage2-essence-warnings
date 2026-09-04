@@ -254,9 +254,17 @@ class TestOPisoDoVeredito:
         A marca `ESCOLHA` e obrigatoria: ninguem mediu quantas ofertas
         distintas por serie o material real produz, e um numero que parece
         medido nao se discute.
+
+        A ANCORA E O SITIO DA **DEFINICAO** (`\\nNOME = `), e nao a primeira
+        ocorrencia do nome. **Isso foi MEDIDO nesta sessao:** ancorado na
+        primeira ocorrencia, o teste caiu sobre a entrada do nome em `__all__`,
+        e a janela de tras passou a ser o cabecalho do modulo. E a mesma
+        armadilha que `mercado_analise` documenta ao manter o limiar de
+        staleness FORA do `__all__` -- so que aqui a saida foi apertar a sonda
+        em vez de mexer na lista de exportacao por causa de um teste.
         """
         fonte = Path(dashboard_rotas.__file__).read_text(encoding="utf-8")
-        posicao = fonte.index("N_MINIMO_PARA_O_VEREDITO")
+        posicao = fonte.index("\nN_MINIMO_PARA_O_VEREDITO = ")
         janela = fonte[max(0, posicao - 2500) : posicao]
         assert "ESCOLHA" in janela
         assert "N_MINIMO_PARA_MENOR" in janela
