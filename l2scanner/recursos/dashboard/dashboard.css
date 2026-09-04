@@ -658,6 +658,170 @@ body {
 }
 
 /* ========================================================================= */
+/* REGIÃO 4 — A CALCULADORA DE ROTAS                                         */
+/* ========================================================================= */
+/*
+  SÓ TOKENS QUE JÁ EXISTEM. Nenhum hexadecimal novo, nenhuma escala de
+  espaçamento nova, nenhum quinto tamanho de tipo — e há teste sobre este
+  arquivo cobrando os três.
+
+  ESTA REGIÃO NÃO TEM REGRA PRÓPRIA DE FALHA FECHADA, e isso é o desenho: ela é
+  um `.painel`, então as duas regras de `body[data-estado=...] .painel` que já
+  existiam a retiram da tela junto com as outras três. Acrescentar `#rotas` à
+  lista daquelas duas regras seria escrever uma quarta verdade sobre um fato que
+  já tem uma.
+*/
+
+.rotas__lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);
+}
+
+.rota {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-xs);
+  padding-top: var(--sp-md);
+  border-top: 1px solid var(--cor-relevo-alto);
+}
+
+/* A primeira linha não precisa do filete: ele separa, e não há o que separar
+   acima dela. */
+.rota:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.rota__item {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.rota__aviso {
+  margin: 0;
+  font-size: 14px;
+  color: var(--cor-alerta);
+}
+
+/*
+  OS DOIS LADOS, SEMPRE OS DOIS. `1 1 0` com `min-width: 0` pela mesma razão
+  escrita em `.cartao`: sem ele um item de flex recusa encolher abaixo do
+  conteúdo e o painel estoura em vez de o texto quebrar.
+*/
+.rota__lados {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-lg);
+}
+
+.rota__lado {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--sp-xs);
+}
+
+/*
+  O RÓTULO DE CADA LADO É ONDE A MOEDA SE ESCREVE, e o texto dele mora na
+  marcação — aqui só o desenho. Ver o comentário do molde no `index.html`.
+*/
+.rota__rotulo {
+  margin: 0;
+  font-size: 14px;
+  color: var(--cor-texto-fraco);
+}
+
+/*
+  O MESMO PAPEL NUMÉRICO DOS CARTÕES DO DESTAQUE: `--font-num` e largura
+  tabular. DUAS COLUNAS DE NÚMERO QUE NÃO ALINHAM SÃO DUAS COLUNAS QUE O OLHO
+  NÃO COMPARA — e comparar é a única coisa que esta região faz.
+
+  O tamanho é o de corpo, e não o Display do destaque: a pergunta do topo
+  continua sendo a maior da página, e dois Displays disputariam.
+*/
+.rota__valor {
+  margin: 0;
+  font-family: var(--font-num);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rota__pacote,
+.rota__procedencia {
+  margin: 0;
+  font-size: 14px;
+  color: var(--cor-texto-fraco);
+}
+
+.rota__procedencia {
+  display: flex;
+  gap: var(--sp-sm);
+}
+
+/*
+  A MARCA DE MAIS BARATA — o acento dourado, e a decisão está escrita.
+
+  O `01-UI-SPEC.md` traz uma LISTA FECHADA de posições em que o ouro pode
+  aparecer (o título de painel, o filete abaixo dele, o número de XM do
+  destaque, o botão primário, o anel de foco). A decisão desta fase é: **a lista
+  ganha uma posição, e é esta.**
+
+  A RAZÃO DE ENTRAR NA LISTA EM VEZ DE USAR OUTRO RECURSO: o ouro nesta página
+  significa "o número derivado só do que o scanner leu" — é por isso que o
+  cartão de XM o leva e o de R$ não. A marca de mais barata é exatamente da
+  mesma espécie: ela é a conclusão derivada só de leitura, sem nada que o
+  usuário tenha digitado depois. Usar a cor de alerta seria dizer que economizar
+  é um problema; usar a cor de corpo não marcaria nada.
+
+  ELA NASCE ESCONDIDA E O ATRIBUTO DA LINHA A MOSTRA. Com a vencedora sendo o
+  NPC, só a marca do lado do NPC aparece; com empate, `data-vencedora` fica
+  vazio e NENHUMA das duas aparece — sem precisar de uma terceira regra.
+*/
+.rota__marca {
+  margin: 0;
+  display: none;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--cor-ouro);
+}
+
+.rota[data-vencedora="npc"] .rota__lado--npc .rota__marca,
+.rota[data-vencedora="mercado"] .rota__lado--mercado .rota__marca {
+  display: block;
+}
+
+/*
+  **NENHUMA REGRA AQUI ESCONDE O LADO PERDEDOR, E ISSO É DELIBERADO.**
+
+  A tentação de "limpar a tela" apagando a rota que perdeu vai aparecer, e ela
+  está errada: esconder a perdedora impede conferir a conta, e esta conta é
+  sobre dinheiro real — o usuário precisa ver os dois números para decidir se
+  confia no veredito. É decisão travada do `02-CONTEXT`, e há teste sobre este
+  arquivo procurando por uma regra que retire um dos dois lados da tela, com
+  controle negativo que exige a sonda acusar uma folha de mentira que a contenha.
+*/
+
+.rota__diferenca {
+  margin: 0;
+  display: flex;
+  gap: var(--sp-sm);
+  font-size: 14px;
+  color: var(--cor-texto-fraco);
+}
+
+.rota__lidos-em {
+  margin: 0 0 var(--sp-md);
+  font-size: 14px;
+  color: var(--cor-texto-fraco);
+}
+
+/* ========================================================================= */
 /* OS ESTADOS, DESENHADOS                                                    */
 /* ========================================================================= */
 /*
@@ -688,7 +852,10 @@ body {
 
 .cambio__erro:empty,
 #nota-linha-parcial:empty,
-#serie-titulo:empty {
+#serie-titulo:empty,
+#rotas-aviso:empty,
+#rotas-lidos-em:empty,
+.rota__aviso:empty {
   display: none;
 }
 

@@ -361,6 +361,143 @@ function pintar(dados) {
   } else {
     desenharUmaSerie(dados.series[0]);
   }
+
+  pintarAsRotas(dados.calculadora);
+}
+
+// ---------------------------------------------------------------------------
+// A CALCULADORA DE ROTAS
+// ---------------------------------------------------------------------------
+
+// A assinatura da última lista pintada. Ela existe para a lista SÓ ser
+// reconstruída quando o conteúdo mudou.
+//
+// A RAZÃO NÃO É DESEMPENHO. Reconstruir a lista a cada volta de dois segundos
+// apagaria a SELEÇÃO DE TEXTO do usuário no meio de uma conferência — e esta é
+// justamente uma conta que ele vai conferir com o dedo na tela, comparando o
+// número daqui com o da janela do NPC.
+//
+// A ASSINATURA É A CONCATENAÇÃO DOS TEXTOS QUE O PYTHON JÁ FORMATOU, e não um
+// recálculo de coisa nenhuma. Se o Python mandou as mesmas strings, não há nada
+// de novo para desenhar.
+let assinaturaDasRotas = null;
+
+/**
+ * Escreve num vão do molde clonado, por propriedade de TEXTO.
+ *
+ * POR `data-vao` E NÃO POR `id`: o molde é clonado uma vez por item, e um `id`
+ * dentro dele viraria N elementos com o mesmo identificador — `getElementById`
+ * devolveria sempre o primeiro, e todas as linhas mostrariam o primeiro item.
+ */
+function escreverNoVao(raiz, vao, texto) {
+  const alvo = raiz.querySelector('[data-vao="' + vao + '"]');
+  if (alvo === null) {
+    return;
+  }
+  // `textContent` e NUNCA marcação, pela mesma razão de `escrever`: o nome do
+  // item vem de OCR sobre a tela do jogo E de um arquivo que o usuário edita à
+  // mão. É conteúdo não confiável terminando dentro desta página.
+  alvo.textContent = texto === null || texto === undefined ? "" : texto;
+}
+
+/**
+ * Uma linha da calculadora, clonada do molde da marcação.
+ *
+ * NENHUMA MARCAÇÃO É MONTADA EM STRING. O clone do molde não passa por nenhuma
+ * das quatro sondas de marcação que a suite já roda, e é por isso que ele é a
+ * rota certa — não por ser mais elegante.
+ *
+ * NENHUMA DECISÃO VISUAL MORA AQUI. A linha recebe dois atributos e o CSS decide
+ * o que aparece. Uma condição de tela escrita em JavaScript é uma condição que
+ * não aparece na folha de estilo.
+ *
+ * NENHUMA CONTAGEM É COMPARADA COM UM PISO. O estado de cada linha chega PRONTO
+ * do Python; duas autoridades sobre o mesmo piso divergem na primeira vez que
+ * alguém mudar uma delas.
+ */
+function montarUmaRota(molde, item) {
+  const fragmento = molde.content.cloneNode(true);
+  const linha = fragmento.querySelector(".rota");
+
+  linha.setAttribute("data-estado", item.estado);
+  // A VENCEDORA VIRA ATRIBUTO, e o empate vira cadeia vazia — que é o que faz
+  // NENHUMA das duas marcas aparecer, sem precisar de uma terceira regra.
+  linha.setAttribute(
+    "data-vencedora",
+    item.vencedora === null ? "" : item.vencedora
+  );
+
+  escreverNoVao(fragmento, "item", item.nome_exibido);
+  escreverNoVao(fragmento, "aviso", item.aviso);
+
+  if (item.npc !== null) {
+    escreverNoVao(fragmento, "npc-valor", item.npc.texto);
+    escreverNoVao(fragmento, "npc-pacote", item.npc.pacote_texto);
+  }
+  if (item.mercado !== null) {
+    escreverNoVao(fragmento, "mercado-valor", item.mercado.texto);
+  }
+  if (item.diferenca !== null) {
+    escreverNoVao(fragmento, "diferenca-xm", item.diferenca.xm);
+    escreverNoVao(fragmento, "diferenca-percentual", item.diferenca.percentual);
+  }
+
+  // O `n=` é um RÓTULO nosso, e não uma reescrita do valor: o número entra do
+  // jeito que veio. Sem contagem, sem rótulo — um `n` sem número ao lado não
+  // qualifica nada.
+  escreverNoVao(fragmento, "n", item.n === null ? "" : "n=" + item.n);
+  escreverNoVao(fragmento, "recencia", item.recencia);
+
+  return fragmento;
+}
+
+/**
+ * A quarta região inteira.
+ *
+ * `calculadora` é `null` nos dois estados de falha fechada, e aí não há nada a
+ * desenhar — o CSS já retirou o painel da tela junto com os outros três, pela
+ * regra de `.painel` que já existia.
+ */
+function pintarAsRotas(calculadora) {
+  const lista = document.getElementById("rotas-lista");
+  if (lista === null) {
+    return;
+  }
+
+  if (calculadora === null || calculadora === undefined) {
+    escrever("rotas-aviso", "");
+    escrever("rotas-lidos-em", "");
+    lista.textContent = "";
+    assinaturaDasRotas = null;
+    return;
+  }
+
+  // A frase de bloco e o instante da leitura vêm PRONTOS do Python. O CSS
+  // esconde cada um quando está vazio — decidir se a linha aparece continua
+  // sendo do CSS.
+  escrever("rotas-aviso", calculadora.aviso === null ? "" : calculadora.aviso);
+  escrever(
+    "rotas-lidos-em",
+    calculadora.itens_lidos_em === null ? "" : calculadora.itens_lidos_em
+  );
+
+  const assinatura = JSON.stringify(calculadora.itens);
+  if (assinatura === assinaturaDasRotas) {
+    return;
+  }
+  assinaturaDasRotas = assinatura;
+
+  const molde = document.getElementById("molde-da-rota");
+  if (molde === null) {
+    return;
+  }
+
+  // `textContent = ""` esvazia a lista sem tocar em nenhuma propriedade de
+  // marcação.
+  lista.textContent = "";
+  calculadora.itens.forEach(function (item) {
+    lista.appendChild(montarUmaRota(molde, item));
+  });
 }
 
 // ---------------------------------------------------------------------------

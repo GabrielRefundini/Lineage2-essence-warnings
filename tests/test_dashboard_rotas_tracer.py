@@ -19,12 +19,15 @@ from __future__ import annotations
 import http.client
 import json
 import random
+import re
+import shutil
 import socket
 import subprocess
 import sys
 import threading
 from datetime import datetime, timedelta
 from fractions import Fraction
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -35,6 +38,21 @@ from l2scanner.mercado_analise import ModeloDeMercado, unitario
 from l2scanner.mercado_catalogo import CHAVE_DA_SERIE_DA_ADENA, SEPARADOR
 from l2scanner.mercado_console import formatar_unitario_derivado
 from l2scanner.mercado_registro import ObservacaoLida
+
+# AS SONDAS DO `01-07` SAO IMPORTADAS, E NAO COPIADAS. Uma segunda copia das
+# quatro sondas de marcacao divergiria da primeira na correcao seguinte, e uma
+# das duas ficaria verde por engano — o mesmo argumento com que
+# `tests/test_mercado_receitas.py` importa fixturas de
+# `tests/test_mercado_modo.py` em vez de remonta-las.
+from tests.test_dashboard_js import (  # noqa: F401
+    CONTROLE_DA_MARCACAO,
+    SONDAS_DE_MARCACAO,
+    SONDAS_DE_PISO_RECALCULADO,
+    SONDAS_DE_SEGUNDO_FORMATADOR,
+    _acusacoes,
+    _corpo_da_funcao,
+    _so_o_codigo,
+)
 
 TERMINADOR = "\r\n"
 AGORA = datetime(2026, 9, 1, 15, 0, 0)
@@ -1017,3 +1035,347 @@ class TestOsItensNaoEntramNaChaveDoCache:
             dashboard_dados.CALCULADORA_COM_ITENS
         )
         assert segundo["calculadora"] == primeiro["calculadora"]
+
+
+# ===========================================================================
+# A QUARTA REGIAO — AS SONDAS, E ELAS SAO REUSAVEIS DE PROPOSITO
+# ===========================================================================
+#
+# AS TRES SONDAS DE CSS ABAIXO SAO A **FORMA MINIMA**, E O PLANO 02-03 AS
+# ESTENDE — ELE NAO AS REESCREVE.
+#
+# Elas nascem como funcoes de modulo, chamaveis de fora deste arquivo
+# (`from tests.test_dashboard_rotas_tracer import ...`, no mesmo molde com que
+# `tests/test_mercado_receitas.py` importa de `tests/test_mercado_modo.py`),
+# porque o 02-03 vai AMPLIAR o conjunto de formas reconhecidas e acrescentar um
+# controle por forma. Se elas nascessem embutidas dentro de um teste, aquele
+# plano so teria a saida de copia-las — e duas copias de uma sonda divergem na
+# primeira correcao, deixando uma das duas verde por engano.
+#
+# TODA SONDA DE AUSENCIA VEM COM CONTROLE, e o controle e uma folha de MENTIRA
+# que ela tem de ACUSAR. Um `assert x == []` que nunca poderia ser diferente e um
+# guarda cuja saida nao muda com o fato que ele julga.
+
+_REGRA = re.compile(r"([^{}]+)\{([^{}]*)\}")
+
+# As formas de "sumiu da tela". O 02-03 acrescenta as que faltarem aqui.
+_SOME_DA_TELA = (
+    re.compile(r"display\s*:\s*none"),
+    re.compile(r"visibility\s*:\s*hidden"),
+    re.compile(r"opacity\s*:\s*0\s*(?:;|$)"),
+)
+
+
+def regras_do_css(css: str) -> list[tuple[str, str]]:
+    """(seletor, corpo) de cada regra. Comentarios fora.
+
+    O removedor de comentarios vem ANTES do parse: o `dashboard.css` explica em
+    prosa varias regras que ele NAO tem, e uma sonda que punisse o arquivo por
+    NOMEAR o defeito que ele evita ensinaria a apagar a explicacao.
+    """
+    sem_comentario = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+    return [
+        (seletor.strip(), corpo.strip())
+        for seletor, corpo in _REGRA.findall(sem_comentario)
+    ]
+
+
+def sonda_da_marca_da_vencedora(css: str) -> list[str]:
+    """Os seletores que ligam o atributo de vencedora a EXIBICAO da marca.
+
+    Vazio = a marca nunca aparece, e a tela nao marca vencedora nenhuma.
+    """
+    achados = []
+    for seletor, corpo in regras_do_css(css):
+        if "data-vencedora" not in seletor or "rota__marca" not in seletor:
+            continue
+        if any(sonda.search(corpo) for sonda in _SOME_DA_TELA):
+            continue
+        if "display" in corpo or "visibility" in corpo or "opacity" in corpo:
+            achados.append(seletor)
+    return achados
+
+
+def sonda_do_lado_perdedor_escondido(css: str) -> list[str]:
+    """Os seletores que RETIRAM DA TELA um dos dois lados da comparacao.
+
+    Tem de sair VAZIO. Esconder a perdedora impede conferir a conta, e esta conta
+    e sobre dinheiro real — decisao travada do `02-CONTEXT`.
+
+    A busca e por regra que atinja `.rota__lado` (os dois, ou um deles pelo
+    modificador) e que a faca sumir. A marca (`.rota__marca`) NAO conta: ela
+    nasce escondida de proposito, e e o atributo da linha que a mostra.
+    """
+    achados = []
+    for seletor, corpo in regras_do_css(css):
+        if "rota__lado" not in seletor:
+            continue
+        if "rota__marca" in seletor:
+            continue
+        if any(sonda.search(corpo) for sonda in _SOME_DA_TELA):
+            achados.append(seletor)
+    return achados
+
+
+def sonda_da_falha_fechada(css: str) -> list[str]:
+    """Os seletores das regras de falha fechada — as que retiram a tela.
+
+    O 02-03 usa esta lista para afirmar que ela NAO CRESCEU: a quarta regiao
+    sai da tela pela regra de `.painel` que ja existia, e nao por uma regra
+    propria. Uma regra nova aqui seria uma segunda verdade sobre o mesmo fato.
+    """
+    achados = []
+    for seletor, corpo in regras_do_css(css):
+        if "erro_de_contrato" not in seletor and "arquivo_ausente" not in seletor:
+            continue
+        if any(sonda.search(corpo) for sonda in _SOME_DA_TELA):
+            achados.append(" ".join(seletor.split()))
+    return achados
+
+
+ARQUIVO_DO_CSS = dashboard.PASTA_DOS_ESTATICOS / "dashboard.css"
+ARQUIVO_DO_HTML = dashboard.PASTA_DOS_ESTATICOS / "index.html"
+ARQUIVO_DO_JS = dashboard.PASTA_DOS_ESTATICOS / "dashboard.js"
+
+
+@pytest.fixture(scope="module")
+def css() -> str:
+    return ARQUIVO_DO_CSS.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def html() -> str:
+    return ARQUIVO_DO_HTML.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def js() -> str:
+    return ARQUIVO_DO_JS.read_text(encoding="utf-8")
+
+
+class _Arvore(HTMLParser):
+    """Guarda cada elemento com a pilha de ancestrais, na ordem do documento.
+
+    A PILHA E O QUE TORNA A SEGUNDA METADE DE UMA ASSERCAO POSSIVEL: "o vao
+    existe" e uma pergunta de presenca, e "ele NAO esta dentro do molde" e uma
+    pergunta de ancestralidade. Sem a pilha, um vao duplicado dentro da linha
+    passaria na primeira metade.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.elementos: list[tuple[str, dict, tuple[str, ...]]] = []
+        self._pilha: list[str] = []
+
+    def handle_starttag(self, tag, attrs) -> None:  # noqa: ANN001
+        atributos = dict(attrs)
+        identidade = tag + "#" + (atributos.get("id") or "")
+        self.elementos.append((tag, atributos, tuple(self._pilha)))
+        self._pilha.append(identidade)
+
+    def handle_startendtag(self, tag, attrs) -> None:  # noqa: ANN001
+        self.elementos.append((tag, dict(attrs), tuple(self._pilha)))
+
+    def handle_endtag(self, tag) -> None:
+        if self._pilha:
+            self._pilha.pop()
+
+    def por_id(self, identificador: str):
+        for tag, atributos, ancestrais in self.elementos:
+            if atributos.get("id") == identificador:
+                return tag, atributos, ancestrais
+        return None
+
+
+@pytest.fixture(scope="module")
+def arvore(html: str) -> _Arvore:
+    analisador = _Arvore()
+    analisador.feed(html)
+    return analisador
+
+
+ID_DA_REGIAO = "rotas"
+ID_DO_MOLDE = "molde-da-rota"
+ID_DO_INSTANTE = "rotas-lidos-em"
+
+
+class TestAQuartaRegiaoNaMarcacao:
+    def test_a_regiao_existe_como_ELEMENTO_e_e_um_PAINEL(self, arvore: _Arvore):
+        """A classe de painel E o desenho: as duas regras de falha fechada que ja
+        existiam retiram `.painel` da tela, entao a quarta regiao entra na
+        precedencia da Fase 1 sem uma linha de CSS nova."""
+        achado = arvore.por_id(ID_DA_REGIAO)
+        assert achado is not None
+        tag, atributos, _ = achado
+        assert tag == "section"
+        assert "painel" in (atributos.get("class") or "").split()
+
+    def test_a_regiao_vem_DEPOIS_da_procedencia(self, html: str):
+        """A pergunta do topo continua sendo a principal; a calculadora e a
+        seguinte, e nao a que compete com ela."""
+        assert html.index('id="procedencia"') < html.index('id="' + ID_DA_REGIAO + '"')
+
+    def test_o_molde_de_UMA_linha_existe_como_template(self, arvore: _Arvore):
+        achado = arvore.por_id(ID_DO_MOLDE)
+        assert achado is not None
+        assert achado[0] == "template"
+
+    def test_TODA_a_copia_de_interface_da_linha_nasce_na_MARCACAO(
+        self, html: str
+    ):
+        """Se a copia migrar para o JS, este teste cai.
+
+        Os dois rotulos de lado e a palavra da marca de vencedora sao COPIA, e
+        copia que nasce no JS e copia que nenhum teste de marcacao ve — o
+        `01-06` ja registrou isso.
+        """
+        molde = html[html.index('id="' + ID_DO_MOLDE + '"') : html.index("</template>")]
+        assert "NPC" in molde
+        assert "Mercado" in molde
+        assert "mais barato" in molde
+
+    def test_a_MOEDA_de_cada_rota_e_cabecalho_na_marcacao(self, html: str):
+        """O texto do Python diz "por unidade (derivado)" e NAO nomeia moeda —
+        no console dele ela e implicita. Aqui as duas rotas ficam lado a lado e a
+        ambiguidade seria real, entao a moeda vira rotulo na marcacao.
+
+        Remonta-la no navegador seria o segundo formatador que o DASH-03 proibe.
+        """
+        molde = html[html.index('id="' + ID_DO_MOLDE + '"') : html.index("</template>")]
+        assert "adena" in molde.lower()
+        assert "XM" in molde
+
+
+class TestOInstanteDaLeituraTemVAO_E_ELE_E_PREENCHIDO:
+    def test_o_vao_existe_em_NIVEL_DE_REGIAO(self, arvore: _Arvore):
+        achado = arvore.por_id(ID_DO_INSTANTE)
+        assert achado is not None
+
+    def test_e_ele_NAO_esta_dentro_do_molde_da_linha(self, arvore: _Arvore):
+        """AS DUAS METADES, E A SEGUNDA E A QUE TORNA A PRIMEIRA UMA PROVA.
+
+        So a primeira passaria tambem sobre um vao DUPLICADO dentro da linha — e
+        o defeito que ela existe para pegar e exatamente esse: repetido por item,
+        a mesma frase sairia N vezes e criaria a impressao falsa de que cada item
+        foi lido num instante proprio.
+        """
+        achado = arvore.por_id(ID_DO_INSTANTE)
+        _, _, ancestrais = achado
+        assert not any("template" in a for a in ancestrais)
+        assert any(a.endswith("#" + ID_DA_REGIAO) for a in ancestrais)
+
+    def test_o_vao_do_instante_NAO_aparece_dentro_do_template(self, html: str):
+        molde = html[html.index('id="' + ID_DO_MOLDE + '"') : html.index("</template>")]
+        assert ID_DO_INSTANTE not in molde
+
+    def test_o_JS_ESCREVE_nele(self, js: str):
+        """Um vao que existe e ninguem preenche e copia morta com cara de campo.
+
+        Este e o teste que impede o campo de atravessar duas ondas sem chegar a
+        tela — o modo de falha que o plano nomeia por escrito.
+        """
+        assert ID_DO_INSTANTE in js
+        assert "itens_lidos_em" in js
+
+
+class TestOCSSDaQuartaRegiao:
+    def test_a_marca_da_vencedora_e_ligada_pelo_ATRIBUTO(self, css: str):
+        assert sonda_da_marca_da_vencedora(css)
+
+    def test_CONTROLE_a_sonda_da_marca_ACUSA_a_AUSENCIA_num_css_de_mentira(self):
+        """Sem controle, um `assert` que nunca poderia falhar."""
+        mentira = ".rota__marca { display: none; }"
+        assert sonda_da_marca_da_vencedora(mentira) == []
+
+    def test_NENHUMA_regra_esconde_o_lado_perdedor(self, css: str):
+        """Esconder a perdedora impede conferir a conta, e esta conta e sobre
+        dinheiro real (decisao travada do `02-CONTEXT`)."""
+        assert sonda_do_lado_perdedor_escondido(css) == []
+
+    def test_CONTROLE_a_sonda_do_perdedor_ACUSA_uma_folha_de_mentira(self):
+        mentira = '.rota[data-vencedora="npc"] .rota__lado--mercado { display: none; }'
+        assert sonda_do_lado_perdedor_escondido(mentira) == [
+            '.rota[data-vencedora="npc"] .rota__lado--mercado'
+        ]
+
+    def test_a_quarta_regiao_NAO_tem_regra_PROPRIA_de_falha_fechada(
+        self, css: str
+    ):
+        """Ela desaparece pelas duas regras de `.painel` que JA existiam.
+
+        A prova e por leitura do CSS: a lista de seletores das regras de falha
+        fechada continua sendo a mesma de antes desta fase — duas, as duas sobre
+        `.painel`, e nenhuma mencionando a quarta regiao.
+        """
+        seletores = sonda_da_falha_fechada(css)
+        assert seletores == [
+            'body[data-estado="erro_de_contrato"] .painel, '
+            'body[data-estado="arquivo_ausente"] .painel'
+        ]
+        assert ID_DA_REGIAO not in " ".join(seletores)
+
+    def test_CONTROLE_a_sonda_da_falha_fechada_ACUSA_uma_regra_NOVA(self):
+        mentira = (
+            'body[data-estado="erro_de_contrato"] .painel { display: none; }\n'
+            'body[data-estado="arquivo_ausente"] #rotas { display: none; }\n'
+        )
+        assert len(sonda_da_falha_fechada(mentira)) == 2
+
+
+class TestOJSSoTransportaTexto:
+    def test_o_JS_clona_o_MOLDE_e_escreve_por_propriedade_de_TEXTO(self, js: str):
+        codigo = _so_o_codigo(js)
+        assert "cloneNode" in codigo
+        assert ID_DO_MOLDE in codigo
+        assert "textContent" in codigo
+
+    def test_a_contagem_das_quatro_sondas_de_MARCACAO_continua_ZERO(self, js: str):
+        """As mesmas quatro sondas do `01-07`, com o codigo novo dentro do
+        arquivo."""
+        assert _acusacoes(SONDAS_DE_MARCACAO, _so_o_codigo(js)) == []
+
+    def test_CONTROLE_as_sondas_ACUSAM_uma_insercao_de_marcacao_de_verdade(self):
+        assert _acusacoes(SONDAS_DE_MARCACAO, CONTROLE_DA_MARCACAO)
+
+    def test_nenhuma_contagem_e_comparada_com_um_PISO_no_js(self, js: str):
+        """O estado de cada linha chega PRONTO do Python. Duas autoridades sobre
+        o mesmo piso divergem na primeira vez que alguem mudar uma delas."""
+        assert _acusacoes(SONDAS_DE_PISO_RECALCULADO, _so_o_codigo(js)) == []
+
+    def test_nenhuma_reformatacao_de_numero_vinda_do_payload(self, js: str):
+        assert _acusacoes(SONDAS_DE_SEGUNDO_FORMATADOR, _so_o_codigo(js)) == []
+
+    def test_a_lista_so_e_reconstruida_quando_o_CONTEUDO_mudou(self, js: str):
+        """Reconstruir a cada volta de dois segundos apagaria a SELECAO DE TEXTO
+        do usuario no meio de uma conferencia — e esta e uma conta que ele vai
+        conferir com o dedo na tela."""
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "pintarAsRotas"))
+        assert "assinaturaDasRotas" in corpo
+        assert "return" in corpo
+
+    def test_a_linha_recebe_ATRIBUTO_e_o_css_decide(self, js: str):
+        """Uma condicao de tela escrita em JavaScript e uma condicao que nao
+        aparece na folha de estilo."""
+        corpo = _so_o_codigo(_corpo_da_funcao(js, "montarUmaRota"))
+        assert "data-estado" in corpo
+        assert "data-vencedora" in corpo
+
+    def test_o_removedor_de_comentarios_CONTINUA_correto(self, js: str):
+        """A premissa de `_so_o_codigo`, presa antes de ela virar falsa: nenhuma
+        linha tem codigo ANTES de uma barra dupla."""
+        for numero, linha in enumerate(js.splitlines(), start=1):
+            texto = linha.strip()
+            if "//" in texto and not texto.startswith("//"):
+                antes = texto.split("//", 1)[0].strip()
+                assert antes == "", (
+                    f"linha {numero} tem codigo antes da barra dupla; "
+                    f"`_so_o_codigo` deixaria de ser correto"
+                )
+
+    def test_node_analisa_o_arquivo_sem_erro(self):
+        if shutil.which("node") is None:
+            pytest.skip("node nao esta instalado nesta maquina")
+        saida = subprocess.run(
+            ["node", "--check", str(ARQUIVO_DO_JS)], capture_output=True, text=True
+        )
+        assert saida.returncode == 0, saida.stderr
