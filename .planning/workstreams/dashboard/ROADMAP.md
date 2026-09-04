@@ -167,7 +167,40 @@ Logo **"qual é mais barata" se responde sem câmbio nenhum informado** — bast
 - **O item precisa ser identificado no CSV**, e o nome vem de OCR, que oscila. O casamento por nome exato já foi resolvido no `mercado_analise` (`nome_normalizado`, casamento exato, ambiguidade QUEBRA listando as candidatas) — reusar aquilo, e não inventar um segundo casamento, é o que impede a Gemstone B de virar Gemstone C.
 - **O veredito é uma afirmação sobre dinheiro.** Ele carrega `n` e recência como todo número da casa, e quando as duas rotas empatam dentro da margem do dado disponível, dizer "empatado" é resposta melhor que escolher um lado.
 
-**Plans:** a definir em `/gsd-plan-phase 2 --ws dashboard`
+**Plans:** 4 plans, em 4 ondas de execucao
+
+Plans:
+- [ ] 02-01-PLAN.md — O tracer: do bloco `[[dashboard.item]]` ao veredito na quarta regiao (onda 1)
+- [ ] 02-02-PLAN.md — O piso do veredito, a diferenca em XM/%/R$, e o R$ que some sozinho (onda 2)
+- [ ] 02-03-PLAN.md — A quarta regiao completa: os seis estados, a perdedora que nao some, a procedencia do preco do NPC (onda 3)
+- [ ] 02-04-PLAN.md — A prova de que um terceiro item e so uma entrada de configuracao, com controle em cada elo (onda 4)
+
+**Nota do planejamento (2026-09-03):** as quatro ondas sao **sequenciais de proposito**, e nao um
+lapso de paralelismo. Esta fase e composicao: os quatro planos disputam os mesmos tres arquivos de
+producao (`dashboard_rotas.py`, `dashboard_dados.py` e os tres arquivos web), e dois planos na
+mesma onda tocando o mesmo arquivo e a colisao que o proprio ROADMAP deste workstream existe para
+evitar. A pesquisa foi **deliberadamente pulada**: nenhuma biblioteca nova, nenhum protocolo novo,
+nenhuma leitura de tela nova — a fase compoe modulos que a Fase 1 ja pesquisou e entregou.
+
+**Duas decisoes que o planejamento teve de tomar, e que o ROADMAP nao antecipava:**
+
+1. **O piso do veredito nao pode ser `N_MINIMO_PARA_MENOR`.** Ele vale **1**, e reusa-lo
+   literalmente produziria exatamente o veredito sobre `n=1` que o CALC-04 chama de pior que
+   nenhum veredito. O piso do veredito fica **ligado** a `N_MINIMO_PARA_MEDIANA` — um piso que ja
+   existe —, com a razao escrita no fonte: o piso do menor guarda um numero OBSERVADO, e este
+   guarda uma ELEICAO de rota com dinheiro real.
+2. **A procedencia do preco do NPC nao carrega carimbo, e isso e honestidade e nao omissao.** O
+   CALC-02 pede "informado por voce **e quando**", pelo espelho do cambio — mas o `cambio.json`
+   guarda historico com data e o `config.toml` nao e escrito pelo programa. A tela diz de ONDE o
+   numero veio, que e o que existe, e **nao inventa um quando**. A divergencia fica escrita na
+   marcacao.
+
+**Medido em 2026-09-03, e o que ele muda:** o `.mercado/observacoes.csv` real tem duas series —
+`adena#` (n=50) e `common-fafurion-doll#` (n=8) — e **nenhuma Gemstone**. Com Gemstone C
+configurada, a PRIMEIRA tela que o usuario vai ver e a linha de item nunca visto, exatamente como
+o estado vazio foi a primeira tela da Fase 1. E na taxa de hoje, um preco de NPC abaixo de ~555,6
+adena por unidade faz o unitario arredondar para duas casas zeradas — a armadilha do `0,00` desta
+fase e real e alcancavel, nao teorica.
 
 ---
 
@@ -176,7 +209,7 @@ Logo **"qual é mais barata" se responde sem câmbio nenhum informado** — bast
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Dashboard do cambio ao vivo | 8/8 | Executed — verificação humana pendente | - |
-| 2. A calculadora de rotas de compra | 0/? | Not planned | - |
+| 2. A calculadora de rotas de compra | 0/4 | Planned | - |
 
 ## Coverage
 
@@ -188,8 +221,13 @@ Logo **"qual é mais barata" se responde sem câmbio nenhum informado** — bast
 | DASH-04 | Phase 1 |
 | DASH-05 | Phase 1 |
 | DASH-06 | Phase 1 |
+| CALC-01 | Phase 2 — planos 02-01, 02-02 |
+| CALC-02 | Phase 2 — planos 02-01, 02-03 |
+| CALC-03 | Phase 2 — planos 02-02, 02-03 |
+| CALC-04 | Phase 2 — planos 02-02, 02-03 |
+| CALC-05 | Phase 2 — planos 02-02, 02-04 |
 
-**6 de 6 requisitos mapeados. Nenhum órfão.**
+**11 de 11 requisitos mapeados. Nenhum órfão.**
 
 ## Restrições herdadas — valem no workstream inteiro
 
