@@ -2726,7 +2726,7 @@ def laco_principal(
         log.warning(
             "Ha %d assinatura(s) sem nome no acervo, mas nao ha conversa "
             "privada configurada: preencha CHATWOOT_CONVERSAS_COMANDO no .env. "
-            "Nenhuma pergunta foi queimada — elas saem quando o canal existir.",
+            "Nenhuma pergunta foi queimada: elas saem quando o canal existir.",
             len(pendentes_de_batismo),
         )
     if despachante is not None and privado is not None:
