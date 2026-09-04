@@ -2010,7 +2010,7 @@ class TestOFallbackDoAlvoContinuaExistindo(BaseDaMatrizDeAnuncio):
         despachados = [t for t in ticks if t.despachos]
         assert len(despachados) == 1
         texto, _categoria, _alvo = despachados[0].despachos[0]
-        assert "seu alvo virou" in texto
+        assert "(alvo)" in texto
         assert despachados[0].avisos_de_boss == [
             ("Tiat South", OrigemDoAviso.ALVO)
         ]
