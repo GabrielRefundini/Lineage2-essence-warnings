@@ -235,7 +235,31 @@ fase e real e alcancavel, nao teorica.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Dashboard do cambio ao vivo | 8/8 | Executed — verificação humana pendente | - |
-| 2. A calculadora de rotas de compra | 0/4 | Planned | - |
+| 2. A calculadora de rotas de compra | 4/4 | Executed — verificação humana pendente | - |
+
+**O que a execução da Fase 2 mediu, e que o planejamento não sabia:**
+
+- **A generalidade do CALC-05 é real, e o plano tinha permissão de concluir o contrário.** O
+  02-04 podia registrar "a generalidade não existia" se o terceiro item exigisse uma linha de
+  produção. Não exigiu: **zero arquivos de produção alterados**, e um item que o código nunca
+  viu atravessa config → cálculo → payload → servidor → tela com um veredito de forma idêntica
+  aos dois primeiros.
+- **O par que derruba o veredito em `float` é ESTRUTURALMENTE inalcançável, e isso foi medido
+  em vez de suposto.** A conversão `Fraction`→`float` é monotônica (0 violações em 200 mil
+  pares) e a grade de preços do mercado é ~13 ordens de grandeza mais larga que o erro do
+  float; três buscas somando 2,7 milhões de sorteios não acharam nada. A saída (b) do critério
+  — que só existe porque a revisão do plano a exigiu — foi o que evitou que alguém fabricasse
+  o par para ficar verde.
+- **A armadilha do `0,00` era real, não hipotética:** a sonda acusou uma linha de empate exato
+  imprimindo `0,00` como diferença, antes de a guarda existir.
+- **O limiar do arredondamento foi medido com código de produção: 555 adena**, com a fronteira
+  exata em `Fraction(5000, 9)` = 555,5(5) — os `~555,6` estimados no planejamento não caíram.
+- **Dois testes escritos nesta fase nasceram fracos e a mutação os pegou**: o do 02-03 passava
+  sobre uma folha que marcava "mais barato" nos DOIS lados, e a primeira tabela de preços do
+  02-04 tinha os lados trocados (unitário de mercado já vem em centésimos de XM; o do NPC passa
+  pela taxa), fazendo os três vencedores saírem `npc` e a prova de generalidade rodar sobre um
+  estado degenerado só. Os dois foram consertados medindo o mecanismo, com os números escritos
+  ao lado.
 
 ## Coverage
 
