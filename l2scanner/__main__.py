@@ -3219,8 +3219,29 @@ def main() -> int:
         ),
     )
     parser.add_argument("-v", "--verboso", action="store_true", help="log detalhado")
+    parser.add_argument(
+        "--listar-janelas",
+        action="store_true",
+        dest="listar_janelas",
+        help=(
+            "imprime o titulo de cada janela do XM Essence aberta, uma por "
+            "linha, sem nada mais, e sai. Existe para o vigiar-party.bat "
+            "perguntar qual char vigiar quando ha mais de uma aberta."
+        ),
+    )
 
     args = parser.parse_args()
+
+    # `--listar-janelas` SAI AQUI, antes de qualquer outra coisa. Ela existe
+    # para o `.bat` ler a saida com `for /f`, e isso exige stdout LIMPO — sem
+    # a linha de log do arranque, sem tocar em calibration.json, sem abrir
+    # tela nenhuma. `configurar_log` faz `mkdir` e imprime a linha
+    # "Instancia: ...", e isso ja seria ruido demais para quem so quer a
+    # lista pura.
+    if args.listar_janelas:
+        for titulo in listar_janelas_do_jogo():
+            print(titulo)
+        return 0
 
     # Pedir a janela completa e pedir gravacao — obrigar as duas flags juntas
     # so criaria uma combinacao errada a mais para o usuario acertar.
