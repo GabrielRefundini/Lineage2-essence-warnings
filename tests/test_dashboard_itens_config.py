@@ -19,7 +19,13 @@ TODA RECUSA E CONFERIDA PELA MENSAGEM, E NAO SO PELO TIPO DA EXCECAO. Um
 qual campo esta errado — e a mensagem E o produto aqui: quem le e um usuario que
 nao programa, olhando um console que acabou de fechar.
 
-ESTE ARQUIVO E ASCII, como o resto de `tests/`.
+ESTE ARQUIVO NAO LEVA LETRA ACENTUADA, como o resto de `tests/` — e a regra e
+essa, e nao "ASCII". MEDIDO em 2026-09-03 sobre a pasta inteira: praticamente
+todo arquivo de `tests/` usa o travessao U+2014 na prosa, entao "ASCII" nunca foi
+verdade sobre esta pasta. O que e verdade e que nenhum deles escreve `sao`,
+`voce` ou `configuracao` com acento — porque o console do Windows abre em cp1252
+e uma letra acentuada sai como lixo, enquanto pontuacao em docstring nunca chega
+ao console.
 """
 
 from __future__ import annotations
@@ -98,6 +104,11 @@ def _bloco_sem(campo: str) -> str:
 
 
 CAMPOS_NUMERICOS = ("preco_npc_adena", "quantidade_do_pacote")
+
+# O UNICO CARACTERE FORA DO ASCII QUE O `config.toml` USA, escrito por escape
+# para este arquivo de teste continuar ASCII como o resto de `tests/`. Ver
+# `test_o_arquivo_do_usuario_continua_SEM_LETRA_ACENTUADA` para a medicao.
+TRAVESSAO = "—"
 
 
 # ===========================================================================
@@ -467,11 +478,34 @@ class TestOConfigDeDistribuicaoEntraCOMENTADO:
         assert "exemplo" in texto
         assert "confira" in texto or "conferir" in texto
 
-    def test_o_arquivo_do_usuario_continua_SEM_ACENTO(self):
-        """Todo texto que este projeto poe na frente do usuario em terminal e
-        ASCII: o `cmd` do Windows abre em cp1252."""
+    def test_o_arquivo_do_usuario_continua_SEM_LETRA_ACENTUADA(self):
+        """Nenhuma LETRA acentuada. O travessao continua, e a medicao o mostra.
+
+        A PRIMEIRA VERSAO DESTE TESTE AFIRMAVA `texto.isascii()`, E CAIU. Medido
+        em 2026-09-03 sobre o `config.toml` ja versionado, ANTES desta fase
+        acrescentar uma linha: o arquivo NAO e ASCII — ele tem **45 ocorrencias
+        de U+2014 (travessao)**, em 41 linhas, distribuidas por todas as secoes
+        desde a primeira (`# Agenda de eventos do jogo - L2 Party Scanner`). E
+        zero letra acentuada.
+
+        A regra da casa nunca foi "ASCII"; e "sem acento", porque o `cmd` do
+        Windows abre em cp1252 e uma letra acentuada sai como lixo. O travessao
+        e pontuacao, e ele TAMBEM esta fora do ASCII — a assercao antiga media a
+        coisa errada e teria obrigado quem a encontrasse vermelha a reescrever
+        45 linhas alheias por causa de um teste novo.
+
+        O que este teste mede agora: o unico caractere fora do ASCII e o
+        travessao. Uma letra acentuada que entrasse por descuido — `sao`,
+        `voce`, `configuracao` — reprova.
+        """
         texto = (RAIZ / "config.toml").read_text(encoding="utf-8")
-        assert texto.isascii()
+        fora_do_ascii = {caractere for caractere in texto if not caractere.isascii()}
+
+        assert fora_do_ascii <= {TRAVESSAO}, sorted(fora_do_ascii)
+
+        # O CONTROLE: o travessao esta MESMO la, entao a assercao acima nao esta
+        # verde por o conjunto ser vazio.
+        assert TRAVESSAO in texto
 
 
 class TestAsMensagensSaoASCII:
