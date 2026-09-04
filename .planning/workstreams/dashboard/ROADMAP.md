@@ -130,11 +130,53 @@ escopos de commit não podem colidir entre workstreams.
 
 ---
 
+## Phase 2: A calculadora de rotas de compra
+
+**Goal**: para um item, o dashboard responde **"sai mais barato comprando no mercado com XM, ou comprando do NPC com adena?"** — com a Gemstone C e a B como as duas primeiras instâncias, e a conta valendo em R$ quando você tiver informado o câmbio.
+
+**Depends on**: Fase 1 (a taxa Adena→XM ao vivo, a leitura do CSV, o servidor e a página já existem; esta fase compõe o que está lá, não constrói coletor novo).
+
+**Requirements**: CALC-01 a CALC-05
+
+### O que o usuário decidiu (2026-09-02)
+
+- **O preço em adena vem de NPC e é fixo** — não há segunda fonte para o scanner ler. Ele vira configuração escrita uma vez, com o mesmo tratamento do câmbio XM→BRL: declarado como informado por você e quando, nunca apresentado como medido.
+- **A calculadora nasce genérica**, com Gemstone C e B como primeira instância — mesma disciplina do DASH-05. "Este item, por qual rota" é a conta; os dois itens são linhas de configuração, não `if` no código.
+
+### A descoberta que muda o desenho: o veredito não depende do câmbio
+
+As duas rotas terminam multiplicadas pelo **mesmo** `reais_por_xm`, então ele **cancela na comparação**:
+
+    rota NPC     = preco_npc_adena x taxa_xm_por_adena x reais_por_xm
+    rota mercado = preco_mercado_xm                    x reais_por_xm
+
+Logo **"qual é mais barata" se responde sem câmbio nenhum informado** — basta XM como denominador comum. O `reais_por_xm` só é necessário para dizer **quanto** em dinheiro real, não **qual**. Consequência de produto, e não detalhe de implementação: no dia em que o câmbio estiver vazio ou velho, o veredito continua na tela e só o valor em R$ some — exatamente a mesma regra ortogonal que a Fase 1 já aplica ao cartão de R$.
+
+### Success Criteria (o que tem que ser VERDADE)
+
+1. Com o preço de NPC configurado para Gemstone C e a taxa da Adena lida do CSV, a tela diz qual rota é mais barata **e por quanto**, em XM. — CALC-01, CALC-02
+2. **Sem nenhum câmbio XM→BRL informado**, o veredito continua aparecendo; só o "quanto em R$" some. Provado por teste, não por intenção. — CALC-03
+3. Quando o preço de mercado do item está **abaixo do piso de evidência** (`N_MINIMO_*`, que já existem), a tela diz que ainda não dá para responder, com a frase de falta vinda do Python — **nunca um veredito chutado sobre `n=1`**. — CALC-04
+4. Acrescentar um terceiro item (ex.: Soulstone) é **uma entrada de configuração**, sem código novo de cálculo nem de tela — provado instanciando um terceiro no teste. — CALC-05
+5. O preço de NPC aparece na tela declarado como informado por você e quando, do mesmo jeito que o câmbio. — CALC-02
+6. A comparação é em `Fraction`, e o arredondamento acontece só na formatação — um veredito que vira do lado errado por meio centavo é o defeito que essa disciplina existe para impedir. — CALC-01
+
+### Riscos e decisões que o planejamento tem que encarar
+
+- **A unidade de venda pode não bater.** O NPC pode vender em pacote e o mercado em unidade (ou vice-versa). A conta tem de ser sobre o **unitário derivado em `Fraction`**, como já é a regra do `mercado_analise`, e o plano precisa dizer de onde sai a quantidade de cada rota.
+- **O item precisa ser identificado no CSV**, e o nome vem de OCR, que oscila. O casamento por nome exato já foi resolvido no `mercado_analise` (`nome_normalizado`, casamento exato, ambiguidade QUEBRA listando as candidatas) — reusar aquilo, e não inventar um segundo casamento, é o que impede a Gemstone B de virar Gemstone C.
+- **O veredito é uma afirmação sobre dinheiro.** Ele carrega `n` e recência como todo número da casa, e quando as duas rotas empatam dentro da margem do dado disponível, dizer "empatado" é resposta melhor que escolher um lado.
+
+**Plans:** a definir em `/gsd-plan-phase 2 --ws dashboard`
+
+---
+
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Dashboard do cambio ao vivo | 0/8 | Planned | - |
+| 1. Dashboard do cambio ao vivo | 8/8 | Executed — verificação humana pendente | - |
+| 2. A calculadora de rotas de compra | 0/? | Not planned | - |
 
 ## Coverage
 

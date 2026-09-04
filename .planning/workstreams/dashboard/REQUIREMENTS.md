@@ -49,6 +49,37 @@
       raiz.RAIZ` verificado. A promessa que sobrevive é a que importa: **nenhuma mudança de
       comportamento no caminho da coleta**.
 
+## Fase 2 — a calculadora de rotas de compra
+
+- [ ] **CALC-01**: Para um item, o dashboard compara **duas rotas de compra** — comprar no
+      mercado pagando em XM, ou comprar do NPC pagando em adena convertida pela taxa ao vivo —
+      e diz qual sai mais barata **e por quanto**. A comparação é sobre o **unitário derivado
+      em `Fraction`**, nunca `float`, e o arredondamento acontece só na formatação: um veredito
+      que vira de lado por meio centavo é exatamente o defeito que essa disciplina impede.
+
+- [ ] **CALC-02**: O preço do NPC **em adena é configuração**, escrita uma vez, porque não
+      existe segunda fonte em tela para o scanner ler (decisão do usuário, 2026-09-02). Ele
+      recebe o mesmo tratamento do câmbio XM→BRL: aparece declarado como **informado por você e
+      quando**, nunca como medido.
+
+- [ ] **CALC-03**: O **veredito não depende do câmbio XM→BRL**. As duas rotas terminam
+      multiplicadas pelo mesmo `reais_por_xm`, que portanto cancela na comparação — "qual é mais
+      barata" se responde tendo XM como denominador comum. Sem câmbio informado, o veredito
+      **continua na tela** e só o "quanto em R$" desaparece, pela mesma regra ortogonal que a
+      Fase 1 aplica ao cartão de R$.
+
+- [ ] **CALC-04**: Abaixo do piso de evidência do item (os `N_MINIMO_*` que já existem no
+      `mercado_analise`), a tela diz que **ainda não dá para responder**, com a frase de falta
+      vinda do Python. Um veredito chutado sobre `n=1` seria pior que nenhum veredito: é uma
+      afirmação sobre dinheiro com cara de conta feita.
+
+- [ ] **CALC-05**: A calculadora é **genérica** — Gemstone C e Gemstone B são as duas primeiras
+      instâncias, não casos especiais no código. Acrescentar um terceiro item é uma entrada de
+      configuração, sem código novo de cálculo nem de tela, e isso é provado por teste. O
+      casamento do item com a série do CSV reusa o `nome_normalizado` do `mercado_analise`
+      (exato, com ambiguidade quebrando e listando as candidatas) — um segundo casamento
+      inventado aqui faria a Gemstone B virar Gemstone C.
+
 ## Restrições herdadas — valem no workstream inteiro
 
 - **FIRE-01 continua valendo**: nenhuma biblioteca de síntese de input entra na árvore.
@@ -69,3 +100,8 @@
 | DASH-04 | Phase 1 | Pending |
 | DASH-05 | Phase 1 | Pending |
 | DASH-06 | Phase 1 | Pending |
+| CALC-01 | Phase 2 | Pending |
+| CALC-02 | Phase 2 | Pending |
+| CALC-03 | Phase 2 | Pending |
+| CALC-04 | Phase 2 | Pending |
+| CALC-05 | Phase 2 | Pending |
