@@ -304,6 +304,26 @@
         quando não há taxa da Adena para converter. Ela vem pronta
         (`FRASE_DE_SEM_ITENS_CONFIGURADOS` / `FRASE_DE_SEM_TAXA_DA_ADENA`) e diz
         O QUE FAZER — a região nunca fica um retângulo mudo.
+
+        O SEGUNDO NOME MUDOU DE ESPÉCIE NO 02-02, E O REGISTRO FICA AQUI PORQUE
+        É AQUI QUE ELE ESTÁ CITADO. `FRASE_DE_SEM_TAXA_DA_ADENA` virou um MOLDE
+        (ela agora diz quantas ofertas distintas faltam para o piso do veredito),
+        e pela convenção da casa — `MOLDE_` para texto com campo, `FRASE_` para
+        texto fixo — ela deveria ter sido renomeada. Ela NÃO foi, das duas vezes,
+        e as duas razões são diferentes:
+
+          - no 02-02, porque aquele plano não podia tocar arquivo web, e renomear
+            deixaria aqui um símbolo INEXISTENTE citado — um erro de fato, pior
+            que um prefixo fora da convenção, porque o prefixo se desmente no
+            primeiro `.format` do sítio de uso e o símbolo fantasma não se
+            desmente nunca;
+          - agora, no 02-03, a marcação FOI mexida (era a condição combinada lá),
+            mas o símbolo mora em `dashboard_dados.py`, que está fora da lista de
+            arquivos deste plano, e renomeá-lo mexeria em quatro sítios, dois
+            deles de teste, por uma questão de prefixo.
+
+        NÃO HÁ SÍMBOLO FANTASMA: o nome citado acima EXISTE e é o certo. O que
+        sobra é a dívida de prefixo, e ela fica escrita em vez de calada.
       -->
       <p class="rota__aviso rota__aviso--bloco" id="rotas-aviso"></p>
 
@@ -325,6 +345,21 @@
         pode estar no arquivo há meses.
       -->
       <p class="rota__lidos-em" id="rotas-lidos-em"></p>
+
+      <!--
+        A LEGENDA DA REGIÃO — o rótulo que diz O QUE a mediana é, ANTES de ela
+        aparecer.
+
+        É a mesma função que a legenda das duas linhas cumpre na região do
+        gráfico, e pelo mesmo motivo: um número sem rótulo ao lado de um veredito
+        sobre dinheiro é lido como parte do veredito. A mediana é CONTEXTO — ela
+        diz por quanto a série costuma sair — e não decide nada; quem decide é a
+        comparação entre o menor pedido visível e o preço do NPC.
+      -->
+      <p id="rotas-mediana-legenda">
+        A mediana ao lado da rota do mercado é contexto da série, e não o
+        veredito: quem decide é o menor pedido visível contra o preço do NPC.
+      </p>
 
       <ul class="rotas__lista" id="rotas-lista"></ul>
 
@@ -353,10 +388,6 @@
         <li class="rota">
           <p class="rota__item" data-vao="item"></p>
 
-          <!-- O aviso da LINHA: item nunca visto, ou nome ambíguo. Vem pronto
-               do Python, e o CSS o esconde quando está vazio. -->
-          <p class="rota__aviso" data-vao="aviso"></p>
-
           <div class="rota__lados">
             <!--
               AS DUAS ROTAS FICAM SEMPRE VISÍVEIS, e a perdedora não é escondida
@@ -368,20 +399,180 @@
               <p class="rota__rotulo">NPC — você paga em adena</p>
               <p class="rota__valor" data-vao="npc-valor"></p>
               <p class="rota__pacote" data-vao="npc-pacote"></p>
+
+              <!--
+                A PROCEDÊNCIA DO PREÇO DO NPC — É O CALC-02 NA TELA, E ELA É O
+                ESPELHO DA MARCA QUE O CÂMBIO JÁ CARREGA.
+                ================================================================
+                O número desta coluna não foi medido por ninguém: ele foi
+                digitado por você num arquivo. Qualquer valor que o usuário
+                informou aparece nesta página declarado como informado — é regra
+                do `## Copywriting Contract` ("qualquer valor em R$ sem a marca
+                de informado por você" está na lista de frases proibidas), e o
+                preço do NPC é da mesma espécie.
+
+                O "QUANDO" TEM UMA DIFERENÇA HONESTA EM RELAÇÃO AO CÂMBIO, E AS
+                TRÊS CANDIDATAS FICAM ESCRITAS AQUI COM O DESTINO DE CADA UMA.
+                O `cambio.json` carrega carimbo porque **o programa o escreve**,
+                com histórico e data. O `config.toml` é escrito à mão, e o
+                programa não tem como saber quando aquele preço foi digitado:
+
+                  1. DERIVAR O "QUANDO" DA DATA DE MODIFICAÇÃO DO ARQUIVO —
+                     RECUSADA. O `config.toml` tem meia dúzia de seções de outros
+                     modos; mexer na agenda muda a data de modificação sem
+                     ninguém ter tocado no preço. A frase afirmaria sobre o PREÇO
+                     um fato que é do ARQUIVO, e seria plausível e falsa ao mesmo
+                     tempo — a família de mentira que este projeto inteiro
+                     combate.
+                  2. NÃO EXIBIR "QUANDO" NENHUM — RECUSADA TAMBÉM, e este é o
+                     ponto que quase passou por ser a saída aparentemente segura.
+                     Ela descarta um fato que o programa SABE e que o usuário
+                     precisa.
+                  3. EXIBIR O INSTANTE EM QUE O DASHBOARD **LEU** A CONFIGURAÇÃO
+                     — ADOTADA. É um fato do programa, e não uma inferência sobre
+                     o usuário.
+
+                A DISTINÇÃO, POR EXTENSO: "quando o programa leu o arquivo" e
+                "quando você informou o preço" são dois fatos com nomes
+                parecidos, e trocar um pelo outro é mentir com cara de número —
+                a mesma armadilha que `recencia_do_preco` já documenta no
+                `mercado_analise` para as duas recências daquele módulo. Esta
+                linha diz DE ONDE o número veio; ela nunca diz quando ele foi
+                escrito.
+
+                O CONTRASTE QUE TORNA O VÃO DO INSTANTE NECESSÁRIO ESTÁ MEDIDO NO
+                FONTE DA FASE 1, e sem ele esta linha parece enfeite e a próxima
+                pessoa a remove: o servidor é construído UMA vez
+                (`dashboard.py:799`), e é lá que a configuração é lida; já
+                `dashboard_cambio.ler_o_cambio` é chamado DENTRO do atendimento
+                de cada pedido (`dashboard.py:543`). O valor velho sem sinal é
+                portanto um modo de falha **do `config.toml`, e não do câmbio** —
+                e é exatamente por isso que o câmbio nunca precisou desta linha e
+                o preço do NPC precisa.
+
+                A OUTRA METADE DO PAR MORA EM NÍVEL DE REGIÃO — no parágrafo
+                do instante da leitura, lá em cima, ao lado do aviso de bloco — e
+                NÃO se repete aqui dentro: a configuração inteira foi lida de uma
+                vez, o payload a entrega em nível de bloco, e N cópias na tela
+                sugeririam que cada item foi lido num instante próprio.
+
+                O IDENTIFICADOR DAQUELE VÃO NÃO ESTÁ ESCRITO NESTE COMENTÁRIO, E
+                A OMISSÃO É DELIBERADA: a sonda do 02-01 que prova que o vão do
+                instante não migrou para dentro da linha é uma varredura LITERAL
+                sobre o texto do molde, comentários inclusive. Citar o nome aqui
+                a deixaria vermelha — e a saída certa é não citar, e não afrouxar
+                a sonda. Ela ACUSOU esta redação enquanto o plano 02-03 era
+                escrito, que é exatamente o serviço dela.
+
+                NENHUMA DATA É ESCRITA À MÃO NESTA MARCAÇÃO. O instante chega
+                pelo payload (`MOLDE_DA_LEITURA_DA_CONFIGURACAO`), num vão. Há
+                teste desta fase varrendo o molde atrás de um padrão de data e
+                exigindo que ele saia vazio, com controle sobre um HTML de
+                mentira que traz uma.
+              -->
+              <p class="rota__procedencia-npc">
+                Preço informado por você no config.toml — nunca medido pelo
+                scanner.
+              </p>
+
               <p class="rota__marca">mais barato</p>
             </div>
 
             <div class="rota__lado rota__lado--mercado">
               <p class="rota__rotulo">Mercado — você paga em XM</p>
               <p class="rota__valor" data-vao="mercado-valor"></p>
-              <p class="rota__pacote" data-vao="mercado-pacote"></p>
+
+              <!--
+                A MEDIANA, COMO CONTEXTO. O rótulo mora aqui e o número vem
+                pronto do Python; abaixo do piso dela, o vão recebe a MESMA frase
+                de falta que o destaque e o gráfico já usam para a linha da
+                mediana (`frase_de_piso_da_tipica`) — espelhar aqui uma redação
+                própria faria a tela discordar de si mesma sobre o mesmo número.
+
+                O `n` DELA VIAJA JUNTO em vez de a tela reusar o `n` da linha:
+                os dois podem divergir no dia em que os dois pisos deixarem de
+                ser o mesmo, e é por isso que o payload o manda separado.
+
+                **O VÃO `mercado-pacote` FOI REMOVIDO DAQUI, E O MOTIVO FICA
+                ESCRITO:** ele existia desde o 02-01 e NINGUÉM o preenchia — o
+                payload dá `pacote_texto` só ao lado do NPC, porque só o NPC
+                vende em pacote fechado. Um vão que ninguém escreve é cópia morta
+                com cara de campo, e foi a segunda direção do elo 4 desta fase
+                que o encontrou.
+              -->
+              <p class="rota__mediana">
+                mediana da série:
+                <span data-vao="mediana"></span>
+                <span class="rota__n" data-vao="mediana-n"></span>
+              </p>
+
               <p class="rota__marca">mais barato</p>
             </div>
           </div>
 
+          <!--
+            A DIFERENÇA NAS TRÊS FORMAS, CADA UMA NO PRÓPRIO ELEMENTO.
+            ==================================================================
+            Três vãos e não um: um vão único obrigaria o navegador a COMPOR a
+            frase juntando as três partes, e compor no navegador é o segundo
+            formatador que o DASH-03 proíbe. As strings chegam prontas do Python
+            e vão inteiras para o vão onde cabem.
+
+            A PARTE DE R$ SOME SOZINHA, PELO ATRIBUTO ORTOGONAL — e não por um
+            `if` no JavaScript. Quando não há câmbio informado o Python manda o
+            campo nulo, o vão fica com texto vazio, e a regra
+            `body[data-cambio="ausente"]` o retira da tela. É a MESMA regra que
+            já retira o cartão de R$ do destaque, escrita no MESMO agrupamento de
+            seletores: dois mecanismos para a mesma ausência divergiriam no
+            primeiro ajuste, e o usuário veria o cartão sumir e a linha ficar.
+
+            E O QUE FICA É O VEREDITO INTEIRO (CALC-03): a vencedora, a diferença
+            em XM e a percentual não dependem do câmbio, porque as duas rotas
+            terminam multiplicadas pelo mesmo `reais_por_xm` e ele CANCELA na
+            comparação.
+          -->
           <p class="rota__diferenca">
             <span class="rota__diferenca-xm" data-vao="diferenca-xm"></span>
             <span class="rota__diferenca-percentual" data-vao="diferenca-percentual"></span>
+            <span class="rota__diferenca-reais" data-vao="diferenca-reais"></span>
+          </p>
+
+          <!--
+            A FRASE DE FALTA, NO LUGAR DO VEREDITO — E ELA É A MESMA DO PYTHON.
+            ==================================================================
+            Nos quatro estados sem vencedora (nome ambíguo, nunca vista, é a
+            própria adena, e abaixo do piso) o Python manda a frase que explica o
+            que faltou, e ela ocupa o lugar da resposta. NÃO HÁ VENCEDOR CINZA:
+            uma vencedora apagada continua sendo uma vencedora, e o usuário a lê
+            como tal — é o CALC-04 na tela.
+
+            É O MESMO ELEMENTO E A MESMA STRING DO AVISO DA LINHA, e não uma
+            segunda cópia. Ele só mudou de lugar: estava acima dos dois lados e
+            passou a ficar abaixo deles, onde a resposta é lida. A classe
+            `rota__falta` entrou ao lado de `rota__aviso` para o CSS poder falar
+            do papel sem inventar uma segunda fonte para a mesma frase.
+
+            POR QUE NÃO DENTRO DE CADA LADO, ONDE A MARCA FICA: a marca é POR
+            LADO e a falta é DA LINHA. Repeti-la nos dois lados imprimiria a
+            mesma sentença duas vezes na mesma linha.
+          -->
+          <p class="rota__aviso rota__falta" data-vao="aviso"></p>
+
+          <!--
+            O EMPATE PRECISA DE PALAVRA, E ESTE PARÁGRAFO É POR QUE.
+            ==================================================================
+            No estado empatado o Python manda `vencedora` nula e `aviso` nulo —
+            ele tem os dois números e a diferença, e não tem o que explicar. Sem
+            esta linha o usuário veria duas rotas, uma diferença pequena e
+            NENHUMA marca, e leria a tela como quebrada. Um retângulo mudo é
+            exatamente o que a placa do estado vazio da Fase 1 proibiu.
+
+            A cópia nasce aqui, na marcação, como toda a cópia desta região; o
+            CSS a mostra só sob `data-estado="empatada"`.
+          -->
+          <p class="rota__empate">
+            As duas rotas praticamente empatam — a diferença está dentro da
+            margem, e eleger uma delas seria inventar precisão.
           </p>
 
           <!-- `n` e recência COLADOS no número, sempre — a mesma disciplina do
