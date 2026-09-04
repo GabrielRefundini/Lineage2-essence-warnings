@@ -435,9 +435,17 @@ class AvisoDeJanela:
     """Um aviso de janela que venceu e ainda nao foi enviado.
 
     `boss` e o NOME do `config.toml` (`Tiat North`), porque e ele que vai para
-    a mensagem — o par do `Ancora.boss`, que e o apelido de disco. `horas` e a
-    regra que produziu o alvo, guardada para a mensagem poder dizer "sao 6h"
-    sem o texto conhecer o `[[boss]]`.
+    a mensagem — o par do `Ancora.boss`, que e o apelido de disco.
+
+    `horas` NAO ENTRA MAIS NA MENSAGEM DESDE 2026-09-03. Ficou escrito aqui que
+    ela era "a regra que produziu o alvo, guardada para a mensagem poder dizer
+    'sao 6h' sem o texto conhecer o `[[boss]]`" — e esse era o uso unico dela.
+    O segundo corte de texto tirou as "8h" das quatro frases, e a razao inteira
+    esta em `texto_da_janela`. O CAMPO FICA porque continua sendo o unico
+    registro de QUAL das duas regras do `[[boss]]` produziu este `alvo`:
+    `tipo` diz se e abertura ou limite e nao diz o numero, entao sem `horas` um
+    aviso guardado so se explica reabrindo o `config.toml` — que pode ja ter
+    mudado.
     """
 
     boss: str
@@ -604,9 +612,22 @@ def texto_da_janela(aviso: AvisoDeJanela) -> str:
     proibir, e o portao passaria a acusar justamente a frase que deveria
     aprovar. Afirmar o piso diz a mesma coisa, melhor, e deixa o portao limpo.
 
-    AS HORAS SAEM DE `aviso.horas`, que veio do `[[boss]]`, e nunca de um
-    numero escrito aqui: um boss novo no `config.toml` tem que produzir a frase
-    com as horas dele.
+    AS HORAS DO `[[boss]]` SAIRAM DA FRASE EM 2026-09-03, E ESTA LINHA MUDOU
+    COM ELAS. O que estava escrito aqui era: "as horas saem de `aviso.horas`,
+    que veio do `[[boss]]`, e nunca de um numero escrito aqui: um boss novo no
+    `config.toml` tem que produzir a frase com as horas dele." A metade que
+    continua valendo e a segunda: NENHUM numero desta frase pode ser escrito no
+    codigo. O que mudou e que as "8h" nao sao mais DITAS — elas sao a regra do
+    servidor, identica em toda mensagem de um mesmo boss, todo dia, e quem quer
+    o detalhe pergunta ao `/tiat`, que entrega os dois horarios ja calculados
+    de `respawn_horas_min` e `respawn_horas_max`. A prova de que o numero vem
+    do `[[boss]]` e nao do codigo mora la, em
+    `TestAsLinhasDePrevisaoDoConsole::test_as_horas_saem_do_bloco_boss_e_nao_do_codigo`,
+    medida sobre um boss de 3h/4h.
+
+    O UNICO NUMERO QUE SOBROU NA FRASE E A HORA DA ANCORA, e ele sai do
+    `Ancora.instante`. E o que permite CONFERIR a conta: sem ele a mensagem
+    vira uma afirmacao sobre o futuro sem nada por baixo.
 
     O QUE SAIU DAQUI EM 2026-09-02, E PARA ONDE FOI. O usuario pediu mensagens
     curtas, de leitura rapida no celular no meio do farm. As quatro frases
@@ -629,42 +650,94 @@ def texto_da_janela(aviso: AvisoDeJanela) -> str:
     uma luta nao vai refazer a conta: le a ressalva e decide. A justificativa
     ficou aqui, nesta docstring, onde quem for MEXER na conta a encontra.
 
-    O PISO CONTINUA AFIRMADO, e essa parte nao encolheu. "Pode nascer a
-    qualquer momento" nao e enfeite: e o substituto de D-19 para a negacao de
-    encerramento, e sai literal nas duas frases de limite. Encurtar em cima
-    dela seria trocar informacao por texto.
+    O PISO CONTINUA AFIRMADO — MAS A FRASE DELE ENCOLHEU, E A LINHA ANTIGA
+    ESTAVA ERRADA. Em 2026-09-02 ficou escrito aqui: "o piso continua afirmado,
+    e essa parte nao encolheu. [...] Encurtar em cima dela seria trocar
+    informacao por texto." Em 2026-09-03 ela encolheu: "Pode nascer a qualquer
+    momento" (30 caracteres) virou "pode nascer agora" (17), e NADA foi trocado
+    por texto — as duas dizem que o nascimento pode acontecer neste instante,
+    que e a coisa inteira que o leitor FAZ com o limite. O que a linha antiga
+    acertou continua de pe: a AFIRMACAO DO PISO nao pode sair, porque ela e o
+    substituto de D-19 para a negacao de encerramento, e ela sai literal nas
+    duas frases de limite.
+
+    O SEGUNDO CORTE, EM 2026-09-03: DE 115-169 PARA 80 CARACTERES. O pedido foi
+    "jogadores ficam recebendo essa mesma mensagem todo dia, nao descarte
+    informacoes importante mas reduza o tamanho". O ORCAMENTO SAI DA
+    FREQUENCIA, e nao do gosto de quem escreve: estas quatro frases vao para o
+    GRUPO, entao cada caractere e pago pelo numero de pessoas VEZES o numero de
+    ocorrencias, e o mesmo texto chega todo dia. O teto de 80 esta em
+    `tests/test_mensagens_curtas.py` e e medido no PIOR caso — limite, ancora
+    de alvo, ancora de ONTEM (que e a unica que carrega data).
+
+    O QUE SAIU, E POR QUE CADA COISA PODIA SAIR:
+
+    - as "8h": a regra do servidor, identica em toda mensagem (acima);
+    - "que o servidor anunciou": a atribuicao virou o ROTULO "Nascimento", que
+      ja e a palavra do fato PROVADO, contra "Alvo" na outra origem. A
+      distincao entre prova e indicio — que e a informacao inteira de D-16 —
+      sobrevive nos dois rotulos, e e por eles que os testes a medem;
+    - "otimista", de "passou o limite otimista": o adjetivo explicava POR QUE
+      ha dois horarios, e quem le no celular no meio de uma luta nao refaz essa
+      conta. "limite passou" diz o ESTADO e "pode nascer agora" diz o que
+      FAZER com ele;
+    - a DATA da ancora, QUANDO ELA E DO MESMO DIA (`_citacao_da_ancora`).
+
+    A ORDEM MUDOU, E E A PARTE DESTE CORTE QUE NAO E SO TAMANHO. A frase agora
+    e `<boss>: <estado>, <o que fazer>. <de onde veio o numero>.` — o primeiro
+    pedaco, ate o ponto, e a mensagem ACIONAVEL inteira, e o que vem depois e a
+    trilha de conferencia. Uma olhada de meio segundo le "Tiat North: janela
+    ABERTA, pode demorar." e ja decide; quem quiser conferir a conta le o
+    resto. Na ordem antiga a citacao ficava NO MEIO, entre o estado e a
+    instrucao, e obrigava a atravessar ~60 caracteres de proveniencia para
+    chegar na unica linha que manda alguem fazer alguma coisa.
     """
-    horas = f"{aviso.horas:g}h"
-    desde, ressalva = _citacao_da_ancora(aviso.ancora)
+    # A REFERENCIA E `aviso.alvo`, E NAO UM RELOGIO. E o instante em que esta
+    # janela venceu, e a tolerancia de D-22 garante que ele esta a menos de
+    # cinco minutos de agora — entao "mesmo dia que o alvo" e "mesmo dia que
+    # quem esta lendo". Perguntar as horas ao Windows aqui dentro faria desta a
+    # primeira funcao pura do arquivo com relogio proprio, e o portao de AST de
+    # `TestSemRelogioProprio` recusaria.
+    desde, ressalva = _citacao_da_ancora(aviso.ancora, referencia=aviso.alvo)
 
     if aviso.tipo is TipoDeJanela.ABRE:
-        # "Ele ainda pode demorar" E A CLAUSULA DA MORTE, dita pela
-        # consequencia em vez da aritmetica. A aritmetica esta na docstring
-        # acima; no celular ela custava 70 caracteres para entregar a mesma
-        # unica instrucao operacional, que e nao sair correndo.
-        return f"{aviso.boss}: janela ABERTA, {horas} {desde}.{ressalva} Ele ainda pode demorar."
+        # "pode demorar" E A CLAUSULA DA MORTE, dita pela consequencia em vez
+        # da aritmetica. A aritmetica esta na docstring acima; no celular ela
+        # custava 70 caracteres para entregar a mesma unica instrucao
+        # operacional, que e nao sair correndo.
+        return f"{aviso.boss}: janela ABERTA, pode demorar. {desde}{ressalva}."
 
-    # "pode nascer a qualquer momento" E O PISO AFIRMADO (D-19), e continua
-    # literal nas DUAS frases de limite. Ela nao e enfeite nem justificativa:
-    # e a unica coisa que um leitor pode FAZER com o limite, e afirmar o piso
-    # e o que substitui a negacao de encerramento que o portao de tokens
-    # proibe. Encurtar em cima dela seria trocar informacao por texto.
-    return (
-        f"{aviso.boss}: passou o limite otimista, {horas} {desde}."
-        f"{ressalva} Ele pode nascer a qualquer momento."
-    )
+    # "pode nascer agora" E O PISO AFIRMADO (D-19), e sai literal nas DUAS
+    # frases de limite. Ele nao e enfeite nem justificativa: e a unica coisa
+    # que um leitor pode FAZER com o limite, e afirmar o piso e o que substitui
+    # a negacao de encerramento que o portao de tokens proibe. O piso pode
+    # ENCOLHER — encolheu em 2026-09-03 — mas nao pode SAIR.
+    return f"{aviso.boss}: limite passou, pode nascer agora. {desde}{ressalva}."
 
 
-def _citacao_da_ancora(ancora: Ancora) -> tuple[str, str]:
+def _citacao_da_ancora(
+    ancora: Ancora, referencia: datetime | None = None
+) -> tuple[str, str]:
     """A citacao da origem e a ressalva, na MESMA distincao das quatro frases.
 
-    UMA SO ORIGEM DE TEXTO PARA AS DUAS FAMILIAS. Desde 2026-09-02 esta funcao
-    serve `texto_da_janela` (as quatro frases do grupo) E `linhas_de_previsao`
-    (a resposta do `/tiat` e o console), e nao mais so a segunda. E o que D-16
-    sempre pediu, agora estrutural: quem le o console julga o numero com a
-    MESMA informacao de quem le o WhatsApp, porque as duas leem esta funcao.
-    Duas copias voltariam a divergir na primeira vez que alguem encurtasse uma
-    delas, que e literalmente o que este commit esta fazendo.
+    UMA SO ORIGEM DE TEXTO PARA AS DUAS FAMILIAS, AGORA EM DUAS FORMAS. Desde
+    2026-09-02 esta funcao serve `texto_da_janela` (as quatro frases do grupo)
+    E `linhas_de_previsao` (a resposta do `/tiat` e o console). Em 2026-09-03
+    as duas familias deixaram de caber no MESMO texto, e a razao esta escrita
+    em `tests/test_mensagens_curtas.py`: o orcamento sai da FREQUENCIA, e a
+    frase do grupo chega a todo mundo todo dia (teto 80) enquanto a linha do
+    console e pedida por quem quer o detalhe (teto 160).
+
+    ENTAO POR QUE NAO DUAS FUNCOES. Porque a ressalva do alvo e a distincao
+    entre prova e indicio sao D-16, e o defeito que se quer impedir e uma das
+    duas familias PERDER a ressalva sem ninguem notar. Com as duas formas neste
+    corpo, quem encurtar uma le a outra na linha de baixo; com duas funcoes em
+    dois lugares, a primeira pressa apaga uma delas. O que se abriu mao e de
+    elas serem o mesmo TEXTO — nao de elas dizerem a mesma coisa.
+
+    `referencia` E O QUE ESCOLHE A FORMA, e nao um segundo parametro de estilo:
+    a forma curta so existe porque ha um instante de leitura contra o qual
+    "mesmo dia" significa alguma coisa. Sem `referencia`, forma longa.
 
     O BOSS SAIU DA CITACAO DO ALVO, e o parametro `boss_no_config` com ele. A
     frase antiga era "da ultima vez que seu alvo virou Tiat North, as 14:30 de
@@ -687,10 +760,49 @@ def _citacao_da_ancora(ancora: Ancora) -> tuple[str, str]:
     servidor anunciou o nascimento, e isso e prova. Uma ressalva generica nas
     duas diluiria a diferenca entre prova e indicio, que e a informacao
     inteira.
+
+    A FORMA CURTA, DE 2026-09-03, E O QUE SOBROU DE CADA UMA DAS DUAS METADES:
+
+    - a ORIGEM virou um rotulo — "Nascimento" contra "Alvo" — e o rotulo faz
+      sozinho o trabalho que "desde o nascimento que o servidor anunciou" e
+      "desde que virou seu alvo" faziam em 60 caracteres. Ele abre a frase
+      depois do ponto, entao vem com maiuscula;
+    - a RESSALVA virou ", pode adiantar", uma clausula da propria citacao em
+      vez de uma segunda frase — e aqui houve PERDA MEDIDA, que esta escrita
+      logo abaixo.
+
+    A RESSALVA PERDEU UMA METADE, E A LINHA ANTIGA PROMETIA QUE NAO PERDERIA.
+    Em 2026-09-02 ficou escrito aqui que "Ter o boss no alvo nao prova
+    nascimento, entao este numero pode estar adiantado" virou "Alvo nao prova
+    nascimento, pode estar adiantado" com "65 caracteres a menos, A MESMA
+    AFIRMACAO". Em 2026-09-03 ela virou ", pode adiantar" (48 caracteres a
+    menos) e isso NAO e a mesma afirmacao: o "nao prova nascimento" saiu da
+    frase do grupo. O que ficou no lugar dele e o proprio rotulo "Alvo", que
+    diz de onde veio o numero, mais a consequencia, que e a parte acionavel. A
+    afirmacao inteira continua na LINHA DO CONSOLE (forma longa, logo abaixo),
+    que e onde ha 160 caracteres para gasta-la, e a razao de ela nao poder
+    sumir das duas esta em `texto_da_janela`: o alvo REARMA quando o usuario
+    desmarca e remarca, entao uma criatura viva ha uma hora pode gravar ancora
+    nova e reiniciar a conta.
+
+    A DATA SO APARECE QUANDO NAO E A DE HOJE, na forma curta. Custa 6
+    caracteres e, com respawn de 8h, a ancora cai no dia anterior em cerca de
+    um terco das mensagens — entao nem "sempre" nem "nunca" servem. Sem data,
+    uma ancora de 23:00 lida as 07:00 vira um horario no FUTURO e a conta deixa
+    de ser conferivel, que e a unica funcao do numero. Com data em toda
+    mensagem, dois tercos delas pagam 6 caracteres por "hoje". O formato e o
+    mesmo `dd/mm HH:MM` de `_quando`, porque duas formas de data no mesmo bloco
+    fariam o usuario decidir, a cada linha, qual campo e o dia.
     """
     instante = ancora.instante
     hora = f"{instante.hour:02d}:{instante.minute:02d}"
     data = f"{instante.day:02d}/{instante.month:02d}"
+
+    if referencia is not None:
+        quando = hora if instante.date() == referencia.date() else f"{data} {hora}"
+        if ancora.origem is not OrigemDoAviso.ALVO:
+            return f"Nascimento {quando}", ""
+        return f"Alvo {quando}", ", pode adiantar"
 
     if ancora.origem is not OrigemDoAviso.ALVO:
         return (
@@ -763,8 +875,14 @@ def linhas_de_previsao(
 
     A RESSALVA DO ALVO NAO E ENFEITE e nao pode sumir na proxima limpeza:
     ancora de alvo pode estar adiantada, e o usuario decide sair de casa com
-    base nesse numero. Ela vem de `_citacao_da_ancora`, a mesma que as quatro
-    frases do grupo usam, entao encurta-la de um lado encurta dos dois.
+    base nesse numero. Ela vem de `_citacao_da_ancora` — mas o "entao
+    encurta-la de um lado encurta dos dois", escrito aqui em 2026-09-02, CAIU
+    em 2026-09-03. A funcao continua sendo uma so, e agora tem DUAS FORMAS:
+    esta linha usa a longa (teto 160, ela e pedida por quem quer o detalhe) e
+    as quatro frases do grupo usam a curta (teto 80, elas chegam a todo mundo
+    todo dia). Encurtar a do grupo NAO encurtou esta, de proposito, e o que
+    impede as duas de divergirem no que IMPORTA e as duas formas morarem no
+    mesmo corpo de funcao, uma embaixo da outra.
 
     A LINHA SEM ANCORA CONTINUA SEM NUMERO NENHUM (T-02-13), e por isso ela
     tambem nunca teve a regra: a regra e feita de dois numeros, e afrouxar o

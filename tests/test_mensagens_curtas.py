@@ -21,10 +21,15 @@ O ORCAMENTO SAI DA FREQUENCIA, e nao do gosto de quem escreve:
 - RECORRENTE (chega toda hora, todo dia): tem de caber numa olhada. O corte e
   `ORCAMENTO_RECORRENTE`. Sao os alertas de party e as linhas de previsao do
   `/tiat`, que o usuario le no celular no meio do jogo.
-- SEMI-RECORRENTE (algumas vezes por dia): `ORCAMENTO_DO_BOSS`. As quatro
-  frases de janela carregam nome, duracao, um horario completo e a ressalva da
-  ancora; elas nao cabem em 160 sem perder um desses quatro, e nenhum dos
-  quatro e justificativa.
+- DE GRUPO (chega a TODO MUNDO, varias vezes por dia): `ORCAMENTO_DO_BOSS`.
+  Sao as quatro frases de janela de boss. Em 2026-09-02 este teto era 180, com
+  a razao escrita aqui: "elas carregam nome, duracao, um horario completo e a
+  ressalva da ancora; nao cabem em 160 sem perder um desses quatro". Em
+  2026-09-03 ele virou 80, e as quatro passam com folga — a duracao ("8h") era
+  a regra do servidor, identica em toda mensagem, e a razao de ela poder sair
+  esta em `respawn.texto_da_janela`. O TETO E O MENOR DOS TRES de proposito:
+  estas frases vao para o grupo, entao cada caractere e pago pelo numero de
+  pessoas VEZES o numero de ocorrencias.
 - RARO E ACIONAVEL (uma vez por incidente, e o usuario tem de FAZER algo):
   `ORCAMENTO_RARO`. Pode ser mais longo, mas nao pode ter paragrafo de
   justificativa.
@@ -63,8 +68,10 @@ from l2scanner.respawn import (
 # Uma olhada no celular, sem rolar a tela.
 ORCAMENTO_RECORRENTE = 160
 
-# Nome do boss, duracao, um horario completo e a ressalva da ancora.
-ORCAMENTO_DO_BOSS = 180
+# Nome do boss, o estado, o que fazer com ele, e de onde veio o numero.
+# Mensagem de GRUPO: o custo de cada caractere e multiplicado pelo numero de
+# pessoas que a recebem. Era 180 ate 2026-09-03 (ver a docstring de modulo).
+ORCAMENTO_DO_BOSS = 80
 
 # Raro e acionavel: cabe uma instrucao, nao cabe um paragrafo de por que.
 ORCAMENTO_RARO = 320
@@ -114,6 +121,14 @@ class TestAsLinhasDoTiat:
         assert len(resposta) <= 2 * ORCAMENTO_RECORRENTE, _quanto(resposta)
 
 
+# A ancora que cruzou a meia-noite: nascimento as 23:00 e a janela vencendo as
+# 07:00 do dia seguinte. E o PIOR CASO do orcamento, porque e o unico em que a
+# citacao curta carrega a data (mais 6 caracteres) — e com respawn de 8h ele
+# acontece em cerca de um terco das mensagens, nao e um canto raro.
+NASCIMENTO_DE_ONTEM = datetime(2026, 8, 29, 23, 0)
+VENCE_DE_MANHA = datetime(2026, 8, 30, 7, 0)
+
+
 class TestAsQuatroFrasesDeJanela:
     """As frases que o grupo recebe quando a janela abre e quando o limite passa."""
 
@@ -121,19 +136,59 @@ class TestAsQuatroFrasesDeJanela:
     @pytest.mark.parametrize(
         "tipo,horas", [(TipoDeJanela.ABRE, 6), (TipoDeJanela.LIMITE, 8)]
     )
-    def test_cabe_no_orcamento_do_boss(self, tipo, horas, origem):
+    @pytest.mark.parametrize(
+        "instante,alvo",
+        [
+            (NASCIMENTO, ABRE_EM),
+            (NASCIMENTO_DE_ONTEM, VENCE_DE_MANHA),
+        ],
+        ids=["ancora-de-hoje", "ancora-de-ontem"],
+    )
+    def test_cabe_no_orcamento_do_boss(self, tipo, horas, origem, instante, alvo):
+        """As OITO: a matriz das quatro frases vezes os dois dias da ancora.
+
+        Medir so a ancora do mesmo dia deixaria o portao cego justamente no
+        caso mais longo, e o teto de 80 foi escolhido depois de medir ESTE.
+        """
         texto = texto_da_janela(
             AvisoDeJanela(
                 boss="Tiat North",
                 tipo=tipo,
-                ancora=Ancora(
-                    boss="tiat-north", instante=NASCIMENTO, origem=origem
-                ),
-                alvo=ABRE_EM,
+                ancora=Ancora(boss="tiat-north", instante=instante, origem=origem),
+                alvo=alvo,
                 horas=horas,
             )
         )
         assert len(texto) <= ORCAMENTO_DO_BOSS, _quanto(texto)
+
+    def test_a_data_aparece_QUANDO_a_ancora_nao_e_de_hoje(self):
+        """E some quando e. A conta so e conferivel se o horario for datavel.
+
+        Sem esta distincao ha dois defeitos possiveis, um em cada direcao: uma
+        ancora das 23:00 lida as 07:00 sem data vira um horario no FUTURO, e a
+        data em toda mensagem faz dois tercos delas pagarem 6 caracteres para
+        dizer "hoje".
+        """
+        def frase(instante, alvo):
+            return texto_da_janela(
+                AvisoDeJanela(
+                    boss="Tiat North",
+                    tipo=TipoDeJanela.ABRE,
+                    ancora=Ancora(
+                        boss="tiat-north",
+                        instante=instante,
+                        origem=OrigemDoAviso.CHAT,
+                    ),
+                    alvo=alvo,
+                    horas=6,
+                )
+            )
+
+        de_hoje = frase(NASCIMENTO, ABRE_EM)
+        de_ontem = frase(NASCIMENTO_DE_ONTEM, VENCE_DE_MANHA)
+
+        assert "14:30" in de_hoje and "30/08" not in de_hoje, de_hoje
+        assert "29/08 23:00" in de_ontem, de_ontem
 
 
 class TestOsAlertasDeParty:

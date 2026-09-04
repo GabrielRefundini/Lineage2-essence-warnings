@@ -244,7 +244,10 @@ class TestAJanelaComOJogoFechado:
         )
 
         assert len(despachante.despachos) == 1, despachante.textos
-        assert "limite otimista" in despachante.textos[0]
+        # "limite otimista" ate 2026-09-03: o adjetivo saiu no encurtamento das
+        # quatro frases (a razao esta em `respawn.texto_da_janela`). O que este
+        # teste mede continua sendo QUAL dos dois avisos saiu.
+        assert "limite passou" in despachante.textos[0]
 
     def test_a_mensagem_do_limite_e_diferente_da_da_abertura(
         self, monkeypatch, tmp_path
@@ -611,13 +614,13 @@ class TestAPrevisaoNoArranque:
         assert len(despachante.despachos) == 1
         # A frase do WhatsApp, e nao "janela": a linha de previsao tambem
         # contem essa palavra, e casar por ela acharia a propria previsao. A
-        # ressalva da abertura ("ele ainda pode demorar") so existe na frase
-        # do grupo — a previsao entrega os dois horarios e nao ressalva o
-        # primeiro. Antes do encurtamento de 2026-09-02 a ancora deste `next`
-        # era "Antes de agora ele nao nascia", pedaco da mesma frase.
+        # ressalva da abertura ("pode demorar") so existe na frase do grupo —
+        # a previsao entrega os dois horarios e nao ressalva o primeiro. Esta
+        # ancora ja mudou duas vezes com o texto: era "Antes de agora ele nao
+        # nascia" ate 2026-09-02, "ainda pode demorar" ate 2026-09-03.
         despachada = next(
             i for i, m in enumerate(mensagens)
-            if "ainda pode demorar" in m
+            if "pode demorar" in m
         )
         assert com_ancora < despachada and sem_ancora < despachada, (
             "a previsao do arranque saiu depois do primeiro aviso"

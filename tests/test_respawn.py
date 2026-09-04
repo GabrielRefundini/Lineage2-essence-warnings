@@ -470,16 +470,45 @@ class TestOTextoDoTracer:
         )
 
     def test_a_abertura_comeca_pelo_boss_e_cita_o_nascimento(self):
+        """A DATA NAO ENTRA NESTE CASO, e nao e omissao: `NASCIMENTO` e `ABRE_EM`
+        sao do mesmo dia, e desde 2026-09-03 a citacao curta so carrega a data
+        quando a ancora NAO e do dia da leitura. O caso que cruza a meia-noite
+        e medido em
+        `test_mensagens_curtas.py::test_a_data_aparece_QUANDO_a_ancora_nao_e_de_hoje`.
+        """
         texto = self.texto(TipoDeJanela.ABRE)
         assert texto.startswith("Tiat North")
         assert "14:30" in texto
-        assert "30/08" in texto
+        assert "30/08" not in texto
 
-    def test_a_abertura_atribui_a_citacao_ao_servidor(self):
-        assert "servidor" in self.texto(TipoDeJanela.ABRE)
+    def test_a_abertura_atribui_a_citacao_ao_nascimento(self):
+        """A atribuicao virou ROTULO em 2026-09-03: "Nascimento" contra "Alvo".
 
-    def test_o_limite_cita_as_horas_do_boss(self):
-        assert "8h" in self.texto(TipoDeJanela.LIMITE)
+        Antes a frase dizia "desde o nascimento que o servidor anunciou"; o
+        rotulo faz o mesmo trabalho — dizer se o numero e prova ou indicio, que
+        e D-16 — em 60 caracteres a menos.
+        """
+        texto = self.texto(TipoDeJanela.ABRE)
+        assert "Nascimento" in texto
+        assert "Alvo" not in texto
+
+    def test_o_limite_NAO_repete_mais_a_regra_do_servidor(self):
+        """O que este teste media ate 2026-09-03: `assert "8h" in ...`.
+
+        As horas do `[[boss]]` saiam na frase, e a garantia era que um boss novo
+        no `config.toml` produzisse a frase com as horas DELE. Elas sairam da
+        mensagem — sao a regra do servidor, identica em toda mensagem do mesmo
+        boss, todo dia — e a garantia de proveniencia nao sumiu junto: ela e
+        medida onde os numeros do `[[boss]]` ainda chegam ao usuario, em
+        `TestAsLinhasDePrevisaoDoConsole::test_as_horas_saem_do_bloco_boss_e_nao_do_codigo`,
+        sobre um boss de 3h/4h.
+
+        O que ficou aqui e o portao contra a VOLTA: a regra so vai poder ser
+        reescrita na frase por alguem que apague este teste de proposito.
+        """
+        texto = self.texto(TipoDeJanela.LIMITE)
+        assert "8h" not in texto, texto
+        assert "6h" not in texto, texto
 
 
 # ---------------------------------------------------------------------------
@@ -648,12 +677,12 @@ class TestNenhumaAfirmacaoDeEncerramento:
 class TestAsQuatroFrases:
     """A matriz inteira, com a citacao da origem funcionando como ressalva."""
 
-    def test_a_abertura_do_anuncio_atribui_ao_servidor(self):
+    def test_a_abertura_do_anuncio_atribui_ao_nascimento(self):
         texto = texto_da_janela(aviso_de(TipoDeJanela.ABRE, OrigemDoAviso.CHAT))
         assert texto.startswith("Tiat North")
-        assert "servidor" in texto
-        assert "14:30 de 30/08" in texto
-        assert "seu alvo" not in texto
+        assert "Nascimento" in texto
+        assert "14:30" in texto
+        assert "Alvo" not in texto
 
     def test_a_abertura_do_alvo_atribui_ao_alvo_e_carrega_a_ressalva(self):
         """D-16: a citacao E a ressalva, e nao ha uma quinta frase generica.
@@ -661,11 +690,24 @@ class TestAsQuatroFrases:
         Sem esta linha, D-15 vira armadilha: o usuario escolheu COBERTURA
         sabendo que ter o boss no alvo nao prova nascimento, com a condicao de
         o erro ser LEGIVEL. Esta e a linha onde ele fica legivel.
+
+        O QUE ENCOLHEU EM 2026-09-03, E O QUE NAO PODIA. Este teste exigia
+        "seu alvo", "nao prova nascimento" E "pode estar adiantado" na frase do
+        grupo — 48 caracteres de ressalva. Ficaram DOIS sinais, que sao os dois
+        que o usuario opera: o rotulo "Alvo", que diz que o numero e indicio e
+        nao prova, e "pode adiantar", que diz o que isso faz com a conta. A
+        afirmacao longa continua exigida na LINHA DO CONSOLE, por
+        `TestAsLinhasDePrevisaoDoConsole::test_a_linha_do_alvo_carrega_a_ressalva`
+        — e e por isso que ela pode encolher aqui sem sumir do projeto.
+
+        O QUE NAO PODE ACONTECER, e o que este teste guarda: a frase do alvo
+        ficar INDISTINGUIVEL da do anuncio. Por isso as quatro linhas abaixo
+        sao duas afirmacoes e duas negacoes.
         """
         texto = texto_da_janela(aviso_de(TipoDeJanela.ABRE, OrigemDoAviso.ALVO))
-        assert "seu alvo" in texto
-        assert "nao prova nascimento" in texto
-        assert "pode estar adiantado" in texto
+        assert "Alvo" in texto
+        assert "pode adiantar" in texto
+        assert "Nascimento" not in texto
         assert "servidor" not in texto
 
     def test_a_origem_dupla_cai_no_caminho_do_anuncio(self):
@@ -691,15 +733,30 @@ class TestAsQuatroFrases:
         ela seria honesta, mas poria dentro do texto de PRODUCAO as palavras
         que o portao acima existe para proibir, e o portao passaria a acusar a
         frase que deveria aprovar.
+
+        O PISO ENCOLHEU EM 2026-09-03 e continua sendo exigido: "pode nascer a
+        qualquer momento" (30 caracteres) virou "pode nascer agora" (17). As
+        duas dizem que o nascimento pode acontecer NESTE instante, que e a
+        coisa inteira que o leitor faz com o limite. O adjetivo "otimista" saiu
+        do estado — ele explicava POR QUE ha dois horarios, e quem le no
+        celular nao refaz essa conta.
         """
         texto = texto_da_janela(aviso_de(TipoDeJanela.LIMITE, origem))
-        assert "pode nascer a qualquer momento" in texto
-        assert "limite otimista" in texto
+        assert "pode nascer agora" in texto
+        assert "limite passou" in texto
 
     @pytest.mark.parametrize("texto", as_quatro_frases())
     def test_toda_frase_comeca_pelo_boss_e_cita_o_nascimento(self, texto):
+        """A HORA DA ANCORA E O UNICO NUMERO QUE SOBROU, e por isso ela fica.
+
+        Ate 2026-09-03 a exigencia era o par completo, "14:30 de 30/08". A data
+        so aparece quando a ancora nao e do dia da leitura (aqui ela e), e a
+        forma passou a ser a mesma de `_quando`: `dd/mm HH:MM`. A HORA nao pode
+        sair de nenhuma das quatro: sem ela a mensagem vira uma afirmacao sobre
+        o futuro que ninguem tem como conferir.
+        """
         assert texto.startswith("Tiat North:")
-        assert "14:30 de 30/08" in texto
+        assert "14:30" in texto
 
     @pytest.mark.parametrize("texto", as_quatro_frases())
     def test_TODA_frase_CARREGA_A_RESSALVA_DA_CONTA(self, texto):
@@ -722,8 +779,14 @@ class TestAsQuatroFrases:
         A frase de `alvo` continua carregando a ressalva do alvo POR CIMA
         desta, e nao no lugar dela: sao duas fontes de atraso diferentes, e
         quem le so uma atribui o adiantamento inteiro a ela.
+
+        EM 2026-09-03 AS DUAS CONSEQUENCIAS ENCOLHERAM, e o dever nao mudou de
+        novo: "Ele ainda pode demorar" virou "pode demorar" e "Ele pode nascer
+        a qualquer momento" virou "pode nascer agora". O sujeito ("Ele") saiu
+        porque a frase ja comeca pelo nome do boss, e nao ha outra criatura na
+        mensagem para "ele" designar.
         """
-        hedges = ("ainda pode demorar", "pode nascer a qualquer momento")
+        hedges = ("pode demorar", "pode nascer agora")
         assert any(hedge in texto for hedge in hedges), (
             f"a frase entrega horario sem dizer o que fazer com ele: {texto}"
         )
@@ -747,21 +810,62 @@ class TestAsQuatroFrases:
 
 
 class TestOsNumerosVemDoConfigENaoDoCodigo:
-    """Um boss novo no `config.toml` tem que produzir a frase com as horas
-    dele."""
+    """Nenhum numero desta frase pode estar escrito no codigo.
+
+    O TITULO ANTIGO ERA "um boss novo no `config.toml` tem que produzir a frase
+    com as horas dele", e ele CAIU em 2026-09-03: as horas do `[[boss]]` nao
+    saem mais na frase (a razao esta em `respawn.texto_da_janela`), e essa
+    metade da garantia passou a ser medida onde os numeros do `[[boss]]` ainda
+    chegam ao usuario —
+    `TestAsLinhasDePrevisaoDoConsole::test_as_horas_saem_do_bloco_boss_e_nao_do_codigo`,
+    sobre um boss de 3h/4h.
+
+    O QUE SOBROU AQUI E O UNICO NUMERO QUE SOBROU NA FRASE: a hora da ancora.
+    Ela vem do `Ancora.instante`, que veio do disco, e trocar a ancora tem de
+    trocar a mensagem — se nao trocar, ha um horario escrito no codigo.
+    """
 
     @pytest.mark.parametrize(
-        "tipo,horas,esperado",
+        "instante,esperado,proibido",
         [
-            (TipoDeJanela.ABRE, 3, "3h"),
-            (TipoDeJanela.LIMITE, 4.5, "4.5h"),
+            (datetime(2026, 8, 30, 14, 30), "14:30", "09:05"),
+            (datetime(2026, 8, 30, 9, 5), "09:05", "14:30"),
         ],
     )
-    def test_as_horas_saem_do_bloco_boss(self, tipo, horas, esperado):
-        texto = texto_da_janela(aviso_de(tipo, OrigemDoAviso.CHAT, horas=horas))
-        assert esperado in texto
-        assert "6h" not in texto
-        assert "8h" not in texto
+    def test_a_hora_sai_da_ancora_e_nao_do_codigo(
+        self, instante, esperado, proibido
+    ):
+        aviso = AvisoDeJanela(
+            boss="Tiat North",
+            tipo=TipoDeJanela.ABRE,
+            ancora=Ancora(
+                boss="tiat-north", instante=instante, origem=OrigemDoAviso.CHAT
+            ),
+            alvo=instante + timedelta(hours=6),
+            horas=6,
+        )
+
+        texto = texto_da_janela(aviso)
+
+        assert esperado in texto, texto
+        assert proibido not in texto, texto
+
+    @pytest.mark.parametrize(
+        "horas", [3, 4.5], ids=["tres-horas", "quatro-e-meia"]
+    )
+    def test_a_regra_do_servidor_NAO_entra_na_frase(self, horas):
+        """O portao contra a volta das "8h".
+
+        Toda mensagem deste projeto ficou longa do mesmo jeito: uma frase
+        defensavel acrescentada de cada vez. A regra do servidor e a mais
+        defensavel de todas — e a mais repetida, porque e IDENTICA em toda
+        mensagem do mesmo boss, todo dia.
+        """
+        texto = texto_da_janela(
+            aviso_de(TipoDeJanela.LIMITE, OrigemDoAviso.CHAT, horas=horas)
+        )
+
+        assert f"{horas:g}h" not in texto, texto
 
     def test_o_nome_do_boss_sai_do_config_e_nunca_do_ocr(self):
         """T-02-09: nenhum byte lido pelo OCR entra no texto.
@@ -774,7 +878,7 @@ class TestOsNumerosVemDoConfigENaoDoCodigo:
             aviso_de(TipoDeJanela.ABRE, OrigemDoAviso.ALVO, boss="Orfen")
         )
         assert texto.startswith("Orfen:")
-        assert "seu alvo" in texto
+        assert "Alvo" in texto
 
 
 class TestAVozDaCasa:
