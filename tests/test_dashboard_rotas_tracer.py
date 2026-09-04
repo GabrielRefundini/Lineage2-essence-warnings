@@ -1133,11 +1133,32 @@ class TestOsItensNaoEntramNaChaveDoCache:
 
 _REGRA = re.compile(r"([^{}]+)\{([^{}]*)\}")
 
-# As formas de "sumiu da tela". O 02-03 acrescenta as que faltarem aqui.
+# AS FORMAS DE "SUMIU DA TELA" — O CONJUNTO DE RECONHECIMENTO, E ELE E UM SO.
+#
+# ERAM TRES ATE O 02-01 (display, visibility, opacity). O 02-03 as ampliou para
+# SETE, AQUI E NAO NUMA COPIA, porque uma regra de CSS aposenta um elemento por
+# muitos caminhos e um conjunto por arquivo de teste divergiria na primeira
+# correcao. Cada forma tem um CONTROLE PROPRIO em
+# `tests/test_dashboard_calculadora_pagina.py` — um controle unico so estabelece
+# discriminacao para o caminho que ele usa, que e a mesma vacuidade que o
+# `01-VERIFICATION.md` registrou para o quinto elo.
+#
+# A FRONTEIRA — o que esta varredura NAO enxerga — esta escrita por extenso em
+# `A_FRONTEIRA_DESTA_VARREDURA`, no arquivo do 02-03. Escrever o limite e o que
+# impede a sonda de ser lida como prova de mais do que ela mede.
+#
+# O `(?<![-\w])` antes de `width`/`height` NAO E ENFEITE: sem ele, o
+# `min-width: 0` que `.rota__lado` usa para poder encolher seria lido como "o
+# lado tem largura zero", e a sonda acusaria a regra que mantem os dois lados na
+# tela. Medido: com o lookbehind, zero acusacoes sobre o `dashboard.css` real.
 _SOME_DA_TELA = (
     re.compile(r"display\s*:\s*none"),
     re.compile(r"visibility\s*:\s*hidden"),
-    re.compile(r"opacity\s*:\s*0\s*(?:;|$)"),
+    re.compile(r"opacity\s*:\s*0(?:\.0*)?\s*(?:;|$)"),
+    re.compile(r"(?<![-\w])(?:width|height)\s*:\s*0(?:px|em|rem|%)?\s*(?:;|$)"),
+    re.compile(r"content-visibility\s*:\s*hidden"),
+    re.compile(r"clip-path\s*:\s*(?:inset\(\s*(?:100%|50%)|circle\(\s*0)"),
+    re.compile(r"(?<![-\w])(?:left|top|right|bottom)\s*:\s*-\d{3,}"),
 )
 
 
