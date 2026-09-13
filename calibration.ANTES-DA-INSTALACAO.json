@@ -1,0 +1,117 @@
+{
+  "versao": 2,
+  "geometria_da_tela": "3440x1440+0+0;1920x1080+1920+-1084;1920x1080+0+-1080",
+  "party_window": {
+    "esquerda": 1737,
+    "topo": 325,
+    "largura": 175,
+    "altura": 522
+  },
+  "ancora": {
+    "esquerda": 0,
+    "topo": 0,
+    "largura": 40,
+    "altura": 28
+  },
+  "layout": {
+    "icone_x": 12,
+    "icone_y": 34,
+    "icone_tamanho": 24,
+    "barra_x": 43,
+    "barra_largura": 120,
+    "barra_altura": 8,
+    "hp_y": 40,
+    "mp_y": 51,
+    "passo": 61,
+    "max_linhas": 8,
+    "nome_dx": 26,
+    "nome_dy": -24,
+    "nome_largura": 100,
+    "nome_altura": 20,
+    "icone_desvio_min": 25.0,
+    "icone_escuros_min": 0.15,
+    "ancora_desvio_min": 20.0,
+    "ancora_escuros_min": 0.02,
+    "borda_v_max": 40.0
+  },
+  "limiares_hp": {
+    "matiz_min": 168,
+    "matiz_max": 12,
+    "saturacao_min": 120,
+    "valor_min": 60
+  },
+  "limiares_mp": {
+    "matiz_min": 95,
+    "matiz_max": 130,
+    "saturacao_min": 120,
+    "valor_min": 60
+  },
+  "hp_proprio": null,
+  "nome_proprio": "Yazalaque",
+  "nomes": [
+    "Mostarda",
+    "Titander",
+    "Pirulito",
+    "Welazkez"
+  ],
+  "assinaturas": [
+    {
+      "nome": "Mostarda",
+      "altura": 20,
+      "largura": 100,
+      "bits": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000010c002000100000000000000218c0020001000000000000084114c77b8e73800000000000c814520204890400000000000f81640421c811c00000000000f810401224912400000000000f010520a04890400000000000f0104c73348f3400000000000c000000000000000000000000d000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "nome": "Titander",
+      "altura": 20,
+      "largura": 100,
+      "bits": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000fc42078fbc00000000000000010c304482600000000000000010a20428220000000000000001022842f24000000000000000112204283800000000000000011f244282400000000000000010122448260000000000000001212278fa200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "nome": "Pirulito",
+      "altura": 20,
+      "largura": 100,
+      "bits": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000bc4487fcf00000000000000002644801118000000000000000224480110800000000000000024408010080000000000000003c4480120800000000000000024448011080000000000000002644801118000000000000000a338fe10f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "nome": "Welazkez",
+      "altura": 20,
+      "largura": 100,
+      "bits": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080020000000000000000000808002000000000000000000000800200000000000000000001c9cfa4ef800000000000000024821292100000000000000007c8e233e20000000000000000409223a02000000000000000020a24290400000000000000001c9efa4ef800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "janela": "Yazalaque - XM Essence",
+  "party_window_na_janela": {
+    "esquerda": 17,
+    "topo": 325,
+    "largura": 175,
+    "altura": 522
+  },
+  "banner_manutencao": null,
+  "tiat_chat": null,
+  "tiat_alvo": null,
+  "mercado_ancora": null,
+  "mercado_molde_da_ancora": null,
+  "mercado_limiar_da_ancora": null,
+  "mercado_geometria_da_captura": null,
+  "mercado_ancoras": null,
+  "mercado_grade": null,
+  "mercado_templates_de_nome": null,
+  "mercado_templates_de_digito": null,
+  "mercado_limiar_de_template": null,
+  "mercado_limiar_de_glifo": null,
+  "mercado_coluna_do_nome": null,
+  "mercado_coluna_da_quantidade": null,
+  "mercado_coluna_do_total": null,
+  "mercado_coluna_do_unitario": null,
+  "mercado_cabecalho_de_coluna": null,
+  "mercado_limiar_do_cabecalho": null,
+  "mercado_sonda_do_fundo": null,
+  "mercado_limiar_de_dispersao_do_fundo": null,
+  "mercado_limiar_de_leitura_de_glifo": null,
+  "mercado_margem_de_leitura_de_glifo": null,
+  "mercado_corte_de_similaridade": null,
+  "mercado_piso_de_similaridade": null,
+  "mercado_tolerancia_do_cruzamento": null,
+  "mercado_minimo_de_linhas_comparadas": null
+}
